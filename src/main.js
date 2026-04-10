@@ -42,13 +42,13 @@ const columns = [
   { key: "necrotic", label: "Necrotic", type: "number", width: "12rem" },
   { key: "ca", label: "CA", type: "number", width: "7rem" },
   { key: "condiciones", label: "Condiciones", type: "text", width: "13rem" },
-  { key: "stats", label: "Stats", type: "text", width: "26rem" },
+  { key: "stats", label: "Stats", type: "stats", width: "38rem" },
   { key: "tamano", label: "Tamano", type: "text", width: "9rem" },
   { key: "movimiento", label: "Movimiento", type: "text", width: "10rem" },
   { key: "vision", label: "Vision", type: "text", width: "12rem" },
   { key: "lenguas", label: "Lenguas", type: "text", width: "14rem" },
   { key: "crExp", label: "CR/EXP", type: "text", width: "10rem" },
-  { key: "tag", label: "Tag", type: "text", width: "9rem" }
+  { key: "tag", label: "Bando", type: "tag", width: "12rem" }
 ];
 
 const initialCombatants = [
@@ -71,7 +71,7 @@ const initialCombatants = [
     vision: "Darkvision 60 ft",
     lenguas: "Comun, Celestial",
     crExp: "PJ Nv 5",
-    tag: "Cleric",
+    tag: "ALIADO",
     initiativeRoll: 14,
     initiativeNat20: false
   },
@@ -94,7 +94,7 @@ const initialCombatants = [
     vision: "Normal",
     lenguas: "Comun, Enano",
     crExp: "PJ Nv 5",
-    tag: "Fighter",
+    tag: "ALIADO",
     initiativeRoll: 9,
     initiativeNat20: false
   },
@@ -117,7 +117,7 @@ const initialCombatants = [
     vision: "Darkvision 60 ft",
     lenguas: "Common",
     crExp: "CR 2 / 450",
-    tag: "Undead",
+    tag: "ENEMIGO",
     initiativeRoll: 12,
     initiativeNat20: false
   },
@@ -140,7 +140,7 @@ const initialCombatants = [
     vision: "Normal",
     lenguas: "Comun, Abisal",
     crExp: "CR 1 / 200",
-    tag: "Caster",
+    tag: "ENEMIGO",
     initiativeRoll: 6,
     initiativeNat20: false
   }
@@ -149,6 +149,7 @@ const initialCombatants = [
 const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const app = document.querySelector("#app");
+const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
 const state = {
   activeScreen: "combat-tracker",
@@ -159,7 +160,8 @@ const state = {
   selectedIds: new Set(),
   newEntitySide: "allies",
   nextId: initialCombatants.length + 1,
-  inlineAdjustments: Object.fromEntries(initialCombatants.map((combatant) => [combatant.id, { ...blankInlineAdjustments }]))
+  inlineAdjustments: Object.fromEntries(initialCombatants.map((combatant) => [combatant.id, { ...blankInlineAdjustments }])),
+  areaDamage: ""
 };
 
 app.addEventListener("click", handleClick);
@@ -242,6 +244,12 @@ function handleClick(event) {
   if (action === "adjust-necrotic") {
     applyNecroticAdjustment(actionButton.dataset.id);
     render();
+    return;
+  }
+
+  if (action === "apply-area-damage") {
+    applyAreaDamage();
+    render();
   }
 }
 
@@ -262,6 +270,11 @@ function handleChange(event) {
 
   if (target.matches("[data-new-entity-side]")) {
     state.newEntitySide = target.value;
+    return;
+  }
+
+  if (target.matches("[data-area-damage]")) {
+    state.areaDamage = target.value;
     return;
   }
 
@@ -297,8 +310,18 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-area-damage]")) {
+    state.areaDamage = target.value;
+    return;
+  }
+
   if (target.matches("[data-edit-id][data-edit-key]")) {
     updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value, false);
+    return;
+  }
+
+  if (target.matches("[data-stat-id][data-stat-key]")) {
+    updateCombatantStat(target.dataset.statId, target.dataset.statKey, target.value, false);
   }
 }
 
@@ -412,6 +435,7 @@ function renderCombatTracker() {
             <select data-new-entity-side>
               <option value="allies" ${state.newEntitySide === "allies" ? "selected" : ""}>Aliado</option>
               <option value="enemies" ${state.newEntitySide === "enemies" ? "selected" : ""}>Enemigo</option>
+              <option value="neutral" ${state.newEntitySide === "neutral" ? "selected" : ""}>Neutral</option>
             </select>
           </label>
           <button class="toolbar-button" type="button" data-action="add-entity">Anadir entidad</button>
@@ -423,6 +447,30 @@ function renderCombatTracker() {
           >
             Eliminar seleccionadas
           </button>
+          <div class="area-damage">
+            <input
+              class="area-damage__input"
+              type="number"
+              inputmode="numeric"
+              placeholder="Daño"
+              value="${escapeHtml(state.areaDamage)}"
+              data-area-damage
+              aria-label="Puntos de daño en área"
+            />
+            <button
+              class="toolbar-button toolbar-button--area"
+              type="button"
+              data-action="apply-area-damage"
+              ${state.selectedIds.size === 0 ? "disabled" : ""}
+            >
+              <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3c3.9 0 7 2 7 4.5 0 1.7-1.4 3-3.5 3.8 2.5.6 4.5 2.1 4.5 4.2 0 3-3.6 5.5-8 5.5s-8-2.5-8-5.5c0-2.1 2-3.6 4.5-4.2C6.4 10.5 5 9.2 5 7.5 5 5 8.1 3 12 3Zm0 2c-2.8 0-5 .9-5 2.5S9.2 10 12 10s5-1 5-2.5S14.8 5 12 5Zm0 7c-3.3 0-6 1.6-6 3.5S8.7 19 12 19s6-1.6 6-3.5S15.3 12 12 12Z" />
+              </svg>
+            </span>
+            Daño en area
+            </button>
+          </div>
         </div>
         <div class="table-toolbar__group">
           <button
@@ -697,6 +745,54 @@ function renderDataCell(combatant, column, isDead) {
     `;
   }
 
+  if (column.key === "stats") {
+    const stats = parseStats(combatant.stats);
+
+    return `
+      <td>
+        <div class="stats-grid">
+          ${statKeys
+            .map((statKey) => {
+              const score = stats[statKey] ?? 10;
+              const modifier = formatModifier(getAbilityModifier(score));
+
+              return `
+                <label class="stat-chip">
+                  <span class="stat-chip__label">${statKey} (${modifier})</span>
+                  <input
+                    class="stat-chip__input"
+                    type="number"
+                    inputmode="numeric"
+                    value="${escapeHtml(String(score))}"
+                    data-stat-id="${combatant.id}"
+                    data-stat-key="${statKey}"
+                    aria-label="${statKey} de ${escapeHtml(combatant.nombre)}"
+                  />
+                </label>
+              `;
+            })
+            .join("")}
+        </div>
+      </td>
+    `;
+  }
+
+  if (column.key === "tag") {
+    return `
+      <td>
+        <select
+          class="cell-select-input cell-select-input--tag"
+          data-edit-id="${combatant.id}"
+          data-edit-key="${column.key}"
+        >
+          ${["ALIADO", "ENEMIGO", "NEUTRAL"]
+            .map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`)
+            .join("")}
+        </select>
+      </td>
+    `;
+  }
+
   if (column.key === "necrotic") {
     return `
       <td>
@@ -740,7 +836,7 @@ function renderDataCell(combatant, column, isDead) {
   return `
     <td>
       <input
-        class="cell-input ${column.key === "stats" ? "cell-input--stats" : ""}"
+        class="cell-input"
         type="${column.type === "number" ? "number" : "text"}"
         inputmode="${inputMode}"
         value="${escapeHtml(String(value))}"
@@ -880,12 +976,33 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
       [key]: nextValue
     };
 
+    if (key === "tag") {
+      updatedCombatant.side = mapTagToSide(String(nextValue));
+    }
+
     if (key === "iniactiva") {
       updatedCombatant.initiativeNat20 = false;
       updatedCombatant.initiativeRoll = null;
     }
 
     return normalizeCombatant(updatedCombatant, key);
+  });
+}
+
+function updateCombatantStat(id, statKey, rawValue, normalize = true) {
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== id) {
+      return combatant;
+    }
+
+    const nextScore = normalize ? normalizeNumberInput(rawValue) : rawValue;
+    const stats = parseStats(combatant.stats);
+    stats[statKey] = nextScore === "" ? 10 : toNumber(nextScore);
+
+    return {
+      ...combatant,
+      stats: formatStatsFromObject(stats)
+    };
   });
 }
 
@@ -913,7 +1030,7 @@ function addEntity() {
       vision: "",
       lenguas: "",
       crExp: "",
-      tag: state.newEntitySide === "allies" ? "Ally" : "Enemy",
+      tag: mapSideToTag(state.newEntitySide),
       initiativeRoll: null,
       initiativeNat20: false
     },
@@ -1017,6 +1134,33 @@ function applyNecroticAdjustment(id) {
   setInlineAdjustment(id, "necrotic", "");
 }
 
+function applyAreaDamage() {
+  const amount = Number(state.areaDamage);
+
+  if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (!state.selectedIds.has(combatant.id)) {
+      return combatant;
+    }
+
+    let remainingDamage = amount;
+    const currentTemp = Math.max(0, toNumber(combatant.pgTemp));
+    const tempAfterDamage = Math.max(0, currentTemp - remainingDamage);
+    remainingDamage = Math.max(0, remainingDamage - currentTemp);
+
+    return normalizeCombatant({
+      ...combatant,
+      pgTemp: tempAfterDamage,
+      pgAct: toNumber(combatant.pgAct) - remainingDamage
+    }, "pgAct");
+  });
+
+  state.areaDamage = "";
+}
+
 function normalizeCombatant(combatant, changedKey = "") {
   const baseMax = Math.max(0, toNumber(combatant.pgMax));
   const necrotic = Math.max(0, toNumber(combatant.necrotic));
@@ -1042,7 +1186,8 @@ function normalizeCombatant(combatant, changedKey = "") {
     pgAct,
     pgTemp,
     necrotic,
-    stats: changedKey === "stats" ? formatStatsWithModifiers(combatant.stats) : combatant.stats
+    stats: changedKey === "stats" ? formatStatsWithModifiers(combatant.stats) : combatant.stats,
+    side: changedKey === "tag" ? mapTagToSide(combatant.tag) : combatant.side
   };
 }
 
@@ -1071,10 +1216,7 @@ function getInlineAdjustment(id) {
 }
 
 function getDexModifier(stats) {
-  const match = String(stats).match(/\bDEX\s+(-?\d+)\b/i);
-  const score = match ? Number(match[1]) : 10;
-
-  return getAbilityModifier(score);
+  return getAbilityModifier(parseStats(stats).DEX ?? 10);
 }
 
 function getNormalizedValue(column, rawValue, normalize) {
@@ -1103,15 +1245,22 @@ function normalizeNumberInput(value) {
 }
 
 function formatStatsWithModifiers(stats) {
-  const abilities = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-  const values = Object.fromEntries(abilities.map((ability) => [ability, 10]));
+  return formatStatsFromObject(parseStats(stats));
+}
+
+function parseStats(stats) {
+  const values = Object.fromEntries(statKeys.map((ability) => [ability, 10]));
   const matches = String(stats).matchAll(/\b(STR|DEX|CON|INT|WIS|CHA)\s+(-?\d+)\b/gi);
 
   for (const match of matches) {
     values[match[1].toUpperCase()] = Number(match[2]);
   }
 
-  return abilities
+  return values;
+}
+
+function formatStatsFromObject(values) {
+  return statKeys
     .map((ability) => `${ability} ${values[ability]} (${formatModifier(getAbilityModifier(values[ability]))})`)
     .join(" ");
 }
@@ -1122,6 +1271,30 @@ function getAbilityModifier(score) {
 
 function formatModifier(modifier) {
   return modifier >= 0 ? `+${modifier}` : `${modifier}`;
+}
+
+function mapTagToSide(tag) {
+  if (tag === "ALIADO") {
+    return "allies";
+  }
+
+  if (tag === "ENEMIGO") {
+    return "enemies";
+  }
+
+  return "neutral";
+}
+
+function mapSideToTag(side) {
+  if (side === "allies") {
+    return "ALIADO";
+  }
+
+  if (side === "enemies") {
+    return "ENEMIGO";
+  }
+
+  return "NEUTRAL";
 }
 
 function toNumber(value) {

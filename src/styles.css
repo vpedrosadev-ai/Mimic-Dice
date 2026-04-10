@@ -11,6 +11,7 @@
   --teal: #5eb7a6;
   --ally: rgba(94, 183, 166, 0.16);
   --enemy: rgba(196, 79, 90, 0.18);
+  --neutral: rgba(196, 164, 79, 0.18);
   --selected: rgba(240, 200, 121, 0.14);
   --nat20: rgba(255, 190, 92, 0.2);
   --danger: #d87a84;
@@ -320,6 +321,23 @@ table {
   padding: 0.7rem 0.95rem;
 }
 
+.toolbar-field select,
+.cell-select-input {
+  appearance: none;
+  min-height: 2.85rem;
+  line-height: 1.2;
+  color: #f8f2e7;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03)),
+    rgba(17, 14, 22, 0.92);
+}
+
+.toolbar-field select option,
+.cell-select-input option {
+  color: #120f17;
+  background: #f4ead7;
+}
+
 .toolbar-button {
   display: inline-flex;
   align-items: center;
@@ -353,6 +371,32 @@ table {
   color: #f1cad0;
 }
 
+.toolbar-button--area {
+  border-color: rgba(255, 140, 84, 0.32);
+  background: linear-gradient(180deg, rgba(255, 125, 64, 0.22), rgba(255, 198, 79, 0.08));
+}
+
+.area-damage {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-left: 0.75rem;
+}
+
+.area-damage__input,
+.cell-select-input {
+  min-height: 2.85rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.area-damage__input {
+  width: 7rem;
+}
+
 .button-icon {
   display: inline-flex;
   width: 1.1rem;
@@ -378,7 +422,7 @@ table {
 
 .combat-table {
   width: 100%;
-  min-width: 2110px;
+  min-width: 2340px;
   border-collapse: collapse;
 }
 
@@ -506,10 +550,6 @@ table {
   font-weight: 700;
 }
 
-.cell-input--stats {
-  min-width: 24rem;
-}
-
 .cell-select {
   width: 3.6rem;
   min-width: 3.6rem;
@@ -528,6 +568,10 @@ table {
 
 .row--enemies {
   background: linear-gradient(90deg, var(--enemy), transparent 35%);
+}
+
+.row--neutral {
+  background: linear-gradient(90deg, var(--neutral), transparent 35%);
 }
 
 .row--selected {
@@ -597,6 +641,41 @@ table {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.8rem;
+}
+
+.stat-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.stat-chip__label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.stat-chip__input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.cell-select-input--tag {
+  min-width: 100%;
+  width: 100%;
+  font-weight: 600;
 }
 
 .mini-action {
@@ -722,6 +801,15 @@ table {
   .toolbar-field,
   .toolbar-field select,
   .toolbar-button {
+    width: 100%;
+  }
+
+  .area-damage {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .area-damage__input {
     width: 100%;
   }
 
