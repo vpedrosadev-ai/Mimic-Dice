@@ -34,12 +34,12 @@ const screens = [
 const columns = [
   { key: "ubicacion", label: "Ubicacion", type: "text", width: "9rem" },
   { key: "iniactiva", label: "Iniciativa", type: "number", width: "11rem" },
-  { key: "nombre", label: "Nombre", type: "text", width: "15rem" },
+  { key: "nombre", label: "Nombre", type: "text", width: "16rem" },
   { key: "numPeana", label: "Num peana", type: "text", width: "9rem" },
-  { key: "pgMax", label: "PG max", type: "number", width: "8rem" },
-  { key: "pgAct", label: "PG act", type: "number", width: "8rem" },
-  { key: "heridas", label: "Heridas", type: "number", width: "8rem" },
-  { key: "necrotic", label: "Necrotic", type: "number", width: "8rem" },
+  { key: "pgMax", label: "PG max", type: "number", width: "10rem" },
+  { key: "pgAct", label: "PG act", type: "number", width: "14rem" },
+  { key: "pgTemp", label: "PG temp", type: "number", width: "10rem" },
+  { key: "necrotic", label: "Necrotic", type: "number", width: "12rem" },
   { key: "ca", label: "CA", type: "number", width: "7rem" },
   { key: "condiciones", label: "Condiciones", type: "text", width: "13rem" },
   { key: "stats", label: "Stats", type: "text", width: "26rem" },
@@ -60,8 +60,8 @@ const initialCombatants = [
     nombre: "Seraphina Vale",
     numPeana: "P-01",
     pgMax: 42,
-    pgAct: 31,
-    heridas: 11,
+    pgAct: 42,
+    pgTemp: 0,
     necrotic: 0,
     ca: 18,
     condiciones: "Concentrando",
@@ -83,8 +83,8 @@ const initialCombatants = [
     nombre: "Thoren Ashbrand",
     numPeana: "P-02",
     pgMax: 58,
-    pgAct: 44,
-    heridas: 14,
+    pgAct: 58,
+    pgTemp: 7,
     necrotic: 0,
     ca: 17,
     condiciones: "Inspirado",
@@ -106,8 +106,8 @@ const initialCombatants = [
     nombre: "Ghoul Packleader",
     numPeana: "E-01",
     pgMax: 36,
-    pgAct: 24,
-    heridas: 12,
+    pgAct: 36,
+    pgTemp: 0,
     necrotic: 0,
     ca: 13,
     condiciones: "Amenazado",
@@ -130,7 +130,7 @@ const initialCombatants = [
     numPeana: "E-02",
     pgMax: 27,
     pgAct: 0,
-    heridas: 27,
+    pgTemp: 0,
     necrotic: 4,
     ca: 12,
     condiciones: "Inconsciente",
@@ -147,6 +147,7 @@ const initialCombatants = [
 ];
 
 const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]));
+const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const app = document.querySelector("#app");
 
 const state = {
@@ -157,7 +158,8 @@ const state = {
   activeFilterKey: "",
   selectedIds: new Set(),
   newEntitySide: "allies",
-  nextId: initialCombatants.length + 1
+  nextId: initialCombatants.length + 1,
+  inlineAdjustments: Object.fromEntries(initialCombatants.map((combatant) => [combatant.id, { ...blankInlineAdjustments }]))
 };
 
 app.addEventListener("click", handleClick);
@@ -228,6 +230,18 @@ function handleClick(event) {
   if (action === "generate-iniactiva") {
     generateInitiative();
     render();
+    return;
+  }
+
+  if (action === "adjust-pg-act") {
+    applyPgActAdjustment(actionButton.dataset.id, actionButton.dataset.mode);
+    render();
+    return;
+  }
+
+  if (action === "adjust-necrotic") {
+    applyNecroticAdjustment(actionButton.dataset.id);
+    render();
   }
 }
 
@@ -275,6 +289,11 @@ function handleInput(event) {
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
+    return;
+  }
+
+  if (target.matches("[data-adjust-id][data-adjust-field]")) {
+    setInlineAdjustment(target.dataset.adjustId, target.dataset.adjustField, target.value);
     return;
   }
 
@@ -531,8 +550,10 @@ function renderHeaderCell(column) {
 }
 
 function renderCombatRow(combatant) {
+  const isDead = isCombatantDead(combatant);
+
   return `
-    <tr class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""}">
+    <tr class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""}">
       <td class="cell-select">
         <input
           type="checkbox"
@@ -541,15 +562,16 @@ function renderCombatRow(combatant) {
           ${state.selectedIds.has(combatant.id) ? "checked" : ""}
         />
       </td>
-      ${columns.map((column) => renderDataCell(combatant, column)).join("")}
+      ${columns.map((column) => renderDataCell(combatant, column, isDead)).join("")}
     </tr>
   `;
 }
 
-function renderDataCell(combatant, column) {
+function renderDataCell(combatant, column, isDead) {
   const value = combatant[column.key] ?? "";
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inputMode = column.type === "number" ? "numeric" : "text";
+  const inlineValues = getInlineAdjustment(combatant.id);
 
   if (column.key === "iniactiva") {
     return `
@@ -570,10 +592,155 @@ function renderDataCell(combatant, column) {
     `;
   }
 
+  if (column.key === "nombre") {
+    return `
+      <td>
+        <div class="name-cell">
+          <input
+            class="cell-input cell-input--strong"
+            type="text"
+            inputmode="text"
+            value="${escapeHtml(String(value))}"
+            data-edit-id="${combatant.id}"
+            data-edit-key="${column.key}"
+          />
+          ${isDead ? `<span class="death-badge">☠ Muerto</span>` : ""}
+        </div>
+      </td>
+    `;
+  }
+
+  if (column.key === "pgMax") {
+    const effectiveMax = getEffectivePgMax(combatant);
+    const showEffectiveMax = toNumber(combatant.necrotic) !== 0;
+
+    return `
+      <td>
+        <div class="resource-cell">
+          <input
+            class="cell-input"
+            type="number"
+            inputmode="${inputMode}"
+            value="${escapeHtml(String(value))}"
+            data-edit-id="${combatant.id}"
+            data-edit-key="${column.key}"
+          />
+          ${showEffectiveMax ? `<span class="resource-note">Efectivo ${effectiveMax}</span>` : ""}
+        </div>
+      </td>
+    `;
+  }
+
+  if (column.key === "pgAct") {
+    return `
+      <td>
+        <div class="resource-cell">
+          <input
+            class="cell-input"
+            type="number"
+            inputmode="${inputMode}"
+            value="${escapeHtml(String(value))}"
+            data-edit-id="${combatant.id}"
+            data-edit-key="${column.key}"
+          />
+          <div class="inline-adjust">
+            <input
+              class="mini-input"
+              type="number"
+              inputmode="numeric"
+              placeholder="0"
+              value="${escapeHtml(inlineValues.pgAct)}"
+              data-adjust-id="${combatant.id}"
+              data-adjust-field="pgAct"
+              aria-label="Cantidad para ajustar PG act de ${escapeHtml(combatant.nombre)}"
+            />
+            <div class="mini-actions">
+              <button
+                class="mini-action mini-action--damage"
+                type="button"
+                data-action="adjust-pg-act"
+                data-id="${combatant.id}"
+                data-mode="damage"
+                aria-label="Restar puntos de golpe a ${escapeHtml(combatant.nombre)}"
+              >
+                <span class="mini-action__icon" aria-hidden="true">✹</span>
+              </button>
+              <button
+                class="mini-action mini-action--heal"
+                type="button"
+                data-action="adjust-pg-act"
+                data-id="${combatant.id}"
+                data-mode="heal"
+                aria-label="Sumar puntos de golpe a ${escapeHtml(combatant.nombre)}"
+              >
+                <span class="mini-action__icon" aria-hidden="true">✚</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </td>
+    `;
+  }
+
+  if (column.key === "pgTemp") {
+    return `
+      <td>
+        <input
+          class="cell-input"
+          type="number"
+          inputmode="${inputMode}"
+          value="${escapeHtml(String(value))}"
+          data-edit-id="${combatant.id}"
+          data-edit-key="${column.key}"
+        />
+      </td>
+    `;
+  }
+
+  if (column.key === "necrotic") {
+    return `
+      <td>
+        <div class="resource-cell">
+          <input
+            class="cell-input"
+            type="number"
+            inputmode="${inputMode}"
+            value="${escapeHtml(String(value))}"
+            data-edit-id="${combatant.id}"
+            data-edit-key="${column.key}"
+          />
+          <div class="inline-adjust">
+            <input
+              class="mini-input"
+              type="number"
+              inputmode="numeric"
+              placeholder="0"
+              value="${escapeHtml(inlineValues.necrotic)}"
+              data-adjust-id="${combatant.id}"
+              data-adjust-field="necrotic"
+              aria-label="Cantidad para ajustar necrotic de ${escapeHtml(combatant.nombre)}"
+            />
+            <div class="mini-actions">
+              <button
+                class="mini-action mini-action--necrotic"
+                type="button"
+                data-action="adjust-necrotic"
+                data-id="${combatant.id}"
+                aria-label="Ajustar dano necrotico de ${escapeHtml(combatant.nombre)}"
+              >
+                <span class="mini-action__icon" aria-hidden="true">☣</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </td>
+    `;
+  }
+
   return `
     <td>
       <input
-        class="cell-input ${column.key === "nombre" ? "cell-input--strong" : ""} ${column.key === "stats" ? "cell-input--stats" : ""}"
+        class="cell-input ${column.key === "stats" ? "cell-input--stats" : ""}"
         type="${column.type === "number" ? "number" : "text"}"
         inputmode="${inputMode}"
         value="${escapeHtml(String(value))}"
@@ -634,7 +801,11 @@ function matchesFilters(combatant) {
       return true;
     }
 
-    return String(combatant[column.key] ?? "").toLowerCase().includes(filterValue);
+    const value = column.key === "pgMax"
+      ? `${combatant.pgMax} ${getEffectivePgMax(combatant)}`
+      : combatant[column.key] ?? "";
+
+    return String(value).toLowerCase().includes(filterValue);
   });
 }
 
@@ -649,7 +820,9 @@ function compareCombatants(left, right) {
   const rightValue = right[state.sort.key];
 
   if (column?.type === "number") {
-    return (toNumber(leftValue) - toNumber(rightValue)) * multiplier;
+    const first = column.key === "pgMax" ? getEffectivePgMax(left) : toNumber(leftValue);
+    const second = column.key === "pgMax" ? getEffectivePgMax(right) : toNumber(rightValue);
+    return (first - second) * multiplier;
   }
 
   return String(leftValue ?? "")
@@ -712,22 +885,25 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
       updatedCombatant.initiativeRoll = null;
     }
 
-    return updatedCombatant;
+    return normalizeCombatant(updatedCombatant, key);
   });
 }
 
 function addEntity() {
+  const basePg = 10;
+  const id = `entity-${state.nextId}`;
+
   state.combatants = [
     {
-      id: `entity-${state.nextId}`,
+      id,
       side: state.newEntitySide,
       ubicacion: "",
       iniactiva: "",
       nombre: state.newEntitySide === "allies" ? "Nueva entidad aliada" : "Nueva entidad enemiga",
       numPeana: "",
-      pgMax: 0,
-      pgAct: 0,
-      heridas: 0,
+      pgMax: basePg,
+      pgAct: basePg,
+      pgTemp: 0,
       necrotic: 0,
       ca: 10,
       condiciones: "",
@@ -744,6 +920,7 @@ function addEntity() {
     ...state.combatants
   ];
 
+  state.inlineAdjustments[id] = { ...blankInlineAdjustments };
   state.nextId += 1;
 }
 
@@ -753,6 +930,11 @@ function deleteSelected() {
   }
 
   state.combatants = state.combatants.filter((combatant) => !state.selectedIds.has(combatant.id));
+
+  for (const id of state.selectedIds) {
+    delete state.inlineAdjustments[id];
+  }
+
   state.selectedIds = new Set();
 }
 
@@ -778,6 +960,114 @@ function generateInitiative() {
   });
 
   state.sort = { key: "iniactiva", direction: "desc" };
+}
+
+function applyPgActAdjustment(id, mode) {
+  const amount = Number(getInlineAdjustment(id).pgAct);
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== id) {
+      return combatant;
+    }
+
+    if (mode === "heal") {
+      return normalizeCombatant({
+        ...combatant,
+        pgAct: toNumber(combatant.pgAct) + amount
+      }, "pgAct");
+    }
+
+    let remainingDamage = amount;
+    const currentTemp = Math.max(0, toNumber(combatant.pgTemp));
+    const tempAfterDamage = Math.max(0, currentTemp - remainingDamage);
+    remainingDamage = Math.max(0, remainingDamage - currentTemp);
+
+    return normalizeCombatant({
+      ...combatant,
+      pgTemp: tempAfterDamage,
+      pgAct: toNumber(combatant.pgAct) - remainingDamage
+    }, "pgAct");
+  });
+
+  setInlineAdjustment(id, "pgAct", "");
+}
+
+function applyNecroticAdjustment(id) {
+  const amount = Number(getInlineAdjustment(id).necrotic);
+
+  if (!Number.isFinite(amount)) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== id) {
+      return combatant;
+    }
+
+    return normalizeCombatant({
+      ...combatant,
+      necrotic: toNumber(combatant.necrotic) + amount
+    }, "necrotic");
+  });
+
+  setInlineAdjustment(id, "necrotic", "");
+}
+
+function normalizeCombatant(combatant, changedKey = "") {
+  const baseMax = Math.max(0, toNumber(combatant.pgMax));
+  const necrotic = Math.max(0, toNumber(combatant.necrotic));
+  const effectiveMax = Math.max(0, baseMax - necrotic);
+  const pgTemp = Math.max(0, toNumber(combatant.pgTemp));
+  let pgAct = combatant.pgAct === "" ? "" : toNumber(combatant.pgAct);
+
+  if (changedKey === "pgMax" && (combatant.pgAct === "" || toNumber(combatant.pgAct) > effectiveMax)) {
+    pgAct = effectiveMax;
+  }
+
+  if (changedKey === "necrotic") {
+    pgAct = Math.min(toNumber(combatant.pgAct), effectiveMax);
+  }
+
+  if (changedKey === "pgAct" || changedKey === "necrotic" || changedKey === "pgMax" || changedKey === "pgTemp") {
+    pgAct = Math.max(0, Math.min(toNumber(pgAct), effectiveMax));
+  }
+
+  return {
+    ...combatant,
+    pgMax: baseMax,
+    pgAct,
+    pgTemp,
+    necrotic,
+    stats: changedKey === "stats" ? formatStatsWithModifiers(combatant.stats) : combatant.stats
+  };
+}
+
+function isCombatantDead(combatant) {
+  return getEffectivePgMax(combatant) <= 0 || toNumber(combatant.pgAct) <= 0;
+}
+
+function getEffectivePgMax(combatant) {
+  return Math.max(0, toNumber(combatant.pgMax) - toNumber(combatant.necrotic));
+}
+
+function setInlineAdjustment(id, field, value) {
+  const current = getInlineAdjustment(id);
+  state.inlineAdjustments[id] = {
+    ...current,
+    [field]: value
+  };
+}
+
+function getInlineAdjustment(id) {
+  if (!state.inlineAdjustments[id]) {
+    state.inlineAdjustments[id] = { ...blankInlineAdjustments };
+  }
+
+  return state.inlineAdjustments[id];
 }
 
 function getDexModifier(stats) {
