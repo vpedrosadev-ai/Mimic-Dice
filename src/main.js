@@ -42,7 +42,7 @@ const columns = [
   { key: "necrotic", label: "Necrotic", type: "number", width: "12rem" },
   { key: "ca", label: "CA", type: "number", width: "7rem" },
   { key: "condiciones", label: "Condiciones", type: "text", width: "13rem" },
-  { key: "stats", label: "Stats", type: "stats", width: "38rem" },
+  { key: "stats", label: "Stats", type: "stats", width: "42rem" },
   { key: "tamano", label: "Tamano", type: "text", width: "9rem" },
   { key: "movimiento", label: "Movimiento", type: "text", width: "10rem" },
   { key: "vision", label: "Vision", type: "text", width: "12rem" },
@@ -452,7 +452,7 @@ function renderCombatTracker() {
               class="area-damage__input"
               type="number"
               inputmode="numeric"
-              placeholder="Daño"
+              placeholder="Daño en area"
               value="${escapeHtml(state.areaDamage)}"
               data-area-damage
               aria-label="Puntos de daño en área"
@@ -462,13 +462,13 @@ function renderCombatTracker() {
               type="button"
               data-action="apply-area-damage"
               ${state.selectedIds.size === 0 ? "disabled" : ""}
+              aria-label="Aplicar daño en area"
             >
               <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M12 3c3.9 0 7 2 7 4.5 0 1.7-1.4 3-3.5 3.8 2.5.6 4.5 2.1 4.5 4.2 0 3-3.6 5.5-8 5.5s-8-2.5-8-5.5c0-2.1 2-3.6 4.5-4.2C6.4 10.5 5 9.2 5 7.5 5 5 8.1 3 12 3Zm0 2c-2.8 0-5 .9-5 2.5S9.2 10 12 10s5-1 5-2.5S14.8 5 12 5Zm0 7c-3.3 0-6 1.6-6 3.5S8.7 19 12 19s6-1.6 6-3.5S15.3 12 12 12Z" />
-              </svg>
-            </span>
-            Daño en area
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3c3.9 0 7 2 7 4.5 0 1.7-1.4 3-3.5 3.8 2.5.6 4.5 2.1 4.5 4.2 0 3-3.6 5.5-8 5.5s-8-2.5-8-5.5c0-2.1 2-3.6 4.5-4.2C6.4 10.5 5 9.2 5 7.5 5 5 8.1 3 12 3Zm0 2c-2.8 0-5 .9-5 2.5S9.2 10 12 10s5-1 5-2.5S14.8 5 12 5Zm0 7c-3.3 0-6 1.6-6 3.5S8.7 19 12 19s6-1.6 6-3.5S15.3 12 12 12Z" />
+                </svg>
+              </span>
             </button>
           </div>
         </div>
@@ -669,28 +669,33 @@ function renderDataCell(combatant, column, isDead) {
             class="cell-input"
             type="number"
             inputmode="${inputMode}"
-            value="${escapeHtml(String(value))}"
+            value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
             data-edit-id="${combatant.id}"
             data-edit-key="${column.key}"
           />
-          ${showEffectiveMax ? `<span class="resource-note">Efectivo ${effectiveMax}</span>` : ""}
+          ${showEffectiveMax ? `<span class="resource-note">Original ${value}</span>` : ""}
         </div>
       </td>
     `;
   }
 
   if (column.key === "pgAct") {
+    const maxForBar = Math.max(1, getEffectivePgMax(combatant));
+    const healthPercent = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxForBar) * 100)));
+
     return `
       <td>
         <div class="resource-cell">
-          <input
-            class="cell-input"
-            type="number"
-            inputmode="${inputMode}"
-            value="${escapeHtml(String(value))}"
-            data-edit-id="${combatant.id}"
-            data-edit-key="${column.key}"
-          />
+          <label class="hp-bar" style="--hp-fill:${healthPercent}%">
+            <input
+              class="cell-input cell-input--hp"
+              type="number"
+              inputmode="${inputMode}"
+              value="${escapeHtml(String(value))}"
+              data-edit-id="${combatant.id}"
+              data-edit-key="${column.key}"
+            />
+          </label>
           <div class="inline-adjust">
             <input
               class="mini-input"
