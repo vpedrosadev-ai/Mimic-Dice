@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d1321;
+  --panel: rgba(16, 24, 40, 0.8);
+  --text: #f4f7fb;
+  --muted: #b4c2d6;
+  --accent: #ffcf5c;
+  --accent-2: #6dd3ce;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top, rgba(109, 211, 206, 0.25), transparent 35%),
+    radial-gradient(circle at bottom right, rgba(255, 207, 92, 0.2), transparent 30%),
+    linear-gradient(135deg, #09111f, #111b2f 45%, #17263b);
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.hero {
+  width: min(100%, 720px);
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent-2);
+  font-size: 0.8rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(3rem, 10vw, 5.5rem);
+  line-height: 0.95;
+}
+
+.lead {
+  max-width: 42rem;
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.panel {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.panel ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--muted);
+}
+
+.panel li + li {
+  margin-top: 0.8rem;
+}
