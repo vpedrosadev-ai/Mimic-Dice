@@ -1021,6 +1021,12 @@ table {
   gap: 0.7rem;
 }
 
+.bestiary-portrait--item-image {
+  justify-items: center;
+  width: min(100%, 21rem);
+  margin-inline: auto;
+}
+
 .bestiary-portrait__image,
 .bestiary-portrait--empty {
   width: 100%;
@@ -1036,6 +1042,11 @@ table {
 .bestiary-portrait__image {
   display: block;
   object-fit: cover;
+}
+
+.bestiary-portrait__image--contain {
+  object-fit: contain;
+  padding: 1rem;
 }
 
 .bestiary-portrait--empty {

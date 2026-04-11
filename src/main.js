@@ -1160,26 +1160,15 @@ function renderItemDetailEmpty() {
 function renderItemDetailMedia(entry) {
   if (entry.imageUrl) {
     return `
-      <div class="bestiary-detail__media-grid">
-        <div class="item-focus-card">
-          <div class="item-focus-card__glyph" aria-hidden="true">${escapeHtml(entry.rarityGlyph)}</div>
-          <div class="item-focus-card__copy">
-            <p class="eyebrow">Tesoro visual</p>
-            <h4>${escapeHtml(entry.rarityLabel)}</h4>
-            <p>${escapeHtml(entry.sourceLabel)}</p>
-            <p>${escapeHtml(entry.valueLabel)}</p>
-          </div>
-        </div>
-        <figure class="bestiary-portrait">
+      <figure class="bestiary-portrait bestiary-portrait--item-image">
           <img
-            class="bestiary-portrait__image"
+            class="bestiary-portrait__image bestiary-portrait__image--contain"
             src="${escapeHtml(entry.imageUrl)}"
             alt="Ilustracion de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
             loading="lazy"
           />
           <figcaption class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</figcaption>
-        </figure>
-      </div>
+      </figure>
     `;
   }
 
