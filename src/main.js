@@ -1,5 +1,7 @@
 const BESTIARY_CSV_PATH = "data/Bestiary.csv";
 const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
+const ITEMS_CSV_PATH = "data/Items.csv";
+const ITEMS_IMAGES_PATH = "data/ItemsImages.json";
 
 const screens = [
   {
@@ -19,6 +21,16 @@ const screens = [
     icon: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v17.5a2.5 2.5 0 0 0-2.5-2.5H5V4.5Zm2.5-.5a.5.5 0 0 0-.5.5V15h10.5c.54 0 1.05.1 1.5.3V4H7.5Zm-2.5 15h12.5a.5.5 0 0 1 0 1H7.5A2.5 2.5 0 0 1 5 17.5V19Z" />
+      </svg>
+    `
+  },
+  {
+    id: "items",
+    label: "Items",
+    shortLabel: "Items",
+    icon: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2 5 6v5c0 4.7 3.2 8.9 7 11 3.8-2.1 7-6.3 7-11V6l-7-4Zm0 2.3 4.9 2.8v4c0 3.3-2 6.3-4.9 8-2.9-1.7-4.9-4.7-4.9-8v-4L12 4.3Zm-1 3.2h2v3h3v2h-3v3h-2v-3H8v-2h3v-3Z" />
       </svg>
     `
   },
@@ -70,6 +82,13 @@ const bestiarySortOptions = [
   { value: "cr-desc", label: "CR descendente" },
   { value: "ac-desc", label: "CA descendente" },
   { value: "hp-desc", label: "PG descendente" }
+];
+const itemSortOptions = [
+  { value: "name-asc", label: "Nombre A-Z" },
+  { value: "rarity-asc", label: "Rareza ascendente" },
+  { value: "value-desc", label: "Valor descendente" },
+  { value: "weight-asc", label: "Peso ascendente" },
+  { value: "source-asc", label: "Fuente A-Z" }
 ];
 
 const initialCombatants = [
@@ -176,10 +195,23 @@ const blankBestiaryFilters = {
   environment: "",
   sort: "name-asc"
 };
+const blankItemFilters = {
+  query: "",
+  source: "",
+  rarity: "",
+  type: "",
+  attunement: "",
+  sort: "name-asc"
+};
 const bestiaryFilterLabels = {
   source: "fuente",
   type: "tipo",
   environment: "entorno"
+};
+const itemFilterLabels = {
+  source: "fuentes",
+  rarity: "rarezas",
+  type: "tipos"
 };
 
 const app = document.querySelector("#app");
@@ -201,7 +233,13 @@ const state = {
   bestiaryFilters: { ...blankBestiaryFilters },
   bestiarySelectedId: "",
   bestiaryStatus: "loading",
-  bestiaryMessage: ""
+  bestiaryMessage: "",
+  items: [],
+  itemImageMap: {},
+  itemFilters: { ...blankItemFilters },
+  itemSelectedId: "",
+  itemStatus: "loading",
+  itemMessage: ""
 };
 
 app.addEventListener("click", handleClick);
@@ -210,6 +248,7 @@ app.addEventListener("input", handleInput);
 
 render();
 loadBestiary();
+loadItems();
 
 function handleClick(event) {
   const screenButton = event.target.closest("[data-screen]");
@@ -305,6 +344,20 @@ function handleClick(event) {
     render({
       focusSelector: "[data-bestiary-query]"
     });
+    return;
+  }
+
+  if (action === "select-item-entry") {
+    state.itemSelectedId = actionButton.dataset.entryId;
+    render();
+    return;
+  }
+
+  if (action === "clear-item-filters") {
+    state.itemFilters = { ...blankItemFilters };
+    render({
+      focusSelector: "[data-item-query]"
+    });
   }
 }
 
@@ -350,6 +403,12 @@ function handleChange(event) {
   if (target.matches("[data-bestiary-filter]")) {
     updateBestiaryFilter(target.dataset.bestiaryFilter, target.value);
     render();
+    return;
+  }
+
+  if (target.matches("[data-item-filter]")) {
+    updateItemFilter(target.dataset.itemFilter, target.value);
+    render();
   }
 }
 
@@ -390,6 +449,16 @@ function handleInput(event) {
     state.bestiaryFilters.query = target.value;
     render({
       focusSelector: "[data-bestiary-query]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-item-query]")) {
+    state.itemFilters.query = target.value;
+    render({
+      focusSelector: "[data-item-query]",
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
@@ -453,6 +522,10 @@ function renderScreen() {
 
   if (state.activeScreen === "bestiary") {
     return renderBestiary();
+  }
+
+  if (state.activeScreen === "items") {
+    return renderItems();
   }
 
   if (state.activeScreen === "initiative-board") {
@@ -671,6 +744,92 @@ function renderBestiary() {
   `;
 }
 
+function renderItems() {
+  const filteredEntries = getFilteredItems();
+  const selectedEntry = getSelectedItemEntry(filteredEntries);
+  const summaries = getItemSummaries(filteredEntries);
+
+  return `
+    <section class="panel panel--hero">
+      <div class="panel__copy">
+        <p class="eyebrow">Pantalla 3</p>
+        <h2>Items</h2>
+        <p class="lead">
+          Inventario de objetos cargado desde <code>${ITEMS_CSV_PATH}</code>, siguiendo el lenguaje visual del bestiario
+          para consultar rareza, attunement, propiedades y descripcion completa desde una sola pantalla.
+        </p>
+      </div>
+      <div class="summary-grid">
+        ${summaries.map(renderSummaryCard).join("")}
+      </div>
+    </section>
+
+    <section class="panel panel--table">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Tesoro sincronizado</p>
+          <h3>Catalogo de items desde CSV</h3>
+        </div>
+        <div class="section-meta">
+          <span>${getItemStatusLabel()}</span>
+          <span>${filteredEntries.length} visibles</span>
+          <span>${state.items.length} totales</span>
+        </div>
+      </div>
+
+      <div class="bestiary-toolbar" aria-label="Filtros de items">
+        <label class="toolbar-field toolbar-field--search">
+          <span>Buscar item</span>
+          <input
+            class="filter-input filter-input--wide"
+            type="search"
+            value="${escapeHtml(state.itemFilters.query)}"
+            placeholder="Nombre, texto, propiedades, rareza..."
+            data-item-query
+          />
+        </label>
+        <label class="toolbar-field">
+          <span>Fuente</span>
+          <select data-item-filter="source">
+            ${renderItemFilterOptions("source")}
+          </select>
+        </label>
+        <label class="toolbar-field">
+          <span>Rareza</span>
+          <select data-item-filter="rarity">
+            ${renderItemFilterOptions("rarity")}
+          </select>
+        </label>
+        <label class="toolbar-field">
+          <span>Tipo</span>
+          <select data-item-filter="type">
+            ${renderItemFilterOptions("type")}
+          </select>
+        </label>
+        <label class="toolbar-field">
+          <span>Attunement</span>
+          <select data-item-filter="attunement">
+            <option value="">Todos</option>
+            <option value="requires" ${state.itemFilters.attunement === "requires" ? "selected" : ""}>Requiere</option>
+            <option value="none" ${state.itemFilters.attunement === "none" ? "selected" : ""}>Sin attunement</option>
+          </select>
+        </label>
+        <label class="toolbar-field">
+          <span>Orden</span>
+          <select data-item-filter="sort">
+            ${itemSortOptions
+              .map((option) => `<option value="${option.value}" ${option.value === state.itemFilters.sort ? "selected" : ""}>${option.label}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <button class="toolbar-button" type="button" data-action="clear-item-filters">Limpiar filtros</button>
+      </div>
+
+      ${renderItemsContent(filteredEntries, selectedEntry)}
+    </section>
+  `;
+}
+
 function renderBestiaryContent(filteredEntries, selectedEntry) {
   if (state.bestiaryStatus === "loading") {
     return `
@@ -708,6 +867,43 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
   `;
 }
 
+function renderItemsContent(filteredEntries, selectedEntry) {
+  if (state.itemStatus === "loading") {
+    return `
+      <div class="empty-state empty-state--panel">
+        Cargando Items.csv...
+      </div>
+    `;
+  }
+
+  if (state.itemStatus === "error") {
+    return `
+      <div class="empty-state empty-state--panel">
+        ${escapeHtml(state.itemMessage || "No se pudo leer Items.csv.")}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="bestiary-layout">
+      <div class="bestiary-list" role="list" aria-label="Items del catalogo">
+        ${
+          filteredEntries.length > 0
+            ? filteredEntries.map((entry) => renderItemRow(entry, entry.id === selectedEntry?.id)).join("")
+            : `
+              <div class="empty-state empty-state--panel">
+                No hay items que coincidan con los filtros actuales.
+              </div>
+            `
+        }
+      </div>
+      <aside class="bestiary-detail panel panel--inner">
+        ${selectedEntry ? renderItemDetail(selectedEntry) : renderItemDetailEmpty()}
+      </aside>
+    </div>
+  `;
+}
+
 function renderBestiaryRow(entry, isSelected) {
   return `
     <button
@@ -735,6 +931,38 @@ function renderBestiaryRow(entry, isSelected) {
       <div class="bestiary-row__footer">
         <span>${escapeHtml(entry.environmentShort || "Entorno sin especificar")}</span>
         <span>${escapeHtml(entry.languages || "Sin idiomas")}</span>
+      </div>
+    </button>
+  `;
+}
+
+function renderItemRow(entry, isSelected) {
+  return `
+    <button
+      class="bestiary-row ${isSelected ? "is-selected" : ""}"
+      type="button"
+      role="listitem"
+      data-action="select-item-entry"
+      data-entry-id="${entry.id}"
+    >
+      <div class="bestiary-row__main">
+        <div>
+          <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
+          <p class="bestiary-row__meta">${escapeHtml(entry.typeLine)}</p>
+        </div>
+        <div class="bestiary-row__chips">
+          <span class="pill">${escapeHtml(entry.sourceLabel)}</span>
+          <span class="pill">${escapeHtml(entry.rarityLabel)}</span>
+        </div>
+      </div>
+      <div class="bestiary-row__stats">
+        <span>${escapeHtml(entry.valueLabel)}</span>
+        <span>${escapeHtml(entry.weightLabel)}</span>
+        <span>${escapeHtml(entry.attunementShort)}</span>
+      </div>
+      <div class="bestiary-row__footer">
+        <span>${escapeHtml(entry.damage || entry.propertiesShort || "Sin propiedades destacadas")}</span>
+        <span>${escapeHtml(entry.hasImage ? "Con ilustracion" : "Sin ilustracion")}</span>
       </div>
     </button>
   `;
@@ -835,10 +1063,135 @@ function renderBestiaryDetail(entry) {
   `;
 }
 
+function renderItemDetail(entry) {
+  return `
+    <div class="bestiary-detail__header">
+      <p class="eyebrow">Item seleccionado</p>
+      <h3>${escapeHtml(entry.name)}</h3>
+      <p class="lead">${escapeHtml(entry.typeLine)}</p>
+    </div>
+
+    <div class="bestiary-detail__top">
+      ${renderItemDetailMedia(entry)}
+    </div>
+
+    <div class="bestiary-kpis">
+      <article class="summary-card summary-card--compact">
+        <span>Rareza</span>
+        <strong>${escapeHtml(entry.rarityShort)}</strong>
+      </article>
+      <article class="summary-card summary-card--compact">
+        <span>Valor</span>
+        <strong>${escapeHtml(entry.valueShort)}</strong>
+      </article>
+      <article class="summary-card summary-card--compact">
+        <span>Peso</span>
+        <strong>${escapeHtml(entry.weightShort)}</strong>
+      </article>
+      <article class="summary-card summary-card--compact">
+        <span>Attunement</span>
+        <strong>${escapeHtml(entry.attunementShort)}</strong>
+      </article>
+    </div>
+
+    <div class="bestiary-detail__grid">
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Fuente</span>
+        <p>${escapeHtml(entry.sourceLabel)}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Rareza</span>
+        <p>${escapeHtml(entry.rarityLabel)}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Tipo</span>
+        <p>${escapeHtml(entry.type || "No indicado")}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Attunement</span>
+        <p>${escapeHtml(entry.attunement || "No requiere")}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Damage</span>
+        <p>${escapeHtml(entry.damage || "No indicado")}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Properties</span>
+        <p>${escapeHtml(entry.properties || "No indicadas")}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Mastery</span>
+        <p>${escapeHtml(entry.mastery || "No indicada")}</p>
+      </div>
+      <div class="bestiary-detail__block">
+        <span class="bestiary-detail__label">Valor y peso</span>
+        <p>${escapeHtml(`${entry.valueLabel} | ${entry.weightLabel}`)}</p>
+      </div>
+    </div>
+
+    <div class="bestiary-resistances">
+      ${renderDetailChip("Tipo resumido", entry.typeLine)}
+      ${renderDetailChip("Propiedades", entry.properties)}
+      ${renderDetailChip("Mastery", entry.mastery)}
+    </div>
+
+    <div class="bestiary-sections">
+      ${renderBestiarySection("Description", entry.text || "Sin descripcion disponible.")}
+    </div>
+  `;
+}
+
 function renderBestiaryDetailEmpty() {
   return `
     <div class="empty-state empty-state--panel">
       Selecciona una criatura para ver la ficha completa.
+    </div>
+  `;
+}
+
+function renderItemDetailEmpty() {
+  return `
+    <div class="empty-state empty-state--panel">
+      Selecciona un item para ver la ficha completa.
+    </div>
+  `;
+}
+
+function renderItemDetailMedia(entry) {
+  if (entry.imageUrl) {
+    return `
+      <div class="bestiary-detail__media-grid">
+        <div class="item-focus-card">
+          <div class="item-focus-card__glyph" aria-hidden="true">${escapeHtml(entry.rarityGlyph)}</div>
+          <div class="item-focus-card__copy">
+            <p class="eyebrow">Tesoro visual</p>
+            <h4>${escapeHtml(entry.rarityLabel)}</h4>
+            <p>${escapeHtml(entry.sourceLabel)}</p>
+            <p>${escapeHtml(entry.valueLabel)}</p>
+          </div>
+        </div>
+        <figure class="bestiary-portrait">
+          <img
+            class="bestiary-portrait__image"
+            src="${escapeHtml(entry.imageUrl)}"
+            alt="Ilustracion de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
+            loading="lazy"
+          />
+          <figcaption class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</figcaption>
+        </figure>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="item-banner">
+      <div class="item-banner__glyph" aria-hidden="true">${escapeHtml(entry.rarityGlyph)}</div>
+      <div class="item-banner__copy">
+        <p class="eyebrow">Referencia rapida</p>
+        <h4>${escapeHtml(entry.rarityLabel)}</h4>
+        <p>${escapeHtml(entry.typeLine)}</p>
+        <p>${escapeHtml(entry.sourceLabel)}</p>
+      </div>
     </div>
   `;
 }
@@ -1309,6 +1662,19 @@ function getBestiarySummaries(filteredEntries) {
   ];
 }
 
+function getItemSummaries(filteredEntries) {
+  const sources = new Set(filteredEntries.map((entry) => entry.source).filter(Boolean)).size;
+  const rarities = new Set(filteredEntries.map((entry) => entry.rarityLabel).filter(Boolean)).size;
+  const illustrated = filteredEntries.filter((entry) => entry.hasImage).length;
+
+  return [
+    { label: "Items", value: filteredEntries.length },
+    { label: "Fuentes", value: sources },
+    { label: "Rarezas", value: rarities },
+    { label: "Con arte", value: illustrated }
+  ];
+}
+
 function getVisibleCombatants() {
   return [...state.combatants]
     .filter(matchesFilters)
@@ -1321,8 +1687,24 @@ function getFilteredBestiary() {
     .sort(compareBestiaryEntries);
 }
 
+function getFilteredItems() {
+  return [...state.items]
+    .filter(matchesItemFilters)
+    .sort(compareItemEntries);
+}
+
 function getSelectedBestiaryEntry(filteredEntries = getFilteredBestiary()) {
   const currentEntry = filteredEntries.find((entry) => entry.id === state.bestiarySelectedId);
+
+  if (currentEntry) {
+    return currentEntry;
+  }
+
+  return filteredEntries[0] ?? null;
+}
+
+function getSelectedItemEntry(filteredEntries = getFilteredItems()) {
+  const currentEntry = filteredEntries.find((entry) => entry.id === state.itemSelectedId);
 
   if (currentEntry) {
     return currentEntry;
@@ -1372,6 +1754,40 @@ function matchesBestiaryFilters(entry) {
   return true;
 }
 
+function matchesItemFilters(entry) {
+  const query = state.itemFilters.query.trim().toLowerCase();
+  const source = state.itemFilters.source;
+  const rarity = state.itemFilters.rarity;
+  const type = state.itemFilters.type;
+  const attunement = state.itemFilters.attunement;
+
+  if (query && !entry.searchText.includes(query)) {
+    return false;
+  }
+
+  if (source && entry.source !== source) {
+    return false;
+  }
+
+  if (rarity && entry.rarityLabel !== rarity) {
+    return false;
+  }
+
+  if (type && entry.type !== type) {
+    return false;
+  }
+
+  if (attunement === "requires" && !entry.requiresAttunement) {
+    return false;
+  }
+
+  if (attunement === "none" && entry.requiresAttunement) {
+    return false;
+  }
+
+  return true;
+}
+
 function compareCombatants(left, right) {
   if (!state.sort.key || !state.sort.direction) {
     return 0;
@@ -1409,6 +1825,29 @@ function compareBestiaryEntries(left, right) {
 
   if (sort === "hp-desc") {
     return right.hpValue - left.hpValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  }
+
+  return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+}
+
+function compareItemEntries(left, right) {
+  const sort = state.itemFilters.sort;
+
+  if (sort === "rarity-asc") {
+    return left.rarityRank - right.rarityRank || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  }
+
+  if (sort === "value-desc") {
+    return right.valueNumber - left.valueNumber || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  }
+
+  if (sort === "weight-asc") {
+    return left.weightNumber - right.weightNumber || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  }
+
+  if (sort === "source-asc") {
+    return left.source.localeCompare(right.source, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
   }
 
   return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
@@ -1497,6 +1936,10 @@ function updateCombatantStat(id, statKey, rawValue, normalize = true) {
 
 function updateBestiaryFilter(key, value) {
   state.bestiaryFilters[key] = value;
+}
+
+function updateItemFilter(key, value) {
+  state.itemFilters[key] = value;
 }
 
 function addEntity() {
@@ -1822,9 +2265,58 @@ async function loadBestiary() {
   }
 }
 
+async function loadItems() {
+  state.itemStatus = "loading";
+  state.itemMessage = "";
+  render();
+
+  try {
+    const [response, imageMap] = await Promise.all([
+      fetch(ITEMS_CSV_PATH, {
+        cache: "no-store"
+      }),
+      loadItemImages()
+    ]);
+
+    if (!response.ok) {
+      throw new Error(`No se pudo leer ${ITEMS_CSV_PATH} (${response.status}).`);
+    }
+
+    const text = await response.text();
+    const rows = parseCsv(text);
+
+    state.itemImageMap = imageMap;
+    state.items = rows.map((row, index) => normalizeItemEntry(row, index, imageMap));
+    state.itemStatus = "ready";
+    state.itemSelectedId = state.items[0]?.id ?? "";
+    render();
+  } catch (error) {
+    state.itemStatus = "error";
+    state.itemMessage = error instanceof Error ? error.message : `No se pudo cargar ${ITEMS_CSV_PATH}.`;
+    render();
+  }
+}
+
 async function loadBestiaryImages() {
   try {
     const response = await fetch(BESTIARY_IMAGES_PATH, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    const data = await response.json();
+    return isPlainObject(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+async function loadItemImages() {
+  try {
+    const response = await fetch(ITEMS_IMAGES_PATH, {
       cache: "no-store"
     });
 
@@ -2013,6 +2505,79 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
   };
 }
 
+function normalizeItemEntry(row, index, imageMap = {}) {
+  const name = cleanText(row.Name);
+  const source = cleanText(row.Source);
+  const page = cleanText(row.Page);
+  const rarity = cleanText(row.Rarity);
+  const type = cleanText(row.Type);
+  const attunement = cleanText(row.Attunement);
+  const damage = cleanText(row.Damage);
+  const properties = cleanText(row.Properties);
+  const mastery = cleanText(row.Mastery);
+  const weight = cleanText(row.Weight);
+  const value = cleanText(row.Value);
+  const text = cleanText(row.Text);
+  const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
+  const rarityLabel = formatItemRarity(rarity);
+  const requiresAttunement = Boolean(attunement);
+  const typeLine = [type, requiresAttunement ? "Requiere attunement" : ""].filter(Boolean).join(" | ");
+  const compositeKey = buildItemCompositeKey(name, source);
+  const valueNumber = parseItemValue(value);
+  const weightNumber = parseLeadingNumber(weight);
+  const imageUrl = resolveItemImageAsset(name, source, imageMap);
+  const searchText = [
+    name,
+    source,
+    rarity,
+    type,
+    attunement,
+    damage,
+    properties,
+    mastery,
+    weight,
+    value,
+    text
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return {
+    id: compositeKey || `item-${index + 1}`,
+    compositeKey,
+    name,
+    source,
+    page,
+    rarity,
+    rarityLabel,
+    rarityShort: shortenLabel(rarityLabel, 14),
+    rarityRank: getItemRarityRank(rarity),
+    rarityGlyph: getItemRarityGlyph(rarity),
+    type,
+    typeLine: typeLine || "Item sin clasificacion",
+    attunement,
+    requiresAttunement,
+    attunementShort: requiresAttunement ? "Requiere" : "No requiere",
+    damage,
+    properties,
+    mastery,
+    weight,
+    weightNumber,
+    weightLabel: weight || "Peso N/D",
+    weightShort: shortenLabel(weight || "N/D", 10),
+    value,
+    valueNumber,
+    valueLabel: value || "Valor N/D",
+    valueShort: shortenLabel(value || "N/D", 12),
+    sourceLabel,
+    text,
+    imageUrl,
+    hasImage: Boolean(imageUrl),
+    propertiesShort: shortenLabel(properties, 36),
+    searchText
+  };
+}
+
 function renderBestiaryFilterOptions(key) {
   const values = [...new Set(
     state.bestiary.flatMap((entry) => {
@@ -2030,6 +2595,21 @@ function renderBestiaryFilterOptions(key) {
   ].join("");
 }
 
+function renderItemFilterOptions(key) {
+  const values = [...new Set(
+    state.items.map((entry) => key === "rarity" ? entry.rarityLabel : entry[key]).filter(Boolean)
+  )];
+
+  const sortedValues = key === "rarity"
+    ? values.sort((left, right) => getItemRarityRank(left) - getItemRarityRank(right))
+    : values.sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+
+  return [
+    `<option value="">Todas las ${itemFilterLabels[key]}</option>`,
+    ...sortedValues.map((value) => `<option value="${escapeHtml(value)}" ${value === state.itemFilters[key] ? "selected" : ""}>${escapeHtml(value)}</option>`)
+  ].join("");
+}
+
 function getBestiaryStatusLabel() {
   if (state.bestiaryStatus === "loading") {
     return "Cargando CSV";
@@ -2040,6 +2620,18 @@ function getBestiaryStatusLabel() {
   }
 
   return `CSV activo: ${BESTIARY_CSV_PATH}`;
+}
+
+function getItemStatusLabel() {
+  if (state.itemStatus === "loading") {
+    return "Cargando CSV";
+  }
+
+  if (state.itemStatus === "error") {
+    return "Error de lectura";
+  }
+
+  return `CSV activo: ${ITEMS_CSV_PATH}`;
 }
 
 function cleanText(value) {
@@ -2058,6 +2650,155 @@ function buildBestiaryCompositeKey(name, source) {
   }
 
   return `bestiary-${normalizedName || "unknown"}--${normalizedSource || "unknown"}`;
+}
+
+function buildItemCompositeKey(name, source) {
+  const normalizedName = slugify(name);
+  const normalizedSource = slugify(source);
+
+  if (!normalizedName && !normalizedSource) {
+    return "";
+  }
+
+  return `item-${normalizedName || "unknown"}--${normalizedSource || "unknown"}`;
+}
+
+function resolveItemImageAsset(name, source, imageMap) {
+  const compositeVariants = [
+    `${cleanText(name)}||${cleanText(source)}`,
+    `${cleanText(name)}|${cleanText(source)}`,
+    buildItemCompositeKey(name, source),
+    `${slugify(name)}--${slugify(source)}`
+  ]
+    .map((key) => key.toLowerCase())
+    .filter(Boolean);
+
+  const nameVariants = [cleanText(name), slugify(name)]
+    .map((key) => key.toLowerCase())
+    .filter(Boolean);
+
+  for (const key of compositeVariants) {
+    const match = findImageMapValue(imageMap, key);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  for (const key of nameVariants) {
+    const match = findImageMapValue(imageMap, key);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return "";
+}
+
+function findImageMapValue(imageMap, key) {
+  const entry = imageMap?.[key];
+
+  if (typeof entry === "string") {
+    return entry;
+  }
+
+  if (isPlainObject(entry) && typeof entry.imageUrl === "string") {
+    return entry.imageUrl;
+  }
+
+  return "";
+}
+
+function formatItemRarity(rarity) {
+  const normalized = cleanText(rarity);
+
+  if (!normalized) {
+    return "Sin rareza";
+  }
+
+  return normalized
+    .split(/\s+/)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
+}
+
+function getItemRarityRank(rarity) {
+  const normalized = cleanText(rarity).toLowerCase();
+  const rarityOrder = {
+    "none": 0,
+    "common": 1,
+    "uncommon": 2,
+    "rare": 3,
+    "very rare": 4,
+    "legendary": 5,
+    "artifact": 6,
+    "unknown": 7,
+    "unknown (magic)": 8,
+    "varies": 9,
+    "sin rareza": 10
+  };
+
+  return rarityOrder[normalized] ?? 99;
+}
+
+function getItemRarityGlyph(rarity) {
+  const normalized = cleanText(rarity).toLowerCase();
+
+  if (!normalized || normalized === "none") {
+    return "IT";
+  }
+
+  return normalized
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((token) => token.charAt(0).toUpperCase())
+    .join("") || "IT";
+}
+
+function parseItemValue(value) {
+  const normalized = cleanText(value).toLowerCase().replaceAll(",", "");
+
+  if (!normalized) {
+    return 0;
+  }
+
+  const match = normalized.match(/(\d+(?:\.\d+)?)/);
+
+  if (!match) {
+    return 0;
+  }
+
+  const amount = Number(match[1]);
+
+  if (normalized.includes("pp")) {
+    return amount * 10;
+  }
+
+  if (normalized.includes("sp")) {
+    return amount / 10;
+  }
+
+  if (normalized.includes("cp")) {
+    return amount / 100;
+  }
+
+  return amount;
+}
+
+function shortenLabel(value, maxLength = 20) {
+  const text = cleanText(value);
+
+  if (!text) {
+    return "-";
+  }
+
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
 }
 
 function resolveBestiaryImageAsset(name, source, imageMap, assetKey) {
