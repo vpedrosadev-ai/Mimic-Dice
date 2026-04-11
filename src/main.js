@@ -1,4 +1,5 @@
 const BESTIARY_CSV_PATH = "data/Bestiary.csv";
+const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
 
 const screens = [
   {
@@ -196,6 +197,7 @@ const state = {
   inlineAdjustments: Object.fromEntries(initialCombatants.map((combatant) => [combatant.id, { ...blankInlineAdjustments }])),
   areaDamage: "",
   bestiary: [],
+  bestiaryImageMap: {},
   bestiaryFilters: { ...blankBestiaryFilters },
   bestiarySelectedId: "",
   bestiaryStatus: "loading",
@@ -749,12 +751,17 @@ function renderBestiaryDetail(entry) {
     { title: "Lair Actions", content: entry.lairActions },
     { title: "Regional Effects", content: entry.regionalEffects }
   ].filter((section) => section.content);
+  const detailMedia = renderBestiaryDetailMedia(entry);
 
   return `
     <div class="bestiary-detail__header">
       <p class="eyebrow">Ficha seleccionada</p>
       <h3>${escapeHtml(entry.name)}</h3>
       <p class="lead">${escapeHtml(entry.typeLine)}</p>
+    </div>
+
+    <div class="bestiary-detail__top">
+      ${detailMedia}
     </div>
 
     <div class="bestiary-kpis">
@@ -832,6 +839,54 @@ function renderBestiaryDetailEmpty() {
   return `
     <div class="empty-state empty-state--panel">
       Selecciona una criatura para ver la ficha completa.
+    </div>
+  `;
+}
+
+function renderBestiaryDetailMedia(entry) {
+  const tokenMarkup = entry.tokenUrl
+    ? `
+      <div class="bestiary-token-card">
+        <img
+          class="bestiary-token-card__image"
+          src="${escapeHtml(entry.tokenUrl)}"
+          alt="Token de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
+          loading="lazy"
+        />
+      </div>
+    `
+    : `
+      <div class="bestiary-token-card bestiary-token-card--empty" aria-label="Token no disponible">
+        <div class="bestiary-token-card__placeholder">${escapeHtml(getBestiaryInitials(entry.name))}</div>
+        <p class="bestiary-token-card__hint">Sin token vinculado</p>
+      </div>
+    `;
+
+  if (entry.imageUrl) {
+    return `
+      <div class="bestiary-detail__media-grid">
+        ${tokenMarkup}
+        <figure class="bestiary-portrait">
+          <img
+            class="bestiary-portrait__image"
+            src="${escapeHtml(entry.imageUrl)}"
+            alt="Ilustracion de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
+            loading="lazy"
+          />
+          <figcaption class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</figcaption>
+        </figure>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="bestiary-detail__media-grid">
+      ${tokenMarkup}
+      <div class="bestiary-portrait bestiary-portrait--empty" aria-label="Ilustracion no disponible">
+        <div class="bestiary-portrait__placeholder">${escapeHtml(getBestiaryInitials(entry.name))}</div>
+        <p class="bestiary-portrait__hint">Sin ilustracion vinculada</p>
+        <p class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</p>
+      </div>
     </div>
   `;
 }
@@ -1741,9 +1796,12 @@ async function loadBestiary() {
   render();
 
   try {
-    const response = await fetch(BESTIARY_CSV_PATH, {
-      cache: "no-store"
-    });
+    const [response, imageMap] = await Promise.all([
+      fetch(BESTIARY_CSV_PATH, {
+        cache: "no-store"
+      }),
+      loadBestiaryImages()
+    ]);
 
     if (!response.ok) {
       throw new Error(`No se pudo leer ${BESTIARY_CSV_PATH} (${response.status}).`);
@@ -1752,7 +1810,8 @@ async function loadBestiary() {
     const text = await response.text();
     const rows = parseCsv(text);
 
-    state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index));
+    state.bestiaryImageMap = imageMap;
+    state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index, imageMap));
     state.bestiaryStatus = "ready";
     state.bestiarySelectedId = state.bestiary[0]?.id ?? "";
     render();
@@ -1760,6 +1819,23 @@ async function loadBestiary() {
     state.bestiaryStatus = "error";
     state.bestiaryMessage = error instanceof Error ? error.message : `No se pudo cargar ${BESTIARY_CSV_PATH}.`;
     render();
+  }
+}
+
+async function loadBestiaryImages() {
+  try {
+    const response = await fetch(BESTIARY_IMAGES_PATH, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    const data = await response.json();
+    return isPlainObject(data) ? data : {};
+  } catch {
+    return {};
   }
 }
 
@@ -1828,7 +1904,7 @@ function parseCsv(csvText) {
   });
 }
 
-function normalizeBestiaryEntry(row, index) {
+function normalizeBestiaryEntry(row, index, imageMap = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
   const page = cleanText(row.Page);
@@ -1869,6 +1945,7 @@ function normalizeBestiaryEntry(row, index) {
   const typeLine = [size, type, alignment].filter(Boolean).join(" | ");
   const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
   const crLabel = cr || "Sin CR";
+  const compositeKey = buildBestiaryCompositeKey(name, source);
   const searchText = [
     name,
     source,
@@ -1891,7 +1968,8 @@ function normalizeBestiaryEntry(row, index) {
     .toLowerCase();
 
   return {
-    id: `bestiary-${index + 1}`,
+    id: compositeKey || `bestiary-${index + 1}`,
+    compositeKey,
     name,
     source,
     page,
@@ -1925,6 +2003,8 @@ function normalizeBestiaryEntry(row, index) {
     typeLine: typeLine || "Ficha sin clasificacion",
     sourceLabel,
     crLabel,
+    imageUrl: resolveBestiaryImageAsset(name, source, imageMap, "imageUrl"),
+    tokenUrl: resolveBestiaryImageAsset(name, source, imageMap, "tokenUrl"),
     crValue: parseCrValue(cr),
     acValue: parseLeadingNumber(ac),
     hpValue: parseLeadingNumber(hp),
@@ -1969,11 +2049,71 @@ function cleanText(value) {
     .trim();
 }
 
+function buildBestiaryCompositeKey(name, source) {
+  const normalizedName = slugify(name);
+  const normalizedSource = slugify(source);
+
+  if (!normalizedName && !normalizedSource) {
+    return "";
+  }
+
+  return `bestiary-${normalizedName || "unknown"}--${normalizedSource || "unknown"}`;
+}
+
+function resolveBestiaryImageAsset(name, source, imageMap, assetKey) {
+  const compositeVariants = [
+    `${cleanText(name)}||${cleanText(source)}`,
+    `${cleanText(name)}|${cleanText(source)}`,
+    buildBestiaryCompositeKey(name, source),
+    `${slugify(name)}--${slugify(source)}`
+  ]
+    .map((key) => key.toLowerCase())
+    .filter(Boolean);
+
+  const nameVariants = [cleanText(name), slugify(name)]
+    .map((key) => key.toLowerCase())
+    .filter(Boolean);
+
+  for (const key of [...compositeVariants, ...nameVariants]) {
+    const imageValue = imageMap[key];
+
+    if (typeof imageValue === "string" && imageValue.trim()) {
+      return assetKey === "imageUrl" ? imageValue.trim() : "";
+    }
+
+    if (isPlainObject(imageValue) && typeof imageValue[assetKey] === "string" && imageValue[assetKey].trim()) {
+      return imageValue[assetKey].trim();
+    }
+  }
+
+  return "";
+}
+
+function getBestiaryInitials(name) {
+  const initials = cleanText(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((token) => token[0]?.toUpperCase() ?? "")
+    .join("");
+
+  return initials || "??";
+}
+
 function splitList(value) {
   return cleanText(value)
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function slugify(value) {
+  return cleanText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function parseLeadingNumber(value) {
@@ -1998,6 +2138,10 @@ function parseCrValue(value) {
 function toNumber(value) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function randomD20() {
