@@ -905,6 +905,23 @@ function renderItemsContent(filteredEntries, selectedEntry) {
 }
 
 function renderBestiaryRow(entry, isSelected) {
+  const tokenBadge = entry.tokenUrl
+    ? `
+      <div class="bestiary-row__token" aria-hidden="true">
+        <img
+          class="bestiary-row__token-image"
+          src="${escapeHtml(entry.tokenUrl)}"
+          alt=""
+          loading="lazy"
+        />
+      </div>
+    `
+    : `
+      <div class="bestiary-row__token bestiary-row__token--empty" aria-hidden="true">
+        <span>${escapeHtml(getBestiaryInitials(entry.name))}</span>
+      </div>
+    `;
+
   return `
     <button
       class="bestiary-row ${isSelected ? "is-selected" : ""}"
@@ -919,6 +936,7 @@ function renderBestiaryRow(entry, isSelected) {
           <p class="bestiary-row__meta">${escapeHtml(entry.typeLine)}</p>
         </div>
         <div class="bestiary-row__chips">
+          ${tokenBadge}
           <span class="pill">${escapeHtml(entry.sourceLabel)}</span>
           <span class="pill">${escapeHtml(entry.crLabel)}</span>
         </div>
@@ -1186,28 +1204,9 @@ function renderItemDetailMedia(entry) {
 }
 
 function renderBestiaryDetailMedia(entry) {
-  const tokenMarkup = entry.tokenUrl
-    ? `
-      <div class="bestiary-token-card">
-        <img
-          class="bestiary-token-card__image"
-          src="${escapeHtml(entry.tokenUrl)}"
-          alt="Token de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
-          loading="lazy"
-        />
-      </div>
-    `
-    : `
-      <div class="bestiary-token-card bestiary-token-card--empty" aria-label="Token no disponible">
-        <div class="bestiary-token-card__placeholder">${escapeHtml(getBestiaryInitials(entry.name))}</div>
-        <p class="bestiary-token-card__hint">Sin token vinculado</p>
-      </div>
-    `;
-
   if (entry.imageUrl) {
     return `
-      <div class="bestiary-detail__media-grid">
-        ${tokenMarkup}
+      <div class="bestiary-detail__media-grid bestiary-detail__media-grid--single">
         <figure class="bestiary-portrait">
           <img
             class="bestiary-portrait__image"
@@ -1222,8 +1221,7 @@ function renderBestiaryDetailMedia(entry) {
   }
 
   return `
-    <div class="bestiary-detail__media-grid">
-      ${tokenMarkup}
+    <div class="bestiary-detail__media-grid bestiary-detail__media-grid--single">
       <div class="bestiary-portrait bestiary-portrait--empty" aria-label="Ilustracion no disponible">
         <div class="bestiary-portrait__placeholder">${escapeHtml(getBestiaryInitials(entry.name))}</div>
         <p class="bestiary-portrait__hint">Sin ilustracion vinculada</p>
