@@ -150,6 +150,7 @@ const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+let battleTimerInterval = null;
 
 const state = {
   activeScreen: "combat-tracker",
@@ -161,7 +162,12 @@ const state = {
   newEntitySide: "allies",
   nextId: initialCombatants.length + 1,
   inlineAdjustments: Object.fromEntries(initialCombatants.map((combatant) => [combatant.id, { ...blankInlineAdjustments }])),
-  areaDamage: ""
+  areaDamage: "",
+  battleTimer: {
+    elapsedMs: 0,
+    startedAt: 0,
+    isRunning: false
+  }
 };
 
 app.addEventListener("click", handleClick);
@@ -249,6 +255,24 @@ function handleClick(event) {
 
   if (action === "apply-area-damage") {
     applyAreaDamage();
+    render();
+    return;
+  }
+
+  if (action === "start-battle-timer") {
+    startBattleTimer();
+    render();
+    return;
+  }
+
+  if (action === "pause-battle-timer") {
+    pauseBattleTimer();
+    render();
+    return;
+  }
+
+  if (action === "reset-battle-timer") {
+    resetBattleTimer();
     render();
   }
 }
@@ -399,6 +423,7 @@ function renderCombatTracker() {
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
     visibleCombatants.every((combatant) => state.selectedIds.has(combatant.id));
+  const battleTimerLabel = formatBattleTimer(getBattleTimerElapsedMs());
 
   return `
     <section class="panel panel--hero">
@@ -411,6 +436,22 @@ function renderCombatTracker() {
         </p>
       </div>
       <div class="summary-grid">
+        <article class="summary-card summary-card--timer">
+          <span>Contador de batalla</span>
+          <strong>${battleTimerLabel}</strong>
+          <div class="summary-card__actions">
+            <button
+              class="summary-button"
+              type="button"
+              data-action="${state.battleTimer.isRunning ? "pause-battle-timer" : "start-battle-timer"}"
+            >
+              ${state.battleTimer.isRunning ? "Pausar" : "Iniciar"}
+            </button>
+            <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
+              Reiniciar
+            </button>
+          </div>
+        </article>
         ${summaries.map(renderSummaryCard).join("")}
       </div>
     </section>
@@ -1309,6 +1350,81 @@ function toNumber(value) {
 
 function randomD20() {
   return Math.floor(Math.random() * 20) + 1;
+}
+
+function startBattleTimer() {
+  if (state.battleTimer.isRunning) {
+    return;
+  }
+
+  state.battleTimer.startedAt = Date.now();
+  state.battleTimer.isRunning = true;
+  ensureBattleTimerInterval();
+}
+
+function pauseBattleTimer() {
+  if (!state.battleTimer.isRunning) {
+    return;
+  }
+
+  state.battleTimer.elapsedMs = getBattleTimerElapsedMs();
+  state.battleTimer.startedAt = 0;
+  state.battleTimer.isRunning = false;
+  stopBattleTimerInterval();
+}
+
+function resetBattleTimer() {
+  state.battleTimer.elapsedMs = 0;
+  state.battleTimer.startedAt = state.battleTimer.isRunning ? Date.now() : 0;
+
+  if (!state.battleTimer.isRunning) {
+    stopBattleTimerInterval();
+  }
+}
+
+function getBattleTimerElapsedMs() {
+  if (!state.battleTimer.isRunning) {
+    return state.battleTimer.elapsedMs;
+  }
+
+  return state.battleTimer.elapsedMs + (Date.now() - state.battleTimer.startedAt);
+}
+
+function formatBattleTimer(milliseconds) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function ensureBattleTimerInterval() {
+  if (battleTimerInterval !== null) {
+    return;
+  }
+
+  battleTimerInterval = window.setInterval(() => {
+    if (!state.battleTimer.isRunning) {
+      stopBattleTimerInterval();
+      return;
+    }
+
+    render();
+  }, 1000);
+}
+
+function stopBattleTimerInterval() {
+  if (battleTimerInterval === null) {
+    return;
+  }
+
+  window.clearInterval(battleTimerInterval);
+  battleTimerInterval = null;
 }
 
 function escapeHtml(value) {
