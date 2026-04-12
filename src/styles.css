@@ -1164,18 +1164,25 @@ table {
 
 .bestiary-detail__top {
   margin-top: 1rem;
-}
-
-.bestiary-detail__media-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.85fr);
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.92fr);
+  gap: 0.8rem;
   align-items: stretch;
 }
 
-.bestiary-detail__media-grid--single {
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: start;
+.bestiary-detail__top-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  align-self: stretch;
+  min-height: 0;
+}
+
+.bestiary-detail__media {
+  display: grid;
+  justify-items: end;
+  align-self: stretch;
 }
 
 .bestiary-detail__header h3,
@@ -1183,11 +1190,19 @@ table {
   margin: 0;
 }
 
+.bestiary-detail__source {
+  margin: 0.25rem 0 0;
+  color: var(--accent-soft);
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
 .bestiary-portrait {
   margin: 0;
   display: grid;
-  gap: 0.7rem;
-  width: min(100%, 220px);
+  gap: 0;
+  width: min(100%, 320px);
+  height: 100%;
 }
 
 .bestiary-portrait__image,
@@ -1204,7 +1219,7 @@ table {
 
 .bestiary-portrait__image {
   display: block;
-  padding: 0.6rem;
+  padding: 0.45rem;
   object-fit: contain;
   object-position: center;
 }
@@ -1244,7 +1259,6 @@ table {
 }
 
 .bestiary-kpis,
-.bestiary-abilities,
 .bestiary-detail__grid,
 .bestiary-resistances,
 .bestiary-sections {
@@ -1252,8 +1266,7 @@ table {
   gap: 0.85rem;
 }
 
-.bestiary-kpis,
-.bestiary-abilities {
+.bestiary-kpis {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 1rem;
 }
@@ -1275,7 +1288,7 @@ table {
 .detail-chip,
 .detail-section,
 .ability-card {
-  padding: 0.95rem 1rem;
+  padding: 0.8rem 0.9rem;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.025);
@@ -1285,7 +1298,7 @@ table {
 .detail-chip span,
 .ability-card span {
   display: block;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.3rem;
   color: var(--accent-soft);
   font-size: 0.76rem;
   letter-spacing: 0.08em;
@@ -1301,17 +1314,35 @@ table {
 }
 
 .ability-card {
+  height: 100%;
+  display: grid;
+  align-content: center;
+  gap: 0.08rem;
   text-align: center;
+  padding: 0.35rem 0.55rem;
+  border-radius: 16px;
 }
 
 .ability-card strong {
   display: block;
-  font-size: 1.55rem;
+  font-size: 1.15rem;
+  line-height: 1.05;
 }
 
 .ability-card small {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.ability-card span {
+  margin-bottom: 0.08rem;
+  font-size: 0.64rem;
+}
+
+.ability-card strong,
+.ability-card small {
+  margin: 0;
 }
 
 .detail-section h4 {
@@ -1357,10 +1388,6 @@ table {
   }
 
   .bestiary-detail__top {
-    margin-top: 1rem;
-  }
-
-  .bestiary-detail__media-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1407,7 +1434,7 @@ table {
   }
 
   .bestiary-kpis,
-  .bestiary-abilities,
+  .bestiary-detail__top-stats,
   .bestiary-detail__grid {
     grid-template-columns: 1fr 1fr;
   }

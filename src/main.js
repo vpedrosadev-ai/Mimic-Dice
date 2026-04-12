@@ -69,6 +69,9 @@ const bestiaryRenderCache = {
   optionEntries: new Map(),
   visibleOptions: new Map(),
   suggestions: new Map(),
+  rowHtml: new Map(),
+  listHtml: new Map(),
+  detailHtml: new Map(),
   staticOptions: {
     type: [],
     environment: [],
@@ -331,7 +334,14 @@ function handleClick(event) {
   }
 
   if (action === "select-bestiary-entry") {
+    const previousSelectedId = state.bestiarySelectedId;
     state.bestiarySelectedId = actionButton.dataset.entryId;
+
+    if (state.activeScreen === "bestiary") {
+      updateBestiarySelectionUI(previousSelectedId, state.bestiarySelectedId);
+      return;
+    }
+
     render();
     return;
   }
@@ -757,19 +767,11 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
 
   return `
     <div class="bestiary-layout">
-      <div class="bestiary-list" role="list" aria-label="Criaturas del bestiario">
-        ${
-          filteredEntries.length > 0
-            ? filteredEntries.map((entry) => renderBestiaryRow(entry, entry.id === selectedEntry?.id)).join("")
-            : `
-              <div class="empty-state empty-state--panel">
-                No hay criaturas que coincidan con los filtros actuales.
-              </div>
-            `
-        }
+      <div class="bestiary-list" role="list" aria-label="Criaturas del bestiario" data-bestiary-list-root>
+        ${renderBestiaryList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
-      <aside class="bestiary-detail panel panel--inner">
-        ${selectedEntry ? renderBestiaryDetail(selectedEntry) : renderBestiaryDetailEmpty()}
+      <aside class="bestiary-detail panel panel--inner" data-bestiary-detail-root>
+        ${selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty()}
       </aside>
     </div>
   `;
@@ -802,6 +804,7 @@ function renderBestiaryRow(entry, isSelected) {
       role="listitem"
       data-action="select-bestiary-entry"
       data-entry-id="${entry.id}"
+      data-bestiary-row-id="${entry.id}"
     >
       <div class="bestiary-row__layout">
         <div class="bestiary-row__content">
@@ -827,6 +830,73 @@ function renderBestiaryRow(entry, isSelected) {
   `;
 }
 
+function renderBestiaryList(filteredEntries, selectedId) {
+  if (filteredEntries.length === 0) {
+    return `
+      <div class="empty-state empty-state--panel">
+        No hay criaturas que coincidan con los filtros actuales.
+      </div>
+    `;
+  }
+
+  const cacheKey = `${filteredEntries.map((entry) => entry.id).join("|")}::${selectedId}`;
+  const cachedHtml = bestiaryRenderCache.listHtml.get(cacheKey);
+
+  if (cachedHtml) {
+    return cachedHtml;
+  }
+
+  const listHtml = filteredEntries
+    .map((entry) => getCachedBestiaryRowHtml(entry, entry.id === selectedId))
+    .join("");
+
+  bestiaryRenderCache.listHtml.set(cacheKey, listHtml);
+  return listHtml;
+}
+
+function getCachedBestiaryRowHtml(entry, isSelected) {
+  const cacheKey = `${entry.id}::${isSelected ? "selected" : "idle"}`;
+  const cachedHtml = bestiaryRenderCache.rowHtml.get(cacheKey);
+
+  if (cachedHtml) {
+    return cachedHtml;
+  }
+
+  const rowHtml = renderBestiaryRow(entry, isSelected);
+  bestiaryRenderCache.rowHtml.set(cacheKey, rowHtml);
+  return rowHtml;
+}
+
+function getCachedBestiaryDetailHtml(entry) {
+  const cachedHtml = bestiaryRenderCache.detailHtml.get(entry.id);
+
+  if (cachedHtml) {
+    return cachedHtml;
+  }
+
+  const detailHtml = renderBestiaryDetail(entry);
+  bestiaryRenderCache.detailHtml.set(entry.id, detailHtml);
+  return detailHtml;
+}
+
+function updateBestiarySelectionUI(previousSelectedId, nextSelectedId) {
+  if (previousSelectedId && previousSelectedId !== nextSelectedId) {
+    app.querySelector(`[data-bestiary-row-id="${previousSelectedId}"]`)?.classList.remove("is-selected");
+  }
+
+  app.querySelector(`[data-bestiary-row-id="${nextSelectedId}"]`)?.classList.add("is-selected");
+
+  const detailRoot = app.querySelector("[data-bestiary-detail-root]");
+
+  if (!detailRoot) {
+    return;
+  }
+
+  const filteredEntries = getFilteredBestiary();
+  const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
+  detailRoot.innerHTML = selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty();
+}
+
 function renderBestiaryDetail(entry) {
   const sections = [
     { title: "Traits", content: entry.traits },
@@ -838,17 +908,20 @@ function renderBestiaryDetail(entry) {
     { title: "Lair Actions", content: entry.lairActions },
     { title: "Regional Effects", content: entry.regionalEffects }
   ].filter((section) => section.content);
-  const detailMedia = renderBestiaryDetailMedia(entry);
 
   return `
     <div class="bestiary-detail__header">
       <p class="eyebrow">Ficha seleccionada</p>
       <h3>${escapeHtml(entry.name)}</h3>
+      <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
       <p class="lead">${escapeHtml(entry.typeLine)}</p>
     </div>
 
     <div class="bestiary-detail__top">
-      ${detailMedia}
+      <div class="bestiary-detail__top-stats">
+        ${statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("")}
+      </div>
+      ${renderBestiaryDetailMedia(entry)}
     </div>
 
     <div class="bestiary-kpis">
@@ -871,10 +944,6 @@ function renderBestiaryDetail(entry) {
     </div>
 
     <div class="bestiary-detail__grid">
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Fuente</span>
-        <p>${escapeHtml(entry.sourceLabel)}</p>
-      </div>
       <div class="bestiary-detail__block">
         <span class="bestiary-detail__label">Alineamiento</span>
         <p>${escapeHtml(entry.alignment || "No indicado")}</p>
@@ -905,10 +974,6 @@ function renderBestiaryDetail(entry) {
       </div>
     </div>
 
-    <div class="bestiary-abilities">
-      ${statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("")}
-    </div>
-
     <div class="bestiary-resistances">
       ${renderDetailChip("Damage Vulnerabilities", entry.damageVulnerabilities)}
       ${renderDetailChip("Damage Resistances", entry.damageResistances)}
@@ -931,28 +996,28 @@ function renderBestiaryDetailEmpty() {
 }
 
 function renderBestiaryDetailMedia(entry) {
-  if (entry.imageUrl) {
+  const mediaUrl = entry.imageUrl || entry.tokenUrl;
+
+  if (mediaUrl) {
     return `
-      <div class="bestiary-detail__media-grid bestiary-detail__media-grid--single">
+      <div class="bestiary-detail__media">
         <figure class="bestiary-portrait">
           <img
             class="bestiary-portrait__image"
-            src="${escapeHtml(entry.imageUrl)}"
+            src="${escapeHtml(mediaUrl)}"
             alt="Ilustracion de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
             loading="lazy"
           />
-          <figcaption class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</figcaption>
         </figure>
       </div>
     `;
   }
 
   return `
-    <div class="bestiary-detail__media-grid bestiary-detail__media-grid--single">
+    <div class="bestiary-detail__media">
       <div class="bestiary-portrait bestiary-portrait--empty" aria-label="Ilustracion no disponible">
         <div class="bestiary-portrait__placeholder">${escapeHtml(getBestiaryInitials(entry.name))}</div>
         <p class="bestiary-portrait__hint">Sin ilustracion vinculada</p>
-        <p class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</p>
       </div>
     </div>
   `;
@@ -2407,6 +2472,9 @@ function resetBestiaryRenderCache() {
   bestiaryRenderCache.optionEntries.clear();
   bestiaryRenderCache.visibleOptions.clear();
   bestiaryRenderCache.suggestions.clear();
+  bestiaryRenderCache.rowHtml.clear();
+  bestiaryRenderCache.listHtml.clear();
+  bestiaryRenderCache.detailHtml.clear();
 }
 
 function hydrateBestiaryStaticOptions() {
