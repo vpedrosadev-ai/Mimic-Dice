@@ -64,13 +64,19 @@ const columns = [
   { key: "tag", label: "Bando", type: "tag", width: "12rem" }
 ];
 
-const bestiarySortOptions = [
-  { value: "name-asc", label: "Nombre A-Z" },
-  { value: "cr-asc", label: "CR ascendente" },
-  { value: "cr-desc", label: "CR descendente" },
-  { value: "ac-desc", label: "CA descendente" },
-  { value: "hp-desc", label: "PG descendente" }
-];
+const bestiaryRenderCache = {
+  filteredEntries: new Map(),
+  optionEntries: new Map(),
+  visibleOptions: new Map(),
+  suggestions: new Map(),
+  staticOptions: {
+    type: [],
+    environment: [],
+    crBase: [],
+    source: [],
+    names: []
+  }
+};
 
 const initialCombatants = [
   {
@@ -174,8 +180,7 @@ const blankBestiaryFilters = {
   source: [],
   type: [],
   environment: [],
-  crBase: [],
-  sort: "name-asc"
+  crBase: []
 };
 const blankBestiaryFilterSearch = {
   source: "",
@@ -201,8 +206,10 @@ const state = {
   bestiary: [],
   bestiaryImageMap: {},
   bestiaryFilters: { ...blankBestiaryFilters },
+  bestiarySort: { key: "name", direction: "asc" },
   activeBestiaryFilterKey: "",
   bestiaryFilterSearch: { ...blankBestiaryFilterSearch },
+  showBestiaryQuerySuggestions: false,
   bestiarySelectedId: "",
   bestiaryStatus: "loading",
   bestiaryMessage: ""
@@ -211,6 +218,7 @@ const state = {
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
+app.addEventListener("keydown", handleKeydown);
 
 render();
 loadBestiary();
@@ -226,6 +234,7 @@ function handleClick(event) {
 
   const actionButton = event.target.closest("[data-action]");
   const clickedBestiaryFilter = event.target.closest("[data-bestiary-filter-menu]");
+  const clickedBestiaryQuery = event.target.closest("[data-bestiary-query-menu]");
 
   if (
     state.activeBestiaryFilterKey &&
@@ -233,6 +242,15 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-bestiary-filter"
   ) {
     state.activeBestiaryFilterKey = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showBestiaryQuerySuggestions && !clickedBestiaryQuery) {
+    state.showBestiaryQuerySuggestions = false;
 
     if (!actionButton) {
       render();
@@ -318,6 +336,21 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-bestiary-sort") {
+    toggleBestiarySort(actionButton.dataset.bestiarySortKey);
+    render();
+    return;
+  }
+
+  if (action === "select-bestiary-query-suggestion") {
+    state.bestiaryFilters.query = actionButton.dataset.bestiaryQueryValue ?? "";
+    state.showBestiaryQuerySuggestions = false;
+    render({
+      focusSelector: "[data-bestiary-query]"
+    });
+    return;
+  }
+
   if (action === "toggle-bestiary-filter") {
     const nextKey = state.activeBestiaryFilterKey === actionButton.dataset.bestiaryFilterKey ? "" : actionButton.dataset.bestiaryFilterKey;
     state.activeBestiaryFilterKey = nextKey;
@@ -347,6 +380,7 @@ function handleClick(event) {
     state.bestiaryFilters = { ...blankBestiaryFilters };
     state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
     state.activeBestiaryFilterKey = "";
+    state.showBestiaryQuerySuggestions = false;
     render({
       focusSelector: "[data-bestiary-query]"
     });
@@ -441,6 +475,7 @@ function handleInput(event) {
 
   if (target.matches("[data-bestiary-query]")) {
     state.bestiaryFilters.query = target.value;
+    state.showBestiaryQuerySuggestions = cleanText(target.value).length > 0;
     render({
       focusSelector: "[data-bestiary-query]",
       selectionStart: target.selectionStart,
@@ -455,6 +490,17 @@ function handleInput(event) {
       focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterSearch}"]`,
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
+    });
+  }
+}
+
+function handleKeydown(event) {
+  const target = event.target;
+
+  if (target.matches("[data-bestiary-query]") && event.key === "Enter") {
+    state.showBestiaryQuerySuggestions = false;
+    render({
+      focusSelector: "[data-bestiary-query]"
     });
   }
 }
@@ -675,29 +721,16 @@ function renderBestiary() {
       </div>
 
       <div class="bestiary-toolbar" aria-label="Filtros del bestiario">
-        <label class="toolbar-field toolbar-field--search">
-          <span>Buscar criatura</span>
-          <input
-            class="filter-input filter-input--wide"
-            type="search"
-            value="${escapeHtml(state.bestiaryFilters.query)}"
-            placeholder="Nombre, rasgo, accion, idioma..."
-            data-bestiary-query
-          />
-        </label>
-        ${renderBestiaryFilterDropdown("source", "Fuente")}
-        ${renderBestiaryFilterDropdown("type", "Tipo")}
-        ${renderBestiaryFilterDropdown("environment", "Entorno")}
-        ${renderBestiaryFilterDropdown("crBase", "CR base")}
-        <label class="toolbar-field">
-          <span>Orden</span>
-          <select data-bestiary-filter="sort">
-            ${bestiarySortOptions
-              .map((option) => `<option value="${option.value}" ${option.value === state.bestiaryFilters.sort ? "selected" : ""}>${option.label}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <button class="toolbar-button" type="button" data-action="clear-bestiary-filters">Limpiar filtros</button>
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
+          ${renderBestiaryQueryField()}
+          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-bestiary-filters">Limpiar filtros</button>
+        </div>
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--filters">
+          ${renderBestiaryFilterDropdown("type", "Tipo")}
+          ${renderBestiaryFilterDropdown("environment", "Entorno")}
+          ${renderBestiaryFilterDropdown("crBase", "CR")}
+          ${renderBestiaryFilterDropdown("source", "Fuente")}
+        </div>
       </div>
 
       ${renderBestiaryContent(filteredEntries, selectedEntry)}
@@ -754,11 +787,13 @@ function renderBestiaryRow(entry, isSelected) {
         />
       </div>
     `
-    : `
-      <div class="bestiary-row__token bestiary-row__token--empty" aria-hidden="true">
-        <span>${escapeHtml(getBestiaryInitials(entry.name))}</span>
-      </div>
-    `;
+    : "";
+  const detailItems = [
+    ["Type", entry.type || "-"],
+    ["Environment", entry.environment || "Sin entorno"],
+    ["Size", entry.size || "-"],
+    ["Alignment", entry.alignment || "-"]
+  ];
 
   return `
     <button
@@ -768,25 +803,25 @@ function renderBestiaryRow(entry, isSelected) {
       data-action="select-bestiary-entry"
       data-entry-id="${entry.id}"
     >
-      <div class="bestiary-row__main">
-        <div>
+      <div class="bestiary-row__layout">
+        <div class="bestiary-row__content">
           <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-          <p class="bestiary-row__meta">${escapeHtml(entry.typeLine)}</p>
+          <div class="bestiary-row__facts">
+            ${detailItems.map(([label, value]) => `
+              <p class="bestiary-row__fact">
+                <span class="bestiary-row__fact-label">${escapeHtml(label)}:</span>
+                <span class="bestiary-row__fact-value">${escapeHtml(value)}</span>
+              </p>
+            `).join("")}
+          </div>
         </div>
-        <div class="bestiary-row__chips">
-          ${tokenBadge}
-          <span class="pill">${escapeHtml(entry.sourceLabel)}</span>
-          <span class="pill">${escapeHtml(entry.crLabel)}</span>
+        <div class="bestiary-row__aside">
+          <span class="pill bestiary-row__source-pill">${escapeHtml(entry.sourceLabel)}</span>
+          <div class="bestiary-row__cr">
+            <span class="pill">${escapeHtml(entry.crLabel)}</span>
+          </div>
+          ${tokenBadge ? `<div class="bestiary-row__token-wrap">${tokenBadge}</div>` : ""}
         </div>
-      </div>
-      <div class="bestiary-row__stats">
-        <span>CA ${escapeHtml(entry.ac || "-")}</span>
-        <span>PG ${escapeHtml(entry.hp || "-")}</span>
-        <span>${escapeHtml(entry.speed || "Sin velocidad")}</span>
-      </div>
-      <div class="bestiary-row__footer">
-        <span>${escapeHtml(entry.environmentShort || "Entorno sin especificar")}</span>
-        <span>${escapeHtml(entry.languages || "Sin idiomas")}</span>
       </div>
     </button>
   `;
@@ -1335,9 +1370,19 @@ function getVisibleCombatants() {
 }
 
 function getFilteredBestiary() {
-  return [...state.bestiary]
-    .filter(matchesBestiaryFilters)
+  const cacheKey = getBestiaryCacheKey(state.bestiaryFilters, true);
+  const cachedEntries = bestiaryRenderCache.filteredEntries.get(cacheKey);
+
+  if (cachedEntries) {
+    return cachedEntries;
+  }
+
+  const filteredEntries = [...state.bestiary]
+    .filter((entry) => matchesBestiaryFilters(entry))
     .sort(compareBestiaryEntries);
+
+  bestiaryRenderCache.filteredEntries.set(cacheKey, filteredEntries);
+  return filteredEntries;
 }
 
 function getSelectedBestiaryEntry(filteredEntries = getFilteredBestiary()) {
@@ -1366,11 +1411,18 @@ function matchesFilters(combatant) {
   });
 }
 
-function matchesBestiaryFilters(entry) {
-  const query = state.bestiaryFilters.query.trim().toLowerCase();
-  const { source, type, environment, crBase } = state.bestiaryFilters;
+function matchesBestiaryFilters(entry, overrides = {}) {
+  const filters = {
+    ...state.bestiaryFilters,
+    ...overrides
+  };
+  const query = cleanText(filters.query).toLowerCase();
+  const source = Array.isArray(filters.source) ? filters.source : [];
+  const type = Array.isArray(filters.type) ? filters.type : [];
+  const environment = Array.isArray(filters.environment) ? filters.environment : [];
+  const crBase = Array.isArray(filters.crBase) ? filters.crBase : [];
 
-  if (query && !entry.searchText.includes(query)) {
+  if (query && !entry.nameLower.includes(query)) {
     return false;
   }
 
@@ -1414,25 +1466,42 @@ function compareCombatants(left, right) {
 }
 
 function compareBestiaryEntries(left, right) {
-  const sort = state.bestiaryFilters.sort;
+  const { key, direction } = state.bestiarySort;
+  const multiplier = direction === "desc" ? -1 : 1;
 
-  if (sort === "cr-asc") {
-    return left.crValue - right.crValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "crBase") {
+    return ((left.crValue - right.crValue)
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "cr-desc") {
-    return right.crValue - left.crValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "type") {
+    return (left.type.localeCompare(right.type, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "ac-desc") {
-    return right.acValue - left.acValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "environment") {
+    return (left.environment.localeCompare(right.environment, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "hp-desc") {
-    return right.hpValue - left.hpValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "source") {
+    return (left.source.localeCompare(right.source, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  return left.name.localeCompare(right.name, "es", { sensitivity: "base" }) * multiplier;
+}
+
+function toggleBestiarySort(key) {
+  if (state.bestiarySort.key !== key) {
+    state.bestiarySort = { key, direction: "asc" };
+    return;
+  }
+
+  state.bestiarySort = {
+    key,
+    direction: state.bestiarySort.direction === "asc" ? "desc" : "asc"
+  };
 }
 
 function toggleSort(key) {
@@ -1842,6 +1911,8 @@ async function loadBestiary() {
 
     state.bestiaryImageMap = imageMap;
     state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index, imageMap));
+    hydrateBestiaryStaticOptions();
+    resetBestiaryRenderCache();
     state.bestiaryStatus = "ready";
     state.bestiarySelectedId = state.bestiary[0]?.id ?? "";
     render();
@@ -2003,6 +2074,7 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
     id: compositeKey || `bestiary-${index + 1}`,
     compositeKey,
     name,
+    nameLower: name.toLowerCase(),
     source,
     page,
     size,
@@ -2050,36 +2122,46 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
 function renderBestiaryFilterDropdown(key, label) {
   const isOpen = state.activeBestiaryFilterKey === key;
   const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
-  const visibleOptions = getVisibleBestiaryFilterOptions(key);
+  const allowSearch = key === "type" || key === "environment";
+  const visibleOptions = isOpen ? getVisibleBestiaryFilterOptions(key) : [];
 
   return `
     <div class="toolbar-field bestiary-filter" data-bestiary-filter-menu>
       <span>${label}</span>
-      <button
-        class="bestiary-filter__trigger ${selectedValues.length > 0 ? "is-active" : ""}"
-        type="button"
-        data-action="toggle-bestiary-filter"
-        data-bestiary-filter-key="${key}"
-        aria-expanded="${isOpen}"
-        aria-haspopup="dialog"
-      >
-        <span>${escapeHtml(getBestiaryFilterSummary(key, label))}</span>
-        <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
-      </button>
+      <div class="bestiary-filter__controls">
+        <button
+          class="bestiary-filter__trigger ${selectedValues.length > 0 ? "is-active" : ""}"
+          type="button"
+          data-action="toggle-bestiary-filter"
+          data-bestiary-filter-key="${key}"
+          aria-expanded="${isOpen}"
+          aria-haspopup="dialog"
+        >
+          <span>${escapeHtml(getBestiaryFilterSummary(key, label))}</span>
+          <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
+        </button>
+        ${renderBestiarySortButton(key, `Ordenar por ${label}`)}
+      </div>
       ${
         isOpen
           ? `
             <div class="bestiary-filter__popover" data-bestiary-filter-menu>
-              <label class="bestiary-filter__search">
-                <span>Buscar ${label.toLowerCase()}</span>
-                <input
-                  class="filter-input"
-                  type="search"
-                  value="${escapeHtml(state.bestiaryFilterSearch[key])}"
-                  placeholder="Buscar opcion..."
-                  data-bestiary-filter-search="${key}"
-                />
-              </label>
+              ${
+                allowSearch
+                  ? `
+                    <label class="bestiary-filter__search">
+                      <span>Buscar ${label.toLowerCase()}</span>
+                      <input
+                        class="filter-input"
+                        type="search"
+                        value="${escapeHtml(state.bestiaryFilterSearch[key])}"
+                        placeholder="Buscar opcion..."
+                        data-bestiary-filter-search="${key}"
+                      />
+                    </label>
+                  `
+                  : ""
+              }
               <div class="bestiary-filter__actions">
                 <button
                   class="filter-clear"
@@ -2115,6 +2197,62 @@ function renderBestiaryFilterDropdown(key, label) {
   `;
 }
 
+function renderBestiaryQueryField() {
+  const suggestions = getBestiaryNameSuggestions();
+
+  return `
+    <div class="toolbar-field toolbar-field--search bestiary-query" data-bestiary-query-menu>
+      <span>Buscar criatura</span>
+      <div class="bestiary-filter__controls">
+        <input
+          class="filter-input filter-input--wide"
+          type="search"
+          value="${escapeHtml(state.bestiaryFilters.query)}"
+          placeholder="Escribe un nombre de criatura"
+          data-bestiary-query
+        />
+        ${renderBestiarySortButton("name", "Ordenar por nombre")}
+      </div>
+      ${
+        state.showBestiaryQuerySuggestions && suggestions.length > 0
+          ? `
+            <div class="bestiary-query__popover" role="listbox" aria-label="Sugerencias de criatura">
+              ${suggestions.map((value) => `
+                <button
+                  class="bestiary-query__option"
+                  type="button"
+                  data-action="select-bestiary-query-suggestion"
+                  data-bestiary-query-value="${escapeHtml(value)}"
+                >
+                  ${escapeHtml(value)}
+                </button>
+              `).join("")}
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderBestiarySortButton(key, label) {
+  const isActive = state.bestiarySort.key === key;
+  const indicator = !isActive ? "Sort" : state.bestiarySort.direction === "asc" ? "Asc" : "Desc";
+
+  return `
+    <button
+      class="bestiary-sort-button ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-bestiary-sort"
+      data-bestiary-sort-key="${key}"
+      aria-label="${label}"
+      title="${label}"
+    >
+      ${indicator}
+    </button>
+  `;
+}
+
 function renderBestiaryFilterCheckbox(key, value) {
   const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
 
@@ -2132,8 +2270,12 @@ function renderBestiaryFilterCheckbox(key, value) {
 }
 
 function getBestiaryFilterOptions(key) {
+  if (!hasBestiaryConstraintsBesides(key)) {
+    return bestiaryRenderCache.staticOptions[key] ?? [];
+  }
+
   return [...new Set(
-    state.bestiary.flatMap((entry) => {
+    getBestiaryEntriesForFilterOptions(key).flatMap((entry) => {
       if (key === "environment") {
         return entry.environmentTokens;
       }
@@ -2147,16 +2289,39 @@ function getBestiaryFilterOptions(key) {
   )].sort((left, right) => compareBestiaryFilterValues(key, left, right));
 }
 
+function getBestiaryEntriesForFilterOptions(key) {
+  const overrides = { [key]: [] };
+  const cacheKey = `${key}::${getBestiaryCacheKey(overridesBestiaryFilters(overrides), false)}`;
+  const cachedEntries = bestiaryRenderCache.optionEntries.get(cacheKey);
+
+  if (cachedEntries) {
+    return cachedEntries;
+  }
+
+  const compatibleEntries = state.bestiary.filter((entry) => matchesBestiaryFilters(entry, overrides));
+  bestiaryRenderCache.optionEntries.set(cacheKey, compatibleEntries);
+  return compatibleEntries;
+}
+
 function getVisibleBestiaryFilterOptions(key) {
   const search = cleanText(state.bestiaryFilterSearch[key]).toLowerCase();
+  const cacheKey = `${key}::${search}::${getBestiaryCacheKey(overridesBestiaryFilters({ [key]: [] }), false)}`;
+  const cachedOptions = bestiaryRenderCache.visibleOptions.get(cacheKey);
 
-  return getBestiaryFilterOptions(key).filter((value) => {
+  if (cachedOptions) {
+    return cachedOptions;
+  }
+
+  const visibleOptions = getBestiaryFilterOptions(key).filter((value) => {
     if (!search) {
       return true;
     }
 
     return value.toLowerCase().includes(search);
   });
+
+  bestiaryRenderCache.visibleOptions.set(cacheKey, visibleOptions);
+  return visibleOptions;
 }
 
 function getBestiaryFilterSummary(key, label) {
@@ -2171,6 +2336,99 @@ function getBestiaryFilterSummary(key, label) {
   }
 
   return `${label}: ${selectedValues.length} seleccionados`;
+}
+
+function getBestiaryNameSuggestions() {
+  const query = cleanText(state.bestiaryFilters.query).toLowerCase();
+
+  if (!query) {
+    return [];
+  }
+
+  const cacheKey = `${query}::${getBestiaryCacheKey(overridesBestiaryFilters({ query: "" }), false)}`;
+  const cachedSuggestions = bestiaryRenderCache.suggestions.get(cacheKey);
+
+  if (cachedSuggestions) {
+    return cachedSuggestions;
+  }
+
+  const suggestionSource = hasBestiaryConstraintsBesides("query")
+    ? state.bestiary
+      .filter((entry) => matchesBestiaryFilters(entry, { query: "" }))
+      .filter((entry) => entry.nameLower.includes(query))
+      .map((entry) => entry.name)
+    : bestiaryRenderCache.staticOptions.names.filter((name) => name.toLowerCase().includes(query));
+
+  const suggestions = [...new Set(suggestionSource)].slice(0, 12);
+
+  bestiaryRenderCache.suggestions.set(cacheKey, suggestions);
+  return suggestions;
+}
+
+function overridesBestiaryFilters(overrides = {}) {
+  return {
+    ...state.bestiaryFilters,
+    ...overrides
+  };
+}
+
+function getBestiaryCacheKey(filters, includeSort = true) {
+  const parts = [
+    cleanText(filters.query).toLowerCase(),
+    [...(filters.type ?? [])].sort().join("|"),
+    [...(filters.environment ?? [])].sort().join("|"),
+    [...(filters.crBase ?? [])].sort().join("|"),
+    [...(filters.source ?? [])].sort().join("|")
+  ];
+
+  if (includeSort) {
+    parts.push(state.bestiarySort.key, state.bestiarySort.direction);
+  }
+
+  return parts.join("::");
+}
+
+function hasBestiaryConstraintsBesides(excludedKey) {
+  if (excludedKey !== "query" && cleanText(state.bestiaryFilters.query)) {
+    return true;
+  }
+
+  return ["type", "environment", "crBase", "source"].some((key) => {
+    if (key === excludedKey) {
+      return false;
+    }
+
+    return (state.bestiaryFilters[key] ?? []).length > 0;
+  });
+}
+
+function resetBestiaryRenderCache() {
+  bestiaryRenderCache.filteredEntries.clear();
+  bestiaryRenderCache.optionEntries.clear();
+  bestiaryRenderCache.visibleOptions.clear();
+  bestiaryRenderCache.suggestions.clear();
+}
+
+function hydrateBestiaryStaticOptions() {
+  bestiaryRenderCache.staticOptions.type = [...new Set(
+    state.bestiary.map((entry) => entry.type).filter(Boolean)
+  )].sort((left, right) => compareBestiaryFilterValues("type", left, right));
+
+  bestiaryRenderCache.staticOptions.environment = [...new Set(
+    state.bestiary.flatMap((entry) => entry.environmentTokens).filter(Boolean)
+  )].sort((left, right) => compareBestiaryFilterValues("environment", left, right));
+
+  bestiaryRenderCache.staticOptions.crBase = [...new Set(
+    state.bestiary.map((entry) => entry.crBaseLabel).filter(Boolean)
+  )].sort((left, right) => compareBestiaryFilterValues("crBase", left, right));
+
+  bestiaryRenderCache.staticOptions.source = [...new Set(
+    state.bestiary.map((entry) => entry.source).filter(Boolean)
+  )].sort((left, right) => compareBestiaryFilterValues("source", left, right));
+
+  bestiaryRenderCache.staticOptions.names = [...new Set(
+    state.bestiary.map((entry) => entry.name).filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
 
 function getBestiaryStatusLabel() {
