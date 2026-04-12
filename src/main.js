@@ -177,6 +177,12 @@ const blankBestiaryFilters = {
   crBase: [],
   sort: "name-asc"
 };
+const blankBestiaryFilterSearch = {
+  source: "",
+  type: "",
+  environment: "",
+  crBase: ""
+};
 
 const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
@@ -195,6 +201,8 @@ const state = {
   bestiary: [],
   bestiaryImageMap: {},
   bestiaryFilters: { ...blankBestiaryFilters },
+  activeBestiaryFilterKey: "",
+  bestiaryFilterSearch: { ...blankBestiaryFilterSearch },
   bestiarySelectedId: "",
   bestiaryStatus: "loading",
   bestiaryMessage: ""
@@ -217,6 +225,20 @@ function handleClick(event) {
   }
 
   const actionButton = event.target.closest("[data-action]");
+  const clickedBestiaryFilter = event.target.closest("[data-bestiary-filter-menu]");
+
+  if (
+    state.activeBestiaryFilterKey &&
+    !clickedBestiaryFilter &&
+    actionButton?.dataset.action !== "toggle-bestiary-filter"
+  ) {
+    state.activeBestiaryFilterKey = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
 
   if (!actionButton) {
     return;
@@ -296,8 +318,35 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-bestiary-filter") {
+    const nextKey = state.activeBestiaryFilterKey === actionButton.dataset.bestiaryFilterKey ? "" : actionButton.dataset.bestiaryFilterKey;
+    state.activeBestiaryFilterKey = nextKey;
+    render({
+      focusSelector: nextKey ? `[data-bestiary-filter-search="${nextKey}"]` : null
+    });
+    return;
+  }
+
+  if (action === "clear-bestiary-filter") {
+    updateBestiaryFilter(actionButton.dataset.bestiaryFilterKey, []);
+    render({
+      focusSelector: `[data-bestiary-filter-search="${actionButton.dataset.bestiaryFilterKey}"]`
+    });
+    return;
+  }
+
+  if (action === "select-visible-bestiary-options") {
+    updateBestiaryFilter(actionButton.dataset.bestiaryFilterKey, getVisibleBestiaryFilterOptions(actionButton.dataset.bestiaryFilterKey));
+    render({
+      focusSelector: `[data-bestiary-filter-search="${actionButton.dataset.bestiaryFilterKey}"]`
+    });
+    return;
+  }
+
   if (action === "clear-bestiary-filters") {
     state.bestiaryFilters = { ...blankBestiaryFilters };
+    state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
+    state.activeBestiaryFilterKey = "";
     render({
       focusSelector: "[data-bestiary-query]"
     });
@@ -346,6 +395,14 @@ function handleChange(event) {
   if (target.matches("[data-bestiary-filter]")) {
     updateBestiaryFilter(target.dataset.bestiaryFilter, getBestiaryFilterInputValue(target));
     render();
+    return;
+  }
+
+  if (target.matches("[data-bestiary-filter-option]")) {
+    toggleBestiaryFilterValue(target.dataset.bestiaryFilterOption, target.value, target.checked);
+    render({
+      focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterOption}"]`
+    });
   }
 }
 
@@ -386,6 +443,16 @@ function handleInput(event) {
     state.bestiaryFilters.query = target.value;
     render({
       focusSelector: "[data-bestiary-query]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-bestiary-filter-search]")) {
+    state.bestiaryFilterSearch[target.dataset.bestiaryFilterSearch] = target.value;
+    render({
+      focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterSearch}"]`,
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
@@ -618,30 +685,10 @@ function renderBestiary() {
             data-bestiary-query
           />
         </label>
-        <label class="toolbar-field">
-          <span>Fuente</span>
-          <select data-bestiary-filter="source" multiple size="6" aria-label="Filtrar por fuente">
-            ${renderBestiaryFilterOptions("source")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Tipo</span>
-          <select data-bestiary-filter="type" multiple size="6" aria-label="Filtrar por tipo">
-            ${renderBestiaryFilterOptions("type")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Entorno</span>
-          <select data-bestiary-filter="environment" multiple size="6" aria-label="Filtrar por entorno">
-            ${renderBestiaryFilterOptions("environment")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>CR base</span>
-          <select data-bestiary-filter="crBase" multiple size="6" aria-label="Filtrar por CR base">
-            ${renderBestiaryFilterOptions("crBase")}
-          </select>
-        </label>
+        ${renderBestiaryFilterDropdown("source", "Fuente")}
+        ${renderBestiaryFilterDropdown("type", "Tipo")}
+        ${renderBestiaryFilterDropdown("environment", "Entorno")}
+        ${renderBestiaryFilterDropdown("crBase", "CR base")}
         <label class="toolbar-field">
           <span>Orden</span>
           <select data-bestiary-filter="sort">
@@ -1473,6 +1520,15 @@ function updateBestiaryFilter(key, value) {
   state.bestiaryFilters[key] = value;
 }
 
+function toggleBestiaryFilterValue(key, value, checked) {
+  const currentValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+  const nextValues = checked
+    ? [...new Set([...currentValues, value])]
+    : currentValues.filter((item) => item !== value);
+
+  updateBestiaryFilter(key, nextValues);
+}
+
 function addEntity() {
   const basePg = 10;
   const id = `entity-${state.nextId}`;
@@ -1991,8 +2047,92 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
   };
 }
 
-function renderBestiaryFilterOptions(key) {
-  const values = [...new Set(
+function renderBestiaryFilterDropdown(key, label) {
+  const isOpen = state.activeBestiaryFilterKey === key;
+  const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+  const visibleOptions = getVisibleBestiaryFilterOptions(key);
+
+  return `
+    <div class="toolbar-field bestiary-filter" data-bestiary-filter-menu>
+      <span>${label}</span>
+      <button
+        class="bestiary-filter__trigger ${selectedValues.length > 0 ? "is-active" : ""}"
+        type="button"
+        data-action="toggle-bestiary-filter"
+        data-bestiary-filter-key="${key}"
+        aria-expanded="${isOpen}"
+        aria-haspopup="dialog"
+      >
+        <span>${escapeHtml(getBestiaryFilterSummary(key, label))}</span>
+        <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
+      </button>
+      ${
+        isOpen
+          ? `
+            <div class="bestiary-filter__popover" data-bestiary-filter-menu>
+              <label class="bestiary-filter__search">
+                <span>Buscar ${label.toLowerCase()}</span>
+                <input
+                  class="filter-input"
+                  type="search"
+                  value="${escapeHtml(state.bestiaryFilterSearch[key])}"
+                  placeholder="Buscar opcion..."
+                  data-bestiary-filter-search="${key}"
+                />
+              </label>
+              <div class="bestiary-filter__actions">
+                <button
+                  class="filter-clear"
+                  type="button"
+                  data-action="select-visible-bestiary-options"
+                  data-bestiary-filter-key="${key}"
+                  ${visibleOptions.length === 0 ? "disabled" : ""}
+                >
+                  Seleccionar visibles
+                </button>
+                <button
+                  class="filter-clear"
+                  type="button"
+                  data-action="clear-bestiary-filter"
+                  data-bestiary-filter-key="${key}"
+                  ${selectedValues.length === 0 ? "disabled" : ""}
+                >
+                  Limpiar
+                </button>
+              </div>
+              <div class="bestiary-filter__list" role="group" aria-label="${label}">
+                ${
+                  visibleOptions.length > 0
+                    ? visibleOptions.map((value) => renderBestiaryFilterCheckbox(key, value)).join("")
+                    : `<p class="bestiary-filter__empty">No hay opciones que coincidan con la busqueda.</p>`
+                }
+              </div>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderBestiaryFilterCheckbox(key, value) {
+  const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+
+  return `
+    <label class="bestiary-filter__option">
+      <input
+        type="checkbox"
+        value="${escapeHtml(value)}"
+        data-bestiary-filter-option="${key}"
+        ${selectedValues.includes(value) ? "checked" : ""}
+      />
+      <span>${escapeHtml(value)}</span>
+    </label>
+  `;
+}
+
+function getBestiaryFilterOptions(key) {
+  return [...new Set(
     state.bestiary.flatMap((entry) => {
       if (key === "environment") {
         return entry.environmentTokens;
@@ -2005,12 +2145,32 @@ function renderBestiaryFilterOptions(key) {
       return [entry[key]];
     }).filter(Boolean)
   )].sort((left, right) => compareBestiaryFilterValues(key, left, right));
+}
 
+function getVisibleBestiaryFilterOptions(key) {
+  const search = cleanText(state.bestiaryFilterSearch[key]).toLowerCase();
+
+  return getBestiaryFilterOptions(key).filter((value) => {
+    if (!search) {
+      return true;
+    }
+
+    return value.toLowerCase().includes(search);
+  });
+}
+
+function getBestiaryFilterSummary(key, label) {
   const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
 
-  return values
-    .map((value) => `<option value="${escapeHtml(value)}" ${selectedValues.includes(value) ? "selected" : ""}>${escapeHtml(value)}</option>`)
-    .join("");
+  if (selectedValues.length === 0) {
+    return `${label}: todos`;
+  }
+
+  if (selectedValues.length === 1) {
+    return `${label}: ${selectedValues[0]}`;
+  }
+
+  return `${label}: ${selectedValues.length} seleccionados`;
 }
 
 function getBestiaryStatusLabel() {

@@ -348,6 +348,100 @@ table {
   border-radius: 10px;
 }
 
+.bestiary-filter {
+  position: relative;
+  min-width: min(100%, 13rem);
+}
+
+.bestiary-filter__trigger {
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03)),
+    rgba(17, 14, 22, 0.92);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bestiary-filter__trigger.is-active {
+  border-color: rgba(216, 177, 95, 0.45);
+  box-shadow: 0 0 0 1px rgba(216, 177, 95, 0.16);
+}
+
+.bestiary-filter__popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.45rem);
+  z-index: 8;
+  width: min(21rem, 88vw);
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: rgba(25, 20, 31, 0.98);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+}
+
+.bestiary-filter__search {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.bestiary-filter__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bestiary-filter__list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 16rem;
+  padding-right: 0.2rem;
+  overflow: auto;
+}
+
+.bestiary-filter__option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.bestiary-filter__option input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #d8b15f;
+}
+
+.bestiary-filter__option:hover {
+  border-color: rgba(216, 177, 95, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.bestiary-filter__empty {
+  margin: 0;
+  padding: 0.75rem 0.35rem 0.25rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .toolbar-button {
   display: inline-flex;
   align-items: center;
@@ -1189,6 +1283,12 @@ table {
     left: auto;
     right: 0;
     width: min(16rem, 76vw);
+  }
+
+  .bestiary-filter__popover {
+    left: 0;
+    right: auto;
+    width: min(100%, 24rem);
   }
 
   .bestiary-row__main,
