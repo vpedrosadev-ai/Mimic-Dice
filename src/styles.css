@@ -321,6 +321,11 @@ table {
   padding: 0.7rem 0.95rem;
 }
 
+.toolbar-field select[multiple] {
+  min-height: 10.5rem;
+  padding: 0.55rem;
+}
+
 .toolbar-field select,
 .cell-select-input {
   appearance: none;
@@ -336,6 +341,11 @@ table {
 .cell-select-input option {
   color: #120f17;
   background: #f4ead7;
+}
+
+.toolbar-field select[multiple] option {
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
 }
 
 .toolbar-button {
@@ -938,6 +948,7 @@ table {
 
 .bestiary-detail__media-grid--single {
   grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
 }
 
 .bestiary-detail__header h3,
@@ -949,12 +960,13 @@ table {
   margin: 0;
   display: grid;
   gap: 0.7rem;
+  width: min(100%, 220px);
 }
 
 .bestiary-portrait__image,
 .bestiary-portrait--empty {
   width: 100%;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1 / 1;
   border-radius: 24px;
   border: 1px solid var(--line);
   background:
@@ -965,7 +977,7 @@ table {
 
 .bestiary-portrait__image {
   display: block;
-  padding: 0.85rem;
+  padding: 0.6rem;
   object-fit: contain;
   object-position: center;
 }

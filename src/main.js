@@ -171,15 +171,11 @@ const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const blankBestiaryFilters = {
   query: "",
-  source: "",
-  type: "",
-  environment: "",
+  source: [],
+  type: [],
+  environment: [],
+  crBase: [],
   sort: "name-asc"
-};
-const bestiaryFilterLabels = {
-  source: "fuente",
-  type: "tipo",
-  environment: "entorno"
 };
 
 const app = document.querySelector("#app");
@@ -348,7 +344,7 @@ function handleChange(event) {
   }
 
   if (target.matches("[data-bestiary-filter]")) {
-    updateBestiaryFilter(target.dataset.bestiaryFilter, target.value);
+    updateBestiaryFilter(target.dataset.bestiaryFilter, getBestiaryFilterInputValue(target));
     render();
   }
 }
@@ -596,23 +592,8 @@ function renderCombatTracker() {
 function renderBestiary() {
   const filteredEntries = getFilteredBestiary();
   const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
-  const summaries = getBestiarySummaries(filteredEntries);
 
   return `
-    <section class="panel panel--hero">
-      <div class="panel__copy">
-        <p class="eyebrow">Pantalla 2</p>
-        <h2>Bestiario</h2>
-        <p class="lead">
-          Inventario de criaturas cargado desde <code>${BESTIARY_CSV_PATH}</code>, pensado para consultar datos rapidos
-          y preparar futuras referencias dentro del combat tracker.
-        </p>
-      </div>
-      <div class="summary-grid">
-        ${summaries.map(renderSummaryCard).join("")}
-      </div>
-    </section>
-
     <section class="panel panel--table">
       <div class="section-heading">
         <div>
@@ -639,20 +620,26 @@ function renderBestiary() {
         </label>
         <label class="toolbar-field">
           <span>Fuente</span>
-          <select data-bestiary-filter="source">
+          <select data-bestiary-filter="source" multiple size="6" aria-label="Filtrar por fuente">
             ${renderBestiaryFilterOptions("source")}
           </select>
         </label>
         <label class="toolbar-field">
           <span>Tipo</span>
-          <select data-bestiary-filter="type">
+          <select data-bestiary-filter="type" multiple size="6" aria-label="Filtrar por tipo">
             ${renderBestiaryFilterOptions("type")}
           </select>
         </label>
         <label class="toolbar-field">
           <span>Entorno</span>
-          <select data-bestiary-filter="environment">
+          <select data-bestiary-filter="environment" multiple size="6" aria-label="Filtrar por entorno">
             ${renderBestiaryFilterOptions("environment")}
+          </select>
+        </label>
+        <label class="toolbar-field">
+          <span>CR base</span>
+          <select data-bestiary-filter="crBase" multiple size="6" aria-label="Filtrar por CR base">
+            ${renderBestiaryFilterOptions("crBase")}
           </select>
         </label>
         <label class="toolbar-field">
@@ -1294,19 +1281,6 @@ function getSummaries() {
   ];
 }
 
-function getBestiarySummaries(filteredEntries) {
-  const sources = new Set(filteredEntries.map((entry) => entry.source).filter(Boolean)).size;
-  const environments = new Set(filteredEntries.flatMap((entry) => entry.environmentTokens)).size;
-  const selected = getSelectedBestiaryEntry(filteredEntries);
-
-  return [
-    { label: "Criaturas", value: filteredEntries.length },
-    { label: "Fuentes", value: sources },
-    { label: "Entornos", value: environments },
-    { label: "Seleccion", value: selected ? selected.name : "Ninguna" }
-  ];
-}
-
 function getVisibleCombatants() {
   return [...state.combatants]
     .filter(matchesFilters)
@@ -1347,23 +1321,25 @@ function matchesFilters(combatant) {
 
 function matchesBestiaryFilters(entry) {
   const query = state.bestiaryFilters.query.trim().toLowerCase();
-  const source = state.bestiaryFilters.source;
-  const type = state.bestiaryFilters.type;
-  const environment = state.bestiaryFilters.environment;
+  const { source, type, environment, crBase } = state.bestiaryFilters;
 
   if (query && !entry.searchText.includes(query)) {
     return false;
   }
 
-  if (source && entry.source !== source) {
+  if (source.length > 0 && !source.includes(entry.source)) {
     return false;
   }
 
-  if (type && entry.type !== type) {
+  if (type.length > 0 && !type.includes(entry.type)) {
     return false;
   }
 
-  if (environment && !entry.environmentTokens.includes(environment)) {
+  if (environment.length > 0 && !environment.some((value) => entry.environmentTokens.includes(value))) {
+    return false;
+  }
+
+  if (crBase.length > 0 && !crBase.includes(entry.crBaseLabel)) {
     return false;
   }
 
@@ -1943,6 +1919,7 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
   const typeLine = [size, type, alignment].filter(Boolean).join(" | ");
   const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
   const crLabel = cr || "Sin CR";
+  const crBaseLabel = extractCrBaseLabel(cr);
   const compositeKey = buildBestiaryCompositeKey(name, source);
   const searchText = [
     name,
@@ -1952,6 +1929,7 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
     senses,
     languages,
     cr,
+    crBaseLabel,
     environment,
     traits,
     actions,
@@ -2001,9 +1979,11 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
     typeLine: typeLine || "Ficha sin clasificacion",
     sourceLabel,
     crLabel,
+    crBaseLabel,
     imageUrl: resolveBestiaryImageAsset(name, source, imageMap, "imageUrl"),
     tokenUrl: resolveBestiaryImageAsset(name, source, imageMap, "tokenUrl"),
     crValue: parseCrValue(cr),
+    crBaseValue: parseCrValue(crBaseLabel),
     acValue: parseLeadingNumber(ac),
     hpValue: parseLeadingNumber(hp),
     environmentShort: environmentTokens.slice(0, 2).join(", "),
@@ -2018,14 +1998,19 @@ function renderBestiaryFilterOptions(key) {
         return entry.environmentTokens;
       }
 
+      if (key === "crBase") {
+        return [entry.crBaseLabel];
+      }
+
       return [entry[key]];
     }).filter(Boolean)
-  )].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+  )].sort((left, right) => compareBestiaryFilterValues(key, left, right));
 
-  return [
-    `<option value="">Todas las ${bestiaryFilterLabels[key]}</option>`,
-    ...values.map((value) => `<option value="${escapeHtml(value)}" ${value === state.bestiaryFilters[key] ? "selected" : ""}>${escapeHtml(value)}</option>`)
-  ].join("");
+  const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+
+  return values
+    .map((value) => `<option value="${escapeHtml(value)}" ${selectedValues.includes(value) ? "selected" : ""}>${escapeHtml(value)}</option>`)
+    .join("");
 }
 
 function getBestiaryStatusLabel() {
@@ -2131,6 +2116,33 @@ function parseCrValue(value) {
   }
 
   return Number(match[3]);
+}
+
+function extractCrBaseLabel(value) {
+  const cleanValue = cleanText(value);
+
+  if (!cleanValue) {
+    return "";
+  }
+
+  return cleanValue.split("(")[0].trim();
+}
+
+function getBestiaryFilterInputValue(target) {
+  if (target.multiple) {
+    return [...target.selectedOptions].map((option) => option.value).filter(Boolean);
+  }
+
+  return target.value;
+}
+
+function compareBestiaryFilterValues(key, left, right) {
+  if (key === "crBase") {
+    return parseCrValue(left) - parseCrValue(right)
+      || left.localeCompare(right, "es", { numeric: true, sensitivity: "base" });
+  }
+
+  return left.localeCompare(right, "es", { sensitivity: "base" });
 }
 
 function toNumber(value) {
