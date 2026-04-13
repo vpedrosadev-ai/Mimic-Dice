@@ -450,6 +450,18 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "filter-bestiary-by-source") {
+    toggleExclusiveBestiaryFilterValue("source", actionButton.dataset.bestiarySourceValue ?? "");
+    render();
+    return;
+  }
+
+  if (action === "filter-bestiary-by-cr") {
+    toggleExclusiveBestiaryFilterValue("crBase", actionButton.dataset.bestiaryCrValue ?? "");
+    render();
+    return;
+  }
+
   if (action === "toggle-bestiary-sort") {
     toggleBestiarySort(actionButton.dataset.bestiarySortKey);
     render();
@@ -610,6 +622,15 @@ function handleInput(event) {
 
 function handleKeydown(event) {
   const target = event.target;
+
+  if (
+    target.matches('[data-action="select-bestiary-entry"]')
+    && (event.key === "Enter" || event.key === " ")
+  ) {
+    event.preventDefault();
+    target.click();
+    return;
+  }
 
   if (target.matches("[data-bestiary-query]") && event.key === "Enter") {
     state.showBestiaryQuerySuggestions = false;
@@ -900,10 +921,10 @@ function renderBestiaryRow(entry, isSelected) {
   ];
 
   return `
-    <button
+    <div
       class="bestiary-row ${isSelected ? "is-selected" : ""}"
-      type="button"
       role="listitem"
+      tabindex="0"
       data-action="select-bestiary-entry"
       data-entry-id="${entry.id}"
       data-bestiary-row-id="${entry.id}"
@@ -912,7 +933,15 @@ function renderBestiaryRow(entry, isSelected) {
         <div class="bestiary-row__content">
           <div class="bestiary-row__header">
             <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-            <span class="pill bestiary-row__source-pill">${escapeHtml(entry.sourceLabel)}</span>
+            <button
+              class="pill bestiary-row__source-pill bestiary-row__filter-pill"
+              type="button"
+              data-action="filter-bestiary-by-source"
+              data-bestiary-source-value="${escapeHtml(entry.source)}"
+              aria-label="Filtrar por fuente ${escapeHtml(entry.source)}"
+            >
+              ${escapeHtml(`FUENTE: ${entry.source || "?"}`)}
+            </button>
           </div>
           <div class="bestiary-row__facts">
             ${detailItems.map(([label, value]) => `
@@ -924,13 +953,21 @@ function renderBestiaryRow(entry, isSelected) {
           </div>
           <div class="bestiary-row__footer">
             <div class="bestiary-row__cr">
-              <span class="pill">${escapeHtml(`CR: ${entry.crBaseLabel || "Sin CR"}`)}</span>
+              <button
+                class="pill bestiary-row__filter-pill"
+                type="button"
+                data-action="filter-bestiary-by-cr"
+                data-bestiary-cr-value="${escapeHtml(entry.crBaseLabel || "")}"
+                aria-label="Filtrar por CR ${escapeHtml(entry.crBaseLabel || "Sin CR")}"
+              >
+                ${escapeHtml(`CR: ${entry.crBaseLabel || "Sin CR"}`)}
+              </button>
             </div>
           </div>
         </div>
         ${tokenBadge ? `<div class="bestiary-row__token-wrap">${tokenBadge}</div>` : ""}
       </div>
-    </button>
+    </div>
   `;
 }
 
@@ -1017,41 +1054,25 @@ function renderBestiaryDetail(entry) {
     <div class="bestiary-detail__header">
       <p class="eyebrow">Ficha seleccionada</p>
       <h3>${escapeHtml(entry.name)}</h3>
-      <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
+      <p class="bestiary-detail__source">${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")}</p>
       <p class="lead">${escapeHtml(entry.typeLine)}</p>
     </div>
 
     <div class="bestiary-detail__top">
       <div class="bestiary-detail__top-stats">
-        ${statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("")}
+        ${renderBestiaryMetric("HP", entry.hp || "-")}
+        ${renderBestiaryMetric("CA", entry.ac || "-")}
+        ${renderBestiaryMetric("Velocidad", entry.speed || "-")}
+        ${renderBestiaryMetric("CR", entry.crLabel)}
       </div>
       ${renderBestiaryDetailMedia(entry)}
     </div>
 
-    <div class="bestiary-kpis">
-      <article class="summary-card summary-card--compact">
-        <span>CR</span>
-        <strong>${escapeHtml(entry.crLabel)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>CA</span>
-        <strong>${escapeHtml(entry.ac || "-")}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>PG</span>
-        <strong>${escapeHtml(entry.hp || "-")}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Velocidad</span>
-        <strong>${escapeHtml(entry.speed || "-")}</strong>
-      </article>
+    <div class="bestiary-detail__abilities">
+      ${statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("")}
     </div>
 
     <div class="bestiary-detail__grid">
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Alineamiento</span>
-        <p>${escapeHtml(entry.alignment || "No indicado")}</p>
-      </div>
       <div class="bestiary-detail__block">
         <span class="bestiary-detail__label">Sentidos</span>
         <p>${escapeHtml(entry.senses || "No indicado")}</p>
@@ -1060,25 +1081,12 @@ function renderBestiaryDetail(entry) {
         <span class="bestiary-detail__label">Idiomas</span>
         <p>${escapeHtml(entry.languages || "No indicado")}</p>
       </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Skills</span>
-        <p>${escapeHtml(entry.skills || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Saving Throws</span>
-        <p>${escapeHtml(entry.savingThrows || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Entorno</span>
-        <p>${escapeHtml(entry.environment || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Tesoro</span>
-        <p>${escapeHtml(entry.treasure || "No indicado")}</p>
-      </div>
     </div>
 
     <div class="bestiary-resistances">
+      ${renderDetailChip("Entorno", entry.environment)}
+      ${renderDetailChip("Skills", entry.skills)}
+      ${renderDetailChip("Saving Throws", entry.savingThrows)}
       ${renderDetailChip("Damage Vulnerabilities", entry.damageVulnerabilities)}
       ${renderDetailChip("Damage Resistances", entry.damageResistances)}
       ${renderDetailChip("Damage Immunities", entry.damageImmunities)}
@@ -1138,6 +1146,32 @@ function renderBestiaryAbility(entry, ability) {
       <small>${modifier}</small>
     </article>
   `;
+}
+
+function renderBestiaryMetric(label, value) {
+  const metricValue = String(value ?? "");
+  const sizeClass = getBestiaryMetricSizeClass(metricValue);
+
+  return `
+    <article class="bestiary-metric-card ${sizeClass}">
+      <span>${escapeHtml(label)}</span>
+      <strong title="${escapeHtml(metricValue)}">${escapeHtml(metricValue)}</strong>
+    </article>
+  `;
+}
+
+function getBestiaryMetricSizeClass(value) {
+  const length = cleanText(value).length;
+
+  if (length >= 28) {
+    return "bestiary-metric-card--xs";
+  }
+
+  if (length >= 20) {
+    return "bestiary-metric-card--sm";
+  }
+
+  return "";
 }
 
 function renderDetailChip(label, value) {
@@ -1756,6 +1790,12 @@ function updateCombatantStat(id, statKey, rawValue, normalize = true) {
 
 function updateBestiaryFilter(key, value) {
   state.bestiaryFilters[key] = value;
+}
+
+function toggleExclusiveBestiaryFilterValue(key, value) {
+  const currentValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+  const nextValues = currentValues.length === 1 && currentValues[0] === value ? [] : [value];
+  updateBestiaryFilter(key, nextValues);
 }
 
 function toggleBestiaryFilterValue(key, value, checked) {
