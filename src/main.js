@@ -1,5 +1,109 @@
 const BESTIARY_CSV_PATH = "data/Bestiary.csv";
 const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
+const BESTIARY_SOURCE_NAMES = {
+  AATM: "Adventure Atlas: The Moonshae Isles",
+  ABH: "The Book of Many Things",
+  AI: "Acquisitions Incorporated",
+  "AitFR-DN": "Adventures in the Forgotten Realms: Deepest Night",
+  "AitFR-FCD": "Adventures in the Forgotten Realms: From Cyan Depths",
+  "AitFR-THP": "Adventures in the Forgotten Realms: The Hidden Page",
+  AWM: "Adventure with Muk",
+  BAM: "Boo's Astral Menagerie",
+  BGDIA: "Baldur's Gate: Descent into Avernus",
+  BGG: "Baldur's Gate Gazetteer",
+  BMT: "The Book of Many Things",
+  CM: "Candlekeep Mysteries",
+  CoA: "Chains of Asmodeus",
+  CoS: "Curse of Strahd",
+  CRCotN: "Critical Role: Call of the Netherdeep",
+  DC: "Divine Contention",
+  DIP: "Dragonlance: In the Palace of the Silver Princess",
+  DitLCoT: "Descent into the Lost Caverns of Tsojcanth",
+  "DMG'14": "Dungeon Master's Guide (2014)",
+  "DMG'24": "Dungeon Master's Guide (2024)",
+  DoD: "Domains of Delight",
+  DoSI: "Dragons of Stormwreck Isle",
+  DSotDQ: "Dragonlance: Shadow of the Dragon Queen",
+  EFA: "Encounters in the Forgotten Realms",
+  EGW: "Explorer's Guide to Wildemount",
+  ERLW: "Eberron: Rising from the Last War",
+  ESK: "Essentials Kit",
+  FRAiF: "Forgotten Realms Adventures in Faerun",
+  FTD: "Fizban's Treasury of Dragons",
+  GGR: "Guildmasters' Guide to Ravnica",
+  GoS: "Ghosts of Saltmarsh",
+  GotSF: "Giants of the Star Forge",
+  "HAT-TG": "Honor Among Thieves: Thieves' Gallery",
+  HftT: "Heroes of the Feywild: The Tricksters",
+  HoL: "The House of Lament",
+  HotB: "Heroes of Baldur's Gate",
+  HotDQ: "Hoard of the Dragon Queen",
+  IDRotF: "Icewind Dale: Rime of the Frostmaiden",
+  IMR: "Infernal Machine Rebuild",
+  JttRC: "Journeys through the Radiant Citadel",
+  KftGV: "Keys from the Golden Vault",
+  KKW: "Krenko's Way",
+  LFL: "Lost Laboratory of Kwalish",
+  LLK: "Lost Legend of Krynn",
+  LMoP: "Lost Mine of Phandelver",
+  LoX: "Light of Xaryxis",
+  LR: "Locathah Rising",
+  LRDT: "Lightning Round: Dungeon Tiles",
+  MaBJoV: "Minsc and Boo's Journal of Villainy",
+  MCV1SC: "Monstrous Compendium Vol. 1: Spelljammer Creatures",
+  MCV2DC: "Monstrous Compendium Vol. 2: Dragonlance Creatures",
+  MCV3MC: "Monstrous Compendium Vol. 3: Minecraft Creatures",
+  MCV4EC: "Monstrous Compendium Vol. 4: Eldraine Creatures",
+  MFF: "Mordenkainen's Fiendish Folio",
+  MGELFT: "Muk's Guide to Everything He Learned From Tasha",
+  MisMV1: "Minsc and Boo Miscellany Vol. 1",
+  "MM'14": "Monster Manual (2014)",
+  "MM'25": "Monster Manual (2025)",
+  MOT: "Mythic Odysseys of Theros",
+  MPMM: "Mordenkainen Presents: Monsters of the Multiverse",
+  MPP: "Planescape: Morte's Planar Parade",
+  MTF: "Mordenkainen's Tome of Foes",
+  NF: "Nerzugal's Dungeon Master Toolkit",
+  "NRH-ASS": "NERDS Restoring Harmony: A Sticky Situation",
+  "NRH-AVitW": "NERDS Restoring Harmony: Adventure Voyage into the Wild",
+  "NRH-CoI": "NERDS Restoring Harmony: Circus of Illusions",
+  "NRH-TCMC": "NERDS Restoring Harmony: The Candy Mountain Caper",
+  OotA: "Out of the Abyss",
+  OoW: "The Orrery of the Wanderer",
+  PaBTSO: "Phandelver and Below: The Shattered Obelisk",
+  "PHB'14": "Player's Handbook (2014)",
+  "PHB'24": "Player's Handbook (2024)",
+  PotA: "Princes of the Apocalypse",
+  PSA: "Plane Shift: Amonkhet",
+  PSD: "Plane Shift: Dominaria",
+  PSI: "Plane Shift: Innistrad",
+  PSK: "Plane Shift: Kaladesh",
+  PSX: "Plane Shift: Ixalan",
+  PSZ: "Plane Shift: Zendikar",
+  QftIS: "Quests from the Infinite Staircase",
+  RMBRE: "The Radiant Citadel: Beyond the Radiant Empire",
+  RoT: "The Rise of Tiamat",
+  RtG: "Return to Glory",
+  SADS: "Spelljammer Academy: Defense of Strixhaven",
+  SCC: "Strixhaven: A Curriculum of Chaos",
+  SDW: "Sleeping Dragon's Wake",
+  SKT: "Storm King's Thunder",
+  SLW: "Storm Lord's Wrath",
+  TCE: "Tasha's Cauldron of Everything",
+  TftYP: "Tales from the Yawning Portal",
+  ToA: "Tomb of Annihilation",
+  ToFW: "Turn of Fortune's Wheel",
+  TTP: "The Tortle Package",
+  VD: "Vecna Dossier",
+  VEoR: "Vecna: Eve of Ruin",
+  VGM: "Volo's Guide to Monsters",
+  VRGR: "Van Richten's Guide to Ravenloft",
+  WBtW: "The Wild Beyond the Witchlight",
+  WDH: "Waterdeep: Dragon Heist",
+  WDMM: "Waterdeep: Dungeon of the Mad Mage",
+  WttHC: "Wilds beyond the Witchlight: The Horned Crown",
+  XGE: "Xanathar's Guide to Everything"
+};
 
 const screens = [
   {
@@ -792,9 +896,7 @@ function renderBestiaryRow(entry, isSelected) {
     : "";
   const detailItems = [
     ["Type", entry.type || "-"],
-    ["Environment", entry.environment || "Sin entorno"],
-    ["Size", entry.size || "-"],
-    ["Alignment", entry.alignment || "-"]
+    ["Environment", entry.environment || "Sin entorno"]
   ];
 
   return `
@@ -808,7 +910,10 @@ function renderBestiaryRow(entry, isSelected) {
     >
       <div class="bestiary-row__layout">
         <div class="bestiary-row__content">
-          <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
+          <div class="bestiary-row__header">
+            <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
+            <span class="pill bestiary-row__source-pill">${escapeHtml(entry.sourceLabel)}</span>
+          </div>
           <div class="bestiary-row__facts">
             ${detailItems.map(([label, value]) => `
               <p class="bestiary-row__fact">
@@ -817,14 +922,13 @@ function renderBestiaryRow(entry, isSelected) {
               </p>
             `).join("")}
           </div>
-        </div>
-        <div class="bestiary-row__aside">
-          <span class="pill bestiary-row__source-pill">${escapeHtml(entry.sourceLabel)}</span>
-          <div class="bestiary-row__cr">
-            <span class="pill">${escapeHtml(entry.crLabel)}</span>
+          <div class="bestiary-row__footer">
+            <div class="bestiary-row__cr">
+              <span class="pill">${escapeHtml(`CR: ${entry.crBaseLabel || "Sin CR"}`)}</span>
+            </div>
           </div>
-          ${tokenBadge ? `<div class="bestiary-row__token-wrap">${tokenBadge}</div>` : ""}
         </div>
+        ${tokenBadge ? `<div class="bestiary-row__token-wrap">${tokenBadge}</div>` : ""}
       </div>
     </button>
   `;
@@ -2073,6 +2177,7 @@ function parseCsv(csvText) {
 function normalizeBestiaryEntry(row, index, imageMap = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
+  const sourceFullName = getBestiarySourceFullName(source);
   const page = cleanText(row.Page);
   const size = cleanText(row.Size);
   const type = cleanText(row.Type);
@@ -2141,6 +2246,7 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
     name,
     nameLower: name.toLowerCase(),
     source,
+    sourceFullName,
     page,
     size,
     type,
@@ -2187,11 +2293,11 @@ function normalizeBestiaryEntry(row, index, imageMap = {}) {
 function renderBestiaryFilterDropdown(key, label) {
   const isOpen = state.activeBestiaryFilterKey === key;
   const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
-  const allowSearch = key === "type" || key === "environment";
+  const allowSearch = key === "type" || key === "environment" || key === "source";
   const visibleOptions = isOpen ? getVisibleBestiaryFilterOptions(key) : [];
 
   return `
-    <div class="toolbar-field bestiary-filter" data-bestiary-filter-menu>
+    <div class="toolbar-field bestiary-filter bestiary-filter--${key}" data-bestiary-filter-menu>
       <span>${label}</span>
       <div class="bestiary-filter__controls">
         <button
@@ -2320,6 +2426,7 @@ function renderBestiarySortButton(key, label) {
 
 function renderBestiaryFilterCheckbox(key, value) {
   const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+  const displayValue = getBestiaryFilterDisplayValue(key, value);
 
   return `
     <label class="bestiary-filter__option">
@@ -2329,7 +2436,7 @@ function renderBestiaryFilterCheckbox(key, value) {
         data-bestiary-filter-option="${key}"
         ${selectedValues.includes(value) ? "checked" : ""}
       />
-      <span>${escapeHtml(value)}</span>
+      <span>${escapeHtml(displayValue)}</span>
     </label>
   `;
 }
@@ -2378,11 +2485,13 @@ function getVisibleBestiaryFilterOptions(key) {
   }
 
   const visibleOptions = getBestiaryFilterOptions(key).filter((value) => {
+    const displayValue = getBestiaryFilterDisplayValue(key, value).toLowerCase();
+
     if (!search) {
       return true;
     }
 
-    return value.toLowerCase().includes(search);
+    return value.toLowerCase().includes(search) || displayValue.includes(search);
   });
 
   bestiaryRenderCache.visibleOptions.set(cacheKey, visibleOptions);
@@ -2397,7 +2506,7 @@ function getBestiaryFilterSummary(key, label) {
   }
 
   if (selectedValues.length === 1) {
-    return `${label}: ${selectedValues[0]}`;
+    return `${label}: ${getBestiaryFilterDisplayValue(key, selectedValues[0])}`;
   }
 
   return `${label}: ${selectedValues.length} seleccionados`;
@@ -2529,6 +2638,11 @@ function buildBestiaryCompositeKey(name, source) {
   return `bestiary-${normalizedName || "unknown"}--${normalizedSource || "unknown"}`;
 }
 
+function getBestiarySourceFullName(source) {
+  const normalizedSource = cleanText(source);
+  return BESTIARY_SOURCE_NAMES[normalizedSource] ?? normalizedSource;
+}
+
 function resolveBestiaryImageAsset(name, source, imageMap, assetKey) {
   const compositeVariants = [
     `${cleanText(name)}||${cleanText(source)}`,
@@ -2629,6 +2743,18 @@ function compareBestiaryFilterValues(key, left, right) {
   }
 
   return left.localeCompare(right, "es", { sensitivity: "base" });
+}
+
+function getBestiaryFilterDisplayValue(key, value) {
+  if (key === "source") {
+    const source = cleanText(value);
+    const sourceFullName = getBestiarySourceFullName(source);
+    return sourceFullName && sourceFullName !== source
+      ? `${sourceFullName} (${source})`
+      : source;
+  }
+
+  return value;
 }
 
 function toNumber(value) {
