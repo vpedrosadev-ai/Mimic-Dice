@@ -1,5 +1,10 @@
 const BESTIARY_CSV_PATH = "data/Bestiary.csv";
 const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
+const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
+const BESTIARY_RENDER_DEBOUNCE_MS = 160;
+const BESTIARY_VIRTUAL_ROW_HEIGHT = 158;
+const BESTIARY_VIRTUAL_OVERSCAN = 6;
+const BESTIARY_VIRTUAL_DEFAULT_VIEWPORT = 760;
 const BESTIARY_SOURCE_NAMES = {
   AATM: "Adventure Atlas: The Moonshae Isles",
   ABH: "The Book of Many Things",
@@ -298,6 +303,9 @@ const blankBestiaryFilterSearch = {
 
 const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+const initialEncounterInventory = loadEncounterInventory();
+let scheduledRenderTimer = 0;
+let scheduledRenderFocusState = null;
 
 const state = {
   activeScreen: "combat-tracker",
@@ -319,13 +327,35 @@ const state = {
   showBestiaryQuerySuggestions: false,
   bestiarySelectedId: "",
   bestiaryStatus: "loading",
-  bestiaryMessage: ""
+  bestiaryMessage: "",
+  bestiaryListScrollTop: 0,
+  bestiaryListViewportHeight: 0,
+  encounterInventoryOpen: false,
+  encounterFolders: initialEncounterInventory.folders,
+  encounters: initialEncounterInventory.encounters,
+  activeEncounterFolderId: initialEncounterInventory.encounters[0]?.folderId ?? initialEncounterInventory.folders[0]?.id ?? "",
+  activeEncounterId: initialEncounterInventory.encounters[0]?.id ?? "",
+  activeEncounterRowId: "",
+  activeEncounterSourceRowId: "",
+  selectedEncounterIds: new Set(),
+  selectedEncounterFolderIds: new Set(),
+  systemEncounterFolderExpanded: initialEncounterInventory.systemFolderExpanded,
+  draggedEncounterId: "",
+  draggedEncounterFolderId: "",
+  draggedFolderId: "",
+  encounterSearchQuery: "",
+  showEncounterSearchSuggestions: false
 };
 
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("keydown", handleKeydown);
+app.addEventListener("scroll", handleScroll, true);
+app.addEventListener("dragstart", handleDragStart);
+app.addEventListener("dragover", handleDragOver);
+app.addEventListener("drop", handleDrop);
+app.addEventListener("dragend", handleDragEnd);
 
 render();
 loadBestiary();
@@ -342,6 +372,8 @@ function handleClick(event) {
   const actionButton = event.target.closest("[data-action]");
   const clickedBestiaryFilter = event.target.closest("[data-bestiary-filter-menu]");
   const clickedBestiaryQuery = event.target.closest("[data-bestiary-query-menu]");
+  const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
+  const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
 
   if (
     state.activeBestiaryFilterKey &&
@@ -358,6 +390,24 @@ function handleClick(event) {
 
   if (state.showBestiaryQuerySuggestions && !clickedBestiaryQuery) {
     state.showBestiaryQuerySuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showEncounterSearchSuggestions && !clickedEncounterSearch) {
+    state.showEncounterSearchSuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.activeEncounterSourceRowId && !clickedEncounterSource) {
+    state.activeEncounterSourceRowId = "";
 
     if (!actionButton) {
       render();
@@ -437,6 +487,118 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-encounter-inventory") {
+    state.encounterInventoryOpen = !state.encounterInventoryOpen;
+    state.activeEncounterSourceRowId = "";
+    state.showEncounterSearchSuggestions = false;
+    render();
+    return;
+  }
+
+  if (action === "create-encounter") {
+    createEncounter();
+    render({
+      focusSelector: "[data-encounter-name]"
+    });
+    return;
+  }
+
+  if (action === "select-encounter") {
+    if (event.ctrlKey || event.metaKey) {
+      toggleEncounterSelection(actionButton.dataset.encounterId);
+      render();
+      return;
+    }
+
+    selectEncounter(actionButton.dataset.encounterId);
+    render({
+      focusSelector: "[data-encounter-search]"
+    });
+    return;
+  }
+
+  if (action === "delete-encounter") {
+    deleteEncounter(actionButton.dataset.encounterId);
+    render();
+    return;
+  }
+
+  if (action === "create-encounter-folder") {
+    createEncounterFolder();
+    render({
+      focusSelector: "[data-encounter-folder-name]"
+    });
+    return;
+  }
+
+  if (action === "toggle-encounter-folder") {
+    if ((event.ctrlKey || event.metaKey) && actionButton.dataset.encounterFolderId) {
+      toggleEncounterFolderSelection(actionButton.dataset.encounterFolderId);
+      render();
+      return;
+    }
+
+    toggleEncounterFolder(actionButton.dataset.encounterFolderId);
+    render();
+    return;
+  }
+
+  if (action === "create-encounter-in-folder") {
+    state.activeEncounterFolderId = actionButton.dataset.encounterFolderId ?? "";
+    createEncounter();
+    render({
+      focusSelector: "[data-encounter-name]"
+    });
+    return;
+  }
+
+  if (action === "delete-encounter-folder") {
+    deleteEncounterFolder(actionButton.dataset.encounterFolderId);
+    render();
+    return;
+  }
+
+  if (action === "add-encounter-creature") {
+    addCreatureToActiveEncounter(actionButton.dataset.entryId);
+    render({
+      focusSelector: "[data-encounter-search]"
+    });
+    return;
+  }
+
+  if (action === "toggle-encounter-source") {
+    const rowId = actionButton.dataset.encounterRowId;
+    state.activeEncounterSourceRowId = state.activeEncounterSourceRowId === rowId ? "" : rowId;
+    render();
+    return;
+  }
+
+  if (action === "select-encounter-source") {
+    updateEncounterRowSource(actionButton.dataset.encounterRowId, actionButton.dataset.encounterSourceValue);
+    state.activeEncounterSourceRowId = "";
+    render();
+    return;
+  }
+
+  if (action === "select-encounter-row") {
+    if (event.target.closest("button, input, select, textarea")) {
+      return;
+    }
+
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    selectEncounterRow(actionButton.dataset.encounterRowId);
+    render();
+    window.scrollTo(scrollX, scrollY);
+    return;
+  }
+
+  if (action === "remove-encounter-row") {
+    removeEncounterRow(actionButton.dataset.encounterRowId);
+    render();
+    return;
+  }
+
   if (action === "select-bestiary-entry") {
     const previousSelectedId = state.bestiarySelectedId;
     state.bestiarySelectedId = actionButton.dataset.entryId;
@@ -451,24 +613,28 @@ function handleClick(event) {
   }
 
   if (action === "filter-bestiary-by-source") {
+    resetBestiaryVirtualScroll();
     toggleExclusiveBestiaryFilterValue("source", actionButton.dataset.bestiarySourceValue ?? "");
     render();
     return;
   }
 
   if (action === "filter-bestiary-by-cr") {
+    resetBestiaryVirtualScroll();
     toggleExclusiveBestiaryFilterValue("crBase", actionButton.dataset.bestiaryCrValue ?? "");
     render();
     return;
   }
 
   if (action === "toggle-bestiary-sort") {
+    resetBestiaryVirtualScroll();
     toggleBestiarySort(actionButton.dataset.bestiarySortKey);
     render();
     return;
   }
 
   if (action === "select-bestiary-query-suggestion") {
+    resetBestiaryVirtualScroll();
     state.bestiaryFilters.query = actionButton.dataset.bestiaryQueryValue ?? "";
     state.showBestiaryQuerySuggestions = false;
     render({
@@ -487,6 +653,7 @@ function handleClick(event) {
   }
 
   if (action === "clear-bestiary-filter") {
+    resetBestiaryVirtualScroll();
     updateBestiaryFilter(actionButton.dataset.bestiaryFilterKey, []);
     render({
       focusSelector: `[data-bestiary-filter-search="${actionButton.dataset.bestiaryFilterKey}"]`
@@ -495,6 +662,7 @@ function handleClick(event) {
   }
 
   if (action === "select-visible-bestiary-options") {
+    resetBestiaryVirtualScroll();
     updateBestiaryFilter(actionButton.dataset.bestiaryFilterKey, getVisibleBestiaryFilterOptions(actionButton.dataset.bestiaryFilterKey));
     render({
       focusSelector: `[data-bestiary-filter-search="${actionButton.dataset.bestiaryFilterKey}"]`
@@ -503,6 +671,7 @@ function handleClick(event) {
   }
 
   if (action === "clear-bestiary-filters") {
+    resetBestiaryVirtualScroll();
     state.bestiaryFilters = { ...blankBestiaryFilters };
     state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
     state.activeBestiaryFilterKey = "";
@@ -553,12 +722,14 @@ function handleChange(event) {
   }
 
   if (target.matches("[data-bestiary-filter]")) {
+    resetBestiaryVirtualScroll();
     updateBestiaryFilter(target.dataset.bestiaryFilter, getBestiaryFilterInputValue(target));
     render();
     return;
   }
 
   if (target.matches("[data-bestiary-filter-option]")) {
+    resetBestiaryVirtualScroll();
     toggleBestiaryFilterValue(target.dataset.bestiaryFilterOption, target.value, target.checked);
     render({
       focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterOption}"]`
@@ -600,9 +771,10 @@ function handleInput(event) {
   }
 
   if (target.matches("[data-bestiary-query]")) {
+    resetBestiaryVirtualScroll();
     state.bestiaryFilters.query = target.value;
     state.showBestiaryQuerySuggestions = cleanText(target.value).length > 0;
-    render({
+    scheduleRender({
       focusSelector: "[data-bestiary-query]",
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
@@ -612,8 +784,49 @@ function handleInput(event) {
 
   if (target.matches("[data-bestiary-filter-search]")) {
     state.bestiaryFilterSearch[target.dataset.bestiaryFilterSearch] = target.value;
-    render({
+    scheduleRender({
       focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterSearch}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-encounter-name]")) {
+    updateActiveEncounterName(target.value);
+    render({
+      focusSelector: "[data-encounter-name]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-encounter-folder-name]")) {
+    updateEncounterFolderName(target.dataset.encounterFolderName, target.value);
+    render({
+      focusSelector: `[data-encounter-folder-name="${target.dataset.encounterFolderName}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-encounter-search]")) {
+    state.encounterSearchQuery = target.value;
+    state.showEncounterSearchSuggestions = cleanText(target.value).length > 0;
+    render({
+      focusSelector: "[data-encounter-search]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-encounter-units]")) {
+    updateEncounterRowUnits(target.dataset.encounterUnits, target.value);
+    render({
+      focusSelector: `[data-encounter-units="${target.dataset.encounterUnits}"]`,
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
@@ -637,10 +850,198 @@ function handleKeydown(event) {
     render({
       focusSelector: "[data-bestiary-query]"
     });
+    return;
+  }
+
+  if (target.matches("[data-encounter-search]") && event.key === "Enter") {
+    event.preventDefault();
+    const [firstSuggestion] = getEncounterCreatureSuggestions();
+
+    if (firstSuggestion) {
+      addCreatureToActiveEncounter(firstSuggestion.id);
+    } else {
+      state.showEncounterSearchSuggestions = false;
+    }
+
+    render({
+      focusSelector: "[data-encounter-search]"
+    });
   }
 }
 
+function handleScroll(event) {
+  const target = event.target;
+
+  if (!target.matches?.("[data-bestiary-list-root]")) {
+    return;
+  }
+
+  const previousStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
+  const previousViewportHeight = state.bestiaryListViewportHeight;
+  state.bestiaryListScrollTop = target.scrollTop;
+  state.bestiaryListViewportHeight = target.clientHeight;
+
+  const nextStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
+  const viewportChanged = Math.abs(previousViewportHeight - state.bestiaryListViewportHeight) > 24;
+
+  if (previousStartIndex !== nextStartIndex || viewportChanged) {
+    render();
+  }
+}
+
+function handleDragStart(event) {
+  const encounterDrag = event.target.closest("[data-drag-encounter-id]");
+  const folderDrag = event.target.closest("[data-drag-folder-id]");
+
+  if (encounterDrag) {
+    state.draggedEncounterId = encounterDrag.dataset.dragEncounterId;
+    state.draggedEncounterFolderId = encounterDrag.dataset.dragEncounterFolderId ?? "";
+    state.draggedFolderId = "";
+
+    if (!state.selectedEncounterIds.has(state.draggedEncounterId)) {
+      state.selectedEncounterIds = new Set([state.draggedEncounterId]);
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `encounter:${state.draggedEncounterId}`);
+    return;
+  }
+
+  if (folderDrag) {
+    state.draggedFolderId = folderDrag.dataset.dragFolderId;
+    state.draggedEncounterId = "";
+    state.draggedEncounterFolderId = "";
+
+    if (!state.selectedEncounterFolderIds.has(state.draggedFolderId)) {
+      state.selectedEncounterFolderIds = new Set([state.draggedFolderId]);
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `folder:${state.draggedFolderId}`);
+  }
+}
+
+function handleDragOver(event) {
+  if (!state.draggedEncounterId && !state.draggedFolderId) {
+    return;
+  }
+
+  const canDropEncounter = state.draggedEncounterId && event.target.closest("[data-drop-folder-id], [data-drop-encounter-id]");
+  const canDropFolder = state.draggedFolderId && event.target.closest("[data-drop-folder-order-id]");
+
+  if (!canDropEncounter && !canDropFolder) {
+    return;
+  }
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+}
+
+function handleDrop(event) {
+  if (state.draggedEncounterId) {
+    const targetEncounter = event.target.closest("[data-drop-encounter-id]");
+    const targetFolder = event.target.closest("[data-drop-folder-id]");
+
+    if (!targetEncounter && !targetFolder) {
+      handleDragEnd();
+      return;
+    }
+
+    event.preventDefault();
+
+    if (targetEncounter) {
+      moveEncountersToEncounter(
+        getDraggedEncounterIds(),
+        targetEncounter.dataset.dropEncounterId,
+        getDropPlacement(event, targetEncounter)
+      );
+    } else {
+      moveEncountersToFolder(getDraggedEncounterIds(), targetFolder.dataset.dropFolderId ?? "");
+    }
+
+    handleDragEnd();
+    render();
+    return;
+  }
+
+  if (state.draggedFolderId) {
+    const targetFolder = event.target.closest("[data-drop-folder-order-id]");
+
+    if (!targetFolder) {
+      handleDragEnd();
+      return;
+    }
+
+    event.preventDefault();
+    moveFoldersToFolder(
+      getDraggedFolderIds(),
+      targetFolder.dataset.dropFolderOrderId,
+      getDropPlacement(event, targetFolder)
+    );
+    handleDragEnd();
+    render();
+  }
+}
+
+function handleDragEnd() {
+  state.draggedEncounterId = "";
+  state.draggedEncounterFolderId = "";
+  state.draggedFolderId = "";
+}
+
+function getDropPlacement(event, element) {
+  const rect = element.getBoundingClientRect();
+  return event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+}
+
+function getDraggedEncounterIds() {
+  if (state.draggedEncounterId && state.selectedEncounterIds.has(state.draggedEncounterId)) {
+    return state.encounters
+      .map((encounter) => encounter.id)
+      .filter((id) => state.selectedEncounterIds.has(id));
+  }
+
+  return state.draggedEncounterId ? [state.draggedEncounterId] : [];
+}
+
+function getDraggedFolderIds() {
+  if (state.draggedFolderId && state.selectedEncounterFolderIds.has(state.draggedFolderId)) {
+    return state.encounterFolders
+      .map((folder) => folder.id)
+      .filter((id) => state.selectedEncounterFolderIds.has(id));
+  }
+
+  return state.draggedFolderId ? [state.draggedFolderId] : [];
+}
+
+function scheduleRender(focusState = null, delay = BESTIARY_RENDER_DEBOUNCE_MS) {
+  scheduledRenderFocusState = focusState;
+
+  if (scheduledRenderTimer) {
+    window.clearTimeout(scheduledRenderTimer);
+  }
+
+  scheduledRenderTimer = window.setTimeout(() => {
+    const nextFocusState = scheduledRenderFocusState;
+    scheduledRenderTimer = 0;
+    scheduledRenderFocusState = null;
+    render(nextFocusState);
+  }, delay);
+}
+
+function cancelScheduledRender() {
+  if (!scheduledRenderTimer) {
+    return;
+  }
+
+  window.clearTimeout(scheduledRenderTimer);
+  scheduledRenderTimer = 0;
+  scheduledRenderFocusState = null;
+}
+
 function render(focusState = null) {
+  cancelScheduledRender();
+
   app.innerHTML = `
     <div class="shell">
       <div class="shell__backdrop"></div>
@@ -672,6 +1073,10 @@ function render(focusState = null) {
         target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd ?? focusState.selectionStart);
       }
     }
+  }
+
+  if (state.activeScreen === "bestiary") {
+    restoreBestiaryListScroll();
   }
 }
 
@@ -837,11 +1242,419 @@ function renderCombatTracker() {
   `;
 }
 
+function renderEncounterInventorySection() {
+  const activeEncounter = getActiveEncounter();
+  const totalCreatures = state.encounters.reduce((total, encounter) => total + encounter.rows.length, 0);
+  const folderCount = state.encounterFolders.length;
+
+  return `
+    <section class="panel encounter-inventory">
+      <div class="encounter-inventory__bar">
+        <button
+          class="toolbar-button toolbar-button--accent encounter-inventory__toggle"
+          type="button"
+          data-action="toggle-encounter-inventory"
+          aria-expanded="${state.encounterInventoryOpen}"
+        >
+          Editor de encuentros
+          <span aria-hidden="true">${state.encounterInventoryOpen ? "^" : "v"}</span>
+        </button>
+        <div class="section-meta">
+          <span>${folderCount} carpetas</span>
+          <span>${state.encounters.length} encuentros</span>
+          <span>${totalCreatures} filas</span>
+        </div>
+      </div>
+      ${state.encounterInventoryOpen ? renderEncounterInventoryPanel(activeEncounter) : ""}
+    </section>
+  `;
+}
+
+function renderEncounterInventoryPanel(activeEncounter) {
+  return `
+    <div class="encounter-inventory__panel">
+      <aside class="encounter-list" aria-label="Encuentros guardados">
+        <div class="encounter-list__header">
+          <div>
+            <p class="eyebrow">Listas guardadas</p>
+            <h3>Encuentros</h3>
+          </div>
+          <div class="encounter-list__actions">
+            <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-encounter-folder">
+              Nueva carpeta
+            </button>
+            <button class="toolbar-button" type="button" data-action="create-encounter">
+              Nuevo encuentro
+            </button>
+          </div>
+        </div>
+        <div class="encounter-list__items">
+          ${
+            state.encounters.length > 0 || state.encounterFolders.length > 0
+              ? renderEncounterFolderGroups()
+              : `
+                <div class="empty-state empty-state--compact">
+                  Crea tu primer encuentro para guardar criaturas del bestiario.
+                </div>
+              `
+          }
+        </div>
+      </aside>
+      <div class="encounter-editor">
+        ${activeEncounter ? renderEncounterEditor(activeEncounter) : renderEncounterEditorEmpty()}
+      </div>
+    </div>
+  `;
+}
+
+function renderEncounterFolderGroups() {
+  return getEncounterFolderGroups()
+    .map((folder) => renderEncounterFolderGroup(folder))
+    .join("");
+}
+
+function renderEncounterFolderGroup(folder) {
+  const folderEncounters = getEncountersByFolder(folder.id);
+  const isActive = state.activeEncounterFolderId === folder.id;
+  const isSelected = folder.id ? state.selectedEncounterFolderIds.has(folder.id) : false;
+  const isSystemFolder = folder.id === "";
+
+  if (folderEncounters.length === 0 && isSystemFolder && state.encounterFolders.length > 0) {
+    return "";
+  }
+
+  return `
+    <section
+      class="encounter-folder ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""}"
+      draggable="${isSystemFolder ? "false" : "true"}"
+      data-drag-folder-id="${escapeHtml(folder.id)}"
+      data-drop-folder-order-id="${escapeHtml(folder.id)}"
+      data-drop-folder-id="${escapeHtml(folder.id)}"
+    >
+      <div class="encounter-folder__header">
+        <div class="encounter-folder__summary">
+          <button
+            class="encounter-folder__toggle"
+            type="button"
+            data-action="toggle-encounter-folder"
+            data-encounter-folder-id="${escapeHtml(folder.id)}"
+            aria-expanded="${folder.isExpanded}"
+          >
+            <span aria-hidden="true">${folder.isExpanded ? "v" : ">"}</span>
+            <small>${folderEncounters.length}</small>
+          </button>
+          ${
+            isSystemFolder
+              ? `<strong class="encounter-folder__static-name">${escapeHtml(folder.name)}</strong>`
+              : `
+              <input
+                class="encounter-folder__name"
+                type="text"
+                value="${escapeHtml(folder.name)}"
+                data-encounter-folder-name="${escapeHtml(folder.id)}"
+                aria-label="Nombre de carpeta ${escapeHtml(folder.name)}"
+              />
+            `
+          }
+        </div>
+        <button
+          class="filter-clear"
+          type="button"
+          data-action="create-encounter-in-folder"
+          data-encounter-folder-id="${escapeHtml(folder.id)}"
+        >
+          Nuevo
+        </button>
+        ${
+          isSystemFolder
+            ? ""
+            : `
+              <button
+                class="filter-clear encounter-folder__delete"
+                type="button"
+                data-action="delete-encounter-folder"
+                data-encounter-folder-id="${escapeHtml(folder.id)}"
+                aria-label="Eliminar carpeta ${escapeHtml(folder.name)}"
+              >
+                Eliminar
+              </button>
+            `
+        }
+      </div>
+      ${
+        folder.isExpanded
+          ? `
+            <div class="encounter-folder__items">
+              ${
+                folderEncounters.length > 0
+                  ? folderEncounters.map((encounter) => renderEncounterListItem(encounter)).join("")
+                  : `<div class="empty-state empty-state--compact">Esta carpeta esta vacia.</div>`
+              }
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderEncounterListItem(encounter) {
+  const isActive = encounter.id === state.activeEncounterId;
+  const isSelected = state.selectedEncounterIds.has(encounter.id);
+  const displayName = encounter.name || "Encuentro sin nombre";
+
+  return `
+    <article
+      class="encounter-list__item ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""}"
+      draggable="true"
+      data-drag-encounter-id="${escapeHtml(encounter.id)}"
+      data-drag-encounter-folder-id="${escapeHtml(encounter.folderId ?? "")}"
+      data-drop-encounter-id="${escapeHtml(encounter.id)}"
+    >
+      <button
+        class="encounter-list__select"
+        type="button"
+        data-action="select-encounter"
+        data-encounter-id="${escapeHtml(encounter.id)}"
+        aria-pressed="${isActive}"
+      >
+        <strong>${escapeHtml(displayName)}</strong>
+      </button>
+      <button
+        class="filter-clear encounter-list__delete"
+        type="button"
+        data-action="delete-encounter"
+        data-encounter-id="${escapeHtml(encounter.id)}"
+        aria-label="Eliminar ${escapeHtml(displayName)}"
+      >
+        Eliminar
+      </button>
+    </article>
+  `;
+}
+
+function renderEncounterEditor(activeEncounter) {
+  const suggestions = getEncounterCreatureSuggestions();
+  const summary = getEncounterSummary(activeEncounter);
+
+  return `
+    <div class="encounter-editor__header">
+      <div>
+        <p class="eyebrow">Editor de encuentro</p>
+        <h3>${escapeHtml(activeEncounter.name || "Encuentro sin nombre")}</h3>
+      </div>
+      <div class="section-meta">
+        <span>${summary.units} unidades</span>
+        <span>CR total ${formatCrNumber(summary.totalCr)}</span>
+      </div>
+    </div>
+
+    <div class="encounter-editor__controls">
+      <label class="toolbar-field encounter-name-field">
+        <span>Nombre del encuentro</span>
+        <input
+          class="filter-input filter-input--wide"
+          type="text"
+          value="${escapeHtml(activeEncounter.name)}"
+          placeholder="Ej. Emboscada en el bosque"
+          data-encounter-name
+        />
+      </label>
+
+      <div class="toolbar-field toolbar-field--search bestiary-query encounter-search" data-encounter-search-menu>
+        <span>Anadir criatura</span>
+        <input
+          class="filter-input filter-input--wide"
+          type="search"
+          value="${escapeHtml(state.encounterSearchQuery)}"
+          placeholder="Busca una criatura del bestiario"
+          data-encounter-search
+          ${state.bestiaryStatus !== "ready" ? "disabled" : ""}
+        />
+        ${
+          state.showEncounterSearchSuggestions && suggestions.length > 0
+            ? `
+              <div class="bestiary-query__popover encounter-search__popover" role="listbox" aria-label="Sugerencias para el encuentro">
+                ${suggestions.map((entry) => renderEncounterSuggestion(entry)).join("")}
+              </div>
+            `
+            : ""
+        }
+      </div>
+    </div>
+
+    <div class="encounter-rows" role="list" aria-label="Criaturas del encuentro">
+      ${
+        activeEncounter.rows.length > 0
+          ? activeEncounter.rows.map((row) => renderEncounterRow(row)).join("")
+          : `
+            <div class="empty-state empty-state--compact">
+              Usa el buscador para anadir criaturas. Cada seleccion crea una fila nueva con unidades 1 y CR.
+            </div>
+          `
+      }
+    </div>
+  `;
+}
+
+function renderEncounterEditorEmpty() {
+  return `
+    <div class="empty-state empty-state--panel encounter-editor__empty">
+      <div>
+        <p>No hay ningun encuentro seleccionado.</p>
+        <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-encounter">
+          Crear encuentro
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderEncounterSuggestion(entry) {
+  return `
+    <button
+      class="bestiary-query__option encounter-search__option"
+      type="button"
+      data-action="add-encounter-creature"
+      data-entry-id="${escapeHtml(entry.id)}"
+    >
+      <strong>${escapeHtml(entry.name)}</strong>
+      <span>${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")} | CR ${formatCrNumber(entry.crBaseValue)}</span>
+    </button>
+  `;
+}
+
+function renderEncounterRow(row) {
+  const sourceFullName = getBestiarySourceFullName(row.source) || "Sin fuente";
+  const bestiaryEntry = getEncounterRowBestiaryEntry(row);
+  const tokenUrl = row.tokenUrl || bestiaryEntry?.tokenUrl || "";
+  const hpValue = getEncounterRowHpValue(row, bestiaryEntry);
+  const acValue = getEncounterRowAcValue(row, bestiaryEntry);
+  const isSelected = state.activeEncounterRowId === row.id;
+
+  return `
+    <article
+      class="encounter-row ${isSelected ? "is-selected" : ""}"
+      role="listitem"
+      data-action="select-encounter-row"
+      data-encounter-row-id="${escapeHtml(row.id)}"
+    >
+      ${renderEncounterRowToken(row, tokenUrl)}
+      <div class="encounter-row__creature">
+        <div class="encounter-row__creature-copy">
+          <strong>${escapeHtml(row.name)}</strong>
+          <span>${escapeHtml(sourceFullName)}</span>
+        </div>
+      </div>
+      ${renderEncounterSourceSelector(row)}
+      <label class="encounter-row__units">
+        <span>Unidades</span>
+        <input
+          class="filter-input"
+          type="number"
+          min="1"
+          step="1"
+          value="${escapeHtml(String(row.units))}"
+          data-encounter-units="${escapeHtml(row.id)}"
+          aria-label="Unidades de ${escapeHtml(row.name)}"
+        />
+      </label>
+      <div class="encounter-row__hp">
+        <span>HP</span>
+        <strong>${escapeHtml(String(hpValue || "-"))}</strong>
+      </div>
+      <div class="encounter-row__ac">
+        <span>CA</span>
+        <strong>${escapeHtml(String(acValue || "-"))}</strong>
+      </div>
+      <div class="encounter-row__cr">
+        <span>CR</span>
+        <strong>${formatCrNumber(row.crValue)}</strong>
+      </div>
+      <button
+        class="filter-clear encounter-row__delete"
+        type="button"
+        data-action="remove-encounter-row"
+        data-encounter-row-id="${escapeHtml(row.id)}"
+        aria-label="Eliminar ${escapeHtml(row.name)} del encuentro"
+      >
+        Eliminar
+      </button>
+    </article>
+  `;
+}
+
+function renderEncounterRowToken(row, tokenUrl) {
+  if (tokenUrl) {
+    return `
+      <div class="encounter-row__token" aria-hidden="true">
+        <img
+          class="encounter-row__token-image"
+          src="${escapeHtml(tokenUrl)}"
+          alt=""
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+    `;
+  }
+
+  return `
+    <div class="encounter-row__token encounter-row__token--empty" aria-hidden="true">
+      ${escapeHtml(getBestiaryInitials(row.name))}
+    </div>
+  `;
+}
+
+function renderEncounterSourceSelector(row) {
+  const isOpen = state.activeEncounterSourceRowId === row.id;
+  const sourceOptions = getEncounterSourceOptions(row.source);
+  const sourceCode = row.source || "?";
+
+  return `
+    <div class="encounter-row__source" data-encounter-source-menu>
+      <span>Source</span>
+      <button
+        class="encounter-source__trigger"
+        type="button"
+        data-action="toggle-encounter-source"
+        data-encounter-row-id="${escapeHtml(row.id)}"
+        aria-expanded="${isOpen}"
+        aria-haspopup="listbox"
+      >
+        ${escapeHtml(sourceCode)}
+      </button>
+      ${
+        isOpen
+          ? `
+            <div class="encounter-source__popover" role="listbox" aria-label="Fuentes posibles">
+              ${sourceOptions.map((source) => `
+                <button
+                  class="encounter-source__option ${source === row.source ? "is-active" : ""}"
+                  type="button"
+                  data-action="select-encounter-source"
+                  data-encounter-row-id="${escapeHtml(row.id)}"
+                  data-encounter-source-value="${escapeHtml(source)}"
+                >
+                  <strong>${escapeHtml(getBestiarySourceFullName(source) || source)}</strong>
+                  <span>${escapeHtml(source)}</span>
+                </button>
+              `).join("")}
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
 function renderBestiary() {
   const filteredEntries = getFilteredBestiary();
   const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
 
   return `
+    ${renderEncounterInventorySection()}
+
     <section class="panel panel--table">
       <div class="section-heading">
         <div>
@@ -911,6 +1724,7 @@ function renderBestiaryRow(entry, isSelected) {
           src="${escapeHtml(entry.tokenUrl)}"
           alt=""
           loading="lazy"
+          decoding="async"
         />
       </div>
     `
@@ -980,19 +1794,57 @@ function renderBestiaryList(filteredEntries, selectedId) {
     `;
   }
 
-  const cacheKey = `${filteredEntries.map((entry) => entry.id).join("|")}::${selectedId}`;
-  const cachedHtml = bestiaryRenderCache.listHtml.get(cacheKey);
-
-  if (cachedHtml) {
-    return cachedHtml;
-  }
-
-  const listHtml = filteredEntries
+  const virtualWindow = getBestiaryVirtualWindow(filteredEntries.length);
+  const visibleEntries = filteredEntries.slice(virtualWindow.startIndex, virtualWindow.endIndex);
+  const listHtml = visibleEntries
     .map((entry) => getCachedBestiaryRowHtml(entry, entry.id === selectedId))
     .join("");
 
-  bestiaryRenderCache.listHtml.set(cacheKey, listHtml);
-  return listHtml;
+  return `
+    <div
+      class="bestiary-list__virtual"
+      style="padding-top: ${virtualWindow.topPadding}px; padding-bottom: ${virtualWindow.bottomPadding}px;"
+      data-bestiary-virtual-start="${virtualWindow.startIndex}"
+      data-bestiary-virtual-end="${virtualWindow.endIndex}"
+    >
+      ${listHtml}
+    </div>
+  `;
+}
+
+function getBestiaryVirtualWindow(totalEntries) {
+  const viewportHeight = state.bestiaryListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT;
+  const maxScrollTop = Math.max(0, totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT - viewportHeight);
+  const scrollTop = Math.min(state.bestiaryListScrollTop, maxScrollTop);
+  const startIndex = getBestiaryVirtualStartIndex(scrollTop);
+  const visibleCount = Math.ceil(viewportHeight / BESTIARY_VIRTUAL_ROW_HEIGHT) + BESTIARY_VIRTUAL_OVERSCAN * 2;
+  const endIndex = Math.min(totalEntries, startIndex + visibleCount);
+
+  return {
+    startIndex,
+    endIndex,
+    topPadding: startIndex * BESTIARY_VIRTUAL_ROW_HEIGHT,
+    bottomPadding: Math.max(0, (totalEntries - endIndex) * BESTIARY_VIRTUAL_ROW_HEIGHT)
+  };
+}
+
+function getBestiaryVirtualStartIndex(scrollTop) {
+  return Math.max(0, Math.floor(scrollTop / BESTIARY_VIRTUAL_ROW_HEIGHT) - BESTIARY_VIRTUAL_OVERSCAN);
+}
+
+function resetBestiaryVirtualScroll() {
+  state.bestiaryListScrollTop = 0;
+}
+
+function restoreBestiaryListScroll() {
+  const listRoot = app.querySelector("[data-bestiary-list-root]");
+
+  if (!listRoot) {
+    return;
+  }
+
+  state.bestiaryListViewportHeight = listRoot.clientHeight;
+  listRoot.scrollTop = state.bestiaryListScrollTop;
 }
 
 function getCachedBestiaryRowHtml(entry, isSelected) {
@@ -1807,6 +2659,566 @@ function toggleBestiaryFilterValue(key, value, checked) {
   updateBestiaryFilter(key, nextValues);
 }
 
+function createEncounter() {
+  const nextNumber = state.encounters.length + 1;
+  const encounter = {
+    id: createStableId("encounter"),
+    name: `Encuentro ${nextNumber}`,
+    folderId: state.activeEncounterFolderId,
+    rows: []
+  };
+
+  state.encounters = [encounter, ...state.encounters];
+  state.encounterFolders = state.encounterFolders.map((folder) => folder.id === encounter.folderId
+    ? {
+      ...folder,
+      isExpanded: true
+    }
+    : folder);
+  state.activeEncounterId = encounter.id;
+  state.encounterInventoryOpen = true;
+  state.activeEncounterSourceRowId = "";
+  state.encounterSearchQuery = "";
+  state.showEncounterSearchSuggestions = false;
+  saveEncounterInventory();
+}
+
+function createEncounterFolder() {
+  const folder = {
+    id: createStableId("encounter-folder"),
+    name: `Carpeta ${state.encounterFolders.length + 1}`,
+    isExpanded: true
+  };
+
+  state.encounterFolders = [...state.encounterFolders, folder];
+  state.activeEncounterFolderId = folder.id;
+  saveEncounterInventory();
+}
+
+function toggleEncounterFolder(folderId) {
+  state.activeEncounterFolderId = folderId ?? "";
+
+  if (!folderId) {
+    state.systemEncounterFolderExpanded = !state.systemEncounterFolderExpanded;
+    saveEncounterInventory();
+    return;
+  }
+
+  state.encounterFolders = state.encounterFolders.map((folder) => folder.id === folderId
+    ? {
+      ...folder,
+      isExpanded: !folder.isExpanded
+    }
+    : folder);
+  saveEncounterInventory();
+}
+
+function updateEncounterFolderName(folderId, name) {
+  state.encounterFolders = state.encounterFolders.map((folder) => folder.id === folderId
+    ? {
+      ...folder,
+      name
+    }
+    : folder);
+  saveEncounterInventory();
+}
+
+function toggleEncounterSelection(encounterId) {
+  const nextSelectedIds = new Set(state.selectedEncounterIds);
+
+  if (nextSelectedIds.has(encounterId)) {
+    nextSelectedIds.delete(encounterId);
+  } else {
+    nextSelectedIds.add(encounterId);
+  }
+
+  state.selectedEncounterIds = nextSelectedIds;
+}
+
+function toggleEncounterFolderSelection(folderId) {
+  const nextSelectedIds = new Set(state.selectedEncounterFolderIds);
+
+  if (nextSelectedIds.has(folderId)) {
+    nextSelectedIds.delete(folderId);
+  } else {
+    nextSelectedIds.add(folderId);
+  }
+
+  state.selectedEncounterFolderIds = nextSelectedIds;
+}
+
+function deleteEncounterFolder(folderId) {
+  state.encounterFolders = state.encounterFolders.filter((folder) => folder.id !== folderId);
+  state.selectedEncounterFolderIds.delete(folderId);
+  state.encounters = state.encounters.map((encounter) => encounter.folderId === folderId
+    ? {
+      ...encounter,
+      folderId: ""
+    }
+    : encounter);
+
+  if (state.activeEncounterFolderId === folderId) {
+    state.activeEncounterFolderId = "";
+  }
+
+  saveEncounterInventory();
+}
+
+function moveFolderToFolder(sourceFolderId, targetFolderId, placement) {
+  if (!sourceFolderId || !targetFolderId || sourceFolderId === targetFolderId) {
+    return;
+  }
+
+  const sourceFolder = state.encounterFolders.find((folder) => folder.id === sourceFolderId);
+
+  if (!sourceFolder) {
+    return;
+  }
+
+  const foldersWithoutSource = state.encounterFolders.filter((folder) => folder.id !== sourceFolderId);
+  const targetIndex = foldersWithoutSource.findIndex((folder) => folder.id === targetFolderId);
+
+  if (targetIndex === -1) {
+    return;
+  }
+
+  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+  state.encounterFolders = [
+    ...foldersWithoutSource.slice(0, insertIndex),
+    sourceFolder,
+    ...foldersWithoutSource.slice(insertIndex)
+  ];
+  state.activeEncounterFolderId = sourceFolderId;
+  saveEncounterInventory();
+}
+
+function moveFoldersToFolder(sourceFolderIds, targetFolderId, placement) {
+  const cleanSourceIds = sourceFolderIds.filter(Boolean);
+
+  if (cleanSourceIds.length === 0 || cleanSourceIds.includes(targetFolderId)) {
+    return;
+  }
+
+  const sourceIdSet = new Set(cleanSourceIds);
+  const movedFolders = state.encounterFolders.filter((folder) => sourceIdSet.has(folder.id));
+  const foldersWithoutSources = state.encounterFolders.filter((folder) => !sourceIdSet.has(folder.id));
+  const targetIndex = foldersWithoutSources.findIndex((folder) => folder.id === targetFolderId);
+
+  if (movedFolders.length === 0 || targetIndex === -1) {
+    return;
+  }
+
+  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+  state.encounterFolders = [
+    ...foldersWithoutSources.slice(0, insertIndex),
+    ...movedFolders,
+    ...foldersWithoutSources.slice(insertIndex)
+  ];
+  state.activeEncounterFolderId = movedFolders[0].id;
+  saveEncounterInventory();
+}
+
+function moveEncounterToFolder(encounterId, folderId) {
+  const encounter = state.encounters.find((item) => item.id === encounterId);
+
+  if (!encounter) {
+    return;
+  }
+
+  state.encounters = [
+    ...state.encounters.filter((item) => item.id !== encounterId),
+    {
+      ...encounter,
+      folderId
+    }
+  ];
+  expandEncounterFolder(folderId);
+  state.activeEncounterId = encounterId;
+  state.activeEncounterFolderId = folderId;
+  saveEncounterInventory();
+}
+
+function moveEncountersToFolder(encounterIds, folderId) {
+  const encounterIdSet = new Set(encounterIds);
+  const movedEncounters = state.encounters
+    .filter((encounter) => encounterIdSet.has(encounter.id))
+    .map((encounter) => ({
+      ...encounter,
+      folderId
+    }));
+
+  if (movedEncounters.length === 0) {
+    return;
+  }
+
+  state.encounters = [
+    ...state.encounters.filter((encounter) => !encounterIdSet.has(encounter.id)),
+    ...movedEncounters
+  ];
+  expandEncounterFolder(folderId);
+  state.activeEncounterId = movedEncounters[0].id;
+  state.activeEncounterFolderId = folderId;
+  saveEncounterInventory();
+}
+
+function moveEncounterToEncounter(sourceEncounterId, targetEncounterId, placement) {
+  if (!sourceEncounterId || !targetEncounterId || sourceEncounterId === targetEncounterId) {
+    return;
+  }
+
+  const sourceEncounter = state.encounters.find((encounter) => encounter.id === sourceEncounterId);
+  const targetEncounter = state.encounters.find((encounter) => encounter.id === targetEncounterId);
+
+  if (!sourceEncounter || !targetEncounter) {
+    return;
+  }
+
+  const encountersWithoutSource = state.encounters.filter((encounter) => encounter.id !== sourceEncounterId);
+  const targetIndex = encountersWithoutSource.findIndex((encounter) => encounter.id === targetEncounterId);
+
+  if (targetIndex === -1) {
+    return;
+  }
+
+  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+  const movedEncounter = {
+    ...sourceEncounter,
+    folderId: targetEncounter.folderId ?? ""
+  };
+
+  state.encounters = [
+    ...encountersWithoutSource.slice(0, insertIndex),
+    movedEncounter,
+    ...encountersWithoutSource.slice(insertIndex)
+  ];
+  expandEncounterFolder(movedEncounter.folderId);
+  state.activeEncounterId = sourceEncounterId;
+  state.activeEncounterFolderId = movedEncounter.folderId;
+  saveEncounterInventory();
+}
+
+function moveEncountersToEncounter(sourceEncounterIds, targetEncounterId, placement) {
+  if (sourceEncounterIds.includes(targetEncounterId)) {
+    return;
+  }
+
+  const sourceIdSet = new Set(sourceEncounterIds);
+  const targetEncounter = state.encounters.find((encounter) => encounter.id === targetEncounterId);
+
+  if (!targetEncounter) {
+    return;
+  }
+
+  const movedEncounters = state.encounters
+    .filter((encounter) => sourceIdSet.has(encounter.id))
+    .map((encounter) => ({
+      ...encounter,
+      folderId: targetEncounter.folderId ?? ""
+    }));
+  const encountersWithoutSources = state.encounters.filter((encounter) => !sourceIdSet.has(encounter.id));
+  const targetIndex = encountersWithoutSources.findIndex((encounter) => encounter.id === targetEncounterId);
+
+  if (movedEncounters.length === 0 || targetIndex === -1) {
+    return;
+  }
+
+  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+  state.encounters = [
+    ...encountersWithoutSources.slice(0, insertIndex),
+    ...movedEncounters,
+    ...encountersWithoutSources.slice(insertIndex)
+  ];
+  expandEncounterFolder(targetEncounter.folderId ?? "");
+  state.activeEncounterId = movedEncounters[0].id;
+  state.activeEncounterFolderId = targetEncounter.folderId ?? "";
+  saveEncounterInventory();
+}
+
+function expandEncounterFolder(folderId) {
+  if (!folderId) {
+    return;
+  }
+
+  state.encounterFolders = state.encounterFolders.map((folder) => folder.id === folderId
+    ? {
+      ...folder,
+      isExpanded: true
+    }
+    : folder);
+}
+
+function selectEncounter(id) {
+  const encounter = state.encounters.find((item) => item.id === id);
+
+  if (!encounter) {
+    return;
+  }
+
+  state.activeEncounterId = id;
+  state.activeEncounterFolderId = encounter.folderId ?? "";
+  state.activeEncounterRowId = "";
+  state.activeEncounterSourceRowId = "";
+  state.encounterSearchQuery = "";
+  state.showEncounterSearchSuggestions = false;
+}
+
+function deleteEncounter(id) {
+  const nextEncounters = state.encounters.filter((encounter) => encounter.id !== id);
+
+  if (nextEncounters.length === state.encounters.length) {
+    return;
+  }
+
+  state.encounters = nextEncounters;
+  state.selectedEncounterIds.delete(id);
+
+  if (state.activeEncounterId === id) {
+    state.activeEncounterId = state.encounters[0]?.id ?? "";
+  }
+
+  state.activeEncounterRowId = "";
+
+  state.encounterSearchQuery = "";
+  state.activeEncounterSourceRowId = "";
+  state.showEncounterSearchSuggestions = false;
+  saveEncounterInventory();
+}
+
+function updateActiveEncounterName(name) {
+  const activeEncounter = getActiveEncounter();
+
+  if (!activeEncounter) {
+    return;
+  }
+
+  state.encounters = state.encounters.map((encounter) => encounter.id === activeEncounter.id
+    ? {
+      ...encounter,
+      name
+    }
+    : encounter);
+  saveEncounterInventory();
+}
+
+function addCreatureToActiveEncounter(entryId) {
+  const activeEncounter = getActiveEncounter();
+  const entry = state.bestiary.find((item) => item.id === entryId);
+
+  if (!activeEncounter || !entry) {
+    return;
+  }
+
+  const row = {
+    id: createStableId("encounter-row"),
+    entryId: entry.id,
+    name: entry.name,
+    source: entry.source,
+    tokenUrl: entry.tokenUrl,
+    hp: entry.hp,
+    hpValue: entry.hpValue,
+    ac: entry.ac,
+    acValue: entry.acValue,
+    crLabel: entry.crBaseLabel || entry.crLabel || "",
+    crValue: entry.crBaseValue,
+    units: 1
+  };
+
+  state.encounters = state.encounters.map((encounter) => encounter.id === activeEncounter.id
+    ? {
+      ...encounter,
+      rows: [...encounter.rows, row]
+    }
+    : encounter);
+  state.activeEncounterSourceRowId = "";
+  state.encounterSearchQuery = "";
+  state.showEncounterSearchSuggestions = false;
+  saveEncounterInventory();
+}
+
+function removeEncounterRow(rowId) {
+  const activeEncounter = getActiveEncounter();
+
+  if (!activeEncounter) {
+    return;
+  }
+
+  state.encounters = state.encounters.map((encounter) => encounter.id === activeEncounter.id
+    ? {
+      ...encounter,
+      rows: encounter.rows.filter((row) => row.id !== rowId)
+    }
+    : encounter);
+  if (state.activeEncounterRowId === rowId) {
+    state.activeEncounterRowId = "";
+  }
+  saveEncounterInventory();
+}
+
+function updateEncounterRowUnits(rowId, value) {
+  const activeEncounter = getActiveEncounter();
+  const units = Math.max(1, Math.floor(toNumber(value)));
+
+  if (!activeEncounter) {
+    return;
+  }
+
+  state.encounters = state.encounters.map((encounter) => encounter.id === activeEncounter.id
+    ? {
+      ...encounter,
+      rows: encounter.rows.map((row) => row.id === rowId
+        ? {
+          ...row,
+          units
+        }
+        : row)
+    }
+    : encounter);
+  saveEncounterInventory();
+}
+
+function updateEncounterRowSource(rowId, source) {
+  const activeEncounter = getActiveEncounter();
+  const cleanSource = cleanText(source);
+
+  if (!activeEncounter) {
+    return;
+  }
+
+  state.encounters = state.encounters.map((encounter) => encounter.id === activeEncounter.id
+    ? {
+      ...encounter,
+      rows: encounter.rows.map((row) => row.id === rowId
+        ? getEncounterRowWithSource(row, cleanSource)
+        : row)
+    }
+    : encounter);
+  saveEncounterInventory();
+}
+
+function getEncounterRowWithSource(row, source) {
+  const matchingEntry = state.bestiary.find((entry) => entry.name === row.name && entry.source === source);
+
+  if (!matchingEntry) {
+    return {
+      ...row,
+      source
+    };
+  }
+
+  return {
+    ...row,
+    entryId: matchingEntry.id,
+    source,
+    tokenUrl: matchingEntry.tokenUrl,
+    hp: matchingEntry.hp,
+    hpValue: matchingEntry.hpValue,
+    ac: matchingEntry.ac,
+    acValue: matchingEntry.acValue,
+    crLabel: matchingEntry.crBaseLabel || matchingEntry.crLabel || row.crLabel,
+    crValue: matchingEntry.crBaseValue
+  };
+}
+
+function getActiveEncounter() {
+  return state.encounters.find((encounter) => encounter.id === state.activeEncounterId) ?? null;
+}
+
+function getEncounterFolderGroups() {
+  const groups = [
+    {
+      id: "",
+      name: "Sin carpeta",
+      isExpanded: state.systemEncounterFolderExpanded
+    },
+    ...state.encounterFolders
+  ];
+
+  return groups.filter((folder) => folder.id || getEncountersByFolder("").length > 0 || state.encounterFolders.length === 0);
+}
+
+function getEncountersByFolder(folderId) {
+  return state.encounters.filter((encounter) => (encounter.folderId ?? "") === folderId);
+}
+
+function getEncounterRowBestiaryEntry(row) {
+  return state.bestiary.find((entry) => entry.id === row.entryId)
+    ?? state.bestiary.find((entry) => entry.name === row.name && entry.source === row.source)
+    ?? null;
+}
+
+function selectEncounterRow(rowId) {
+  const activeEncounter = getActiveEncounter();
+  const row = activeEncounter?.rows.find((item) => item.id === rowId);
+
+  if (!row) {
+    return;
+  }
+
+  const bestiaryEntry = getEncounterRowBestiaryEntry(row);
+  state.activeEncounterRowId = rowId;
+  state.bestiaryFilters = {
+    ...blankBestiaryFilters,
+    query: row.name
+  };
+  state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
+  state.activeBestiaryFilterKey = "";
+  state.showBestiaryQuerySuggestions = false;
+  state.bestiarySelectedId = bestiaryEntry?.id ?? row.entryId ?? "";
+  resetBestiaryVirtualScroll();
+}
+
+function getEncounterRowHpValue(row, bestiaryEntry = getEncounterRowBestiaryEntry(row)) {
+  return row.hpValue || bestiaryEntry?.hpValue || parseLeadingNumber(row.hp);
+}
+
+function getEncounterRowAcValue(row, bestiaryEntry = getEncounterRowBestiaryEntry(row)) {
+  return row.acValue || bestiaryEntry?.acValue || parseLeadingNumber(row.ac);
+}
+
+function getEncounterCreatureSuggestions() {
+  const query = cleanText(state.encounterSearchQuery).toLowerCase();
+
+  if (!query || state.bestiaryStatus !== "ready") {
+    return [];
+  }
+
+  return state.bestiary
+    .filter((entry) => entry.nameLower.includes(query))
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
+      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
+    .slice(0, 12);
+}
+
+function getEncounterSourceOptions(currentSource = "") {
+  const encounterSources = state.encounters.flatMap((encounter) => encounter.rows.map((row) => row.source));
+  const sourceOptions = [
+    ...bestiaryRenderCache.staticOptions.source,
+    ...encounterSources,
+    currentSource
+  ]
+    .map(cleanText)
+    .filter(Boolean);
+
+  return [...new Set(sourceOptions)]
+    .sort((left, right) => getBestiarySourceFullName(left).localeCompare(getBestiarySourceFullName(right), "es", {
+      sensitivity: "base"
+    }));
+}
+
+function getEncounterSummary(encounter) {
+  return encounter.rows.reduce((summary, row) => {
+    const units = Math.max(0, toNumber(row.units));
+
+    return {
+      units: summary.units + units,
+      totalCr: summary.totalCr + units * toNumber(row.crValue)
+    };
+  }, {
+    units: 0,
+    totalCr: 0
+  });
+}
+
 function addEntity() {
   const basePg = 10;
   const id = `entity-${state.nextId}`;
@@ -2393,6 +3805,7 @@ function renderBestiaryFilterDropdown(key, label) {
                   Limpiar
                 </button>
               </div>
+              ${renderBestiarySelectedFilterChips(key)}
               <div class="bestiary-filter__list" role="group" aria-label="${label}">
                 ${
                   visibleOptions.length > 0
@@ -2404,6 +3817,22 @@ function renderBestiaryFilterDropdown(key, label) {
           `
           : ""
       }
+    </div>
+  `;
+}
+
+function renderBestiarySelectedFilterChips(key) {
+  const selectedValues = Array.isArray(state.bestiaryFilters[key]) ? state.bestiaryFilters[key] : [];
+
+  if (selectedValues.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="bestiary-filter__chips" aria-label="Valores filtrados">
+      ${selectedValues.map((value) => `
+        <span class="bestiary-filter__chip">${escapeHtml(getBestiaryFilterDisplayValue(key, value))}</span>
+      `).join("")}
     </div>
   `;
 }
@@ -2795,6 +4224,132 @@ function getBestiaryFilterDisplayValue(key, value) {
   }
 
   return value;
+}
+
+function loadEncounterInventory() {
+  if (typeof window === "undefined") {
+    return { folders: [], encounters: [], systemFolderExpanded: true };
+  }
+
+  try {
+    const storage = window.localStorage;
+    const rawValue = storage.getItem(ENCOUNTER_INVENTORY_STORAGE_KEY);
+    const parsedValue = JSON.parse(rawValue || "{}");
+
+    if (Array.isArray(parsedValue)) {
+      return {
+        folders: [],
+        systemFolderExpanded: true,
+        encounters: parsedValue
+          .map((encounter) => normalizeStoredEncounter(encounter))
+          .filter(Boolean)
+      };
+    }
+
+    if (!isPlainObject(parsedValue)) {
+      return { folders: [], encounters: [], systemFolderExpanded: true };
+    }
+
+    return {
+      folders: Array.isArray(parsedValue.folders)
+        ? parsedValue.folders.map((folder) => normalizeStoredEncounterFolder(folder)).filter(Boolean)
+        : [],
+      systemFolderExpanded: parsedValue.systemFolderExpanded !== false,
+      encounters: Array.isArray(parsedValue.encounters)
+        ? parsedValue.encounters.map((encounter) => normalizeStoredEncounter(encounter)).filter(Boolean)
+        : []
+    };
+  } catch {
+    return { folders: [], encounters: [], systemFolderExpanded: true };
+  }
+}
+
+function saveEncounterInventory() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(ENCOUNTER_INVENTORY_STORAGE_KEY, JSON.stringify({
+      folders: state.encounterFolders,
+      systemFolderExpanded: state.systemEncounterFolderExpanded,
+      encounters: state.encounters
+    }));
+  } catch {
+    // Storage can be unavailable in private contexts; the in-memory inventory still works.
+  }
+}
+
+function normalizeStoredEncounterFolder(folder) {
+  if (!isPlainObject(folder)) {
+    return null;
+  }
+
+  const id = cleanText(folder.id) || createStableId("encounter-folder");
+
+  return {
+    id,
+    name: cleanText(folder.name) || "Carpeta",
+    isExpanded: folder.isExpanded !== false
+  };
+}
+
+function normalizeStoredEncounter(encounter) {
+  if (!isPlainObject(encounter)) {
+    return null;
+  }
+
+  const rows = Array.isArray(encounter.rows)
+    ? encounter.rows.map((row) => normalizeStoredEncounterRow(row)).filter(Boolean)
+    : [];
+
+  return {
+    id: cleanText(encounter.id) || createStableId("encounter"),
+    name: cleanText(encounter.name),
+    folderId: cleanText(encounter.folderId),
+    rows
+  };
+}
+
+function normalizeStoredEncounterRow(row) {
+  if (!isPlainObject(row)) {
+    return null;
+  }
+
+  const name = cleanText(row.name);
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id: cleanText(row.id) || createStableId("encounter-row"),
+    entryId: cleanText(row.entryId),
+    name,
+    source: cleanText(row.source),
+    tokenUrl: cleanText(row.tokenUrl),
+    hp: cleanText(row.hp),
+    hpValue: toNumber(row.hpValue),
+    ac: cleanText(row.ac),
+    acValue: toNumber(row.acValue),
+    crLabel: cleanText(row.crLabel),
+    crValue: toNumber(row.crValue),
+    units: Math.max(1, Math.floor(toNumber(row.units) || 1))
+  };
+}
+
+function createStableId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatCrNumber(value) {
+  const numericValue = toNumber(value);
+
+  if (Number.isInteger(numericValue)) {
+    return String(numericValue);
+  }
+
+  return String(Number(numericValue.toFixed(3)));
 }
 
 function toNumber(value) {
