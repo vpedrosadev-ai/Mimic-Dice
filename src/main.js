@@ -1,4 +1,4 @@
-import { BESTIARY_SOURCE_NAMES } from "./data/bestiarySources.js";
+import { SOURCE_NAMES } from "./data/bestiarySources.js";
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { screens } from "./navigation/screens.js";
 const BESTIARY_CSV_PATH = "data/Bestiary.csv";
@@ -35,14 +35,6 @@ const itemSortOptions = [
   { value: "weight-asc", label: "Peso ascendente" },
   { value: "source-asc", label: "Fuente A-Z" }
 ];
-const arcanumSortOptions = [
-  { value: "name-asc", label: "Nombre A-Z" },
-  { value: "level-asc", label: "Nivel ascendente" },
-  { value: "level-desc", label: "Nivel descendente" },
-  { value: "school-asc", label: "Escuela A-Z" },
-  { value: "duration-asc", label: "Duracion A-Z" }
-];
-
 const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const blankBestiaryFilters = {
@@ -69,11 +61,19 @@ const blankItemFilters = {
 };
 const blankArcanumFilters = {
   query: "",
+  source: [],
+  level: [],
+  school: [],
+  class: [],
+  castingTime: [],
+  concentration: ""
+};
+const blankArcanumFilterSearch = {
   source: "",
   level: "",
   school: "",
   class: "",
-  sort: "name-asc"
+  castingTime: ""
 };
 const itemFilterLabels = {
   source: "fuentes",
@@ -84,7 +84,8 @@ const arcanumFilterLabels = {
   source: "fuentes",
   level: "niveles",
   school: "escuelas",
-  class: "clases"
+  class: "clases",
+  castingTime: "velocidades"
 };
 
 const app = document.querySelector("#app");
@@ -128,9 +129,15 @@ const state = {
   itemMessage: "",
   arcanum: [],
   arcanumFilters: { ...blankArcanumFilters },
+  arcanumSort: { key: "name", direction: "asc" },
+  activeArcanumFilterKey: "",
+  arcanumFilterSearch: { ...blankArcanumFilterSearch },
+  showArcanumQuerySuggestions: false,
   arcanumSelectedId: "",
   arcanumStatus: "loading",
   arcanumMessage: "",
+  arcanumListScrollTop: 0,
+  arcanumListViewportHeight: 0,
   bestiaryListScrollTop: 0,
   bestiaryListViewportHeight: 0,
   encounterInventoryOpen: false,
@@ -177,6 +184,8 @@ function handleClick(event) {
   const actionButton = event.target.closest("[data-action]");
   const clickedBestiaryFilter = event.target.closest("[data-bestiary-filter-menu]");
   const clickedBestiaryQuery = event.target.closest("[data-bestiary-query-menu]");
+  const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
+  const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
   const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
 
@@ -195,6 +204,28 @@ function handleClick(event) {
 
   if (state.showBestiaryQuerySuggestions && !clickedBestiaryQuery) {
     state.showBestiaryQuerySuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.activeArcanumFilterKey &&
+    !clickedArcanumFilter &&
+    actionButton?.dataset.action !== "toggle-arcanum-filter"
+  ) {
+    state.activeArcanumFilterKey = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showArcanumQuerySuggestions && !clickedArcanumQuery) {
+    state.showArcanumQuerySuggestions = false;
 
     if (!actionButton) {
       render();
@@ -444,7 +475,14 @@ function handleClick(event) {
   }
 
   if (action === "select-arcanum-entry") {
+    const previousSelectedId = state.arcanumSelectedId;
     state.arcanumSelectedId = actionButton.dataset.entryId;
+
+    if (state.activeScreen === "arcanum") {
+      updateArcanumSelectionUI(previousSelectedId, state.arcanumSelectedId);
+      return;
+    }
+
     render();
     return;
   }
@@ -519,6 +557,71 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "filter-arcanum-by-source") {
+    resetArcanumVirtualScroll();
+    toggleExclusiveArcanumFilterValue("source", actionButton.dataset.arcanumSourceValue ?? "");
+    render();
+    return;
+  }
+
+  if (action === "filter-arcanum-by-level") {
+    resetArcanumVirtualScroll();
+    toggleExclusiveArcanumFilterValue("level", actionButton.dataset.arcanumLevelValue ?? "");
+    render();
+    return;
+  }
+
+  if (action === "toggle-arcanum-sort") {
+    resetArcanumVirtualScroll();
+    toggleArcanumSort(actionButton.dataset.arcanumSortKey);
+    render();
+    return;
+  }
+
+  if (action === "toggle-arcanum-concentration-filter") {
+    resetArcanumVirtualScroll();
+    toggleArcanumConcentrationFilter();
+    render();
+    return;
+  }
+
+  if (action === "select-arcanum-query-suggestion") {
+    resetArcanumVirtualScroll();
+    state.arcanumFilters.query = actionButton.dataset.arcanumQueryValue ?? "";
+    state.showArcanumQuerySuggestions = false;
+    render({
+      focusSelector: "[data-arcanum-query]"
+    });
+    return;
+  }
+
+  if (action === "toggle-arcanum-filter") {
+    const nextKey = state.activeArcanumFilterKey === actionButton.dataset.arcanumFilterKey ? "" : actionButton.dataset.arcanumFilterKey;
+    state.activeArcanumFilterKey = nextKey;
+    render({
+      focusSelector: nextKey ? `[data-arcanum-filter-search="${nextKey}"]` : null
+    });
+    return;
+  }
+
+  if (action === "clear-arcanum-filter") {
+    resetArcanumVirtualScroll();
+    updateArcanumFilter(actionButton.dataset.arcanumFilterKey, []);
+    render({
+      focusSelector: `[data-arcanum-filter-search="${actionButton.dataset.arcanumFilterKey}"]`
+    });
+    return;
+  }
+
+  if (action === "select-visible-arcanum-options") {
+    resetArcanumVirtualScroll();
+    updateArcanumFilter(actionButton.dataset.arcanumFilterKey, getVisibleArcanumFilterOptions(actionButton.dataset.arcanumFilterKey));
+    render({
+      focusSelector: `[data-arcanum-filter-search="${actionButton.dataset.arcanumFilterKey}"]`
+    });
+    return;
+  }
+
   if (action === "clear-item-filters") {
     state.itemFilters = { ...blankItemFilters };
     render({
@@ -528,10 +631,15 @@ function handleClick(event) {
   }
 
   if (action === "clear-arcanum-filters") {
+    resetArcanumVirtualScroll();
     state.arcanumFilters = { ...blankArcanumFilters };
+    state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
+    state.activeArcanumFilterKey = "";
+    state.showArcanumQuerySuggestions = false;
     render({
       focusSelector: "[data-arcanum-query]"
     });
+    return;
   }
 }
 
@@ -595,9 +703,12 @@ function handleChange(event) {
     return;
   }
 
-  if (target.matches("[data-arcanum-filter]")) {
-    updateArcanumFilter(target.dataset.arcanumFilter, target.value);
-    render();
+  if (target.matches("[data-arcanum-filter-option]")) {
+    resetArcanumVirtualScroll();
+    toggleArcanumFilterValue(target.dataset.arcanumFilterOption, target.value, target.checked);
+    render({
+      focusSelector: `[data-arcanum-filter-search="${target.dataset.arcanumFilterOption}"]`
+    });
   }
 
 }
@@ -659,8 +770,10 @@ function handleInput(event) {
   }
 
   if (target.matches("[data-arcanum-query]")) {
+    resetArcanumVirtualScroll();
     state.arcanumFilters.query = target.value;
-    render({
+    state.showArcanumQuerySuggestions = cleanText(target.value).length > 0;
+    scheduleRender({
       focusSelector: "[data-arcanum-query]",
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
@@ -672,6 +785,16 @@ function handleInput(event) {
     state.bestiaryFilterSearch[target.dataset.bestiaryFilterSearch] = target.value;
     scheduleRender({
       focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterSearch}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-arcanum-filter-search]")) {
+    state.arcanumFilterSearch[target.dataset.arcanumFilterSearch] = target.value;
+    scheduleRender({
+      focusSelector: `[data-arcanum-filter-search="${target.dataset.arcanumFilterSearch}"]`,
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
@@ -731,10 +854,27 @@ function handleKeydown(event) {
     return;
   }
 
+  if (
+    target.matches('[data-action="select-arcanum-entry"]')
+    && (event.key === "Enter" || event.key === " ")
+  ) {
+    event.preventDefault();
+    target.click();
+    return;
+  }
+
   if (target.matches("[data-bestiary-query]") && event.key === "Enter") {
     state.showBestiaryQuerySuggestions = false;
     render({
       focusSelector: "[data-bestiary-query]"
+    });
+    return;
+  }
+
+  if (target.matches("[data-arcanum-query]") && event.key === "Enter") {
+    state.showArcanumQuerySuggestions = false;
+    render({
+      focusSelector: "[data-arcanum-query]"
     });
     return;
   }
@@ -758,20 +898,34 @@ function handleKeydown(event) {
 function handleScroll(event) {
   const target = event.target;
 
-  if (!target.matches?.("[data-bestiary-list-root]")) {
+  if (target.matches?.("[data-bestiary-list-root]")) {
+    const previousStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
+    const previousViewportHeight = state.bestiaryListViewportHeight;
+    state.bestiaryListScrollTop = target.scrollTop;
+    state.bestiaryListViewportHeight = target.clientHeight;
+
+    const nextStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
+    const viewportChanged = Math.abs(previousViewportHeight - state.bestiaryListViewportHeight) > 24;
+
+    if (previousStartIndex !== nextStartIndex || viewportChanged) {
+      render();
+    }
+
     return;
   }
 
-  const previousStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
-  const previousViewportHeight = state.bestiaryListViewportHeight;
-  state.bestiaryListScrollTop = target.scrollTop;
-  state.bestiaryListViewportHeight = target.clientHeight;
+  if (target.matches?.("[data-arcanum-list-root]")) {
+    const previousStartIndex = getArcanumVirtualStartIndex(state.arcanumListScrollTop);
+    const previousViewportHeight = state.arcanumListViewportHeight;
+    state.arcanumListScrollTop = target.scrollTop;
+    state.arcanumListViewportHeight = target.clientHeight;
 
-  const nextStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
-  const viewportChanged = Math.abs(previousViewportHeight - state.bestiaryListViewportHeight) > 24;
+    const nextStartIndex = getArcanumVirtualStartIndex(state.arcanumListScrollTop);
+    const viewportChanged = Math.abs(previousViewportHeight - state.arcanumListViewportHeight) > 24;
 
-  if (previousStartIndex !== nextStartIndex || viewportChanged) {
-    render();
+    if (previousStartIndex !== nextStartIndex || viewportChanged) {
+      render();
+    }
   }
 }
 
@@ -963,6 +1117,10 @@ function render(focusState = null) {
 
   if (state.activeScreen === "bestiary") {
     restoreBestiaryListScroll();
+  }
+
+  if (state.activeScreen === "arcanum") {
+    restoreArcanumListScroll();
   }
 }
 
@@ -1687,23 +1845,8 @@ function renderItems() {
 function renderArcanum() {
   const filteredEntries = getFilteredArcanum();
   const selectedEntry = getSelectedArcanumEntry(filteredEntries);
-  const summaries = getArcanumSummaries(filteredEntries);
 
   return `
-    <section class="panel panel--hero">
-      <div class="panel__copy">
-        <p class="eyebrow">Pantalla 4</p>
-        <h2>Arcanum</h2>
-        <p class="lead">
-          Inventario de hechizos cargado desde <code>${SPELLS_CSV_PATH}</code>, con niveles, clases,
-          componentes y texto completo desde una sola pantalla.
-        </p>
-      </div>
-      <div class="summary-grid">
-        ${summaries.map(renderSummaryCard).join("")}
-      </div>
-    </section>
-
     <section class="panel panel--table">
       <div class="section-heading">
         <div>
@@ -1718,49 +1861,17 @@ function renderArcanum() {
       </div>
 
       <div class="bestiary-toolbar" aria-label="Filtros del arcanum">
-        <label class="toolbar-field toolbar-field--search">
-          <span>Buscar hechizo</span>
-          <input
-            class="filter-input filter-input--wide"
-            type="search"
-            value="${escapeHtml(state.arcanumFilters.query)}"
-            placeholder="Nombre, texto, componentes, clases..."
-            data-arcanum-query
-          />
-        </label>
-        <label class="toolbar-field">
-          <span>Fuente</span>
-          <select data-arcanum-filter="source">
-            ${renderArcanumFilterOptions("source")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Nivel</span>
-          <select data-arcanum-filter="level">
-            ${renderArcanumFilterOptions("level")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Escuela</span>
-          <select data-arcanum-filter="school">
-            ${renderArcanumFilterOptions("school")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Clase</span>
-          <select data-arcanum-filter="class">
-            ${renderArcanumFilterOptions("class")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Orden</span>
-          <select data-arcanum-filter="sort">
-            ${arcanumSortOptions
-              .map((option) => `<option value="${option.value}" ${option.value === state.arcanumFilters.sort ? "selected" : ""}>${option.label}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <button class="toolbar-button" type="button" data-action="clear-arcanum-filters">Limpiar filtros</button>
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
+          ${renderArcanumQueryField()}
+          ${renderArcanumConcentrationFilterButton()}
+        </div>
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--filters">
+          ${renderArcanumFilterDropdown("level", "Nivel")}
+          ${renderArcanumFilterDropdown("castingTime", "Velocidad Hechizo")}
+          ${renderArcanumFilterDropdown("school", "Escuela")}
+          ${renderArcanumFilterDropdown("class", "Clase")}
+          ${renderArcanumFilterDropdown("source", "Fuente")}
+        </div>
       </div>
 
       ${renderArcanumContent(filteredEntries, selectedEntry)}
@@ -1824,18 +1935,10 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
 
   return `
     <div class="bestiary-layout">
-      <div class="bestiary-list" role="list" aria-label="Hechizos del arcanum">
-        ${
-          filteredEntries.length > 0
-            ? filteredEntries.map((entry) => renderArcanumRow(entry, entry.id === selectedEntry?.id)).join("")
-            : `
-              <div class="empty-state empty-state--panel">
-                No hay hechizos que coincidan con los filtros actuales.
-              </div>
-            `
-        }
+      <div class="bestiary-list" role="list" aria-label="Hechizos del arcanum" data-arcanum-list-root>
+        ${renderArcanumList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
-      <aside class="bestiary-detail panel panel--inner">
+      <aside class="bestiary-detail panel panel--inner" data-arcanum-detail-root>
         ${selectedEntry ? renderArcanumDetail(selectedEntry) : renderArcanumDetailEmpty()}
       </aside>
     </div>
@@ -1875,34 +1978,68 @@ function renderItemRow(entry, isSelected) {
 }
 
 function renderArcanumRow(entry, isSelected) {
+  const detailItems = [
+    ["Escuela", entry.school || "-"],
+    ["Lanzamiento", entry.castingTime || "Sin tiempo"],
+    ["Alcance", entry.range || "Sin alcance"],
+    ["Duracion", entry.duration || "Sin duracion"]
+  ];
+  const concentrationChip = entry.hasConcentration
+    ? `
+      <div class="arcanum-row__status">
+        <span class="pill arcanum-row__status-pill">Concentracion</span>
+      </div>
+    `
+    : "";
+
   return `
-    <button
+    <div
       class="bestiary-row ${isSelected ? "is-selected" : ""}"
-      type="button"
       role="listitem"
+      tabindex="0"
       data-action="select-arcanum-entry"
       data-entry-id="${entry.id}"
+      data-arcanum-row-id="${entry.id}"
     >
-      <div class="bestiary-row__main">
-        <div>
-          <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-          <p class="bestiary-row__meta">${escapeHtml(entry.schoolLine)}</p>
+      <div class="bestiary-row__layout">
+        <div class="bestiary-row__content">
+          <div class="bestiary-row__header">
+            <div class="arcanum-row__title-stack">
+              <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
+              <button
+                class="pill bestiary-row__source-pill bestiary-row__filter-pill"
+                type="button"
+                data-action="filter-arcanum-by-source"
+                data-arcanum-source-value="${escapeHtml(entry.source)}"
+                aria-label="Filtrar por fuente ${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")}"
+              >
+                ${escapeHtml(`FUENTE: ${entry.source || "?"}`)}
+              </button>
+            </div>
+            <button
+              class="pill bestiary-row__filter-pill arcanum-row__level-pill"
+              type="button"
+              data-action="filter-arcanum-by-level"
+              data-arcanum-level-value="${escapeHtml(entry.level)}"
+              aria-label="Filtrar por nivel ${escapeHtml(entry.levelLabel || "Sin nivel")}"
+            >
+              ${escapeHtml(`NIVEL: ${entry.levelLabel || "Sin nivel"}`)}
+            </button>
+          </div>
+          <div class="arcanum-row__body">
+            <div class="bestiary-row__facts">
+              ${detailItems.map(([label, value]) => `
+                <p class="bestiary-row__fact">
+                  <span class="bestiary-row__fact-label">${escapeHtml(label)}:</span>
+                  <span class="bestiary-row__fact-value">${escapeHtml(value)}</span>
+                </p>
+              `).join("")}
+            </div>
+            ${concentrationChip}
+          </div>
         </div>
-        <div class="bestiary-row__chips">
-          <span class="pill">${escapeHtml(entry.sourceLabel)}</span>
-          <span class="pill">${escapeHtml(entry.levelLabel)}</span>
-        </div>
       </div>
-      <div class="bestiary-row__stats">
-        <span>${escapeHtml(entry.castingTime || "Sin tiempo")}</span>
-        <span>${escapeHtml(entry.range || "Sin alcance")}</span>
-        <span>${escapeHtml(entry.duration || "Sin duracion")}</span>
-      </div>
-      <div class="bestiary-row__footer">
-        <span>${escapeHtml(entry.classesShort || "Sin clases")}</span>
-        <span>${escapeHtml(entry.components || "Sin componentes")}</span>
-      </div>
-    </button>
+    </div>
   `;
 }
 
@@ -2021,57 +2158,19 @@ function renderItemDetailMedia(entry) {
 }
 
 function renderArcanumDetail(entry) {
-  const sections = [
-    { title: "Texto", content: entry.text },
+  const textSection = renderBestiarySection("Texto", entry.text || "Sin texto disponible.");
+  const extraSections = [
     { title: "At Higher Levels", content: entry.atHigherLevels }
   ].filter((section) => section.content);
 
   return `
-    <div class="bestiary-detail__header">
+    <div class="bestiary-detail__header arcanum-detail__header">
       <p class="eyebrow">Conjuro seleccionado</p>
       <h3>${escapeHtml(entry.name)}</h3>
-      <p class="lead">${escapeHtml(entry.schoolLine)}</p>
-    </div>
-
-    <div class="bestiary-detail__top">
-      <div class="arcanum-banner">
-        <div class="arcanum-glyph" aria-hidden="true">${escapeHtml(entry.levelGlyph)}</div>
-        <div class="arcanum-banner__copy">
-          <p class="eyebrow">Referencia rapida</p>
-          <h4>${escapeHtml(entry.levelLabel)}</h4>
-          <p>${escapeHtml(entry.sourceLabel)}</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="bestiary-kpis">
-      <article class="summary-card summary-card--compact">
-        <span>Nivel</span>
-        <strong>${escapeHtml(entry.levelShort)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Lanzamiento</span>
-        <strong>${escapeHtml(entry.castingTimeShort)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Alcance</span>
-        <strong>${escapeHtml(entry.rangeShort)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Duracion</span>
-        <strong>${escapeHtml(entry.durationShort)}</strong>
-      </article>
+      <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
     </div>
 
     <div class="bestiary-detail__grid">
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Fuente</span>
-        <p>${escapeHtml(entry.sourceLabel)}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Escuela</span>
-        <p>${escapeHtml(entry.school || "No indicada")}</p>
-      </div>
       <div class="bestiary-detail__block">
         <span class="bestiary-detail__label">Casting Time</span>
         <p>${escapeHtml(entry.castingTime || "No indicado")}</p>
@@ -2088,24 +2187,15 @@ function renderArcanumDetail(entry) {
         <span class="bestiary-detail__label">Componentes</span>
         <p>${escapeHtml(entry.components || "No indicados")}</p>
       </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Clases</span>
-        <p>${escapeHtml(entry.classes || "No indicadas")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Subclases</span>
-        <p>${escapeHtml(entry.subclasses || "No indicadas")}</p>
-      </div>
-    </div>
-
-    <div class="bestiary-resistances">
-      ${renderDetailChip("Variant Classes", entry.optionalClasses)}
-      ${renderDetailChip("Subclasses", entry.subclasses)}
-      ${renderDetailChip("Etiquetas", entry.tagSummary)}
     </div>
 
     <div class="bestiary-sections">
-      ${sections.map((section) => renderBestiarySection(section.title, section.content)).join("")}
+      ${textSection}
+      <div class="bestiary-resistances">
+        ${renderDetailChip("Clases", entry.classes || entry.optionalClasses)}
+        ${renderDetailChip("Subclases", entry.subclasses)}
+      </div>
+      ${extraSections.map((section) => renderBestiarySection(section.title, section.content)).join("")}
     </div>
   `;
 }
@@ -2320,6 +2410,86 @@ function updateBestiarySelectionUI(previousSelectedId, nextSelectedId) {
   const filteredEntries = getFilteredBestiary();
   const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
   detailRoot.innerHTML = selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty();
+}
+
+function renderArcanumList(filteredEntries, selectedId) {
+  if (filteredEntries.length === 0) {
+    return `
+      <div class="empty-state empty-state--panel">
+        No hay hechizos que coincidan con los filtros actuales.
+      </div>
+    `;
+  }
+
+  const virtualWindow = getArcanumVirtualWindow(filteredEntries.length);
+  const visibleEntries = filteredEntries.slice(virtualWindow.startIndex, virtualWindow.endIndex);
+  const listHtml = visibleEntries
+    .map((entry) => renderArcanumRow(entry, entry.id === selectedId))
+    .join("");
+
+  return `
+    <div
+      class="bestiary-list__virtual"
+      style="padding-top: ${virtualWindow.topPadding}px; padding-bottom: ${virtualWindow.bottomPadding}px;"
+      data-arcanum-virtual-start="${virtualWindow.startIndex}"
+      data-arcanum-virtual-end="${virtualWindow.endIndex}"
+    >
+      ${listHtml}
+    </div>
+  `;
+}
+
+function getArcanumVirtualWindow(totalEntries) {
+  const viewportHeight = state.arcanumListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT;
+  const maxScrollTop = Math.max(0, totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT - viewportHeight);
+  const scrollTop = Math.min(state.arcanumListScrollTop, maxScrollTop);
+  const startIndex = getArcanumVirtualStartIndex(scrollTop);
+  const visibleCount = Math.ceil(viewportHeight / BESTIARY_VIRTUAL_ROW_HEIGHT) + BESTIARY_VIRTUAL_OVERSCAN * 2;
+  const endIndex = Math.min(totalEntries, startIndex + visibleCount);
+
+  return {
+    startIndex,
+    endIndex,
+    topPadding: startIndex * BESTIARY_VIRTUAL_ROW_HEIGHT,
+    bottomPadding: Math.max(0, (totalEntries - endIndex) * BESTIARY_VIRTUAL_ROW_HEIGHT)
+  };
+}
+
+function getArcanumVirtualStartIndex(scrollTop) {
+  return Math.max(0, Math.floor(scrollTop / BESTIARY_VIRTUAL_ROW_HEIGHT) - BESTIARY_VIRTUAL_OVERSCAN);
+}
+
+function resetArcanumVirtualScroll() {
+  state.arcanumListScrollTop = 0;
+}
+
+function restoreArcanumListScroll() {
+  const listRoot = app.querySelector("[data-arcanum-list-root]");
+
+  if (!listRoot) {
+    return;
+  }
+
+  state.arcanumListViewportHeight = listRoot.clientHeight;
+  listRoot.scrollTop = state.arcanumListScrollTop;
+}
+
+function updateArcanumSelectionUI(previousSelectedId, nextSelectedId) {
+  if (previousSelectedId && previousSelectedId !== nextSelectedId) {
+    app.querySelector(`[data-arcanum-row-id="${previousSelectedId}"]`)?.classList.remove("is-selected");
+  }
+
+  app.querySelector(`[data-arcanum-row-id="${nextSelectedId}"]`)?.classList.add("is-selected");
+
+  const detailRoot = app.querySelector("[data-arcanum-detail-root]");
+
+  if (!detailRoot) {
+    return;
+  }
+
+  const filteredEntries = getFilteredArcanum();
+  const selectedEntry = getSelectedArcanumEntry(filteredEntries);
+  detailRoot.innerHTML = selectedEntry ? renderArcanumDetail(selectedEntry) : renderArcanumDetailEmpty();
 }
 
 function renderBestiaryDetail(entry) {
@@ -3024,30 +3194,48 @@ function matchesItemFilters(entry) {
   return true;
 }
 
-function matchesArcanumFilters(entry) {
-  const query = state.arcanumFilters.query.trim().toLowerCase();
-  const source = state.arcanumFilters.source;
-  const level = state.arcanumFilters.level;
-  const school = state.arcanumFilters.school;
-  const spellClass = state.arcanumFilters.class;
+function matchesArcanumFilters(entry, overrides = {}) {
+  const filters = {
+    ...state.arcanumFilters,
+    ...overrides
+  };
+  const query = cleanText(filters.query).toLowerCase();
+  const source = Array.isArray(filters.source) ? filters.source : [];
+  const level = Array.isArray(filters.level) ? filters.level : [];
+  const school = Array.isArray(filters.school) ? filters.school : [];
+  const spellClass = Array.isArray(filters.class) ? filters.class : [];
+  const castingTime = Array.isArray(filters.castingTime) ? filters.castingTime : [];
+  const concentration = cleanText(filters.concentration);
 
   if (query && !entry.searchText.includes(query)) {
     return false;
   }
 
-  if (source && entry.source !== source) {
+  if (source.length > 0 && !source.includes(entry.source)) {
     return false;
   }
 
-  if (level && entry.level !== level) {
+  if (level.length > 0 && !level.includes(entry.level)) {
     return false;
   }
 
-  if (school && entry.school !== school) {
+  if (school.length > 0 && !school.includes(entry.schoolFilterValue)) {
     return false;
   }
 
-  if (spellClass && !entry.classTokens.includes(spellClass)) {
+  if (spellClass.length > 0 && !spellClass.some((value) => entry.classFilterTokens.includes(value))) {
+    return false;
+  }
+
+  if (castingTime.length > 0 && !castingTime.includes(entry.castingSpeed)) {
+    return false;
+  }
+
+  if (concentration === "only" && !entry.hasConcentration) {
+    return false;
+  }
+
+  if (concentration === "none" && entry.hasConcentration) {
     return false;
   }
 
@@ -3094,7 +3282,12 @@ function compareBestiaryEntries(left, right) {
   }
 
   if (key === "source") {
-    return (left.source.localeCompare(right.source, "es", { sensitivity: "base" })
+    return (getSourceFullName(left.source).localeCompare(getSourceFullName(right.source), "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
+  }
+
+  if (key === "castingTime") {
+    return (compareSpellCastingSpeed(left.castingSpeed, right.castingSpeed)
       || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
@@ -3111,6 +3304,34 @@ function toggleBestiarySort(key) {
     key,
     direction: state.bestiarySort.direction === "asc" ? "desc" : "asc"
   };
+}
+
+function toggleArcanumSort(key) {
+  if (state.arcanumSort.key !== key) {
+    state.arcanumSort = { key, direction: "asc" };
+    return;
+  }
+
+  state.arcanumSort = {
+    key,
+    direction: state.arcanumSort.direction === "asc" ? "desc" : "asc"
+  };
+}
+
+function toggleArcanumConcentrationFilter() {
+  const currentValue = state.arcanumFilters.concentration;
+
+  if (currentValue === "only") {
+    state.arcanumFilters.concentration = "none";
+    return;
+  }
+
+  if (currentValue === "none") {
+    state.arcanumFilters.concentration = "";
+    return;
+  }
+
+  state.arcanumFilters.concentration = "only";
 }
 
 function compareItemEntries(left, right) {
@@ -3137,27 +3358,30 @@ function compareItemEntries(left, right) {
 }
 
 function compareArcanumEntries(left, right) {
-  const sort = state.arcanumFilters.sort;
+  const { key, direction } = state.arcanumSort;
+  const multiplier = direction === "desc" ? -1 : 1;
 
-  if (sort === "level-asc") {
-    return left.levelValue - right.levelValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "level") {
+    return ((left.levelValue - right.levelValue)
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "level-desc") {
-    return right.levelValue - left.levelValue || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "school") {
+    return (left.school.localeCompare(right.school, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "school-asc") {
-    return left.school.localeCompare(right.school, "es", { sensitivity: "base" })
-      || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "class") {
+    return ((left.classTokens[0] ?? "").localeCompare(right.classTokens[0] ?? "", "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "duration-asc") {
-    return left.duration.localeCompare(right.duration, "es", { sensitivity: "base" })
-      || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "source") {
+    return (getSourceFullName(left.source).localeCompare(getSourceFullName(right.source), "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  return left.name.localeCompare(right.name, "es", { sensitivity: "base" }) * multiplier;
 }
 
 function toggleSort(key) {
@@ -3265,6 +3489,21 @@ function toggleBestiaryFilterValue(key, value, checked) {
     : currentValues.filter((item) => item !== value);
 
   updateBestiaryFilter(key, nextValues);
+}
+
+function toggleExclusiveArcanumFilterValue(key, value) {
+  const currentValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
+  const nextValues = currentValues.length === 1 && currentValues[0] === value ? [] : [value];
+  updateArcanumFilter(key, nextValues);
+}
+
+function toggleArcanumFilterValue(key, value, checked) {
+  const currentValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
+  const nextValues = checked
+    ? [...new Set([...currentValues, value])]
+    : currentValues.filter((item) => item !== value);
+
+  updateArcanumFilter(key, nextValues);
 }
 
 function createEncounter() {
@@ -4519,15 +4758,20 @@ function normalizeSpellEntry(row, index) {
     ...splitList(classes),
     ...splitList(optionalClasses)
   ]);
+  const classFilterTokens = uniqueSortedStrings(classTokens.map(getArcanumParentheticalBase));
   const levelValue = parseSpellLevel(level);
   const levelLabel = formatSpellLevel(level);
   const levelShort = formatSpellLevelShort(level);
-  const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
+  const schoolFilterValue = getArcanumParentheticalBase(school);
+  const castingSpeed = getSpellCastingSpeed(castingTime);
+  const sourceFullName = getSourceFullName(source);
+  const sourceLabel = page ? `${sourceFullName} p.${page}` : sourceFullName || "Sin fuente";
   const schoolLine = [levelLabel, school].filter(Boolean).join(" | ");
   const compositeKey = buildArcanumCompositeKey(name, source, level);
   const searchText = [
     name,
     source,
+    sourceFullName,
     level,
     school,
     castingTime,
@@ -4547,15 +4791,19 @@ function normalizeSpellEntry(row, index) {
     id: compositeKey || `arcanum-${index + 1}`,
     compositeKey,
     name,
+    nameLower: name.toLowerCase(),
     source,
+    sourceFullName,
     page,
     level,
     levelValue,
     levelLabel,
     levelShort,
     school,
+    schoolFilterValue,
     schoolLine: schoolLine || "Hechizo sin clasificacion",
     castingTime,
+    castingSpeed,
     duration,
     range,
     components,
@@ -4565,12 +4813,12 @@ function normalizeSpellEntry(row, index) {
     text,
     atHigherLevels,
     classTokens,
+    classFilterTokens,
     sourceLabel,
-    classesShort: classTokens.slice(0, 3).join(", "),
     castingTimeShort: shortenLabel(castingTime, 18),
     rangeShort: shortenLabel(range, 18),
     durationShort: shortenLabel(duration, 18),
-    levelGlyph: levelValue === 0 ? "0" : String(Math.min(levelValue, 9)),
+    hasConcentration: hasConcentrationDuration(duration),
     tagSummary: [components, classTokens[0], school].filter(Boolean).join(" | "),
     searchText
   };
@@ -4759,25 +5007,194 @@ function renderItemFilterOptions(key) {
   ].join("");
 }
 
-function renderArcanumFilterOptions(key) {
-  const values = [...new Set(
-    state.arcanum.flatMap((entry) => {
-      if (key === "class") {
-        return entry.classTokens;
+function renderArcanumFilterDropdown(key, label) {
+  const isOpen = state.activeArcanumFilterKey === key;
+  const selectedValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
+  const allowSearch = key === "school" || key === "class" || key === "source";
+  const visibleOptions = isOpen ? getVisibleArcanumFilterOptions(key) : [];
+
+  return `
+    <div class="toolbar-field bestiary-filter bestiary-filter--${key}" data-arcanum-filter-menu>
+      <span>${label}</span>
+      <div class="bestiary-filter__controls">
+        <button
+          class="bestiary-filter__trigger ${selectedValues.length > 0 ? "is-active" : ""}"
+          type="button"
+          data-action="toggle-arcanum-filter"
+          data-arcanum-filter-key="${key}"
+          aria-expanded="${isOpen}"
+          aria-haspopup="dialog"
+        >
+          <span>${escapeHtml(getArcanumFilterSummary(key, label))}</span>
+          <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
+        </button>
+        ${renderArcanumSortButton(key, `Ordenar por ${label}`)}
+      </div>
+      ${
+        isOpen
+          ? `
+            <div class="bestiary-filter__popover" data-arcanum-filter-menu>
+              ${
+                allowSearch
+                  ? `
+                    <label class="bestiary-filter__search">
+                      <span>Buscar ${label.toLowerCase()}</span>
+                      <input
+                        class="filter-input"
+                        type="search"
+                        value="${escapeHtml(state.arcanumFilterSearch[key])}"
+                        placeholder="Buscar opcion..."
+                        data-arcanum-filter-search="${key}"
+                      />
+                    </label>
+                  `
+                  : ""
+              }
+              <div class="bestiary-filter__actions">
+                <button
+                  class="filter-clear"
+                  type="button"
+                  data-action="select-visible-arcanum-options"
+                  data-arcanum-filter-key="${key}"
+                  ${visibleOptions.length === 0 ? "disabled" : ""}
+                >
+                  Seleccionar visibles
+                </button>
+                <button
+                  class="filter-clear"
+                  type="button"
+                  data-action="clear-arcanum-filter"
+                  data-arcanum-filter-key="${key}"
+                  ${selectedValues.length === 0 ? "disabled" : ""}
+                >
+                  Limpiar
+                </button>
+              </div>
+              ${renderArcanumSelectedFilterChips(key)}
+              <div class="bestiary-filter__list" role="group" aria-label="${label}">
+                ${
+                  visibleOptions.length > 0
+                    ? visibleOptions.map((value) => renderArcanumFilterCheckbox(key, value)).join("")
+                    : `<p class="bestiary-filter__empty">No hay opciones que coincidan con la busqueda.</p>`
+                }
+              </div>
+            </div>
+          `
+          : ""
       }
+    </div>
+  `;
+}
 
-      return [entry[key]];
-    }).filter(Boolean)
-  )];
+function renderArcanumSelectedFilterChips(key) {
+  const selectedValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
 
-  const sortedValues = key === "level"
-    ? values.sort((left, right) => parseSpellLevel(left) - parseSpellLevel(right))
-    : values.sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+  if (selectedValues.length === 0) {
+    return "";
+  }
 
-  return [
-    `<option value="">Todas las ${arcanumFilterLabels[key]}</option>`,
-    ...sortedValues.map((value) => `<option value="${escapeHtml(value)}" ${value === state.arcanumFilters[key] ? "selected" : ""}>${escapeHtml(key === "level" ? formatSpellLevel(value) : value)}</option>`)
-  ].join("");
+  return `
+    <div class="bestiary-filter__chips" aria-label="Valores filtrados">
+      ${selectedValues.map((value) => `
+        <span class="bestiary-filter__chip">${escapeHtml(getArcanumFilterDisplayValue(key, value))}</span>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderArcanumQueryField() {
+  const suggestions = getArcanumNameSuggestions();
+
+  return `
+    <div class="toolbar-field toolbar-field--search bestiary-query" data-arcanum-query-menu>
+      <span>Buscar hechizo</span>
+      <div class="bestiary-filter__controls">
+        <input
+          class="filter-input filter-input--wide"
+          type="search"
+          value="${escapeHtml(state.arcanumFilters.query)}"
+          placeholder="Nombre, texto, componentes, clases..."
+          data-arcanum-query
+        />
+        ${renderArcanumSortButton("name", "Ordenar por nombre")}
+        <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-arcanum-filters">Limpiar filtros</button>
+      </div>
+      ${
+        state.showArcanumQuerySuggestions && suggestions.length > 0
+          ? `
+            <div class="bestiary-query__popover" role="listbox" aria-label="Sugerencias de hechizo">
+              ${suggestions.map((value) => `
+                <button
+                  class="bestiary-query__option"
+                  type="button"
+                  data-action="select-arcanum-query-suggestion"
+                  data-arcanum-query-value="${escapeHtml(value)}"
+                >
+                  ${escapeHtml(value)}
+                </button>
+              `).join("")}
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderArcanumConcentrationFilterButton() {
+  const value = state.arcanumFilters.concentration;
+  const label = value === "only"
+    ? "Concentracion: si"
+    : value === "none"
+      ? "Concentracion: no"
+      : "Concentracion: todos";
+
+  return `
+    <button
+      class="toolbar-button arcanum-concentration-toggle ${value ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-arcanum-concentration-filter"
+      aria-pressed="${Boolean(value)}"
+      title="Filtrar por hechizos con o sin concentracion"
+    >
+      ${label}
+    </button>
+  `;
+}
+
+function renderArcanumSortButton(key, label) {
+  const isActive = state.arcanumSort.key === key;
+  const indicator = !isActive ? "Sort" : state.arcanumSort.direction === "asc" ? "Asc" : "Desc";
+
+  return `
+    <button
+      class="bestiary-sort-button ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-arcanum-sort"
+      data-arcanum-sort-key="${key}"
+      aria-label="${label}"
+      title="${label}"
+    >
+      ${indicator}
+    </button>
+  `;
+}
+
+function renderArcanumFilterCheckbox(key, value) {
+  const selectedValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
+  const displayValue = getArcanumFilterDisplayValue(key, value);
+
+  return `
+    <label class="bestiary-filter__option">
+      <input
+        type="checkbox"
+        value="${escapeHtml(value)}"
+        data-arcanum-filter-option="${key}"
+        ${selectedValues.includes(value) ? "checked" : ""}
+      />
+      <span>${escapeHtml(displayValue)}</span>
+    </label>
+  `;
 }
 
 function getBestiaryFilterOptions(key) {
@@ -4947,6 +5364,91 @@ function hydrateBestiaryStaticOptions() {
   )].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
 
+function getArcanumFilterOptions(key) {
+  return [...new Set(
+    getArcanumEntriesForFilterOptions(key).flatMap((entry) => {
+      if (key === "class") {
+        return entry.classFilterTokens;
+      }
+
+      if (key === "school") {
+        return [entry.schoolFilterValue];
+      }
+
+      if (key === "castingTime") {
+        return [entry.castingSpeed];
+      }
+
+      return [entry[key]];
+    }).filter(Boolean)
+  )].sort((left, right) => compareArcanumFilterValues(key, left, right));
+}
+
+function getArcanumEntriesForFilterOptions(key) {
+  return state.arcanum.filter((entry) => matchesArcanumFilters(entry, { [key]: [] }));
+}
+
+function getVisibleArcanumFilterOptions(key) {
+  const search = cleanText(state.arcanumFilterSearch[key]).toLowerCase();
+
+  return getArcanumFilterOptions(key).filter((value) => {
+    const displayValue = getArcanumFilterDisplayValue(key, value).toLowerCase();
+
+    if (!search) {
+      return true;
+    }
+
+    return value.toLowerCase().includes(search) || displayValue.includes(search);
+  });
+}
+
+function getArcanumFilterSummary(key, label) {
+  const selectedValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
+
+  if (selectedValues.length === 0) {
+    return `${label}: todos`;
+  }
+
+  if (selectedValues.length === 1) {
+    return `${label}: ${getArcanumFilterDisplayValue(key, selectedValues[0])}`;
+  }
+
+  return `${label}: ${selectedValues.length} seleccionados`;
+}
+
+function getArcanumNameSuggestions() {
+  const query = cleanText(state.arcanumFilters.query).toLowerCase();
+
+  if (!query) {
+    return [];
+  }
+
+  const suggestionSource = hasArcanumConstraintsBesides("query")
+    ? state.arcanum
+      .filter((entry) => matchesArcanumFilters(entry, { query: "" }))
+      .filter((entry) => entry.nameLower.includes(query))
+      .map((entry) => entry.name)
+    : state.arcanum
+      .filter((entry) => entry.nameLower.includes(query))
+      .map((entry) => entry.name);
+
+  return [...new Set(suggestionSource)].slice(0, 12);
+}
+
+function hasArcanumConstraintsBesides(excludedKey) {
+  if (excludedKey !== "query" && cleanText(state.arcanumFilters.query)) {
+    return true;
+  }
+
+  return ["level", "school", "class", "source", "castingTime"].some((key) => {
+    if (key === excludedKey) {
+      return false;
+    }
+
+    return (state.arcanumFilters[key] ?? []).length > 0;
+  }) || (excludedKey !== "concentration" && Boolean(state.arcanumFilters.concentration));
+}
+
 function getBestiaryStatusLabel() {
   if (state.bestiaryStatus === "loading") {
     return "Cargando CSV";
@@ -5064,6 +5566,47 @@ function formatSpellLevelShort(level) {
   }
 
   return `${value}`;
+}
+
+function getSpellCastingSpeed(castingTime) {
+  const normalizedCastingTime = cleanText(castingTime).toLowerCase();
+
+  if (normalizedCastingTime.includes("bonus")) {
+    return "Bonus";
+  }
+
+  if (normalizedCastingTime.includes("reaction")) {
+    return "Reaction";
+  }
+
+  if (normalizedCastingTime.includes("action")) {
+    return "Action";
+  }
+
+  return "";
+}
+
+function compareSpellCastingSpeed(left, right) {
+  const order = {
+    Action: 1,
+    Bonus: 2,
+    Reaction: 3
+  };
+
+  return (order[left] ?? 99) - (order[right] ?? 99)
+    || left.localeCompare(right, "es", { sensitivity: "base" });
+}
+
+function getArcanumParentheticalBase(value) {
+  return cleanText(value)
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasConcentrationDuration(duration) {
+  return slugify(duration).split("-").includes("concentration")
+    || slugify(duration).split("-").includes("concentracion");
 }
 
 function resolveItemImageAsset(name, source, imageMap) {
@@ -5204,9 +5747,13 @@ function shortenLabel(value, maxLength = 20) {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
 }
 
-function getBestiarySourceFullName(source) {
+function getSourceFullName(source) {
   const normalizedSource = cleanText(source);
-  return BESTIARY_SOURCE_NAMES[normalizedSource] ?? normalizedSource;
+  return SOURCE_NAMES[normalizedSource] ?? normalizedSource;
+}
+
+function getBestiarySourceFullName(source) {
+  return getSourceFullName(source);
 }
 
 function resolveBestiaryImageAsset(name, source, imageMap, assetKey) {
@@ -5320,6 +5867,40 @@ function getBestiaryFilterDisplayValue(key, value) {
   if (key === "source") {
     const source = cleanText(value);
     const sourceFullName = getBestiarySourceFullName(source);
+    return sourceFullName && sourceFullName !== source
+      ? `${sourceFullName} (${source})`
+      : source;
+  }
+
+  return value;
+}
+
+function compareArcanumFilterValues(key, left, right) {
+  if (key === "level") {
+    return parseSpellLevel(left) - parseSpellLevel(right)
+      || left.localeCompare(right, "es", { numeric: true, sensitivity: "base" });
+  }
+
+  if (key === "castingTime") {
+    return compareSpellCastingSpeed(left, right);
+  }
+
+  if (key === "source") {
+    return getSourceFullName(left).localeCompare(getSourceFullName(right), "es", { sensitivity: "base" })
+      || left.localeCompare(right, "es", { sensitivity: "base" });
+  }
+
+  return left.localeCompare(right, "es", { sensitivity: "base" });
+}
+
+function getArcanumFilterDisplayValue(key, value) {
+  if (key === "level") {
+    return formatSpellLevel(value);
+  }
+
+  if (key === "source") {
+    const source = cleanText(value);
+    const sourceFullName = getSourceFullName(source);
     return sourceFullName && sourceFullName !== source
       ? `${sourceFullName} (${source})`
       : source;

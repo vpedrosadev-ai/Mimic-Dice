@@ -559,6 +559,11 @@ table {
   border-color: var(--line-strong);
 }
 
+.toolbar-button.is-active {
+  border-color: rgba(240, 200, 121, 0.52);
+  background: rgba(240, 200, 121, 0.1);
+}
+
 .toolbar-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -578,6 +583,10 @@ table {
 .toolbar-button--area {
   border-color: rgba(255, 140, 84, 0.32);
   background: linear-gradient(180deg, rgba(255, 125, 64, 0.22), rgba(255, 198, 79, 0.08));
+}
+
+.arcanum-concentration-toggle {
+  min-height: 2.85rem;
 }
 
 .area-damage {
@@ -1430,12 +1439,12 @@ table {
 }
 
 .bestiary-toolbar__row--primary {
-  grid-template-columns: minmax(18rem, 24rem) auto;
-  justify-content: start;
+  grid-template-columns: minmax(18rem, 34rem) auto;
+  justify-content: space-between;
 }
 
 .bestiary-toolbar__row--filters {
-  grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 1.15fr) minmax(10.625rem, 0.9fr) minmax(15rem, 1.25fr);
+  grid-template-columns: minmax(6.9rem, 0.64fr) minmax(8.8rem, 0.86fr) minmax(8.2rem, 0.78fr) minmax(8.6rem, 0.82fr) minmax(10rem, 0.98fr);
 }
 
 .bestiary-toolbar__clear {
@@ -1445,7 +1454,7 @@ table {
 .bestiary-query {
   position: relative;
   min-width: 0;
-  max-width: 24rem;
+  max-width: 34rem;
 }
 
 .bestiary-query__popover {
@@ -1598,10 +1607,45 @@ table {
 
 .bestiary-row__header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.45rem;
   min-width: 0;
   flex-wrap: wrap;
+}
+
+.arcanum-row__title-stack {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.arcanum-row__level-pill {
+  margin-left: auto;
+  min-height: 1.55rem;
+  padding: 0.12rem 0.58rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.arcanum-row__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.arcanum-row__status {
+  display: flex;
+  justify-content: flex-end;
+  align-self: end;
+}
+
+.arcanum-row__status-pill {
+  min-height: 1.55rem;
+  padding: 0.12rem 0.58rem;
+  font-size: 0.72rem;
 }
 
 .bestiary-row__title {
@@ -1725,9 +1769,17 @@ table {
   align-items: stretch;
 }
 
+.bestiary-detail__top--no-media {
+  grid-template-columns: 1fr;
+}
+
+.bestiary-detail__top--no-media .bestiary-detail__top-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: none;
+}
+
 .item-focus-card,
-.item-banner,
-.arcanum-banner {
+.item-banner {
   display: grid;
   gap: 1rem;
   padding: 1rem;
@@ -1740,15 +1792,13 @@ table {
 }
 
 .item-focus-card,
-.item-banner,
-.arcanum-banner {
+.item-banner {
   grid-template-columns: minmax(5rem, 6rem) minmax(0, 1fr);
   align-items: center;
 }
 
 .item-focus-card__glyph,
-.item-banner__glyph,
-.arcanum-glyph {
+.item-banner__glyph {
   display: grid;
   place-items: center;
   width: min(100%, 5.8rem);
@@ -1763,29 +1813,24 @@ table {
 }
 
 .item-focus-card__copy,
-.item-banner__copy,
-.arcanum-banner__copy {
+.item-banner__copy {
   min-width: 0;
 }
 
 .item-focus-card__copy h4,
 .item-focus-card__copy p,
 .item-banner__copy h4,
-.item-banner__copy p,
-.arcanum-banner__copy h4,
-.arcanum-banner__copy p {
+.item-banner__copy p {
   margin: 0;
 }
 
 .item-focus-card__copy h4,
-.item-banner__copy h4,
-.arcanum-banner__copy h4 {
+.item-banner__copy h4 {
   font-size: 1.25rem;
 }
 
 .item-focus-card__copy p:last-child,
-.item-banner__copy p:last-child,
-.arcanum-banner__copy p:last-child {
+.item-banner__copy p:last-child {
   margin-top: 0.45rem;
   color: var(--muted);
   line-height: 1.5;
@@ -1816,6 +1861,10 @@ table {
 .bestiary-detail__header h3,
 .detail-section h4 {
   margin: 0;
+}
+
+.arcanum-detail__header h3 {
+  margin-top: 0.75rem;
 }
 
 .bestiary-detail__source {
@@ -2106,8 +2155,7 @@ table {
   }
 
   .item-focus-card,
-  .item-banner,
-  .arcanum-banner {
+  .item-banner {
     grid-template-columns: 1fr;
   }
 }
@@ -2194,6 +2242,10 @@ table {
   .bestiary-detail__top-stats,
   .bestiary-detail__abilities,
   .bestiary-detail__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .bestiary-detail__top--no-media .bestiary-detail__top-stats {
     grid-template-columns: 1fr 1fr;
   }
 

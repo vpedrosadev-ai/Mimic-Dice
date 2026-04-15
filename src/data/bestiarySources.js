@@ -1,4 +1,5 @@
-export const BESTIARY_SOURCE_NAMES = {
+export const SOURCE_NAMES = {
+  AAG: "Astral Adventurer's Guide",
   AATM: "Adventure Atlas: The Moonshae Isles",
   ABH: "The Book of Many Things",
   AI: "Acquisitions Incorporated",
@@ -22,11 +23,12 @@ export const BESTIARY_SOURCE_NAMES = {
   DoD: "Domains of Delight",
   DoSI: "Dragons of Stormwreck Isle",
   DSotDQ: "Dragonlance: Shadow of the Dragon Queen",
-  EFA: "Encounters in the Forgotten Realms",
+  EFA: "Eberron: Forge of the Artificer",
   EGW: "Explorer's Guide to Wildemount",
   ERLW: "Eberron: Rising from the Last War",
   ESK: "Essentials Kit",
   FRAiF: "Forgotten Realms Adventures in Faerun",
+  FRHoF: "Forgotten Realms: Heroes of Faerun",
   FTD: "Fizban's Treasury of Dragons",
   GGR: "Guildmasters' Guide to Ravnica",
   GoS: "Ghosts of Saltmarsh",
@@ -83,6 +85,7 @@ export const BESTIARY_SOURCE_NAMES = {
   RoT: "The Rise of Tiamat",
   RtG: "Return to Glory",
   SADS: "Spelljammer Academy: Defense of Strixhaven",
+  SatO: "Sigil and the Outlands",
   SCC: "Strixhaven: A Curriculum of Chaos",
   SDW: "Sleeping Dragon's Wake",
   SKT: "Storm King's Thunder",
@@ -102,3 +105,5 @@ export const BESTIARY_SOURCE_NAMES = {
   WttHC: "Wilds beyond the Witchlight: The Horned Crown",
   XGE: "Xanathar's Guide to Everything"
 };
+
+export const BESTIARY_SOURCE_NAMES = SOURCE_NAMES;
