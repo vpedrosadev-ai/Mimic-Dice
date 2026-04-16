@@ -2213,6 +2213,24 @@ table {
   line-height: 1.65;
 }
 
+.spell-reference-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-soft);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(240, 200, 121, 0.55);
+  text-underline-offset: 0.16em;
+  cursor: pointer;
+}
+
+.spell-reference-link:hover,
+.spell-reference-link:focus-visible {
+  color: var(--text);
+}
+
 .bestiary-metric-card {
   display: grid;
   align-content: center;

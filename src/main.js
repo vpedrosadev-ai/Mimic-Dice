@@ -193,6 +193,11 @@ let battleTimerInterval = null;
 const initialEncounterInventory = loadEncounterInventory();
 let scheduledRenderTimer = 0;
 let scheduledRenderFocusState = null;
+let arcanumSpellLinkCache = {
+  signature: "",
+  pattern: null,
+  namesByLower: new Map()
+};
 
 const state = {
   activeScreen: "combat-tracker",
@@ -761,6 +766,22 @@ function handleClick(event) {
   if (action === "select-arcanum-query-suggestion") {
     resetArcanumVirtualScroll();
     state.arcanumFilters.query = actionButton.dataset.arcanumQueryValue ?? "";
+    state.showArcanumQuerySuggestions = false;
+    render({
+      focusSelector: "[data-arcanum-query]"
+    });
+    return;
+  }
+
+  if (action === "filter-arcanum-by-spell-name") {
+    resetArcanumVirtualScroll();
+    state.activeScreen = "arcanum";
+    state.arcanumFilters = {
+      ...blankArcanumFilters,
+      query: actionButton.dataset.arcanumSpellName ?? ""
+    };
+    state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
+    state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
     render({
       focusSelector: "[data-arcanum-query]"
@@ -2224,7 +2245,7 @@ function renderItemDetail(entry) {
     ${chips ? `<div class="bestiary-resistances">${chips}</div>` : ""}
 
     <div class="bestiary-sections">
-      ${renderBestiarySection("Description", entry.text || "Sin descripcion disponible.")}
+      ${renderBestiarySection("Description", entry.text || "Sin descripcion disponible.", { linkSpells: true })}
     </div>
   `;
 }
@@ -2481,14 +2502,15 @@ function getCachedBestiaryRowHtml(entry, isSelected) {
 }
 
 function getCachedBestiaryDetailHtml(entry) {
-  const cachedHtml = bestiaryRenderCache.detailHtml.get(entry.id);
+  const cacheKey = `${entry.id}::${getArcanumSpellLinkSignature()}`;
+  const cachedHtml = bestiaryRenderCache.detailHtml.get(cacheKey);
 
   if (cachedHtml) {
     return cachedHtml;
   }
 
   const detailHtml = renderBestiaryDetail(entry);
-  bestiaryRenderCache.detailHtml.set(entry.id, detailHtml);
+  bestiaryRenderCache.detailHtml.set(cacheKey, detailHtml);
   return detailHtml;
 }
 
@@ -2646,7 +2668,7 @@ function renderBestiaryDetail(entry) {
     </div>
 
     <div class="bestiary-sections">
-      ${sections.map((section) => renderBestiarySection(section.title, section.content)).join("")}
+      ${sections.map((section) => renderBestiarySection(section.title, section.content, { linkSpells: true })).join("")}
     </div>
   `;
 }
@@ -2739,13 +2761,76 @@ function renderDetailChip(label, value) {
   `;
 }
 
-function renderBestiarySection(title, content) {
+function renderBestiarySection(title, content, options = {}) {
+  const bodyHtml = options.linkSpells
+    ? renderTextWithSpellLinks(content)
+    : escapeHtml(content).replaceAll("\n", "<br />");
+
   return `
     <section class="detail-section">
       <h4>${title}</h4>
-      <p>${escapeHtml(content).replaceAll("\n", "<br />")}</p>
+      <p>${bodyHtml}</p>
     </section>
   `;
+}
+
+function renderTextWithSpellLinks(content) {
+  const text = cleanText(content);
+  const spellLinkData = getArcanumSpellLinkData();
+
+  if (!text || !spellLinkData.pattern) {
+    return escapeHtml(content).replaceAll("\n", "<br />");
+  }
+
+  const chunks = [];
+  let lastIndex = 0;
+  spellLinkData.pattern.lastIndex = 0;
+
+  for (const match of text.matchAll(spellLinkData.pattern)) {
+    const [fullMatch, prefix, spellName] = match;
+    const matchIndex = match.index ?? 0;
+    const spellStartIndex = matchIndex + prefix.length;
+    const canonicalName = spellLinkData.namesByLower.get(spellName.toLowerCase()) ?? spellName;
+
+    chunks.push(escapeHtml(text.slice(lastIndex, spellStartIndex)));
+    chunks.push(`<button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(canonicalName)}">${escapeHtml(spellName)}</button>`);
+    lastIndex = matchIndex + fullMatch.length;
+  }
+
+  chunks.push(escapeHtml(text.slice(lastIndex)));
+
+  return chunks.join("").replaceAll("\n", "<br />");
+}
+
+function getArcanumSpellLinkData() {
+  const signature = getArcanumSpellLinkSignature();
+
+  if (arcanumSpellLinkCache.signature === signature) {
+    return arcanumSpellLinkCache;
+  }
+
+  const spellNames = [...new Set(state.arcanum.map((entry) => cleanText(entry.name)).filter((name) => name.length >= 3))]
+    .sort((left, right) => right.length - left.length || left.localeCompare(right, "es", { sensitivity: "base" }));
+  const namesByLower = new Map(spellNames.map((name) => [name.toLowerCase(), name]));
+  const pattern = spellNames.length > 0
+    ? new RegExp(`(^|[^A-Za-z0-9])(${spellNames.map(escapeRegExp).join("|")})(?=$|[^A-Za-z0-9])`, "gi")
+    : null;
+
+  arcanumSpellLinkCache = {
+    signature,
+    pattern,
+    namesByLower
+  };
+
+  return arcanumSpellLinkCache;
+}
+
+function getArcanumSpellLinkSignature() {
+  return `${state.arcanum.length}:${state.arcanum.map((entry) => entry.id).join("|")}`;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function renderSummaryCard(item) {
@@ -3269,7 +3354,7 @@ function matchesItemFilters(entry, overrides = {}) {
   const type = Array.isArray(filters.type) ? filters.type : [];
   const attunement = cleanText(filters.attunement);
 
-  if (query && !entry.searchText.includes(query)) {
+  if (query && !entry.nameLower.includes(query)) {
     return false;
   }
 
@@ -3309,7 +3394,7 @@ function matchesArcanumFilters(entry, overrides = {}) {
   const castingTime = Array.isArray(filters.castingTime) ? filters.castingTime : [];
   const concentration = cleanText(filters.concentration);
 
-  if (query && !entry.searchText.includes(query)) {
+  if (query && !entry.nameLower.includes(query)) {
     return false;
   }
 
@@ -4600,6 +4685,7 @@ async function loadArcanum() {
     const rows = parseCsv(text);
 
     state.arcanum = rows.map((row, index) => normalizeSpellEntry(row, index));
+    resetBestiaryRenderCache();
     state.arcanumStatus = "ready";
     state.arcanumSelectedId = state.arcanum[0]?.id ?? "";
     render();
