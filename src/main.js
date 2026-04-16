@@ -262,7 +262,8 @@ const state = {
   draggedEncounterFolderId: "",
   draggedFolderId: "",
   encounterSearchQuery: "",
-  showEncounterSearchSuggestions: false
+  showEncounterSearchSuggestions: false,
+  combatEncounterPickerOpen: false
 };
 
 app.addEventListener("click", handleClick);
@@ -298,6 +299,7 @@ function handleClick(event) {
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
   const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
+  const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
 
   if (
     state.activeBestiaryFilterKey &&
@@ -383,6 +385,19 @@ function handleClick(event) {
     }
   }
 
+  if (
+    state.combatEncounterPickerOpen &&
+    !clickedCombatEncounterMenu &&
+    actionButton?.dataset.action !== "toggle-combat-encounter-import"
+  ) {
+    state.combatEncounterPickerOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
   if (!actionButton) {
     return;
   }
@@ -419,8 +434,20 @@ function handleClick(event) {
     return;
   }
 
-  if (action === "add-entity") {
-    addEntity();
+  if (action === "toggle-combat-encounter-import") {
+    state.combatEncounterPickerOpen = !state.combatEncounterPickerOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-encounter-folder") {
+    toggleCombatEncounterPickerFolder(actionButton.dataset.encounterFolderId);
+    render();
+    return;
+  }
+
+  if (action === "import-encounter-to-combat") {
+    importEncounterToCombat(actionButton.dataset.encounterId);
     render();
     return;
   }
@@ -1388,7 +1415,6 @@ function renderScreen() {
 }
 
 function renderCombatTracker() {
-  const summaries = getSummaries();
   const visibleCombatants = getVisibleCombatants();
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
@@ -1396,34 +1422,23 @@ function renderCombatTracker() {
   const battleTimerLabel = formatBattleTimer(getBattleTimerElapsedMs());
 
   return `
-    <section class="panel panel--hero">
-      <div class="panel__copy">
-        <p class="eyebrow">Pantalla 1</p>
-        <h2>Combat Tracker</h2>
-        <p class="lead">
-          Vista principal para controlar aliados y enemigos durante el encuentro, con una tabla editable,
-          filtros por columna, ordenacion y acciones de mesa rapidas.
-        </p>
-      </div>
-      <div class="summary-grid">
-        <article class="summary-card summary-card--timer">
-          <span>Contador de batalla</span>
-          <strong>${battleTimerLabel}</strong>
-          <div class="summary-card__actions">
-            <button
-              class="summary-button"
-              type="button"
-              data-action="${state.battleTimer.isRunning ? "pause-battle-timer" : "start-battle-timer"}"
-            >
-              ${state.battleTimer.isRunning ? "Pausar" : "Iniciar"}
-            </button>
-            <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
-              Reiniciar
-            </button>
-          </div>
-        </article>
-        ${summaries.map(renderSummaryCard).join("")}
-      </div>
+    <section class="panel combat-timer">
+      <article class="summary-card summary-card--timer combat-timer__card">
+        <span>Contador de batalla</span>
+        <strong>${battleTimerLabel}</strong>
+        <div class="summary-card__actions">
+          <button
+            class="summary-button"
+            type="button"
+            data-action="${state.battleTimer.isRunning ? "pause-battle-timer" : "start-battle-timer"}"
+          >
+            ${state.battleTimer.isRunning ? "Pausar" : "Iniciar"}
+          </button>
+          <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
+            Reiniciar
+          </button>
+        </div>
+      </article>
     </section>
 
     <section class="panel panel--table">
@@ -1441,15 +1456,7 @@ function renderCombatTracker() {
 
       <div class="table-toolbar" aria-label="Acciones de tabla">
         <div class="table-toolbar__group">
-          <label class="toolbar-field">
-            <span>Bando nueva entidad</span>
-            <select data-new-entity-side>
-              <option value="allies" ${state.newEntitySide === "allies" ? "selected" : ""}>Aliado</option>
-              <option value="enemies" ${state.newEntitySide === "enemies" ? "selected" : ""}>Enemigo</option>
-              <option value="neutral" ${state.newEntitySide === "neutral" ? "selected" : ""}>Neutral</option>
-            </select>
-          </label>
-          <button class="toolbar-button" type="button" data-action="add-entity">Anadir entidad</button>
+          ${renderCombatEncounterPicker()}
           <button
             class="toolbar-button toolbar-button--danger"
             type="button"
@@ -1526,6 +1533,94 @@ function renderCombatTracker() {
         </table>
       </div>
     </section>
+  `;
+}
+
+function renderCombatEncounterPicker() {
+  const hasEncounters = state.encounters.length > 0;
+
+  return `
+    <div class="combat-encounter-picker" data-combat-encounter-menu>
+      <button
+        class="toolbar-button ${state.combatEncounterPickerOpen ? "is-active" : ""}"
+        type="button"
+        data-action="toggle-combat-encounter-import"
+        aria-expanded="${state.combatEncounterPickerOpen}"
+        ${hasEncounters ? "" : "disabled"}
+      >
+        Anadir encuentro
+        <span aria-hidden="true">${state.combatEncounterPickerOpen ? "^" : "v"}</span>
+      </button>
+      ${
+        state.combatEncounterPickerOpen
+          ? `
+            <div class="combat-encounter-picker__popover" role="listbox" aria-label="Encuentros guardados">
+              ${
+                hasEncounters
+                  ? renderCombatEncounterGroups()
+                  : `<p class="bestiary-filter__empty">No hay encuentros guardados.</p>`
+              }
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderCombatEncounterGroups() {
+  return getCombatEncounterPickerGroups()
+    .map((group) => renderCombatEncounterGroup(group))
+    .join("");
+}
+
+function renderCombatEncounterGroup(group) {
+  return `
+    <section class="combat-encounter-picker__group">
+      <button
+        class="combat-encounter-picker__folder"
+        type="button"
+        data-action="toggle-combat-encounter-folder"
+        data-encounter-folder-id="${escapeHtml(group.id)}"
+        aria-expanded="${group.isExpanded}"
+      >
+        <span aria-hidden="true">${group.isExpanded ? "v" : ">"}</span>
+        <strong>${escapeHtml(group.name)}</strong>
+        <small>${group.encounters.length}</small>
+      </button>
+      ${
+        group.isExpanded
+          ? `
+            <div class="combat-encounter-picker__items">
+              ${
+                group.encounters.length > 0
+                  ? group.encounters.map((encounter) => renderCombatEncounterOption(encounter)).join("")
+                  : `<p class="bestiary-filter__empty">Carpeta vacia.</p>`
+              }
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderCombatEncounterOption(encounter) {
+  const summary = getEncounterSummary(encounter);
+  const displayName = encounter.name || "Encuentro sin nombre";
+  const isEmpty = summary.units === 0;
+
+  return `
+    <button
+      class="combat-encounter-picker__option"
+      type="button"
+      data-action="import-encounter-to-combat"
+      data-encounter-id="${escapeHtml(encounter.id)}"
+      ${isEmpty ? "disabled" : ""}
+    >
+      <strong>${escapeHtml(displayName)}</strong>
+      <span>${summary.units} enemigos | CR total ${formatCrNumber(summary.totalCr)}</span>
+    </button>
   `;
 }
 
@@ -4308,6 +4403,121 @@ function getEncounterSummary(encounter) {
     units: 0,
     totalCr: 0
   });
+}
+
+function getCombatEncounterPickerGroups() {
+  const folderGroups = state.encounterFolders.map((folder) => ({
+    id: folder.id,
+    name: folder.name || "Carpeta sin nombre",
+    isExpanded: folder.isExpanded !== false,
+    encounters: getEncountersByFolder(folder.id)
+  }));
+  const unfiledEncounters = getEncountersByFolder("");
+
+  if (unfiledEncounters.length === 0) {
+    return folderGroups;
+  }
+
+  return [
+    ...folderGroups,
+    {
+      id: "",
+      name: "Sin carpeta",
+      isExpanded: state.systemEncounterFolderExpanded,
+      encounters: unfiledEncounters
+    }
+  ];
+}
+
+function toggleCombatEncounterPickerFolder(folderId) {
+  const cleanFolderId = cleanText(folderId);
+
+  if (!cleanFolderId) {
+    state.systemEncounterFolderExpanded = !state.systemEncounterFolderExpanded;
+    saveEncounterInventory();
+    return;
+  }
+
+  state.encounterFolders = state.encounterFolders.map((folder) => folder.id === cleanFolderId
+    ? {
+      ...folder,
+      isExpanded: !folder.isExpanded
+    }
+    : folder);
+  saveEncounterInventory();
+}
+
+function importEncounterToCombat(encounterId) {
+  const encounter = state.encounters.find((item) => item.id === encounterId);
+
+  if (!encounter) {
+    return;
+  }
+
+  const combatants = [];
+  let nextEnemyNumber = getNextEnemyStandNumber();
+
+  for (const row of encounter.rows) {
+    const units = Math.max(1, Math.floor(toNumber(row.units) || 1));
+
+    for (let index = 0; index < units; index += 1) {
+      const id = `entity-${state.nextId + combatants.length}`;
+      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber);
+      combatants.push(combatant);
+      state.inlineAdjustments[id] = { ...blankInlineAdjustments };
+      nextEnemyNumber += 1;
+    }
+  }
+
+  if (combatants.length === 0) {
+    return;
+  }
+
+  state.combatants = [
+    ...combatants,
+    ...state.combatants
+  ];
+  state.nextId += combatants.length;
+  state.combatEncounterPickerOpen = false;
+}
+
+function createCombatantFromEncounterRow(row, id, standNumber) {
+  const bestiaryEntry = getEncounterRowBestiaryEntry(row);
+  const pgMax = getEncounterRowHpValue(row, bestiaryEntry) || 1;
+  const ca = getEncounterRowAcValue(row, bestiaryEntry) || "";
+
+  return {
+    id,
+    side: "enemies",
+    ubicacion: "",
+    iniactiva: "",
+    nombre: row.name,
+    numPeana: `E-${String(standNumber).padStart(2, "0")}`,
+    pgMax,
+    pgAct: pgMax,
+    pgTemp: 0,
+    necrotic: 0,
+    ca,
+    condiciones: "",
+    stats: bestiaryEntry ? formatStatsFromObject(bestiaryEntry.abilities) : formatStatsWithModifiers("STR 10 DEX 10 CON 10 INT 10 WIS 10 CHA 10"),
+    tamano: bestiaryEntry?.size ?? "",
+    movimiento: bestiaryEntry?.speed ?? "",
+    vision: bestiaryEntry?.senses ?? "",
+    lenguas: bestiaryEntry?.languages ?? "",
+    crExp: bestiaryEntry?.cr || (row.crLabel ? `CR ${row.crLabel}` : ""),
+    tag: "ENEMIGO",
+    initiativeRoll: null,
+    initiativeNat20: false
+  };
+}
+
+function getNextEnemyStandNumber() {
+  const standNumbers = state.combatants
+    .map((combatant) => String(combatant.numPeana ?? "").match(/^E-(\d+)$/i)?.[1])
+    .filter(Boolean)
+    .map(Number);
+
+  return Math.max(0, ...standNumbers) + 1;
 }
 
 function addEntity() {
