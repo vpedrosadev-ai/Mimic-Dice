@@ -1955,23 +1955,8 @@ function renderBestiary() {
 function renderItems() {
   const filteredEntries = getFilteredItems();
   const selectedEntry = getSelectedItemEntry(filteredEntries);
-  const summaries = getItemSummaries(filteredEntries);
 
   return `
-    <section class="panel panel--hero">
-      <div class="panel__copy">
-        <p class="eyebrow">Pantalla 3</p>
-        <h2>Items</h2>
-        <p class="lead">
-          Inventario de objetos cargado desde <code>${ITEMS_CSV_PATH}</code>, siguiendo el lenguaje visual del bestiario
-          para consultar rareza, attunement, propiedades y descripcion completa desde una sola pantalla.
-        </p>
-      </div>
-      <div class="summary-grid">
-        ${summaries.map(renderSummaryCard).join("")}
-      </div>
-    </section>
-
     <section class="panel panel--table">
       <div class="section-heading">
         <div>
@@ -2214,76 +2199,29 @@ function renderArcanumRow(entry, isSelected) {
 }
 
 function renderItemDetail(entry) {
+  const media = renderItemDetailMedia(entry);
+  const kpis = renderItemKpis(entry);
+  const detailBlocks = renderItemDetailBlocks(entry);
+  const chips = [
+    renderDetailChip("Tipo resumido", entry.typeLine),
+    renderDetailChip("Propiedades", entry.properties),
+    renderDetailChip("Mastery", entry.mastery)
+  ].filter(Boolean).join("");
+
   return `
-    <div class="bestiary-detail__header">
+    <div class="bestiary-detail__header item-detail__header">
       <p class="eyebrow">Item seleccionado</p>
       <h3>${escapeHtml(entry.name)}</h3>
-      <p class="lead">${escapeHtml(entry.typeLine)}</p>
+      <p class="bestiary-detail__source">${escapeHtml(getItemSourceDescription(entry))}</p>
     </div>
 
-    <div class="bestiary-detail__top">
-      ${renderItemDetailMedia(entry)}
-    </div>
+    ${media ? `<div class="bestiary-detail__top">${media}</div>` : ""}
 
-    <div class="bestiary-kpis">
-      <article class="summary-card summary-card--compact">
-        <span>Rareza</span>
-        <strong>${escapeHtml(entry.rarityShort)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Valor</span>
-        <strong>${escapeHtml(entry.valueShort)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Peso</span>
-        <strong>${escapeHtml(entry.weightShort)}</strong>
-      </article>
-      <article class="summary-card summary-card--compact">
-        <span>Attunement</span>
-        <strong>${escapeHtml(entry.attunementShort)}</strong>
-      </article>
-    </div>
+    ${kpis ? `<div class="bestiary-kpis">${kpis}</div>` : ""}
 
-    <div class="bestiary-detail__grid">
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Fuente</span>
-        <p>${escapeHtml(entry.sourceLabel)}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Rareza</span>
-        <p>${escapeHtml(entry.rarityLabel)}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Tipo</span>
-        <p>${escapeHtml(entry.type || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Attunement</span>
-        <p>${escapeHtml(entry.attunement || "No requiere")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Damage</span>
-        <p>${escapeHtml(entry.damage || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Properties</span>
-        <p>${escapeHtml(entry.properties || "No indicadas")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Mastery</span>
-        <p>${escapeHtml(entry.mastery || "No indicada")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Valor y peso</span>
-        <p>${escapeHtml(`${entry.valueLabel} | ${entry.weightLabel}`)}</p>
-      </div>
-    </div>
+    ${detailBlocks ? `<div class="bestiary-detail__grid">${detailBlocks}</div>` : ""}
 
-    <div class="bestiary-resistances">
-      ${renderDetailChip("Tipo resumido", entry.typeLine)}
-      ${renderDetailChip("Propiedades", entry.properties)}
-      ${renderDetailChip("Mastery", entry.mastery)}
-    </div>
+    ${chips ? `<div class="bestiary-resistances">${chips}</div>` : ""}
 
     <div class="bestiary-sections">
       ${renderBestiarySection("Description", entry.text || "Sin descripcion disponible.")}
@@ -2314,17 +2252,7 @@ function renderItemDetailMedia(entry) {
     `;
   }
 
-  return `
-    <div class="item-banner">
-      <div class="item-banner__glyph" aria-hidden="true">${escapeHtml(entry.rarityGlyph)}</div>
-      <div class="item-banner__copy">
-        <p class="eyebrow">Referencia rapida</p>
-        <h4>${escapeHtml(entry.rarityLabel)}</h4>
-        <p>${escapeHtml(entry.typeLine)}</p>
-        <p>${escapeHtml(entry.sourceLabel)}</p>
-      </div>
-    </div>
-  `;
+  return "";
 }
 
 function renderArcanumDetail(entry) {
@@ -5303,6 +5231,57 @@ function renderItemFilterDropdown(key, label) {
   `;
 }
 
+function renderItemKpis(entry) {
+  return [
+    renderItemKpi("Rareza", entry.rarity && entry.rarity !== "none" ? entry.rarityShort : ""),
+    renderItemKpi("Valor", entry.value ? entry.valueShort : ""),
+    renderItemKpi("Peso", entry.weight ? entry.weightShort : ""),
+    renderItemKpi("Attunement", entry.attunement ? entry.attunementShort : "")
+  ].filter(Boolean).join("");
+}
+
+function renderItemKpi(label, value) {
+  if (!value) {
+    return "";
+  }
+
+  return `
+    <article class="summary-card summary-card--compact">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
+}
+
+function renderItemDetailBlocks(entry) {
+  return [
+    renderItemDetailBlock("Fuente", entry.sourceLabel),
+    renderItemDetailBlock("Rareza", entry.rarity && entry.rarity !== "none" ? entry.rarityLabel : ""),
+    renderItemDetailBlock("Tipo", entry.type),
+    renderItemDetailBlock("Attunement", entry.attunement),
+    renderItemDetailBlock("Damage", entry.damage),
+    renderItemDetailBlock("Properties", entry.properties),
+    renderItemDetailBlock("Mastery", entry.mastery),
+    renderItemDetailBlock("Valor y peso", [
+      entry.value ? entry.valueLabel : "",
+      entry.weight ? entry.weightLabel : ""
+    ].filter(Boolean).join(" | "))
+  ].filter(Boolean).join("");
+}
+
+function renderItemDetailBlock(label, value) {
+  if (!value) {
+    return "";
+  }
+
+  return `
+    <div class="bestiary-detail__block">
+      <span class="bestiary-detail__label">${escapeHtml(label)}</span>
+      <p>${escapeHtml(value)}</p>
+    </div>
+  `;
+}
+
 function renderItemAttunementFilterButton() {
   const value = state.itemFilters.attunement;
   const label = value === "requires"
@@ -6427,6 +6406,17 @@ function getItemFilterDisplayValue(key, value) {
   }
 
   return value;
+}
+
+function getItemSourceDescription(entry) {
+  const sourceFullName = getSourceFullName(entry.source);
+  const source = entry.source || "Sin fuente";
+
+  if (sourceFullName && sourceFullName !== source) {
+    return `${sourceFullName} (${source})`;
+  }
+
+  return source;
 }
 
 function formatItemTypeFilterDisplay(value) {
