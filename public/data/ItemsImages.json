@@ -1,0 +1,701 @@
+{
+    "alchemy jug||dmg\u002724":  {
+                                     "imageUrl":  "images/items/dmg-24/alchemy-jug.webp"
+                                 },
+    "ammunition of slaying||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/ammunition-of-slaying.webp"
+                                           },
+    "amulet of health||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/amulet-of-health.webp"
+                                      },
+    "amulet of proof against detection and location||dmg\u002724":  {
+                                                                        "imageUrl":  "images/items/dmg-24/amulet-of-proof-against-detection-and-location.webp"
+                                                                    },
+    "amulet of the planes||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/amulet-of-the-planes.webp"
+                                          },
+    "animated shield||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/animated-shield.webp"
+                                     },
+    "apparatus of kwalish||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/apparatus-of-kwalish.webp"
+                                          },
+    "armor of cold resistance||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/armor-of-cold-resistance.webp"
+                                              },
+    "armor of invulnerability||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/armor-of-invulnerability.webp"
+                                              },
+    "armor of resistance||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/armor-of-resistance.webp"
+                                         },
+    "axe of the dwarvish lords||dmg\u002724":  {
+                                                   "imageUrl":  "images/items/dmg-24/axe-of-the-dwarvish-lords.webp"
+                                               },
+    "bag of beans||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/bag-of-beans.webp"
+                                  },
+    "bag of devouring||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/bag-of-devouring.webp"
+                                      },
+    "bag of holding||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/bag-of-holding.webp"
+                                    },
+    "bag of tricks||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/bag-of-tricks.webp"
+                                   },
+    "belt of dwarvenkind||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/belt-of-dwarvenkind.webp"
+                                         },
+    "belt of giant strength||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/belt-of-giant-strength.webp"
+                                            },
+    "berserker axe||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/berserker-axe.webp"
+                                   },
+    "blackrazor||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/blackrazor.webp"
+                                },
+    "book of exalted deeds||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/book-of-exalted-deeds.webp"
+                                           },
+    "book of vile darkness||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/book-of-vile-darkness.webp"
+                                           },
+    "boots of elvenkind||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/boots-of-elvenkind.webp"
+                                        },
+    "boots of speed||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/boots-of-speed.webp"
+                                    },
+    "boots of striding and springing||dmg\u002724":  {
+                                                         "imageUrl":  "images/items/dmg-24/boots-of-striding-and-springing.webp"
+                                                     },
+    "boots of the winterlands||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/boots-of-the-winterlands.webp"
+                                              },
+    "bowl of commanding water elementals||dmg\u002724":  {
+                                                             "imageUrl":  "images/items/dmg-24/bowl-of-commanding-water-elementals.webp"
+                                                         },
+    "bracers of archery||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/bracers-of-archery.webp"
+                                        },
+    "bracers of defense||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/bracers-of-defense.webp"
+                                        },
+    "brazier of commanding fire elementals||dmg\u002724":  {
+                                                               "imageUrl":  "images/items/dmg-24/brazier-of-commanding-fire-elementals.webp"
+                                                           },
+    "brooch of shielding||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/brooch-of-shielding.webp"
+                                         },
+    "broom of flying||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/broom-of-flying.webp"
+                                     },
+    "candle of invocation||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/candle-of-invocation.webp"
+                                          },
+    "cape of the mountebank||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/cape-of-the-mountebank.webp"
+                                            },
+    "carpet of flying||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/carpet-of-flying.webp"
+                                      },
+    "cauldron of rebirth||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/cauldron-of-rebirth.webp"
+                                         },
+    "censer of controlling air elementals||dmg\u002724":  {
+                                                              "imageUrl":  "images/items/dmg-24/censer-of-controlling-air-elementals.webp"
+                                                          },
+    "chime of opening||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/chime-of-opening.webp"
+                                      },
+    "circlet of blasting||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/circlet-of-blasting.webp"
+                                         },
+    "cloak of billowing||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/cloak-of-billowing.webp"
+                                        },
+    "cloak of displacement||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/cloak-of-displacement.webp"
+                                           },
+    "cloak of elvenkind||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/cloak-of-elvenkind.webp"
+                                        },
+    "cloak of many fashions||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/cloak-of-many-fashions.webp"
+                                            },
+    "cloak of protection||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/cloak-of-protection.webp"
+                                         },
+    "cloak of the manta ray||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/cloak-of-the-manta-ray.webp"
+                                            },
+    "cube of force||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/cube-of-force.webp"
+                                   },
+    "cube of summoning||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/cube-of-summoning.webp"
+                                       },
+    "cubic gate||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/cubic-gate.webp"
+                                },
+    "dagger of venom||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/dagger-of-venom.webp"
+                                     },
+    "dancing sword||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/dancing-sword.webp"
+                                   },
+    "dark shard amulet||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/dark-shard-amulet.webp"
+                                       },
+    "decanter of endless water||dmg\u002724":  {
+                                                   "imageUrl":  "images/items/dmg-24/decanter-of-endless-water.webp"
+                                               },
+    "deck of many things||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/deck-of-many-things.webp"
+                                         },
+    "defender||dmg\u002724":  {
+                                  "imageUrl":  "images/items/dmg-24/defender.webp"
+                              },
+    "demon armor||dmg\u002724":  {
+                                     "imageUrl":  "images/items/dmg-24/demon-armor.webp"
+                                 },
+    "dimensional shackles||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/dimensional-shackles.webp"
+                                          },
+    "dragon scale mail||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/dragon-scale-mail.webp"
+                                       },
+    "dragon slayer||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/dragon-slayer.webp"
+                                   },
+    "dread helm||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/dread-helm.webp"
+                                },
+    "driftglobe||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/driftglobe.webp"
+                                },
+    "dust of disappearance||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/dust-of-disappearance.webp"
+                                           },
+    "dust of sneezing and choking||dmg\u002724":  {
+                                                      "imageUrl":  "images/items/dmg-24/dust-of-sneezing-and-choking.webp"
+                                                  },
+    "dwarven plate||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/dwarven-plate.webp"
+                                   },
+    "dwarven thrower||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/dwarven-thrower.webp"
+                                     },
+    "efreeti bottle||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/efreeti-bottle.webp"
+                                    },
+    "efreeti chain||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/efreeti-chain.webp"
+                                   },
+    "elemental gem||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/elemental-gem.webp"
+                                   },
+    "elven chain||dmg\u002724":  {
+                                     "imageUrl":  "images/items/dmg-24/elven-chain.webp"
+                                 },
+    "eversmoking bottle||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/eversmoking-bottle.webp"
+                                        },
+    "eye and hand of vecna||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/eye-and-hand-of-vecna.webp"
+                                           },
+    "eyes of charming||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/eyes-of-charming.webp"
+                                      },
+    "eyes of the eagle||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/eyes-of-the-eagle.webp"
+                                       },
+    "figurine of wondrous power||dmg\u002724":  {
+                                                    "imageUrl":  "images/items/dmg-24/figurine-of-wondrous-power.webp"
+                                                },
+    "flame tongue||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/flame-tongue.webp"
+                                  },
+    "folding boat||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/folding-boat.webp"
+                                  },
+    "frost brand||dmg\u002724":  {
+                                     "imageUrl":  "images/items/dmg-24/frost-brand.webp"
+                                 },
+    "gauntlets of ogre power||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/gauntlets-of-ogre-power.webp"
+                                             },
+    "gem of brightness||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/gem-of-brightness.webp"
+                                       },
+    "gem of seeing||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/gem-of-seeing.webp"
+                                   },
+    "giant slayer||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/giant-slayer.webp"
+                                  },
+    "gloves of missile snaring||dmg\u002724":  {
+                                                   "imageUrl":  "images/items/dmg-24/gloves-of-missile-snaring.webp"
+                                               },
+    "gloves of thievery||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/gloves-of-thievery.webp"
+                                        },
+    "goggles of night||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/goggles-of-night.webp"
+                                      },
+    "hag eye||dmg\u002724":  {
+                                 "imageUrl":  "images/items/dmg-24/hag-eye.webp"
+                             },
+    "hammer of thunderbolts||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/hammer-of-thunderbolts.webp"
+                                            },
+    "hat of disguise||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/hat-of-disguise.webp"
+                                     },
+    "hat of vermin||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/hat-of-vermin.webp"
+                                   },
+    "hat of wizardry||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/hat-of-wizardry.webp"
+                                     },
+    "headband of intellect||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/headband-of-intellect.webp"
+                                           },
+    "helm of brilliance||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/helm-of-brilliance.webp"
+                                        },
+    "helm of comprehending languages||dmg\u002724":  {
+                                                         "imageUrl":  "images/items/dmg-24/helm-of-comprehending-languages.webp"
+                                                     },
+    "helm of telepathy||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/helm-of-telepathy.webp"
+                                       },
+    "helm of teleportation||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/helm-of-teleportation.webp"
+                                           },
+    "holy avenger||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/holy-avenger.webp"
+                                  },
+    "horn of blasting||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/horn-of-blasting.webp"
+                                      },
+    "horn of valhalla||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/horn-of-valhalla.webp"
+                                      },
+    "immovable rod||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/immovable-rod.webp"
+                                   },
+    "instrument of illusions||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/instrument-of-illusions.webp"
+                                             },
+    "instrument of the bards||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/instrument-of-the-bards.webp"
+                                             },
+    "ioun stone||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/ioun-stone.webp"
+                                },
+    "iron bands of bilarro||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/iron-bands-of-bilarro.webp"
+                                           },
+    "iron flask||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/iron-flask.webp"
+                                },
+    "javelin of lightning||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/javelin-of-lightning.webp"
+                                          },
+    "lantern of revealing||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/lantern-of-revealing.webp"
+                                          },
+    "luck blade||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/luck-blade.webp"
+                                },
+    "mace of disruption||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/mace-of-disruption.webp"
+                                        },
+    "mace of smiting||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/mace-of-smiting.webp"
+                                     },
+    "mace of terror||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/mace-of-terror.webp"
+                                    },
+    "mantle of spell resistance||dmg\u002724":  {
+                                                    "imageUrl":  "images/items/dmg-24/mantle-of-spell-resistance.webp"
+                                                },
+    "manual of bodily health||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/manual-of-bodily-health.webp"
+                                             },
+    "manual of clay golems||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/manual-of-clay-golems.webp"
+                                           },
+    "manual of flesh golems||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/manual-of-flesh-golems.webp"
+                                            },
+    "manual of golems||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/manual-of-golems.webp"
+                                      },
+    "manual of iron golems||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/manual-of-iron-golems.webp"
+                                           },
+    "manual of quickness of action||dmg\u002724":  {
+                                                       "imageUrl":  "images/items/dmg-24/manual-of-quickness-of-action.webp"
+                                                   },
+    "manual of stone golems||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/manual-of-stone-golems.webp"
+                                            },
+    "medallion of thoughts||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/medallion-of-thoughts.webp"
+                                           },
+    "mirror of life trapping||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/mirror-of-life-trapping.webp"
+                                             },
+    "moon-touched sword||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/moon-touched-sword.webp"
+                                        },
+    "moonblade||dmg\u002724":  {
+                                   "imageUrl":  "images/items/dmg-24/moonblade.webp"
+                               },
+    "necklace of adaptation||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/necklace-of-adaptation.webp"
+                                            },
+    "necklace of fireballs||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/necklace-of-fireballs.webp"
+                                           },
+    "necklace of prayer beads||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/necklace-of-prayer-beads.webp"
+                                              },
+    "nine lives stealer||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/nine-lives-stealer.webp"
+                                        },
+    "oathbow||dmg\u002724":  {
+                                 "imageUrl":  "images/items/dmg-24/oathbow.webp"
+                             },
+    "orb of direction||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/orb-of-direction.webp"
+                                      },
+    "orb of dragonkind||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/orb-of-dragonkind.webp"
+                                       },
+    "periapt of health||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/periapt-of-health.webp"
+                                       },
+    "periapt of wound closure||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/periapt-of-wound-closure.webp"
+                                              },
+    "pipe of smoke monsters||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/pipe-of-smoke-monsters.webp"
+                                            },
+    "pipes of haunting||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/pipes-of-haunting.webp"
+                                       },
+    "pipes of the sewers||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/pipes-of-the-sewers.webp"
+                                         },
+    "pole of collapsing||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/pole-of-collapsing.webp"
+                                        },
+    "potion of climbing||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/potion-of-climbing.webp"
+                                        },
+    "potion of fire breath||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/potion-of-fire-breath.webp"
+                                           },
+    "potion of greater invisibility||dmg\u002724":  {
+                                                        "imageUrl":  "images/items/dmg-24/potion-of-greater-invisibility.webp"
+                                                    },
+    "potion of healing||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/potion-of-healing.webp"
+                                       },
+    "potion of invisibility||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/potion-of-invisibility.webp"
+                                            },
+    "potion of pugilism||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/potion-of-pugilism.webp"
+                                        },
+    "potion of storm giant strength||dmg\u002724":  {
+                                                        "imageUrl":  "images/items/dmg-24/potion-of-storm-giant-strength.webp"
+                                                    },
+    "potion of vitality||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/potion-of-vitality.webp"
+                                        },
+    "potion of water breathing||dmg\u002724":  {
+                                                   "imageUrl":  "images/items/dmg-24/potion-of-water-breathing.webp"
+                                               },
+    "prosthetic limb||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/prosthetic-limb.webp"
+                                     },
+    "quarterstaff of the acrobat||dmg\u002724":  {
+                                                     "imageUrl":  "images/items/dmg-24/quarterstaff-of-the-acrobat.webp"
+                                                 },
+    "quiver of ehlonna||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/quiver-of-ehlonna.webp"
+                                       },
+    "ring of animal influence||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/ring-of-animal-influence.webp"
+                                              },
+    "ring of djinni summoning||dmg\u002724":  {
+                                                  "imageUrl":  "images/items/dmg-24/ring-of-djinni-summoning.webp"
+                                              },
+    "ring of elemental command (air)||dmg\u002724":  {
+                                                         "imageUrl":  "images/items/dmg-24/ring-of-elemental-command-air.webp"
+                                                     },
+    "ring of evasion||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/ring-of-evasion.webp"
+                                     },
+    "ring of feather falling||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/ring-of-feather-falling.webp"
+                                             },
+    "ring of free action||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/ring-of-free-action.webp"
+                                         },
+    "ring of invisibility||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/ring-of-invisibility.webp"
+                                          },
+    "ring of mind shielding||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/ring-of-mind-shielding.webp"
+                                            },
+    "ring of protection||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/ring-of-protection.webp"
+                                        },
+    "ring of regeneration||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/ring-of-regeneration.webp"
+                                          },
+    "ring of resistance||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/ring-of-resistance.webp"
+                                        },
+    "ring of shooting stars||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/ring-of-shooting-stars.webp"
+                                            },
+    "ring of spell storing||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/ring-of-spell-storing.webp"
+                                           },
+    "ring of spell turning||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/ring-of-spell-turning.webp"
+                                           },
+    "ring of telekinesis||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/ring-of-telekinesis.webp"
+                                         },
+    "ring of three wishes||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/ring-of-three-wishes.webp"
+                                          },
+    "ring of warmth||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/ring-of-warmth.webp"
+                                    },
+    "ring of water walking||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/ring-of-water-walking.webp"
+                                           },
+    "ring of x-ray vision||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/ring-of-x-ray-vision.webp"
+                                          },
+    "ring of the ram||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/ring-of-the-ram.webp"
+                                     },
+    "rival coin||dmg\u002724":  {
+                                    "imageUrl":  "images/items/dmg-24/rival-coin.webp"
+                                },
+    "robe of eyes||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/robe-of-eyes.webp"
+                                  },
+    "robe of stars||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/robe-of-stars.webp"
+                                   },
+    "robe of useful items||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/robe-of-useful-items.webp"
+                                          },
+    "robe of the archmagi||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/robe-of-the-archmagi.webp"
+                                          },
+    "rod of absorption||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/rod-of-absorption.webp"
+                                       },
+    "rod of lordly might||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/rod-of-lordly-might.webp"
+                                         },
+    "rod of resurrection||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/rod-of-resurrection.webp"
+                                         },
+    "rod of rulership||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/rod-of-rulership.webp"
+                                      },
+    "rope of entanglement||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/rope-of-entanglement.webp"
+                                          },
+    "scarab of protection||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/scarab-of-protection.webp"
+                                          },
+    "scimitar of speed||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/scimitar-of-speed.webp"
+                                       },
+    "scroll of protection||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/scroll-of-protection.webp"
+                                          },
+    "sending stones||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/sending-stones.webp"
+                                    },
+    "shield of missile attraction||dmg\u002724":  {
+                                                      "imageUrl":  "images/items/dmg-24/shield-of-missile-attraction.webp"
+                                                  },
+    "shield of the cavalier||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/shield-of-the-cavalier.webp"
+                                            },
+    "slippers of spider climbing||dmg\u002724":  {
+                                                     "imageUrl":  "images/items/dmg-24/slippers-of-spider-climbing.webp"
+                                                 },
+    "sovereign glue||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/sovereign-glue.webp"
+                                    },
+    "spell scroll||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/spell-scroll.webp"
+                                  },
+    "spellguard shield||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/spellguard-shield.webp"
+                                       },
+    "sphere of annihilation||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/sphere-of-annihilation.webp"
+                                            },
+    "spirit board||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/spirit-board.webp"
+                                  },
+    "staff of charming||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/staff-of-charming.webp"
+                                       },
+    "staff of fire||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/staff-of-fire.webp"
+                                   },
+    "staff of flowers||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/staff-of-flowers.webp"
+                                      },
+    "staff of frost||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/staff-of-frost.webp"
+                                    },
+    "staff of healing||dmg\u002724":  {
+                                          "imageUrl":  "images/items/dmg-24/staff-of-healing.webp"
+                                      },
+    "staff of swarming insects||dmg\u002724":  {
+                                                   "imageUrl":  "images/items/dmg-24/staff-of-swarming-insects.webp"
+                                               },
+    "staff of thunder and lightning||dmg\u002724":  {
+                                                        "imageUrl":  "images/items/dmg-24/staff-of-thunder-and-lightning.webp"
+                                                    },
+    "staff of withering||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/staff-of-withering.webp"
+                                        },
+    "staff of the adder||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/staff-of-the-adder.webp"
+                                        },
+    "staff of the magi||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/staff-of-the-magi.webp"
+                                       },
+    "staff of the python||dmg\u002724":  {
+                                             "imageUrl":  "images/items/dmg-24/staff-of-the-python.webp"
+                                         },
+    "staff of the woodlands||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/staff-of-the-woodlands.webp"
+                                            },
+    "stone of controlling earth elementals||dmg\u002724":  {
+                                                               "imageUrl":  "images/items/dmg-24/stone-of-controlling-earth-elementals.webp"
+                                                           },
+    "sun blade||dmg\u002724":  {
+                                   "imageUrl":  "images/items/dmg-24/sun-blade.webp"
+                               },
+    "sword of kas||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/sword-of-kas.webp"
+                                  },
+    "sword of life stealing||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/sword-of-life-stealing.webp"
+                                            },
+    "sword of sharpness||dmg\u002724":  {
+                                            "imageUrl":  "images/items/dmg-24/sword-of-sharpness.webp"
+                                        },
+    "sylvan talon||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/sylvan-talon.webp"
+                                  },
+    "talisman of ultimate evil||dmg\u002724":  {
+                                                   "imageUrl":  "images/items/dmg-24/talisman-of-ultimate-evil.webp"
+                                               },
+    "talisman of the sphere||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/talisman-of-the-sphere.webp"
+                                            },
+    "talking doll||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/talking-doll.webp"
+                                  },
+    "tentacle rod||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/tentacle-rod.webp"
+                                  },
+    "thunderous greatclub||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/thunderous-greatclub.webp"
+                                          },
+    "tome of clear thought||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/tome-of-clear-thought.webp"
+                                           },
+    "tome of leadership and influence||dmg\u002724":  {
+                                                          "imageUrl":  "images/items/dmg-24/tome-of-leadership-and-influence.webp"
+                                                      },
+    "tome of understanding||dmg\u002724":  {
+                                               "imageUrl":  "images/items/dmg-24/tome-of-understanding.webp"
+                                           },
+    "trident of fish command||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/trident-of-fish-command.webp"
+                                             },
+    "universal solvent||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/universal-solvent.webp"
+                                       },
+    "vicious weapon||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/vicious-weapon.webp"
+                                    },
+    "vorpal sword||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/vorpal-sword.webp"
+                                  },
+    "wand of enemy detection||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/wand-of-enemy-detection.webp"
+                                             },
+    "wand of fear||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/wand-of-fear.webp"
+                                  },
+    "wand of fireballs||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/wand-of-fireballs.webp"
+                                       },
+    "wand of lightning bolts||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/wand-of-lightning-bolts.webp"
+                                             },
+    "wand of magic detection||dmg\u002724":  {
+                                                 "imageUrl":  "images/items/dmg-24/wand-of-magic-detection.webp"
+                                             },
+    "wand of magic missiles||dmg\u002724":  {
+                                                "imageUrl":  "images/items/dmg-24/wand-of-magic-missiles.webp"
+                                            },
+    "wand of orcus||dmg\u002724":  {
+                                       "imageUrl":  "images/items/dmg-24/wand-of-orcus.webp"
+                                   },
+    "wand of paralysis||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/wand-of-paralysis.webp"
+                                       },
+    "wand of polymorph||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/wand-of-polymorph.webp"
+                                       },
+    "wand of secrets||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/wand-of-secrets.webp"
+                                     },
+    "wand of web||dmg\u002724":  {
+                                     "imageUrl":  "images/items/dmg-24/wand-of-web.webp"
+                                 },
+    "wand of wonder||dmg\u002724":  {
+                                        "imageUrl":  "images/items/dmg-24/wand-of-wonder.webp"
+                                    },
+    "wand of the war mage||dmg\u002724":  {
+                                              "imageUrl":  "images/items/dmg-24/wand-of-the-war-mage.webp"
+                                          },
+    "weapon of warning||dmg\u002724":  {
+                                           "imageUrl":  "images/items/dmg-24/weapon-of-warning.webp"
+                                       },
+    "wind fan||dmg\u002724":  {
+                                  "imageUrl":  "images/items/dmg-24/wind-fan.webp"
+                              },
+    "winged boots||dmg\u002724":  {
+                                      "imageUrl":  "images/items/dmg-24/winged-boots.webp"
+                                  },
+    "wings of flying||dmg\u002724":  {
+                                         "imageUrl":  "images/items/dmg-24/wings-of-flying.webp"
+                                     }
+}
