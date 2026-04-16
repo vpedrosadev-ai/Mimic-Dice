@@ -28,13 +28,6 @@ const bestiaryRenderCache = {
   }
 };
 
-const itemSortOptions = [
-  { value: "name-asc", label: "Nombre A-Z" },
-  { value: "rarity-asc", label: "Rareza ascendente" },
-  { value: "value-desc", label: "Valor descendente" },
-  { value: "weight-asc", label: "Peso ascendente" },
-  { value: "source-asc", label: "Fuente A-Z" }
-];
 const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const blankBestiaryFilters = {
@@ -53,11 +46,122 @@ const blankBestiaryFilterSearch = {
 
 const blankItemFilters = {
   query: "",
+  source: [],
+  rarity: [],
+  type: [],
+  attunement: ""
+};
+const blankItemFilterSearch = {
   source: "",
   rarity: "",
-  type: "",
-  attunement: "",
-  sort: "name-asc"
+  type: ""
+};
+const ITEM_TYPE_GROUPS = [
+  {
+    value: "__item-type-weapon__",
+    label: "Weapon",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().includes("weapon")
+  },
+  {
+    value: "__item-type-melee-weapon__",
+    label: "Melee weapon",
+    level: 1,
+    matches: (type) => cleanText(type).toLowerCase().includes("melee weapon")
+  },
+  {
+    value: "__item-type-ranged-weapon__",
+    label: "Ranged weapon",
+    level: 1,
+    matches: (type) => cleanText(type).toLowerCase().includes("ranged weapon")
+  },
+  {
+    value: "__item-type-simple-weapon__",
+    label: "Simple weapon",
+    level: 2,
+    matches: (type) => cleanText(type).toLowerCase().includes("simple weapon")
+  },
+  {
+    value: "__item-type-martial-weapon__",
+    label: "Martial weapon",
+    level: 2,
+    matches: (type) => cleanText(type).toLowerCase().includes("martial weapon")
+  },
+  {
+    value: "__item-type-armor__",
+    label: "Armor",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().includes("armor")
+  },
+  {
+    value: "__item-type-heavy-armor__",
+    label: "Heavy armor",
+    level: 1,
+    matches: (type) => cleanText(type).toLowerCase().includes("heavy armor")
+  },
+  {
+    value: "__item-type-light-armor__",
+    label: "Light armor",
+    level: 1,
+    matches: (type) => cleanText(type).toLowerCase().includes("light armor")
+  },
+  {
+    value: "__item-type-medium-armor__",
+    label: "Medium armor",
+    level: 1,
+    matches: (type) => cleanText(type).toLowerCase().includes("medium armor")
+  },
+  {
+    value: "__item-type-ammunition__",
+    label: "Ammunition",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().includes("ammunition")
+  },
+  {
+    value: "__item-type-shield__",
+    label: "Shield",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().includes("shield")
+  },
+  {
+    value: "__item-type-adventuring-gear__",
+    label: "Adventuring gear",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().startsWith("adventuring gear")
+  },
+  {
+    value: "__item-type-vehicle__",
+    label: "Vehicle",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().includes("vehicle")
+  },
+  {
+    value: "__item-type-instrument__",
+    label: "Instrument",
+    level: 0,
+    matches: (type) => cleanText(type).toLowerCase().includes("instrument")
+  }
+];
+const ITEM_TYPE_GROUP_CHILDREN = {
+  "__item-type-weapon__": [
+    "__item-type-melee-weapon__",
+    "__item-type-ranged-weapon__",
+    "__item-type-simple-weapon__",
+    "__item-type-martial-weapon__"
+  ],
+  "__item-type-melee-weapon__": [
+    "__item-type-simple-weapon__",
+    "__item-type-martial-weapon__"
+  ],
+  "__item-type-ranged-weapon__": [
+    "__item-type-simple-weapon__",
+    "__item-type-martial-weapon__"
+  ],
+  "__item-type-armor__": [
+    "__item-type-heavy-armor__",
+    "__item-type-light-armor__",
+    "__item-type-medium-armor__"
+  ]
 };
 const blankArcanumFilters = {
   query: "",
@@ -74,11 +178,6 @@ const blankArcanumFilterSearch = {
   school: "",
   class: "",
   castingTime: ""
-};
-const itemFilterLabels = {
-  source: "fuentes",
-  rarity: "rarezas",
-  type: "tipos"
 };
 const arcanumFilterLabels = {
   source: "fuentes",
@@ -124,6 +223,10 @@ const state = {
   items: [],
   itemImageMap: {},
   itemFilters: { ...blankItemFilters },
+  itemSort: { key: "name", direction: "asc" },
+  activeItemFilterKey: "",
+  itemFilterSearch: { ...blankItemFilterSearch },
+  showItemQuerySuggestions: false,
   itemSelectedId: "",
   itemStatus: "loading",
   itemMessage: "",
@@ -184,6 +287,8 @@ function handleClick(event) {
   const actionButton = event.target.closest("[data-action]");
   const clickedBestiaryFilter = event.target.closest("[data-bestiary-filter-menu]");
   const clickedBestiaryQuery = event.target.closest("[data-bestiary-query-menu]");
+  const clickedItemFilter = event.target.closest("[data-item-filter-menu]");
+  const clickedItemQuery = event.target.closest("[data-item-query-menu]");
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
@@ -204,6 +309,28 @@ function handleClick(event) {
 
   if (state.showBestiaryQuerySuggestions && !clickedBestiaryQuery) {
     state.showBestiaryQuerySuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.activeItemFilterKey &&
+    !clickedItemFilter &&
+    actionButton?.dataset.action !== "toggle-item-filter"
+  ) {
+    state.activeItemFilterKey = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showItemQuerySuggestions && !clickedItemQuery) {
+    state.showItemQuerySuggestions = false;
 
     if (!actionButton) {
       render();
@@ -557,6 +684,52 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-item-sort") {
+    toggleItemSort(actionButton.dataset.itemSortKey);
+    render();
+    return;
+  }
+
+  if (action === "toggle-item-attunement-filter") {
+    toggleItemAttunementFilter();
+    render();
+    return;
+  }
+
+  if (action === "select-item-query-suggestion") {
+    state.itemFilters.query = actionButton.dataset.itemQueryValue ?? "";
+    state.showItemQuerySuggestions = false;
+    render({
+      focusSelector: "[data-item-query]"
+    });
+    return;
+  }
+
+  if (action === "toggle-item-filter") {
+    const nextKey = state.activeItemFilterKey === actionButton.dataset.itemFilterKey ? "" : actionButton.dataset.itemFilterKey;
+    state.activeItemFilterKey = nextKey;
+    render({
+      focusSelector: nextKey ? `[data-item-filter-search="${nextKey}"]` : null
+    });
+    return;
+  }
+
+  if (action === "clear-item-filter") {
+    updateItemFilter(actionButton.dataset.itemFilterKey, []);
+    render({
+      focusSelector: `[data-item-filter-search="${actionButton.dataset.itemFilterKey}"]`
+    });
+    return;
+  }
+
+  if (action === "select-visible-item-options") {
+    updateItemFilter(actionButton.dataset.itemFilterKey, getVisibleItemFilterOptions(actionButton.dataset.itemFilterKey));
+    render({
+      focusSelector: `[data-item-filter-search="${actionButton.dataset.itemFilterKey}"]`
+    });
+    return;
+  }
+
   if (action === "filter-arcanum-by-source") {
     resetArcanumVirtualScroll();
     toggleExclusiveArcanumFilterValue("source", actionButton.dataset.arcanumSourceValue ?? "");
@@ -624,6 +797,9 @@ function handleClick(event) {
 
   if (action === "clear-item-filters") {
     state.itemFilters = { ...blankItemFilters };
+    state.itemFilterSearch = { ...blankItemFilterSearch };
+    state.activeItemFilterKey = "";
+    state.showItemQuerySuggestions = false;
     render({
       focusSelector: "[data-item-query]"
     });
@@ -697,10 +873,11 @@ function handleChange(event) {
     });
   }
 
-  if (target.matches("[data-item-filter]")) {
-    updateItemFilter(target.dataset.itemFilter, target.value);
-    render();
-    return;
+  if (target.matches("[data-item-filter-option]")) {
+    toggleItemFilterValue(target.dataset.itemFilterOption, target.value, target.checked);
+    render({
+      focusSelector: `[data-item-filter-search="${target.dataset.itemFilterOption}"]`
+    });
   }
 
   if (target.matches("[data-arcanum-filter-option]")) {
@@ -761,7 +938,8 @@ function handleInput(event) {
 
   if (target.matches("[data-item-query]")) {
     state.itemFilters.query = target.value;
-    render({
+    state.showItemQuerySuggestions = cleanText(target.value).length > 0;
+    scheduleRender({
       focusSelector: "[data-item-query]",
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
@@ -785,6 +963,16 @@ function handleInput(event) {
     state.bestiaryFilterSearch[target.dataset.bestiaryFilterSearch] = target.value;
     scheduleRender({
       focusSelector: `[data-bestiary-filter-search="${target.dataset.bestiaryFilterSearch}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-item-filter-search]")) {
+    state.itemFilterSearch[target.dataset.itemFilterSearch] = target.value;
+    scheduleRender({
+      focusSelector: `[data-item-filter-search="${target.dataset.itemFilterSearch}"]`,
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
@@ -867,6 +1055,14 @@ function handleKeydown(event) {
     state.showBestiaryQuerySuggestions = false;
     render({
       focusSelector: "[data-bestiary-query]"
+    });
+    return;
+  }
+
+  if (target.matches("[data-item-query]") && event.key === "Enter") {
+    state.showItemQuerySuggestions = false;
+    render({
+      focusSelector: "[data-item-query]"
     });
     return;
   }
@@ -1790,51 +1986,16 @@ function renderItems() {
       </div>
 
       <div class="bestiary-toolbar" aria-label="Filtros de items">
-        <label class="toolbar-field toolbar-field--search">
-          <span>Buscar item</span>
-          <input
-            class="filter-input filter-input--wide"
-            type="search"
-            value="${escapeHtml(state.itemFilters.query)}"
-            placeholder="Nombre, texto, propiedades, rareza..."
-            data-item-query
-          />
-        </label>
-        <label class="toolbar-field">
-          <span>Fuente</span>
-          <select data-item-filter="source">
-            ${renderItemFilterOptions("source")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Rareza</span>
-          <select data-item-filter="rarity">
-            ${renderItemFilterOptions("rarity")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Tipo</span>
-          <select data-item-filter="type">
-            ${renderItemFilterOptions("type")}
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Attunement</span>
-          <select data-item-filter="attunement">
-            <option value="">Todos</option>
-            <option value="requires" ${state.itemFilters.attunement === "requires" ? "selected" : ""}>Requiere</option>
-            <option value="none" ${state.itemFilters.attunement === "none" ? "selected" : ""}>Sin attunement</option>
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>Orden</span>
-          <select data-item-filter="sort">
-            ${itemSortOptions
-              .map((option) => `<option value="${option.value}" ${option.value === state.itemFilters.sort ? "selected" : ""}>${option.label}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <button class="toolbar-button" type="button" data-action="clear-item-filters">Limpiar filtros</button>
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
+          ${renderItemQueryField()}
+          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-item-filters">Limpiar filtros</button>
+        </div>
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--item-filters">
+          ${renderItemFilterDropdown("type", "Tipo")}
+          ${renderItemFilterDropdown("rarity", "Rareza")}
+          ${renderItemFilterDropdown("source", "Fuente")}
+          ${renderItemAttunementFilterButton()}
+        </div>
       </div>
 
       ${renderItemsContent(filteredEntries, selectedEntry)}
@@ -1946,6 +2107,16 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
 }
 
 function renderItemRow(entry, isSelected) {
+  const attunementChip = entry.requiresAttunement
+    ? `<span class="pill item-row__attunement-pill">Sintonizacion</span>`
+    : "";
+  const itemStats = [
+    entry.value ? `PRECIO: ${entry.valueLabel}` : "",
+    entry.weight ? `PESO: ${entry.weightLabel}` : ""
+  ].filter(Boolean).join(" | ");
+  const rarityClass = getItemRarityClass(entry.rarityLabel);
+  const typeSummary = getItemMostSpecificTypeLabel(entry.type);
+
   return `
     <button
       class="bestiary-row ${isSelected ? "is-selected" : ""}"
@@ -1954,25 +2125,24 @@ function renderItemRow(entry, isSelected) {
       data-action="select-item-entry"
       data-entry-id="${entry.id}"
     >
-      <div class="bestiary-row__main">
-        <div>
-          <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-          <p class="bestiary-row__meta">${escapeHtml(entry.typeLine)}</p>
+      <div class="bestiary-row__main item-row__main">
+        <div class="item-row__heading">
+          <div class="item-row__title-stack">
+            <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
+            <span class="pill bestiary-row__source-pill">${escapeHtml(`FUENTE: ${entry.source || "?"}`)}</span>
+          </div>
+          <p class="item-row__type-summary">${escapeHtml(typeSummary)}</p>
         </div>
         <div class="bestiary-row__chips">
-          <span class="pill">${escapeHtml(entry.sourceLabel)}</span>
-          <span class="pill">${escapeHtml(entry.rarityLabel)}</span>
+          <span class="pill item-row__rarity-pill ${rarityClass}">${escapeHtml(entry.rarityLabel)}</span>
         </div>
       </div>
-      <div class="bestiary-row__stats">
-        <span>${escapeHtml(entry.valueLabel)}</span>
-        <span>${escapeHtml(entry.weightLabel)}</span>
-        <span>${escapeHtml(entry.attunementShort)}</span>
-      </div>
-      <div class="bestiary-row__footer">
-        <span>${escapeHtml(entry.damage || entry.propertiesShort || "Sin propiedades destacadas")}</span>
-        <span>${escapeHtml(entry.hasImage ? "Con ilustracion" : "Sin ilustracion")}</span>
-      </div>
+      ${itemStats || attunementChip ? `
+        <div class="bestiary-row__stats item-row__stats">
+          ${itemStats ? `<span>${escapeHtml(itemStats)}</span>` : "<span></span>"}
+          ${attunementChip}
+        </div>
+      ` : ""}
     </button>
   `;
 }
@@ -3160,35 +3330,39 @@ function matchesBestiaryFilters(entry, overrides = {}) {
   return true;
 }
 
-function matchesItemFilters(entry) {
-  const query = state.itemFilters.query.trim().toLowerCase();
-  const source = state.itemFilters.source;
-  const rarity = state.itemFilters.rarity;
-  const type = state.itemFilters.type;
-  const attunement = state.itemFilters.attunement;
+function matchesItemFilters(entry, overrides = {}) {
+  const filters = {
+    ...state.itemFilters,
+    ...overrides
+  };
+  const query = cleanText(filters.query).toLowerCase();
+  const source = Array.isArray(filters.source) ? filters.source : [];
+  const rarity = Array.isArray(filters.rarity) ? filters.rarity : [];
+  const type = Array.isArray(filters.type) ? filters.type : [];
+  const attunement = cleanText(filters.attunement);
 
   if (query && !entry.searchText.includes(query)) {
     return false;
   }
 
-  if (source && entry.source !== source) {
+  if (source.length > 0 && !source.includes(entry.source)) {
     return false;
   }
 
-  if (rarity && entry.rarityLabel !== rarity) {
+  if (rarity.length > 0 && !rarity.includes(entry.rarityLabel)) {
     return false;
   }
 
-  if (type && entry.type !== type) {
+  if (type.length > 0 && !type.some((value) => matchesItemTypeFilter(entry, value))) {
     return false;
   }
 
-  if (attunement === "requires" && !entry.requiresAttunement) {
-    return false;
-  }
+  if (attunement) {
+    const attunementValue = entry.requiresAttunement ? "requires" : "none";
 
-  if (attunement === "none" && entry.requiresAttunement) {
-    return false;
+    if (attunement !== attunementValue) {
+      return false;
+    }
   }
 
   return true;
@@ -3318,6 +3492,34 @@ function toggleArcanumSort(key) {
   };
 }
 
+function toggleItemSort(key) {
+  if (state.itemSort.key !== key) {
+    state.itemSort = { key, direction: key === "value" ? "desc" : "asc" };
+    return;
+  }
+
+  state.itemSort = {
+    key,
+    direction: state.itemSort.direction === "asc" ? "desc" : "asc"
+  };
+}
+
+function toggleItemAttunementFilter() {
+  const currentValue = state.itemFilters.attunement;
+
+  if (currentValue === "requires") {
+    state.itemFilters.attunement = "none";
+    return;
+  }
+
+  if (currentValue === "none") {
+    state.itemFilters.attunement = "";
+    return;
+  }
+
+  state.itemFilters.attunement = "requires";
+}
+
 function toggleArcanumConcentrationFilter() {
   const currentValue = state.arcanumFilters.concentration;
 
@@ -3335,26 +3537,40 @@ function toggleArcanumConcentrationFilter() {
 }
 
 function compareItemEntries(left, right) {
-  const sort = state.itemFilters.sort;
+  const { key, direction } = state.itemSort;
+  const multiplier = direction === "desc" ? -1 : 1;
 
-  if (sort === "rarity-asc") {
-    return left.rarityRank - right.rarityRank || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "rarity") {
+    return ((left.rarityRank - right.rarityRank)
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "value-desc") {
-    return right.valueNumber - left.valueNumber || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "value") {
+    return ((left.valueNumber - right.valueNumber)
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "weight-asc") {
-    return left.weightNumber - right.weightNumber || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "weight") {
+    return ((left.weightNumber - right.weightNumber)
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  if (sort === "source-asc") {
-    return left.source.localeCompare(right.source, "es", { sensitivity: "base" })
-      || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "source") {
+    return (getSourceFullName(left.source).localeCompare(getSourceFullName(right.source), "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
   }
 
-  return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  if (key === "type") {
+    return (left.type.localeCompare(right.type, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
+  }
+
+  if (key === "attunement") {
+    return (left.attunementShort.localeCompare(right.attunementShort, "es", { sensitivity: "base" })
+      || left.name.localeCompare(right.name, "es", { sensitivity: "base" })) * multiplier;
+  }
+
+  return left.name.localeCompare(right.name, "es", { sensitivity: "base" }) * multiplier;
 }
 
 function compareArcanumEntries(left, right) {
@@ -3469,7 +3685,7 @@ function updateBestiaryFilter(key, value) {
   state.bestiaryFilters[key] = value;
 }
 function updateItemFilter(key, value) {
-  state.itemFilters[key] = value;
+  state.itemFilters[key] = key === "type" ? normalizeItemTypeFilterSelection(value) : value;
 }
 
 function updateArcanumFilter(key, value) {
@@ -3489,6 +3705,21 @@ function toggleBestiaryFilterValue(key, value, checked) {
     : currentValues.filter((item) => item !== value);
 
   updateBestiaryFilter(key, nextValues);
+}
+
+function toggleItemFilterValue(key, value, checked) {
+  const currentValues = Array.isArray(state.itemFilters[key]) ? state.itemFilters[key] : [];
+
+  if (key === "type") {
+    updateItemFilter(key, getNextItemTypeFilterValues(currentValues, value, checked));
+    return;
+  }
+
+  const nextValues = checked
+    ? [...new Set([...currentValues, value])]
+    : currentValues.filter((item) => item !== value);
+
+  updateItemFilter(key, nextValues);
 }
 
 function toggleExclusiveArcanumFilterValue(key, value) {
@@ -4707,6 +4938,7 @@ function normalizeItemEntry(row, index, imageMap = {}) {
     id: compositeKey || `item-${index + 1}`,
     compositeKey,
     name,
+    nameLower: name.toLowerCase(),
     source,
     page,
     rarity,
@@ -4992,19 +5224,196 @@ function renderBestiaryFilterCheckbox(key, value) {
   `;
 }
 
-function renderItemFilterOptions(key) {
-  const values = [...new Set(
-    state.items.map((entry) => key === "rarity" ? entry.rarityLabel : entry[key]).filter(Boolean)
-  )];
+function renderItemFilterDropdown(key, label) {
+  const isOpen = state.activeItemFilterKey === key;
+  const selectedValues = Array.isArray(state.itemFilters[key]) ? state.itemFilters[key] : [];
+  const allowSearch = key === "type" || key === "source";
+  const visibleOptions = isOpen ? getVisibleItemFilterOptions(key) : [];
 
-  const sortedValues = key === "rarity"
-    ? values.sort((left, right) => getItemRarityRank(left) - getItemRarityRank(right))
-    : values.sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+  return `
+    <div class="toolbar-field bestiary-filter bestiary-filter--${key}" data-item-filter-menu>
+      <span>${label}</span>
+      <div class="bestiary-filter__controls">
+        <button
+          class="bestiary-filter__trigger ${selectedValues.length > 0 ? "is-active" : ""}"
+          type="button"
+          data-action="toggle-item-filter"
+          data-item-filter-key="${key}"
+          aria-expanded="${isOpen}"
+          aria-haspopup="dialog"
+        >
+          <span>${escapeHtml(getItemFilterSummary(key, label))}</span>
+          <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
+        </button>
+        ${renderItemSortButton(key, `Ordenar por ${label}`)}
+      </div>
+      ${
+        isOpen
+          ? `
+            <div class="bestiary-filter__popover" data-item-filter-menu>
+              ${
+                allowSearch
+                  ? `
+                    <label class="bestiary-filter__search">
+                      <span>Buscar ${label.toLowerCase()}</span>
+                      <input
+                        class="filter-input"
+                        type="search"
+                        value="${escapeHtml(state.itemFilterSearch[key])}"
+                        placeholder="Buscar opcion..."
+                        data-item-filter-search="${key}"
+                      />
+                    </label>
+                  `
+                  : ""
+              }
+              <div class="bestiary-filter__actions">
+                <button
+                  class="filter-clear"
+                  type="button"
+                  data-action="select-visible-item-options"
+                  data-item-filter-key="${key}"
+                  ${visibleOptions.length === 0 ? "disabled" : ""}
+                >
+                  Seleccionar visibles
+                </button>
+                <button
+                  class="filter-clear"
+                  type="button"
+                  data-action="clear-item-filter"
+                  data-item-filter-key="${key}"
+                  ${selectedValues.length === 0 ? "disabled" : ""}
+                >
+                  Limpiar
+                </button>
+              </div>
+              ${renderItemSelectedFilterChips(key)}
+              <div class="bestiary-filter__list" role="group" aria-label="${label}">
+                ${
+                  visibleOptions.length > 0
+                    ? visibleOptions.map((value) => renderItemFilterCheckbox(key, value)).join("")
+                    : `<p class="bestiary-filter__empty">No hay opciones que coincidan con la busqueda.</p>`
+                }
+              </div>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
 
-  return [
-    `<option value="">Todas las ${itemFilterLabels[key]}</option>`,
-    ...sortedValues.map((value) => `<option value="${escapeHtml(value)}" ${value === state.itemFilters[key] ? "selected" : ""}>${escapeHtml(value)}</option>`)
-  ].join("");
+function renderItemAttunementFilterButton() {
+  const value = state.itemFilters.attunement;
+  const label = value === "requires"
+    ? "Sintonizacion: si"
+    : value === "none"
+      ? "Sintonizacion: no"
+      : "Sintonizacion: todos";
+
+  return `
+    <button
+      class="toolbar-button item-attunement-toggle ${value ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-item-attunement-filter"
+      aria-pressed="${Boolean(value)}"
+      title="Filtrar por items con o sin sintonizacion"
+    >
+      ${label}
+    </button>
+  `;
+}
+
+function renderItemQueryField() {
+  const suggestions = getItemNameSuggestions();
+
+  return `
+    <div class="toolbar-field toolbar-field--search bestiary-query" data-item-query-menu>
+      <span>Buscar item</span>
+      <div class="bestiary-filter__controls">
+        <input
+          class="filter-input filter-input--wide"
+          type="search"
+          value="${escapeHtml(state.itemFilters.query)}"
+          placeholder="Nombre, texto, propiedades, rareza..."
+          data-item-query
+        />
+        ${renderItemSortButton("name", "Ordenar por nombre")}
+      </div>
+      ${
+        state.showItemQuerySuggestions && suggestions.length > 0
+          ? `
+            <div class="bestiary-query__popover" role="listbox" aria-label="Sugerencias de item">
+              ${suggestions.map((value) => `
+                <button
+                  class="bestiary-query__option"
+                  type="button"
+                  data-action="select-item-query-suggestion"
+                  data-item-query-value="${escapeHtml(value)}"
+                >
+                  ${escapeHtml(value)}
+                </button>
+              `).join("")}
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderItemSortButton(key, label) {
+  const isActive = state.itemSort.key === key;
+  const indicator = !isActive ? "Sort" : state.itemSort.direction === "asc" ? "Asc" : "Desc";
+
+  return `
+    <button
+      class="bestiary-sort-button ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-item-sort"
+      data-item-sort-key="${key}"
+      aria-label="${label}"
+      title="${label}"
+    >
+      ${indicator}
+    </button>
+  `;
+}
+
+function renderItemFilterCheckbox(key, value) {
+  const selectedValues = Array.isArray(state.itemFilters[key]) ? state.itemFilters[key] : [];
+  const displayValue = getItemFilterDisplayValue(key, value);
+  const typeLevelClass = key === "type" ? ` bestiary-filter__option--level-${getItemTypeGroupLevel(value)}` : "";
+  const typeParentClass = key === "type" && hasItemTypeChildren(value) ? " bestiary-filter__option--parent" : "";
+  const rarityClass = key === "rarity" ? ` item-filter__option--rarity ${getItemRarityClass(value)}` : "";
+
+  return `
+    <label class="bestiary-filter__option${typeLevelClass}${typeParentClass}${rarityClass}">
+      <input
+        type="checkbox"
+        value="${escapeHtml(value)}"
+        data-item-filter-option="${key}"
+        ${selectedValues.includes(value) ? "checked" : ""}
+      />
+      <span>${escapeHtml(displayValue)}</span>
+    </label>
+  `;
+}
+
+function renderItemSelectedFilterChips(key) {
+  const selectedValues = Array.isArray(state.itemFilters[key]) ? state.itemFilters[key] : [];
+
+  if (selectedValues.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="bestiary-filter__chips" aria-label="Valores filtrados">
+      ${selectedValues.map((value) => `
+        <span class="bestiary-filter__chip">${escapeHtml(getItemFilterDisplayValue(key, value))}</span>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderArcanumFilterDropdown(key, label) {
@@ -5330,6 +5739,85 @@ function hasBestiaryConstraintsBesides(excludedKey) {
 
     return (state.bestiaryFilters[key] ?? []).length > 0;
   });
+}
+
+function getItemFilterOptions(key) {
+  if (key === "type") {
+    const values = [...new Set(
+      getItemEntriesForFilterOptions(key).flatMap((entry) => getItemTypeFilterValues(entry.type)).filter(Boolean)
+    )];
+
+    return getOrderedItemTypeFilterOptions(values);
+  }
+
+  return [...new Set(
+    getItemEntriesForFilterOptions(key).map((entry) => key === "rarity" ? entry.rarityLabel : entry[key]).filter(Boolean)
+  )].sort((left, right) => compareItemFilterValues(key, left, right));
+}
+
+function getItemEntriesForFilterOptions(key) {
+  return state.items.filter((entry) => matchesItemFilters(entry, { [key]: [] }));
+}
+
+function getVisibleItemFilterOptions(key) {
+  const search = cleanText(state.itemFilterSearch[key]).toLowerCase();
+
+  return getItemFilterOptions(key).filter((value) => {
+    const displayValue = getItemFilterDisplayValue(key, value).toLowerCase();
+
+    if (!search) {
+      return true;
+    }
+
+    return value.toLowerCase().includes(search) || displayValue.includes(search);
+  });
+}
+
+function getItemFilterSummary(key, label) {
+  const selectedValues = Array.isArray(state.itemFilters[key]) ? state.itemFilters[key] : [];
+
+  if (selectedValues.length === 0) {
+    return `${label}: todos`;
+  }
+
+  if (selectedValues.length === 1) {
+    return `${label}: ${getItemFilterDisplayValue(key, selectedValues[0])}`;
+  }
+
+  return `${label}: ${selectedValues.length} seleccionados`;
+}
+
+function getItemNameSuggestions() {
+  const query = cleanText(state.itemFilters.query).toLowerCase();
+
+  if (!query) {
+    return [];
+  }
+
+  const suggestionSource = hasItemConstraintsBesides("query")
+    ? state.items
+      .filter((entry) => matchesItemFilters(entry, { query: "" }))
+      .filter((entry) => entry.nameLower.includes(query))
+      .map((entry) => entry.name)
+    : state.items
+      .filter((entry) => entry.nameLower.includes(query))
+      .map((entry) => entry.name);
+
+  return [...new Set(suggestionSource)].slice(0, 12);
+}
+
+function hasItemConstraintsBesides(excludedKey) {
+  if (excludedKey !== "query" && cleanText(state.itemFilters.query)) {
+    return true;
+  }
+
+  return ["source", "rarity", "type"].some((key) => {
+    if (key === excludedKey) {
+      return false;
+    }
+
+    return (state.itemFilters[key] ?? []).length > 0;
+  }) || (excludedKey !== "attunement" && Boolean(state.itemFilters.attunement));
 }
 
 function resetBestiaryRenderCache() {
@@ -5703,6 +6191,16 @@ function getItemRarityGlyph(rarity) {
     .join("") || "IT";
 }
 
+function getItemRarityClass(rarity) {
+  const normalized = slugify(rarity);
+
+  if (!normalized) {
+    return "item-row__rarity-pill--unknown";
+  }
+
+  return `item-row__rarity-pill--${normalized}`;
+}
+
 function parseItemValue(value) {
   const normalized = cleanText(value).toLowerCase().replaceAll(",", "");
 
@@ -5873,6 +6371,245 @@ function getBestiaryFilterDisplayValue(key, value) {
   }
 
   return value;
+}
+
+function compareItemFilterValues(key, left, right) {
+  if (key === "type") {
+    const leftGroupIndex = getItemTypeGroupIndex(left);
+    const rightGroupIndex = getItemTypeGroupIndex(right);
+
+    if (leftGroupIndex !== rightGroupIndex) {
+      return leftGroupIndex - rightGroupIndex;
+    }
+
+    const leftSpecificIndex = getItemSpecificTypeSortIndex(left);
+    const rightSpecificIndex = getItemSpecificTypeSortIndex(right);
+
+    if (leftSpecificIndex !== rightSpecificIndex) {
+      return leftSpecificIndex - rightSpecificIndex;
+    }
+  }
+
+  if (key === "rarity") {
+    return getItemRarityRank(left) - getItemRarityRank(right)
+      || left.localeCompare(right, "es", { sensitivity: "base" });
+  }
+
+  if (key === "source") {
+    return getSourceFullName(left).localeCompare(getSourceFullName(right), "es", { sensitivity: "base" })
+      || left.localeCompare(right, "es", { sensitivity: "base" });
+  }
+
+  return left.localeCompare(right, "es", { sensitivity: "base" });
+}
+
+function getItemFilterDisplayValue(key, value) {
+  if (key === "type") {
+    const group = ITEM_TYPE_GROUPS.find((item) => item.value === value);
+
+    if (group) {
+      return group.label;
+    }
+
+    return formatItemTypeFilterDisplay(value);
+  }
+
+  if (key === "source") {
+    const source = cleanText(value);
+    const sourceFullName = getSourceFullName(source);
+    return sourceFullName && sourceFullName !== source
+      ? `${sourceFullName} (${source})`
+      : source;
+  }
+
+  if (key === "attunement") {
+    return value === "requires" ? "Requiere attunement" : "Sin attunement";
+  }
+
+  return value;
+}
+
+function formatItemTypeFilterDisplay(value) {
+  const type = cleanText(value);
+  const weaponMatch = type.match(/^(.*?\bWeapon\s*\([^)]*\))/i);
+
+  if (weaponMatch && type.slice(weaponMatch[1].length).trim().startsWith(",")) {
+    return weaponMatch[1].trim();
+  }
+
+  return type;
+}
+
+function getItemTypeFilterValues(type) {
+  const groupValues = ITEM_TYPE_GROUPS
+    .filter((group) => group.matches(type))
+    .map((group) => group.value);
+  const specificType = getItemSpecificTypeFilterValue(type);
+
+  return [...new Set([...groupValues, specificType].filter(Boolean))];
+}
+
+function getOrderedItemTypeFilterOptions(values) {
+  const availableValues = new Set(values);
+  const groupValues = new Set(ITEM_TYPE_GROUPS.map((group) => group.value));
+  const specificValues = values
+    .filter((value) => !groupValues.has(value))
+    .sort((left, right) => getItemFilterDisplayValue("type", left).localeCompare(
+      getItemFilterDisplayValue("type", right),
+      "es",
+      { sensitivity: "base" }
+    ));
+  const usedSpecificValues = new Set();
+  const orderedValues = [];
+
+  ITEM_TYPE_GROUPS.forEach((group) => {
+    if (!availableValues.has(group.value)) {
+      return;
+    }
+
+    orderedValues.push(group.value);
+
+    if (group.level === 2) {
+      specificValues
+        .filter((value) => group.matches(value))
+        .forEach((value) => {
+          orderedValues.push(value);
+          usedSpecificValues.add(value);
+        });
+    }
+  });
+
+  specificValues
+    .filter((value) => !usedSpecificValues.has(value))
+    .forEach((value) => orderedValues.push(value));
+
+  return orderedValues;
+}
+
+function getItemMostSpecificTypeLabel(type) {
+  const values = getItemTypeFilterValues(type);
+  const [mostSpecificValue] = [...values].sort((left, right) => {
+    const levelDifference = getItemTypeGroupLevel(right) - getItemTypeGroupLevel(left);
+
+    if (levelDifference !== 0) {
+      return levelDifference;
+    }
+
+    return getItemTypeGroupIndex(right) - getItemTypeGroupIndex(left);
+  });
+
+  return getItemFilterDisplayValue("type", mostSpecificValue || type);
+}
+
+function getItemSpecificTypeFilterValue(type) {
+  const cleanType = cleanText(type);
+  const displayValue = formatItemTypeFilterDisplay(type);
+
+  if (displayValue !== cleanType) {
+    return cleanType;
+  }
+
+  return ITEM_TYPE_GROUPS.some((group) => group.matches(type)) ? "" : type;
+}
+
+function getNextItemTypeFilterValues(currentValues, value, checked) {
+  if (!checked) {
+    return currentValues.filter((item) => item !== value);
+  }
+
+  const descendants = getItemTypeDescendants(value);
+  const ancestors = getItemTypeAncestors(value);
+  const relatedValues = new Set([...descendants, ...ancestors]);
+  const nextValues = currentValues.filter((item) => !relatedValues.has(item) && item !== value);
+
+  return [...nextValues, value];
+}
+
+function normalizeItemTypeFilterSelection(values) {
+  const selectedValues = Array.isArray(values) ? [...new Set(values)] : [];
+
+  return selectedValues.filter((value) => {
+    const ancestors = getItemTypeAncestors(value);
+    return !ancestors.some((ancestor) => selectedValues.includes(ancestor));
+  });
+}
+
+function matchesItemTypeFilter(entry, value) {
+  const group = ITEM_TYPE_GROUPS.find((item) => item.value === value);
+
+  if (group) {
+    return group.matches(entry.type);
+  }
+
+  return entry.type === value;
+}
+
+function getItemTypeGroupIndex(value) {
+  const index = ITEM_TYPE_GROUPS.findIndex((group) => group.value === value);
+  return index === -1 ? getItemSpecificTypeSortIndex(value) : index;
+}
+
+function getItemSpecificTypeSortIndex(value) {
+  const matchingGroupIndexes = ITEM_TYPE_GROUPS
+    .map((group, index) => group.value !== value && group.matches(value) ? index : -1)
+    .filter((index) => index >= 0);
+
+  if (matchingGroupIndexes.length === 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return Math.max(...matchingGroupIndexes) + 0.5;
+}
+
+function getItemTypeGroupLevel(value) {
+  const group = ITEM_TYPE_GROUPS.find((item) => item.value === value);
+
+  if (group) {
+    return group.level ?? 0;
+  }
+
+  const matchingLevels = ITEM_TYPE_GROUPS
+    .filter((item) => item.matches(value))
+    .map((item) => item.level ?? 0);
+
+  return matchingLevels.length > 0 ? Math.max(...matchingLevels) + 1 : 0;
+}
+
+function hasItemTypeChildren(value) {
+  return (ITEM_TYPE_GROUP_CHILDREN[value] ?? []).length > 0;
+}
+
+function getItemTypeDescendants(value, visited = new Set()) {
+  const children = ITEM_TYPE_GROUP_CHILDREN[value] ?? [];
+  const descendants = [];
+
+  children.forEach((child) => {
+    if (visited.has(child)) {
+      return;
+    }
+
+    visited.add(child);
+    descendants.push(child, ...getItemTypeDescendants(child, visited));
+  });
+
+  return [...new Set(descendants)];
+}
+
+function getItemTypeAncestors(value) {
+  if (!ITEM_TYPE_GROUPS.some((group) => group.value === value)) {
+    const matchingGroups = ITEM_TYPE_GROUPS
+      .filter((group) => group.matches(value))
+      .map((group) => group.value);
+
+    return [...new Set(matchingGroups.flatMap((groupValue) => [
+      groupValue,
+      ...getItemTypeAncestors(groupValue)
+    ]))];
+  }
+
+  return Object.entries(ITEM_TYPE_GROUP_CHILDREN)
+    .filter(([, children]) => children.includes(value))
+    .flatMap(([parent]) => [parent, ...getItemTypeAncestors(parent)]);
 }
 
 function compareArcanumFilterValues(key, left, right) {

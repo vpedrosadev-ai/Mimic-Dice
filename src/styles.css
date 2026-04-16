@@ -401,7 +401,8 @@ table {
 }
 
 .arcanum-query__controls .bestiary-toolbar__clear,
-.arcanum-concentration-toggle {
+.arcanum-concentration-toggle,
+.item-attunement-toggle {
   white-space: nowrap;
 }
 
@@ -544,6 +545,24 @@ table {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.bestiary-filter__option--parent {
+  border-color: rgba(240, 200, 121, 0.16);
+  background: rgba(240, 200, 121, 0.055);
+  font-weight: 700;
+}
+
+.bestiary-filter__option--level-1 {
+  margin-left: 0.85rem;
+}
+
+.bestiary-filter__option--level-2 {
+  margin-left: 1.7rem;
+}
+
+.bestiary-filter__option--level-3 {
+  margin-left: 2.55rem;
+}
+
 .bestiary-filter__empty {
   margin: 0;
   padding: 0.75rem 0.35rem 0.25rem;
@@ -594,7 +613,8 @@ table {
   background: linear-gradient(180deg, rgba(255, 125, 64, 0.22), rgba(255, 198, 79, 0.08));
 }
 
-.arcanum-concentration-toggle {
+.arcanum-concentration-toggle,
+.item-attunement-toggle {
   min-height: 2.85rem;
 }
 
@@ -1456,6 +1476,10 @@ table {
   grid-template-columns: minmax(6.9rem, 0.64fr) minmax(8.8rem, 0.86fr) minmax(8.2rem, 0.78fr) minmax(8.6rem, 0.82fr) minmax(10rem, 0.98fr);
 }
 
+.bestiary-toolbar__row--item-filters {
+  grid-template-columns: minmax(8.8rem, 1fr) minmax(8rem, 0.82fr) minmax(9.5rem, 0.9fr) minmax(8.6rem, 0.82fr);
+}
+
 .bestiary-toolbar__clear {
   min-width: 0;
 }
@@ -1630,6 +1654,91 @@ table {
   min-width: 0;
 }
 
+.item-row__title-stack {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.item-row__heading {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.item-row__type-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.item-row__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  flex-wrap: nowrap;
+}
+
+.item-row__main .bestiary-row__title {
+  font-size: 0.92rem;
+}
+
+.item-row__stats {
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+  flex-wrap: nowrap;
+}
+
+.item-row__attunement-pill {
+  white-space: nowrap;
+}
+
+.item-row__rarity-pill {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #111018;
+  font-weight: 800;
+}
+
+.item-row__rarity-pill--none,
+.item-row__rarity-pill--sin-rareza {
+  background: #d8dde2;
+}
+
+.item-row__rarity-pill--common {
+  background: #f2f4f7;
+}
+
+.item-row__rarity-pill--uncommon {
+  background: #53d46f;
+}
+
+.item-row__rarity-pill--rare {
+  background: #4aa3ff;
+}
+
+.item-row__rarity-pill--very-rare {
+  background: #b46cff;
+}
+
+.item-row__rarity-pill--legendary {
+  background: #ffb23f;
+}
+
+.item-row__rarity-pill--artifact {
+  background: #ff5b5f;
+}
+
+.item-row__rarity-pill--unknown,
+.item-row__rarity-pill--unknown-magic,
+.item-row__rarity-pill--varies {
+  background: #aeb7c2;
+}
+
 .arcanum-row__level-pill {
   margin-left: auto;
   min-height: 1.55rem;
@@ -1759,6 +1868,88 @@ table {
   background: rgba(255, 255, 255, 0.045);
   color: var(--text);
   font-size: 0.82rem;
+}
+
+.pill.item-row__rarity-pill {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #111018;
+  font-weight: 800;
+}
+
+.pill.item-row__rarity-pill--none,
+.pill.item-row__rarity-pill--sin-rareza {
+  background: #d8dde2;
+}
+
+.pill.item-row__rarity-pill--common {
+  background: #f2f4f7;
+}
+
+.pill.item-row__rarity-pill--uncommon {
+  background: #53d46f;
+}
+
+.pill.item-row__rarity-pill--rare {
+  background: #4aa3ff;
+}
+
+.pill.item-row__rarity-pill--very-rare {
+  background: #b46cff;
+}
+
+.pill.item-row__rarity-pill--legendary {
+  background: #ffb23f;
+}
+
+.pill.item-row__rarity-pill--artifact {
+  background: #ff5b5f;
+}
+
+.pill.item-row__rarity-pill--unknown,
+.pill.item-row__rarity-pill--unknown-magic,
+.pill.item-row__rarity-pill--varies {
+  background: #aeb7c2;
+}
+
+.item-filter__option--rarity {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #111018;
+  font-weight: 800;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--none,
+.item-filter__option--rarity.item-row__rarity-pill--sin-rareza {
+  background: #d8dde2;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--common {
+  background: #f2f4f7;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--uncommon {
+  background: #53d46f;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--rare {
+  background: #4aa3ff;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--very-rare {
+  background: #b46cff;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--legendary {
+  background: #ffb23f;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--artifact {
+  background: #ff5b5f;
+}
+
+.item-filter__option--rarity.item-row__rarity-pill--unknown,
+.item-filter__option--rarity.item-row__rarity-pill--unknown-magic,
+.item-filter__option--rarity.item-row__rarity-pill--varies {
+  background: #aeb7c2;
 }
 
 .bestiary-detail {
@@ -2149,7 +2340,8 @@ table {
     width: fit-content;
   }
 
-  .bestiary-toolbar__row--filters {
+  .bestiary-toolbar__row--filters,
+  .bestiary-toolbar__row--item-filters {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
@@ -2243,7 +2435,8 @@ table {
   }
 
   .bestiary-toolbar__row--primary,
-  .bestiary-toolbar__row--filters {
+  .bestiary-toolbar__row--filters,
+  .bestiary-toolbar__row--item-filters {
     grid-template-columns: 1fr;
   }
 
