@@ -396,6 +396,15 @@ table {
   align-items: center;
 }
 
+.arcanum-query__controls {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.arcanum-query__controls .bestiary-toolbar__clear,
+.arcanum-concentration-toggle {
+  white-space: nowrap;
+}
+
 .bestiary-filter__trigger {
   width: 100%;
   height: 2.85rem;

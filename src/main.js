@@ -5108,7 +5108,7 @@ function renderArcanumQueryField() {
   return `
     <div class="toolbar-field toolbar-field--search bestiary-query" data-arcanum-query-menu>
       <span>Buscar hechizo</span>
-      <div class="bestiary-filter__controls">
+      <div class="bestiary-filter__controls arcanum-query__controls">
         <input
           class="filter-input filter-input--wide"
           type="search"
