@@ -7,6 +7,8 @@ const ITEMS_CSV_PATH = "data/Items.csv";
 const ITEMS_IMAGES_PATH = "data/ItemsImages.json";
 const SPELLS_CSV_PATH = "data/Spells.csv";
 const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
+const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
+const COMBAT_TRACKER_SORT_DEFAULT_VERSION = 2;
 const BESTIARY_RENDER_DEBOUNCE_MS = 160;
 const BESTIARY_VIRTUAL_ROW_HEIGHT = 158;
 const BESTIARY_VIRTUAL_OVERSCAN = 6;
@@ -189,8 +191,10 @@ const arcanumFilterLabels = {
 
 const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
 let battleTimerInterval = null;
 const initialEncounterInventory = loadEncounterInventory();
+const initialCombatTrackerState = loadCombatTrackerState();
 let scheduledRenderTimer = 0;
 let scheduledRenderFocusState = null;
 let arcanumSpellLinkCache = {
@@ -201,15 +205,18 @@ let arcanumSpellLinkCache = {
 
 const state = {
   activeScreen: "combat-tracker",
-  combatants: initialCombatants,
-  filters: { ...blankFilters },
-  sort: { key: "iniactiva", direction: "desc" },
+  combatants: initialCombatTrackerState.combatants,
+  filters: initialCombatTrackerState.filters,
+  sort: initialCombatTrackerState.sort,
   activeFilterKey: "",
   selectedIds: new Set(),
-  newEntitySide: "allies",
-  nextId: initialCombatants.length + 1,
-  inlineAdjustments: Object.fromEntries(initialCombatants.map((combatant) => [combatant.id, { ...blankInlineAdjustments }])),
-  areaDamage: "",
+  newEntitySide: initialCombatTrackerState.newEntitySide,
+  nextId: initialCombatTrackerState.nextId,
+  inlineAdjustments: initialCombatTrackerState.inlineAdjustments,
+  areaDamage: initialCombatTrackerState.areaDamage,
+  isCombatActive: initialCombatTrackerState.isCombatActive,
+  activeTurnCombatantId: initialCombatTrackerState.activeTurnCombatantId,
+  combatRound: initialCombatTrackerState.combatRound,
   battleTimer: {
     elapsedMs: 0,
     startedAt: 0,
@@ -263,7 +270,9 @@ const state = {
   draggedFolderId: "",
   encounterSearchQuery: "",
   showEncounterSearchSuggestions: false,
-  combatEncounterPickerOpen: false
+  combatEncounterPickerOpen: false,
+  activeCombatNameSearchId: "",
+  activeCombatSourceId: ""
 };
 
 app.addEventListener("click", handleClick);
@@ -300,6 +309,8 @@ function handleClick(event) {
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
   const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
   const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
+  const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
+  const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
 
   if (
     state.activeBestiaryFilterKey &&
@@ -398,6 +409,32 @@ function handleClick(event) {
     }
   }
 
+  if (
+    state.activeCombatNameSearchId &&
+    !clickedCombatNameSearch &&
+    actionButton?.dataset.action !== "select-combat-name-suggestion"
+  ) {
+    state.activeCombatNameSearchId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.activeCombatSourceId &&
+    !clickedCombatSourceMenu &&
+    actionButton?.dataset.action !== "toggle-combat-source"
+  ) {
+    state.activeCombatSourceId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
   if (!actionButton) {
     return;
   }
@@ -458,8 +495,69 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "delete-enemies") {
+    deleteEnemies();
+    render();
+    return;
+  }
+
+  if (action === "add-blank-combatant") {
+    addBlankCombatant();
+    render();
+    return;
+  }
+
+  if (action === "cycle-combat-tag") {
+    cycleCombatantTag(actionButton.dataset.combatantId);
+    render();
+    return;
+  }
+
+  if (action === "select-combat-name-suggestion") {
+    fillCombatantFromBestiary(actionButton.dataset.combatantId, actionButton.dataset.entryId);
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-source") {
+    const combatantId = actionButton.dataset.combatantId;
+    state.activeCombatSourceId = state.activeCombatSourceId === combatantId ? "" : combatantId;
+    render();
+    return;
+  }
+
+  if (action === "select-combat-source") {
+    selectCombatantSource(actionButton.dataset.combatantId, actionButton.dataset.combatSource);
+    render();
+    return;
+  }
+
+  if (action === "open-combatant-bestiary") {
+    openCombatantBestiary(actionButton.dataset.entryId);
+    render();
+    return;
+  }
+
   if (action === "generate-iniactiva") {
     generateInitiative();
+    render();
+    return;
+  }
+
+  if (action === "start-combat-turns") {
+    startCombatTurns();
+    render();
+    return;
+  }
+
+  if (action === "end-combat-turns") {
+    endCombatTurns();
+    render();
+    return;
+  }
+
+  if (action === "advance-combat-turn") {
+    advanceCombatTurn();
     render();
     return;
   }
@@ -884,11 +982,13 @@ function handleChange(event) {
 
   if (target.matches("[data-new-entity-side]")) {
     state.newEntitySide = target.value;
+    saveCombatTrackerState();
     return;
   }
 
   if (target.matches("[data-area-damage]")) {
     state.areaDamage = target.value;
+    saveCombatTrackerState();
     return;
   }
 
@@ -902,6 +1002,12 @@ function handleChange(event) {
 
   if (target.matches("[data-edit-id][data-edit-key]")) {
     updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value);
+    saveCombatTrackerState();
+
+    if (target.dataset.editKey === "nombre") {
+      return;
+    }
+
     render();
     return;
   }
@@ -953,21 +1059,43 @@ function handleInput(event) {
 
   if (target.matches("[data-adjust-id][data-adjust-field]")) {
     setInlineAdjustment(target.dataset.adjustId, target.dataset.adjustField, target.value);
+    saveCombatTrackerState();
     return;
   }
 
   if (target.matches("[data-area-damage]")) {
     state.areaDamage = target.value;
+    saveCombatTrackerState();
     return;
   }
 
   if (target.matches("[data-edit-id][data-edit-key]")) {
     updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value, false);
+    saveCombatTrackerState();
+
+    if (target.dataset.editKey === "nombre") {
+      state.activeCombatNameSearchId = target.dataset.editId;
+      scheduleRender({
+        focusSelector: `[data-edit-id="${target.dataset.editId}"][data-edit-key="nombre"]`,
+        selectionStart: target.selectionStart,
+        selectionEnd: target.selectionEnd
+      });
+    }
+
+    if (target.dataset.editKey === "iniactiva") {
+      scheduleRender({
+        focusSelector: `[data-edit-id="${target.dataset.editId}"][data-edit-key="iniactiva"]`,
+        selectionStart: target.selectionStart,
+        selectionEnd: target.selectionEnd
+      });
+    }
+
     return;
   }
 
   if (target.matches("[data-stat-id][data-stat-key]")) {
     updateCombatantStat(target.dataset.statId, target.dataset.statKey, target.value, false);
+    saveCombatTrackerState();
     return;
   }
 
@@ -1366,6 +1494,8 @@ function render(focusState = null) {
   if (state.activeScreen === "arcanum") {
     restoreArcanumListScroll();
   }
+
+  saveCombatTrackerState();
 }
 
 function renderScreenButton(screen) {
@@ -1416,6 +1546,8 @@ function renderScreen() {
 
 function renderCombatTracker() {
   const visibleCombatants = getVisibleCombatants();
+  const turnOrder = getCombatTurnOrder(visibleCombatants);
+  const activeTurnCombatantId = state.isCombatActive ? getActiveTurnCombatantId(turnOrder) : "";
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
     visibleCombatants.every((combatant) => state.selectedIds.has(combatant.id));
@@ -1424,20 +1556,25 @@ function renderCombatTracker() {
   return `
     <section class="panel combat-timer">
       <article class="summary-card summary-card--timer combat-timer__card">
-        <span>Contador de batalla</span>
-        <strong>${battleTimerLabel}</strong>
-        <div class="summary-card__actions">
-          <button
-            class="summary-button"
-            type="button"
-            data-action="${state.battleTimer.isRunning ? "pause-battle-timer" : "start-battle-timer"}"
-          >
-            ${state.battleTimer.isRunning ? "Pausar" : "Iniciar"}
-          </button>
-          <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
-            Reiniciar
-          </button>
+        <div class="combat-timer__header">
+          <div>
+            <span>Contador de batalla</span>
+            <strong>${battleTimerLabel}</strong>
+          </div>
+          <div class="summary-card__actions">
+            <button
+              class="summary-button"
+              type="button"
+              data-action="${state.battleTimer.isRunning ? "pause-battle-timer" : "start-battle-timer"}"
+            >
+              ${state.battleTimer.isRunning ? "Pausar" : "Iniciar"}
+            </button>
+            <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
+              Reiniciar
+            </button>
+          </div>
         </div>
+        ${state.isCombatActive ? renderCombatTurnPanel(turnOrder, activeTurnCombatantId) : ""}
       </article>
     </section>
 
@@ -1448,7 +1585,6 @@ function renderCombatTracker() {
           <h3>Ruins of Saint Korrin</h3>
         </div>
         <div class="section-meta">
-          <span>Ronda 3</span>
           <span>${visibleCombatants.length} visibles</span>
           <span>${state.selectedIds.size} seleccionados</span>
         </div>
@@ -1464,6 +1600,14 @@ function renderCombatTracker() {
             ${state.selectedIds.size === 0 ? "disabled" : ""}
           >
             Eliminar seleccionadas
+          </button>
+          <button
+            class="toolbar-button toolbar-button--danger"
+            type="button"
+            data-action="delete-enemies"
+            ${state.combatants.some(isEnemyCombatant) ? "" : "disabled"}
+          >
+            Eliminar enemigos
           </button>
           <div class="area-damage">
             <input
@@ -1504,6 +1648,14 @@ function renderCombatTracker() {
             </span>
             Generar iniciativa
           </button>
+          <button
+            class="toolbar-button toolbar-button--combat"
+            type="button"
+            data-action="${state.isCombatActive ? "end-combat-turns" : "start-combat-turns"}"
+            ${visibleCombatants.length === 0 ? "disabled" : ""}
+          >
+            ${state.isCombatActive ? "FIN COMBATE" : "COMBATE!"}
+          </button>
           <button class="toolbar-button" type="button" data-action="clear-filters">Limpiar filtros</button>
         </div>
       </div>
@@ -1511,7 +1663,7 @@ function renderCombatTracker() {
       <div class="table-wrap" role="region" aria-label="Combat tracker" tabindex="0">
         <table class="combat-table">
           <colgroup>
-            <col style="width: 3.6rem" />
+            <col style="width: 2.4rem" />
             ${columns.map((column) => `<col style="width: ${column.width}" />`).join("")}
           </colgroup>
           <thead>
@@ -1528,11 +1680,82 @@ function renderCombatTracker() {
             </tr>
           </thead>
           <tbody>
-            ${visibleCombatants.length > 0 ? visibleCombatants.map(renderCombatRow).join("") : renderEmptyRow()}
+            ${visibleCombatants.length > 0
+              ? visibleCombatants.map((combatant) => renderCombatRow(combatant, activeTurnCombatantId)).join("")
+              : renderEmptyRow()}
           </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="${columns.length + 1}">
+                <div class="add-row-cell">
+                  <button
+                    class="add-row-button"
+                    type="button"
+                    data-action="add-blank-combatant"
+                    aria-label="Anadir fila en blanco"
+                  >
+                    <span class="add-row-button__icon" aria-hidden="true">+</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </section>
+  `;
+}
+
+function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
+  if (turnOrder.length === 0) {
+    return `
+      <div class="combat-turn-panel">
+        <p class="combat-turn-panel__empty">No hay entidades visibles para el turno.</p>
+      </div>
+    `;
+  }
+
+  const rotatedOrder = getRotatedCombatTurnOrder(turnOrder, activeTurnCombatantId);
+
+  return `
+    <div class="combat-turn-panel">
+      <div class="combat-turn-panel__controls">
+        <button
+          class="summary-button summary-button--turn"
+          type="button"
+          data-action="advance-combat-turn"
+        >
+          Pasar turno
+        </button>
+        <span class="round-chip">Ronda ${escapeHtml(String(getCombatRound()))}</span>
+      </div>
+      <div class="combat-turn-strip" aria-label="Orden de iniciativa">
+        ${rotatedOrder.map((combatant, index) => renderCombatTurnToken(combatant, index === 0)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderCombatTurnToken(combatant, isActive) {
+  const tokenUrl = getCombatantTokenUrl(combatant);
+  const standNumber = cleanText(combatant.numPeana);
+  const label = cleanText(combatant.nombre) || "Sin nombre";
+  const side = mapTagToSide(combatant.tag);
+  const initials = getCombatantInitials(combatant);
+
+  return `
+    <div
+      class="combat-turn-token combat-turn-token--${side} ${isActive ? "is-active" : ""}"
+      title="${escapeHtml(label)} | Inic ${escapeHtml(String(combatant.iniactiva ?? ""))}"
+    >
+      ${
+        tokenUrl
+          ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true" />`
+          : `<span class="combat-turn-token__placeholder" aria-hidden="true">${escapeHtml(initials)}</span>`
+      }
+      ${isEnemyCombatant(combatant) && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}
+      <span class="combat-turn-token__initiative">${escapeHtml(String(combatant.iniactiva ?? "-"))}</span>
+    </div>
   `;
 }
 
@@ -1990,7 +2213,7 @@ function renderEncounterRowToken(row, tokenUrl) {
 
 function renderEncounterSourceSelector(row) {
   const isOpen = state.activeEncounterSourceRowId === row.id;
-  const sourceOptions = getEncounterSourceOptions(row.source);
+  const sourceOptions = getEncounterSourceOptions(row);
   const sourceCode = row.source || "?";
 
   return `
@@ -2010,18 +2233,18 @@ function renderEncounterSourceSelector(row) {
         isOpen
           ? `
             <div class="encounter-source__popover" role="listbox" aria-label="Fuentes posibles">
-              ${sourceOptions.map((source) => `
+              ${sourceOptions.length > 0 ? sourceOptions.map((entry) => `
                 <button
-                  class="encounter-source__option ${source === row.source ? "is-active" : ""}"
+                  class="encounter-source__option ${entry.source === row.source ? "is-active" : ""}"
                   type="button"
                   data-action="select-encounter-source"
                   data-encounter-row-id="${escapeHtml(row.id)}"
-                  data-encounter-source-value="${escapeHtml(source)}"
+                  data-encounter-source-value="${escapeHtml(entry.source)}"
                 >
-                  <strong>${escapeHtml(getBestiarySourceFullName(source) || source)}</strong>
-                  <span>${escapeHtml(source)}</span>
+                  <strong>${escapeHtml(getBestiarySourceFullName(entry.source) || entry.source)}</strong>
+                  <span>${escapeHtml(entry.source)}</span>
                 </button>
-              `).join("")}
+              `).join("") : `<span class="encounter-source__empty">No hay otras fuentes para esta criatura.</span>`}
             </div>
           `
           : ""
@@ -2952,6 +3175,8 @@ function renderHeaderCell(column) {
       <div class="th-stack">
         <div class="th-content">
           <span>${column.label}</span>
+        </div>
+        <div class="th-actions">
           <button
             class="sort-button ${isActive ? "is-active" : ""}"
             type="button"
@@ -2960,10 +3185,7 @@ function renderHeaderCell(column) {
             aria-label="Ordenar por ${column.label}"
           >
             <span>${sortLabel}</span>
-            <span aria-hidden="true">Arr</span>
           </button>
-        </div>
-        <div class="th-actions">
           <button
             class="filter-button ${state.filters[column.key] ? "is-active" : ""}"
             type="button"
@@ -2971,7 +3193,6 @@ function renderHeaderCell(column) {
             data-filter-key="${column.key}"
             aria-label="Abrir filtro de ${column.label}"
           >
-            <span aria-hidden="true">Fil</span>
             <span>Filtro</span>
           </button>
           ${
@@ -3007,11 +3228,12 @@ function renderHeaderCell(column) {
   `;
 }
 
-function renderCombatRow(combatant) {
+function renderCombatRow(combatant, activeTurnCombatantId = "") {
   const isDead = isCombatantDead(combatant);
+  const isActiveTurn = combatant.id === activeTurnCombatantId;
 
   return `
-    <tr class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""}">
+    <tr class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""} ${isActiveTurn ? "row--active-turn" : ""}">
       <td class="cell-select">
         <input
           type="checkbox"
@@ -3043,26 +3265,53 @@ function renderDataCell(combatant, column, isDead) {
             data-edit-id="${combatant.id}"
             data-edit-key="${column.key}"
           />
-          ${combatant.initiativeRoll ? `<span class="initiative-note">d20 ${combatant.initiativeRoll}</span>` : ""}
-          ${isInitiativeNat20 ? `<span class="nat20-badge">Nat 20</span>` : ""}
+          ${
+            isInitiativeNat20
+              ? `<span class="nat20-badge">Nat 20</span>`
+              : combatant.initiativeRoll
+                ? `<span class="initiative-note">d20 ${combatant.initiativeRoll}</span>`
+                : ""
+          }
         </div>
       </td>
     `;
   }
 
   if (column.key === "nombre") {
+    const suggestions = getCombatNameSuggestions(combatant);
+    const sourceChip = renderCombatantSourceChip(combatant);
+    const token = renderCombatantNameToken(combatant);
+
     return `
       <td>
-        <div class="name-cell">
-          <input
-            class="cell-input cell-input--strong"
-            type="text"
-            inputmode="text"
-            value="${escapeHtml(String(value))}"
-            data-edit-id="${combatant.id}"
-            data-edit-key="${column.key}"
-          />
-          ${isDead ? `<span class="death-badge">Muerto</span>` : ""}
+        <div class="name-cell combat-name-cell" data-combat-name-search-menu>
+          <div class="combat-name-cell__main">
+            <input
+              class="cell-input cell-input--strong"
+              type="text"
+              inputmode="text"
+              value="${escapeHtml(String(value))}"
+              data-edit-id="${combatant.id}"
+              data-edit-key="${column.key}"
+              autocomplete="off"
+            />
+            ${token}
+          </div>
+          ${isDead || sourceChip ? `
+            <div class="name-cell__chips">
+              ${isDead ? `<span class="death-badge">Muerto</span>` : ""}
+              ${sourceChip}
+            </div>
+          ` : ""}
+          ${
+            state.activeCombatNameSearchId === combatant.id && suggestions.length > 0
+              ? `
+                <div class="combat-name-suggestions" role="listbox" aria-label="Criaturas del bestiario">
+                  ${suggestions.map((entry) => renderCombatNameSuggestion(combatant.id, entry)).join("")}
+                </div>
+              `
+              : ""
+          }
         </div>
       </td>
     `;
@@ -3071,6 +3320,7 @@ function renderDataCell(combatant, column, isDead) {
   if (column.key === "pgMax") {
     const effectiveMax = getEffectivePgMax(combatant);
     const showEffectiveMax = toNumber(combatant.necrotic) !== 0;
+    const armorClass = combatant.ca ?? "";
 
     return `
       <td>
@@ -3084,6 +3334,20 @@ function renderDataCell(combatant, column, isDead) {
             data-edit-key="${column.key}"
           />
           ${showEffectiveMax ? `<span class="resource-note">Original ${value}</span>` : ""}
+          <label class="armor-badge" aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}">
+            <svg class="armor-badge__icon" viewBox="0 0 48 54" aria-hidden="true">
+              <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
+            </svg>
+            <input
+              class="armor-badge__input"
+              type="number"
+              inputmode="numeric"
+              value="${escapeHtml(String(armorClass))}"
+              data-edit-id="${combatant.id}"
+              data-edit-key="ca"
+              aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}"
+            />
+          </label>
         </div>
       </td>
     `;
@@ -3193,17 +3457,19 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "tag") {
+    const tagValue = combatTagOptions.includes(value) ? value : "NEUTRAL";
+
     return `
       <td>
-        <select
-          class="cell-select-input cell-select-input--tag"
-          data-edit-id="${combatant.id}"
-          data-edit-key="${column.key}"
+        <button
+          class="tag-cycle-button tag-cycle-button--${tagValue.toLowerCase()}"
+          type="button"
+          data-action="cycle-combat-tag"
+          data-combatant-id="${escapeHtml(combatant.id)}"
+          aria-label="Cambiar bando de ${escapeHtml(combatant.nombre || combatant.id)}. Actual: ${escapeHtml(tagValue)}"
         >
-          ${["ALIADO", "ENEMIGO", "NEUTRAL"]
-            .map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`)
-            .join("")}
-        </select>
+          <span>${escapeHtml(tagValue)}</span>
+        </button>
       </td>
     `;
   }
@@ -3248,6 +3514,21 @@ function renderDataCell(combatant, column, isDead) {
     `;
   }
 
+  if (column.key === "crExp") {
+    return `
+      <td>
+        <input
+          class="cell-input"
+          type="text"
+          inputmode="text"
+          value="${escapeHtml(formatCombatCrDisplay(value))}"
+          data-edit-id="${combatant.id}"
+          data-edit-key="${column.key}"
+        />
+      </td>
+    `;
+  }
+
   return `
     <td>
       <input
@@ -3259,6 +3540,156 @@ function renderDataCell(combatant, column, isDead) {
         data-edit-key="${column.key}"
       />
     </td>
+  `;
+}
+
+function renderCombatNameSuggestion(combatantId, entry) {
+  const sourceCode = entry.source || "?";
+
+  return `
+    <button
+      class="combat-name-suggestions__option"
+      type="button"
+      data-action="select-combat-name-suggestion"
+      data-combatant-id="${escapeHtml(combatantId)}"
+      data-entry-id="${escapeHtml(entry.id)}"
+    >
+      <strong>${escapeHtml(entry.name)} (${escapeHtml(sourceCode)})</strong>
+      <span>CR ${formatCrNumber(entry.crBaseValue)} | ${escapeHtml(entry.type || "Sin tipo")}</span>
+    </button>
+  `;
+}
+
+function renderCombatantNameToken(combatant) {
+  if (!isEnemyCombatant(combatant)) {
+    return "";
+  }
+
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  const tokenUrl = bestiaryEntry?.tokenUrl || "";
+
+  if (!tokenUrl) {
+    return "";
+  }
+
+  return `
+    <span class="combat-name-token-wrap">
+      <button
+        class="combat-name-token-button"
+        type="button"
+        data-action="open-combatant-bestiary"
+        data-entry-id="${escapeHtml(bestiaryEntry.id)}"
+        aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
+      >
+        <img
+          class="combat-name-token"
+          src="${escapeHtml(tokenUrl)}"
+          alt=""
+          loading="lazy"
+          decoding="async"
+          aria-hidden="true"
+        />
+      </button>
+      ${renderCombatTokenPreview(bestiaryEntry)}
+    </span>
+  `;
+}
+
+function renderCombatTokenPreview(entry) {
+  const sections = [
+    entry.traits ? { title: "Traits", content: entry.traits } : null,
+    entry.actions ? { title: "Actions", content: entry.actions } : null
+  ].filter(Boolean);
+  const defenses = [
+    { label: "Vulnerabilidades", value: entry.damageVulnerabilities },
+    { label: "Resistencias", value: entry.damageResistances },
+    { label: "Inmunidades", value: entry.damageImmunities },
+    { label: "Condiciones inmunes", value: entry.conditionImmunities }
+  ].filter((item) => item.value);
+
+  return `
+    <div class="combat-token-preview" role="tooltip">
+      <div class="combat-token-preview__header">
+        <div>
+          <strong>${escapeHtml(entry.name)}</strong>
+          <span>${escapeHtml(entry.sourceFullName || getBestiarySourceFullName(entry.source) || entry.source || "Sin fuente")}</span>
+        </div>
+        <small>CR ${escapeHtml(entry.crBaseLabel || entry.crLabel || "-")}</small>
+      </div>
+      <div class="combat-token-preview__metrics">
+        ${renderBestiaryMetric("CA", entry.ac || "-")}
+        ${renderBestiaryMetric("Velocidad", entry.speed || "-")}
+      </div>
+      <div class="combat-token-preview__abilities">
+        ${statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("")}
+      </div>
+      ${
+        defenses.length > 0
+          ? `
+            <div class="combat-token-preview__defenses">
+              ${defenses.map((item) => renderDetailChip(item.label, item.value)).join("")}
+            </div>
+          `
+          : ""
+      }
+      <div class="combat-token-preview__sections">
+        ${
+          sections.length > 0
+            ? sections.map((section) => renderBestiarySection(section.title, section.content)).join("")
+            : `<section class="detail-section"><h4>Traits</h4><p>Sin traits o acciones indicadas.</p></section>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderCombatantSourceChip(combatant) {
+  if (!isEnemyCombatant(combatant)) {
+    return "";
+  }
+
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  const sourceCode = combatant.source || bestiaryEntry?.source || "";
+  const sourceOptions = getCombatantSourceOptions(combatant);
+
+  if (!sourceCode || sourceOptions.length === 0) {
+    return "";
+  }
+
+  const isOpen = state.activeCombatSourceId === combatant.id;
+
+  return `
+    <span class="combat-source-chip" data-combat-source-menu>
+      <button
+        class="death-badge combat-source-chip__trigger"
+        type="button"
+        data-action="toggle-combat-source"
+        data-combatant-id="${escapeHtml(combatant.id)}"
+        aria-expanded="${isOpen}"
+      >
+        ${escapeHtml(sourceCode)}
+      </button>
+      ${
+        isOpen
+          ? `
+            <span class="combat-source-chip__popover" role="listbox" aria-label="Sources disponibles">
+              ${sourceOptions.map((entry) => `
+                <button
+                  class="combat-source-chip__option ${entry.source === sourceCode ? "is-active" : ""}"
+                  type="button"
+                  data-action="select-combat-source"
+                  data-combatant-id="${escapeHtml(combatant.id)}"
+                  data-combat-source="${escapeHtml(entry.source)}"
+                >
+                  <strong>${escapeHtml(entry.source)}</strong>
+                  <span>${escapeHtml(entry.sourceFullName || getBestiarySourceFullName(entry.source) || entry.source)}</span>
+                </button>
+              `).join("")}
+            </span>
+          `
+          : ""
+      }
+    </span>
   `;
 }
 
@@ -3328,6 +3759,89 @@ function getVisibleCombatants() {
   return [...state.combatants]
     .filter(matchesFilters)
     .sort(compareCombatants);
+}
+
+function getCombatTurnOrder(combatants = getVisibleCombatants()) {
+  return [...combatants]
+    .sort((left, right) => toNumber(right.iniactiva) - toNumber(left.iniactiva)
+      || getCombatantStandSortValue(left) - getCombatantStandSortValue(right)
+      || cleanText(left.nombre).localeCompare(cleanText(right.nombre), "es", { numeric: true, sensitivity: "base" }));
+}
+
+function getActiveTurnCombatantId(turnOrder = getCombatTurnOrder()) {
+  if (turnOrder.length === 0) {
+    return "";
+  }
+
+  return turnOrder.some((combatant) => combatant.id === state.activeTurnCombatantId)
+    ? state.activeTurnCombatantId
+    : turnOrder[0].id;
+}
+
+function getRotatedCombatTurnOrder(turnOrder, activeTurnCombatantId) {
+  const activeIndex = Math.max(0, turnOrder.findIndex((combatant) => combatant.id === activeTurnCombatantId));
+  return [
+    ...turnOrder.slice(activeIndex),
+    ...turnOrder.slice(0, activeIndex)
+  ];
+}
+
+function getCombatNameSuggestions(combatant) {
+  const query = cleanText(combatant.nombre).toLowerCase();
+
+  if (!query || state.bestiaryStatus !== "ready") {
+    return [];
+  }
+
+  return state.bestiary
+    .filter((entry) => entry.nameLower.includes(query))
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
+      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
+    .slice(0, 10);
+}
+
+function getCombatantBestiaryEntry(combatant) {
+  const name = cleanText(combatant.nombre).toLowerCase();
+
+  if (!name) {
+    return null;
+  }
+
+  if (combatant.source) {
+    const source = cleanText(combatant.source);
+    const sourceMatch = state.bestiary.find((entry) => cleanText(entry.name).toLowerCase() === name && entry.source === source);
+    return sourceMatch ?? null;
+  }
+
+  return state.bestiary.find((entry) => cleanText(entry.name).toLowerCase() === name) ?? null;
+}
+
+function getCombatantTokenUrl(combatant) {
+  return getCombatantBestiaryEntry(combatant)?.tokenUrl || cleanText(combatant.tokenUrl);
+}
+
+function getCombatantInitials(combatant) {
+  const words = cleanText(combatant.nombre).split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) {
+    return "?";
+  }
+
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+function getCombatantSourceOptions(combatant) {
+  const name = cleanText(combatant.nombre).toLowerCase();
+
+  if (!name || state.bestiaryStatus !== "ready") {
+    return [];
+  }
+
+  return state.bestiary
+    .filter((entry) => cleanText(entry.name).toLowerCase() === name)
+    .sort((left, right) => getBestiarySourceFullName(left.source).localeCompare(getBestiarySourceFullName(right.source), "es", {
+      sensitivity: "base"
+    }));
 }
 
 function getFilteredBestiary() {
@@ -3534,6 +4048,16 @@ function compareCombatants(left, right) {
   const leftValue = left[state.sort.key];
   const rightValue = right[state.sort.key];
 
+  if (state.sort.key === "tag") {
+    return (getCombatantSideSortRank(left) - getCombatantSideSortRank(right)) * multiplier
+      || String(left.nombre ?? "").localeCompare(String(right.nombre ?? ""), "es", { numeric: true, sensitivity: "base" });
+  }
+
+  if (state.sort.key === "numPeana") {
+    return (getCombatantStandSortValue(left) - getCombatantStandSortValue(right)) * multiplier
+      || String(leftValue ?? "").localeCompare(String(rightValue ?? ""), "es", { numeric: true, sensitivity: "base" });
+  }
+
   if (column?.type === "number") {
     const first = column.key === "pgMax" ? getEffectivePgMax(left) : toNumber(leftValue);
     const second = column.key === "pgMax" ? getEffectivePgMax(right) : toNumber(rightValue);
@@ -3542,6 +4066,25 @@ function compareCombatants(left, right) {
 
   return String(leftValue ?? "")
     .localeCompare(String(rightValue ?? ""), "es", { numeric: true, sensitivity: "base" }) * multiplier;
+}
+
+function getCombatantSideSortRank(combatant) {
+  const tag = cleanText(combatant.tag);
+  const side = cleanText(combatant.side);
+
+  if (tag === "ALIADO" || side === "allies") {
+    return 1;
+  }
+
+  if (tag === "NEUTRAL" || side === "neutral") {
+    return 2;
+  }
+
+  if (tag === "ENEMIGO" || side === "enemies") {
+    return 3;
+  }
+
+  return 4;
 }
 
 function compareBestiaryEntries(left, right) {
@@ -3752,7 +4295,7 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
       return combatant;
     }
 
-    const column = columns.find((item) => item.key === key);
+    const column = columns.find((item) => item.key === key) ?? (key === "ca" ? { key, type: "number" } : null);
     const nextValue = getNormalizedValue(column, rawValue, normalize);
     const updatedCombatant = {
       ...combatant,
@@ -4327,8 +4870,18 @@ function getEncountersByFolder(folderId) {
 }
 
 function getEncounterRowBestiaryEntry(row) {
-  return state.bestiary.find((entry) => entry.id === row.entryId)
-    ?? state.bestiary.find((entry) => entry.name === row.name && entry.source === row.source)
+  const rowName = cleanText(row.name).toLowerCase();
+  const rowSource = cleanText(row.source);
+  const sourceMatch = rowSource
+    ? state.bestiary.find((entry) => cleanText(entry.name).toLowerCase() === rowName && entry.source === rowSource)
+    : null;
+
+  if (rowSource) {
+    return sourceMatch;
+  }
+
+  return sourceMatch
+    ?? state.bestiary.find((entry) => entry.id === row.entryId)
     ?? null;
 }
 
@@ -4375,18 +4928,16 @@ function getEncounterCreatureSuggestions() {
     .slice(0, 12);
 }
 
-function getEncounterSourceOptions(currentSource = "") {
-  const encounterSources = state.encounters.flatMap((encounter) => encounter.rows.map((row) => row.source));
-  const sourceOptions = [
-    ...bestiaryRenderCache.staticOptions.source,
-    ...encounterSources,
-    currentSource
-  ]
-    .map(cleanText)
-    .filter(Boolean);
+function getEncounterSourceOptions(row) {
+  const rowName = cleanText(row.name).toLowerCase();
 
-  return [...new Set(sourceOptions)]
-    .sort((left, right) => getBestiarySourceFullName(left).localeCompare(getBestiarySourceFullName(right), "es", {
+  if (!rowName || state.bestiaryStatus !== "ready") {
+    return [];
+  }
+
+  return state.bestiary
+    .filter((entry) => cleanText(entry.name).toLowerCase() === rowName)
+    .sort((left, right) => getBestiarySourceFullName(left.source).localeCompare(getBestiarySourceFullName(right.source), "es", {
       sensitivity: "base"
     }));
 }
@@ -4462,7 +5013,7 @@ function importEncounterToCombat(encounterId) {
 
     for (let index = 0; index < units; index += 1) {
       const id = `entity-${state.nextId + combatants.length}`;
-      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber);
+      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber, encounter.name);
       combatants.push(combatant);
       state.inlineAdjustments[id] = { ...blankInlineAdjustments };
       nextEnemyNumber += 1;
@@ -4481,43 +5032,196 @@ function importEncounterToCombat(encounterId) {
   state.combatEncounterPickerOpen = false;
 }
 
-function createCombatantFromEncounterRow(row, id, standNumber) {
+function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "") {
   const bestiaryEntry = getEncounterRowBestiaryEntry(row);
-  const pgMax = getEncounterRowHpValue(row, bestiaryEntry) || 1;
-  const ca = getEncounterRowAcValue(row, bestiaryEntry) || "";
 
-  return {
+  if (bestiaryEntry) {
+    return createCombatantFromBestiaryEntry(bestiaryEntry, {
+      id,
+      ubicacion: encounterName,
+      numPeana: formatStandNumber(standNumber)
+    }, {
+      rollInitiative: true
+    });
+  }
+
+  return createCombatantFromBestiaryEntry({
+    name: row.name,
+    source: row.source,
+    tokenUrl: "",
+    hpValue: getEncounterRowHpValue(row, bestiaryEntry) || 1,
+    acValue: getEncounterRowAcValue(row, bestiaryEntry) || "",
+    abilities: parseStats(""),
+    cr: row.crLabel || "",
+    size: "",
+    speed: "",
+    senses: "",
+    languages: ""
+  }, {
     id,
+    ubicacion: encounterName,
+    numPeana: formatStandNumber(standNumber)
+  }, {
+    rollInitiative: true
+  });
+}
+
+function getNextEnemyStandNumber() {
+  const standNumbers = state.combatants
+    .map(getCombatantStandNumber)
+    .filter((value) => value > 0);
+
+  return Math.max(0, ...standNumbers) + 1;
+}
+
+function getCombatantStandNumber(combatant) {
+  const value = cleanText(combatant.numPeana);
+  const numericMatch = value.match(/^\d+$/);
+  const legacyEnemyMatch = value.match(/^E-(\d+)$/i);
+
+  if (numericMatch) {
+    return Number(numericMatch[0]);
+  }
+
+  if (legacyEnemyMatch) {
+    return Number(legacyEnemyMatch[1]);
+  }
+
+  return 0;
+}
+
+function getCombatantStandSortValue(combatant) {
+  const standNumber = getCombatantStandNumber(combatant);
+  return standNumber > 0 ? standNumber : Number.POSITIVE_INFINITY;
+}
+
+function formatStandNumber(value) {
+  return String(Math.max(1, Math.floor(toNumber(value)) || 1));
+}
+
+function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options = {}) {
+  const pgMax = entry.hpValue || parseLeadingNumber(entry.hp) || 1;
+  const ca = entry.acValue || parseLeadingNumber(entry.ac) || "";
+  const combatant = {
+    id: existingCombatant.id,
     side: "enemies",
-    ubicacion: "",
-    iniactiva: "",
-    nombre: row.name,
-    numPeana: `E-${String(standNumber).padStart(2, "0")}`,
+    ubicacion: existingCombatant.ubicacion ?? "",
+    iniactiva: existingCombatant.iniactiva ?? "",
+    nombre: entry.name,
+    source: entry.source ?? "",
+    tokenUrl: entry.tokenUrl ?? "",
+    numPeana: cleanText(existingCombatant.numPeana) || formatStandNumber(getNextEnemyStandNumber()),
     pgMax,
     pgAct: pgMax,
     pgTemp: 0,
     necrotic: 0,
     ca,
-    condiciones: "",
-    stats: bestiaryEntry ? formatStatsFromObject(bestiaryEntry.abilities) : formatStatsWithModifiers("STR 10 DEX 10 CON 10 INT 10 WIS 10 CHA 10"),
-    tamano: bestiaryEntry?.size ?? "",
-    movimiento: bestiaryEntry?.speed ?? "",
-    vision: bestiaryEntry?.senses ?? "",
-    lenguas: bestiaryEntry?.languages ?? "",
-    crExp: bestiaryEntry?.cr || (row.crLabel ? `CR ${row.crLabel}` : ""),
+    condiciones: existingCombatant.condiciones ?? "",
+    stats: formatStatsFromObject(entry.abilities ?? parseStats("")),
+    tamano: entry.size ?? "",
+    movimiento: entry.speed ?? "",
+    vision: entry.senses ?? "",
+    lenguas: entry.languages ?? "",
+    crExp: entry.crBaseLabel || entry.crLabel || entry.cr || "",
     tag: "ENEMIGO",
-    initiativeRoll: null,
-    initiativeNat20: false
+    initiativeRoll: existingCombatant.initiativeRoll ?? null,
+    initiativeNat20: existingCombatant.initiativeNat20 ?? false
   };
+
+  return options.rollInitiative ? getCombatantWithGeneratedInitiative(combatant) : combatant;
 }
 
-function getNextEnemyStandNumber() {
-  const standNumbers = state.combatants
-    .map((combatant) => String(combatant.numPeana ?? "").match(/^E-(\d+)$/i)?.[1])
-    .filter(Boolean)
-    .map(Number);
+function fillCombatantFromBestiary(combatantId, entryId) {
+  const entry = state.bestiary.find((item) => item.id === entryId);
 
-  return Math.max(0, ...standNumbers) + 1;
+  if (!entry) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
+    ? createCombatantFromBestiaryEntry(entry, combatant, { rollInitiative: true })
+    : combatant);
+  state.activeCombatNameSearchId = "";
+  state.activeCombatSourceId = "";
+  state.inlineAdjustments[combatantId] = state.inlineAdjustments[combatantId] ?? { ...blankInlineAdjustments };
+}
+
+function openCombatantBestiary(entryId) {
+  const entry = state.bestiary.find((item) => item.id === entryId);
+
+  if (!entry) {
+    return;
+  }
+
+  state.activeScreen = "bestiary";
+  state.bestiaryFilters = {
+    ...blankBestiaryFilters,
+    query: entry.name,
+    source: entry.source ? [entry.source] : []
+  };
+  state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
+  state.activeBestiaryFilterKey = "";
+  state.showBestiaryQuerySuggestions = false;
+  state.bestiarySelectedId = entry.id;
+  resetBestiaryVirtualScroll();
+}
+
+function selectCombatantSource(combatantId, source) {
+  const combatant = state.combatants.find((item) => item.id === combatantId);
+  const cleanSource = cleanText(source);
+
+  if (!combatant || !cleanSource) {
+    return;
+  }
+
+  const name = cleanText(combatant.nombre).toLowerCase();
+  const entry = state.bestiary.find((item) => cleanText(item.name).toLowerCase() === name && item.source === cleanSource);
+
+  if (!entry) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((item) => item.id === combatantId
+    ? createCombatantFromBestiaryEntry(entry, item)
+    : item);
+  state.activeCombatSourceId = "";
+}
+
+function addBlankCombatant() {
+  const id = `entity-${state.nextId}`;
+
+  state.combatants = [
+    ...state.combatants,
+    {
+      id,
+      side: "neutral",
+      source: "",
+      ubicacion: "",
+      iniactiva: "",
+      nombre: "",
+      numPeana: formatStandNumber(getNextEnemyStandNumber()),
+      pgMax: "",
+      pgAct: "",
+      pgTemp: "",
+      necrotic: "",
+      ca: "",
+      condiciones: "",
+      stats: formatStatsWithModifiers("STR 10 DEX 10 CON 10 INT 10 WIS 10 CHA 10"),
+      tamano: "",
+      movimiento: "",
+      vision: "",
+      lenguas: "",
+      crExp: "",
+      tag: "NEUTRAL",
+      initiativeRoll: null,
+      initiativeNat20: false
+    }
+  ];
+
+  state.inlineAdjustments[id] = { ...blankInlineAdjustments };
+  state.activeCombatNameSearchId = id;
+  state.nextId += 1;
+  return id;
 }
 
 function addEntity() {
@@ -4528,10 +5232,11 @@ function addEntity() {
     {
       id,
       side: state.newEntitySide,
+      source: "",
       ubicacion: "",
       iniactiva: "",
       nombre: state.newEntitySide === "allies" ? "Nueva entidad aliada" : "Nueva entidad enemiga",
-      numPeana: "",
+      numPeana: formatStandNumber(getNextEnemyStandNumber()),
       pgMax: basePg,
       pgAct: basePg,
       pgTemp: 0,
@@ -4560,13 +5265,100 @@ function deleteSelected() {
     return;
   }
 
+  const removedActiveTurn = state.selectedIds.has(state.activeTurnCombatantId);
   state.combatants = state.combatants.filter((combatant) => !state.selectedIds.has(combatant.id));
 
   for (const id of state.selectedIds) {
     delete state.inlineAdjustments[id];
   }
 
+  if (removedActiveTurn) {
+    state.activeTurnCombatantId = "";
+  }
+
   state.selectedIds = new Set();
+}
+
+function deleteEnemies() {
+  const removedIds = new Set(state.combatants.filter(isEnemyCombatant).map((combatant) => combatant.id));
+
+  if (removedIds.size === 0) {
+    return;
+  }
+
+  state.combatants = state.combatants.filter((combatant) => !removedIds.has(combatant.id));
+
+  for (const id of removedIds) {
+    delete state.inlineAdjustments[id];
+    state.selectedIds.delete(id);
+  }
+
+  if (removedIds.has(state.activeTurnCombatantId)) {
+    state.activeTurnCombatantId = "";
+  }
+}
+
+function isEnemyCombatant(combatant) {
+  return combatant.tag === "ENEMIGO" || combatant.side === "enemies";
+}
+
+function startCombatTurns() {
+  const turnOrder = getCombatTurnOrder();
+
+  state.isCombatActive = true;
+  state.activeTurnCombatantId = turnOrder[0]?.id ?? "";
+  state.combatRound = 1;
+  startBattleTimer();
+}
+
+function endCombatTurns() {
+  state.isCombatActive = false;
+  state.activeTurnCombatantId = "";
+  state.combatRound = 1;
+}
+
+function advanceCombatTurn() {
+  if (!state.isCombatActive) {
+    return;
+  }
+
+  const turnOrder = getCombatTurnOrder();
+
+  if (turnOrder.length === 0) {
+    state.activeTurnCombatantId = "";
+    state.combatRound = 1;
+    return;
+  }
+
+  const currentId = getActiveTurnCombatantId(turnOrder);
+  const currentIndex = Math.max(0, turnOrder.findIndex((combatant) => combatant.id === currentId));
+  const nextIndex = (currentIndex + 1) % turnOrder.length;
+
+  state.activeTurnCombatantId = turnOrder[nextIndex].id;
+
+  if (nextIndex === 0) {
+    state.combatRound = getCombatRound() + 1;
+  }
+}
+
+function getCombatRound() {
+  return Math.max(1, Math.floor(toNumber(state.combatRound)) || 1);
+}
+
+function cycleCombatantTag(combatantId) {
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== combatantId) {
+      return combatant;
+    }
+
+    const currentIndex = combatTagOptions.indexOf(combatant.tag);
+    const nextTag = combatTagOptions[(currentIndex + 1) % combatTagOptions.length];
+
+    return normalizeCombatant({
+      ...combatant,
+      tag: nextTag
+    }, "tag");
+  });
 }
 
 function generateInitiative() {
@@ -4579,18 +5371,22 @@ function generateInitiative() {
       return combatant;
     }
 
-    const roll = randomD20();
-    const dexModifier = getDexModifier(combatant.stats);
-
-    return {
-      ...combatant,
-      iniactiva: roll + dexModifier,
-      initiativeRoll: roll,
-      initiativeNat20: roll === 20
-    };
+    return getCombatantWithGeneratedInitiative(combatant);
   });
 
   state.sort = { key: "iniactiva", direction: "desc" };
+}
+
+function getCombatantWithGeneratedInitiative(combatant) {
+  const roll = randomD20();
+  const dexModifier = getDexModifier(combatant.stats);
+
+  return {
+    ...combatant,
+    iniactiva: roll + dexModifier,
+    initiativeRoll: roll,
+    initiativeNat20: roll === 20
+  };
 }
 
 function applyPgActAdjustment(id, mode) {
@@ -6932,6 +7728,237 @@ function getArcanumFilterDisplayValue(key, value) {
   return value;
 }
 
+function loadCombatTrackerState() {
+  const defaultState = getDefaultCombatTrackerState();
+
+  if (typeof window === "undefined") {
+    return defaultState;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(COMBAT_TRACKER_STORAGE_KEY);
+    const parsedValue = JSON.parse(rawValue || "{}");
+
+    if (!isPlainObject(parsedValue)) {
+      return defaultState;
+    }
+
+    const combatants = Array.isArray(parsedValue.combatants)
+      ? parsedValue.combatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean)
+      : defaultState.combatants;
+    const nextId = normalizeStoredNextCombatantId(parsedValue.nextId, combatants);
+    const sort = parsedValue.sortDefaultVersion === COMBAT_TRACKER_SORT_DEFAULT_VERSION
+      ? normalizeStoredCombatSort(parsedValue.sort)
+      : getDefaultCombatSort();
+
+    return {
+      combatants,
+      filters: normalizeStoredCombatFilters(parsedValue.filters),
+      sort,
+      newEntitySide: normalizeStoredCombatSide(parsedValue.newEntitySide),
+      nextId,
+      inlineAdjustments: normalizeStoredInlineAdjustments(parsedValue.inlineAdjustments, combatants),
+      areaDamage: cleanText(parsedValue.areaDamage),
+      isCombatActive: parsedValue.isCombatActive === true,
+      activeTurnCombatantId: normalizeStoredActiveTurnCombatantId(parsedValue.activeTurnCombatantId, combatants),
+      combatRound: normalizeStoredCombatRound(parsedValue.combatRound)
+    };
+  } catch {
+    return defaultState;
+  }
+}
+
+function saveCombatTrackerState() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify({
+      combatants: state.combatants,
+      filters: state.filters,
+      sort: state.sort,
+      sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
+      newEntitySide: state.newEntitySide,
+      nextId: state.nextId,
+      inlineAdjustments: state.inlineAdjustments,
+      areaDamage: state.areaDamage,
+      isCombatActive: state.isCombatActive,
+      activeTurnCombatantId: state.activeTurnCombatantId,
+      combatRound: state.combatRound
+    }));
+  } catch {
+    // Storage can be unavailable in private contexts; the in-memory tracker still works.
+  }
+}
+
+function getDefaultCombatTrackerState() {
+  const combatants = initialCombatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean);
+
+  return {
+    combatants,
+    filters: { ...blankFilters },
+    sort: getDefaultCombatSort(),
+    newEntitySide: "allies",
+    nextId: normalizeStoredNextCombatantId(initialCombatants.length + 1, combatants),
+    inlineAdjustments: normalizeStoredInlineAdjustments({}, combatants),
+    areaDamage: "",
+    isCombatActive: false,
+    activeTurnCombatantId: "",
+    combatRound: 1
+  };
+}
+
+function getDefaultCombatSort() {
+  return { key: "numPeana", direction: "asc" };
+}
+
+function normalizeStoredCombatant(combatant) {
+  if (!isPlainObject(combatant)) {
+    return null;
+  }
+
+  const tag = normalizeStoredCombatTag(combatant.tag, combatant.side);
+  const side = mapTagToSide(tag);
+  const pgMax = normalizeStoredNonNegativeNumber(combatant.pgMax);
+  const pgTemp = normalizeStoredNonNegativeNumber(combatant.pgTemp);
+  const necrotic = normalizeStoredNonNegativeNumber(combatant.necrotic);
+  let pgAct = normalizeStoredNonNegativeNumber(combatant.pgAct);
+
+  if (pgAct !== "" && pgMax !== "") {
+    pgAct = Math.min(pgAct, Math.max(0, toNumber(pgMax) - toNumber(necrotic)));
+  }
+
+  return {
+    id: cleanText(combatant.id) || createStableId("entity"),
+    side,
+    source: cleanText(combatant.source),
+    tokenUrl: cleanText(combatant.tokenUrl),
+    ubicacion: cleanText(combatant.ubicacion),
+    iniactiva: normalizeStoredNumber(combatant.iniactiva),
+    nombre: cleanText(combatant.nombre),
+    numPeana: normalizeStoredStandLabel(combatant.numPeana),
+    pgMax,
+    pgAct,
+    pgTemp,
+    necrotic,
+    ca: normalizeStoredNumber(combatant.ca),
+    condiciones: cleanText(combatant.condiciones),
+    stats: formatStatsWithModifiers(combatant.stats ?? ""),
+    tamano: cleanText(combatant.tamano),
+    movimiento: cleanText(combatant.movimiento),
+    vision: cleanText(combatant.vision),
+    lenguas: cleanText(combatant.lenguas),
+    crExp: cleanText(combatant.crExp),
+    tag,
+    initiativeRoll: combatant.initiativeRoll === null || combatant.initiativeRoll === ""
+      ? null
+      : normalizeStoredNumber(combatant.initiativeRoll),
+    initiativeNat20: combatant.initiativeNat20 === true
+  };
+}
+
+function normalizeStoredCombatFilters(filters) {
+  const normalizedFilters = { ...blankFilters };
+
+  if (!isPlainObject(filters)) {
+    return normalizedFilters;
+  }
+
+  for (const key of Object.keys(normalizedFilters)) {
+    normalizedFilters[key] = cleanText(filters[key]);
+  }
+
+  return normalizedFilters;
+}
+
+function normalizeStoredCombatSort(sort) {
+  if (!isPlainObject(sort)) {
+    return getDefaultCombatSort();
+  }
+
+  const key = cleanText(sort.key);
+
+  if (!columns.some((column) => column.key === key)) {
+    return getDefaultCombatSort();
+  }
+
+  return {
+    key,
+    direction: sort.direction === "desc" ? "desc" : "asc"
+  };
+}
+
+function normalizeStoredInlineAdjustments(inlineAdjustments, combatants) {
+  const storedAdjustments = isPlainObject(inlineAdjustments) ? inlineAdjustments : {};
+
+  return Object.fromEntries(combatants.map((combatant) => {
+    const current = isPlainObject(storedAdjustments[combatant.id]) ? storedAdjustments[combatant.id] : {};
+
+    return [
+      combatant.id,
+      {
+        pgAct: cleanText(current.pgAct),
+        necrotic: cleanText(current.necrotic)
+      }
+    ];
+  }));
+}
+
+function normalizeStoredNextCombatantId(value, combatants) {
+  const storedId = Math.floor(toNumber(value));
+  const nextGeneratedId = combatants.reduce((maxId, combatant) => {
+    const match = cleanText(combatant.id).match(/^entity-(\d+)$/i);
+    return match ? Math.max(maxId, Number(match[1]) + 1) : maxId;
+  }, 1);
+
+  return Math.max(storedId, nextGeneratedId, combatants.length + 1);
+}
+
+function normalizeStoredActiveTurnCombatantId(value, combatants) {
+  const activeTurnCombatantId = cleanText(value);
+  return combatants.some((combatant) => combatant.id === activeTurnCombatantId) ? activeTurnCombatantId : "";
+}
+
+function normalizeStoredCombatRound(value) {
+  return Math.max(1, Math.floor(toNumber(value)) || 1);
+}
+
+function normalizeStoredCombatSide(side) {
+  return ["allies", "neutral", "enemies"].includes(side) ? side : "allies";
+}
+
+function normalizeStoredCombatTag(tag, side) {
+  const cleanTag = cleanText(tag).toUpperCase();
+
+  if (combatTagOptions.includes(cleanTag)) {
+    return cleanTag;
+  }
+
+  return mapSideToTag(normalizeStoredCombatSide(side));
+}
+
+function normalizeStoredNumber(value) {
+  if (value === "" || value === null || value === undefined) {
+    return "";
+  }
+
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function normalizeStoredStandLabel(value) {
+  const cleanValue = cleanText(value);
+  const legacyMatch = cleanValue.match(/^[A-Z]+-(\d+)$/i);
+
+  return legacyMatch ? String(Number(legacyMatch[1])) : cleanValue;
+}
+
+function normalizeStoredNonNegativeNumber(value) {
+  const normalizedValue = normalizeStoredNumber(value);
+  return normalizedValue === "" ? "" : Math.max(0, normalizedValue);
+}
+
 function loadEncounterInventory() {
   if (typeof window === "undefined") {
     return { folders: [], encounters: [], systemFolderExpanded: true };
@@ -7056,6 +8083,23 @@ function formatCrNumber(value) {
   }
 
   return String(Number(numericValue.toFixed(3)));
+}
+
+function formatCombatCrDisplay(value) {
+  const cleanValue = cleanText(value).replace(/^CR\s*/i, "").trim();
+
+  if (!cleanValue) {
+    return "";
+  }
+
+  const fractionMatch = cleanValue.match(/^(\d+)\s*\/\s*(\d+)/);
+
+  if (fractionMatch && Number(fractionMatch[2]) <= 8) {
+    return `${fractionMatch[1]}/${fractionMatch[2]}`;
+  }
+
+  const numberMatch = cleanValue.match(/^(\d+(?:\.\d+)?)/);
+  return numberMatch ? numberMatch[1] : "";
 }
 
 function toNumber(value) {
