@@ -221,7 +221,6 @@ const state = {
   fileMenuOpen: false,
   characters: initialCharacters,
   activeCharacterId: initialCharacters[0]?.id ?? "",
-  characterSearchQuery: "",
   combatants: initialCombatTrackerState.combatants,
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
@@ -288,6 +287,7 @@ const state = {
   encounterSearchQuery: "",
   showEncounterSearchSuggestions: false,
   combatEncounterPickerOpen: false,
+  combatAddPickerMode: "",
   activeCombatNameSearchId: "",
   activeCombatSourceId: ""
 };
@@ -316,6 +316,8 @@ function handleClick(event) {
   if (screenButton) {
     state.activeScreen = screenButton.dataset.screen;
     state.fileMenuOpen = false;
+    state.combatEncounterPickerOpen = false;
+    state.combatAddPickerMode = "";
     render();
     return;
   }
@@ -437,6 +439,7 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-combat-encounter-import"
   ) {
     state.combatEncounterPickerOpen = false;
+    state.combatAddPickerMode = "";
 
     if (!actionButton) {
       render();
@@ -542,6 +545,36 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "select-combat-add-source") {
+    state.combatAddPickerMode = actionButton.dataset.addSource ?? "";
+    render();
+    return;
+  }
+
+  if (action === "back-combat-add-menu") {
+    state.combatAddPickerMode = "";
+    render();
+    return;
+  }
+
+  if (action === "import-combat-character") {
+    addCharacterToCombatById(actionButton.dataset.characterId);
+    render();
+    return;
+  }
+
+  if (action === "import-all-combat-characters") {
+    addAllCharactersToCombat();
+    render();
+    return;
+  }
+
+  if (action === "remove-character-image") {
+    removeActiveCharacterImage();
+    render();
+    return;
+  }
+
   if (action === "toggle-sort") {
     toggleSort(actionButton.dataset.sortKey);
     render();
@@ -574,6 +607,7 @@ function handleClick(event) {
 
   if (action === "toggle-combat-encounter-import") {
     state.combatEncounterPickerOpen = !state.combatEncounterPickerOpen;
+    state.combatAddPickerMode = "";
     render();
     return;
   }
@@ -1092,6 +1126,12 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-character-image]")) {
+    updateActiveCharacterImage(target.files?.[0] ?? null);
+    target.value = "";
+    return;
+  }
+
   if (target.matches("[data-campaign-file-input]")) {
     loadCampaignFile(target.files?.[0] ?? null);
     target.value = "";
@@ -1183,17 +1223,6 @@ function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
-
-  if (target.matches("[data-character-search]")) {
-    state.characterSearchQuery = target.value;
-    syncActiveCharacterWithVisibleList();
-    render({
-      focusSelector: "[data-character-search]",
-      selectionStart: target.selectionStart,
-      selectionEnd: target.selectionEnd
-    });
-    return;
-  }
 
   if (target.matches("[data-character-field]")) {
     updateCharacterField(target.dataset.characterField, target.value, false);
@@ -2043,6 +2072,8 @@ function focusCombatantRow(combatantId) {
 
 function renderCombatEncounterPicker() {
   const hasEncounters = state.encounters.length > 0;
+  const hasCharacters = state.characters.length > 0;
+  const hasAddOptions = hasEncounters || hasCharacters;
 
   return `
     <div class="combat-encounter-picker" data-combat-encounter-menu>
@@ -2051,25 +2082,115 @@ function renderCombatEncounterPicker() {
         type="button"
         data-action="toggle-combat-encounter-import"
         aria-expanded="${state.combatEncounterPickerOpen}"
-        ${hasEncounters ? "" : "disabled"}
+        ${hasAddOptions ? "" : "disabled"}
       >
-        Anadir encuentro
+        Anadir
         <span aria-hidden="true">${state.combatEncounterPickerOpen ? "^" : "v"}</span>
       </button>
       ${
         state.combatEncounterPickerOpen
           ? `
-            <div class="combat-encounter-picker__popover" role="listbox" aria-label="Encuentros guardados">
-              ${
-                hasEncounters
-                  ? renderCombatEncounterGroups()
-                  : `<p class="bestiary-filter__empty">No hay encuentros guardados.</p>`
-              }
+            <div class="combat-encounter-picker__popover" role="listbox" aria-label="Opciones para anadir al combate">
+              ${renderCombatAddPickerContent({ hasCharacters, hasEncounters })}
             </div>
           `
           : ""
       }
     </div>
+  `;
+}
+
+function renderCombatAddPickerContent({ hasCharacters, hasEncounters }) {
+  if (state.combatAddPickerMode === "characters") {
+    return renderCombatCharacterPicker(hasCharacters);
+  }
+
+  if (state.combatAddPickerMode === "encounters") {
+    return renderCombatEncounterPickerContent(hasEncounters);
+  }
+
+  return `
+    <button
+      class="combat-encounter-picker__option"
+      type="button"
+      data-action="select-combat-add-source"
+      data-add-source="characters"
+      ${hasCharacters ? "" : "disabled"}
+    >
+      <strong>Personajes</strong>
+      <span>${state.characters.length} aliados creados</span>
+    </button>
+    <button
+      class="combat-encounter-picker__option"
+      type="button"
+      data-action="select-combat-add-source"
+      data-add-source="encounters"
+      ${hasEncounters ? "" : "disabled"}
+    >
+      <strong>Encuentro</strong>
+      <span>${state.encounters.length} encuentros guardados</span>
+    </button>
+  `;
+}
+
+function renderCombatEncounterPickerContent(hasEncounters) {
+  return `
+    ${renderCombatAddPickerBackButton()}
+    ${
+      hasEncounters
+        ? renderCombatEncounterGroups()
+        : `<p class="bestiary-filter__empty">No hay encuentros guardados.</p>`
+    }
+  `;
+}
+
+function renderCombatCharacterPicker(hasCharacters) {
+  const characters = getVisibleCharacters();
+
+  return `
+    ${renderCombatAddPickerBackButton()}
+    <button
+      class="combat-encounter-picker__option combat-encounter-picker__option--accent"
+      type="button"
+      data-action="import-all-combat-characters"
+      ${hasCharacters ? "" : "disabled"}
+    >
+      <strong>Anadir todos</strong>
+      <span>${characters.length} personajes</span>
+    </button>
+    ${
+      hasCharacters
+        ? characters.map((character) => renderCombatCharacterOption(character)).join("")
+        : `<p class="bestiary-filter__empty">No hay personajes creados.</p>`
+    }
+  `;
+}
+
+function renderCombatCharacterOption(character) {
+  const subtitle = formatCharacterSubtitle(character) || "ALIADO";
+
+  return `
+    <button
+      class="combat-encounter-picker__option combat-encounter-picker__option--character"
+      type="button"
+      data-action="import-combat-character"
+      data-character-id="${escapeHtml(character.id)}"
+    >
+      ${renderCharacterAvatar(character)}
+      <span>
+        <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
+        <small>${escapeHtml(subtitle)}</small>
+      </span>
+    </button>
+  `;
+}
+
+function renderCombatAddPickerBackButton() {
+  return `
+    <button class="combat-encounter-picker__back" type="button" data-action="back-combat-add-menu">
+      <span aria-hidden="true"><</span>
+      Volver
+    </button>
   `;
 }
 
@@ -4009,21 +4130,10 @@ function renderCharactersScreen() {
         </div>
         <div class="section-meta">
           <span>${state.characters.length} fichas</span>
-          <span>${visibleCharacters.length} visibles</span>
         </div>
       </div>
 
       <div class="characters-toolbar">
-        <label class="toolbar-field toolbar-field--search">
-          <span>Buscar personaje</span>
-          <input
-            class="filter-input"
-            type="search"
-            value="${escapeHtml(state.characterSearchQuery)}"
-            placeholder="Nombre, clase, especie"
-            data-character-search
-          />
-        </label>
         <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-character">
           Nuevo personaje
         </button>
@@ -4032,6 +4142,9 @@ function renderCharactersScreen() {
         </button>
         <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-character" ${activeCharacter ? "" : "disabled"}>
           Eliminar
+        </button>
+        <button class="toolbar-button toolbar-button--combat characters-toolbar__combat-action" type="button" data-action="add-character-to-combat" ${activeCharacter ? "" : "disabled"}>
+          Anadir al combate
         </button>
       </div>
 
@@ -4046,9 +4159,6 @@ function renderCharactersScreen() {
         <div class="characters-editor">
           ${activeCharacter ? renderCharacterEditor(activeCharacter) : renderCharacterEmpty()}
         </div>
-        <aside class="characters-combat-card">
-          ${activeCharacter ? renderCharacterCombatSummary(activeCharacter) : renderCharacterCombatEmpty()}
-        </aside>
       </div>
     </section>
   `;
@@ -4105,7 +4215,7 @@ function renderCharacterEditor(character) {
         ${renderCharacterNumberField("level", "Nivel", character.level)}
         ${renderCharacterTextField("species", "Especie", character.species, "Humano")}
         ${renderCharacterTextField("background", "Trasfondo", character.background, "Soldado")}
-        ${renderCharacterTextField("tokenUrl", "Token URL", character.tokenUrl, "images/...")}
+        ${renderCharacterImageField(character)}
       </div>
     </div>
 
@@ -4172,6 +4282,33 @@ function renderCharacterNumberField(key, label, value) {
   `;
 }
 
+function renderCharacterImageField(character) {
+  return `
+    <div class="toolbar-field character-image-field">
+      <span>Imagen</span>
+      <div class="character-image-field__controls">
+        <div class="character-image-field__preview">
+          ${renderCharacterAvatar(character)}
+        </div>
+        <label class="toolbar-button character-image-field__button">
+          Cargar imagen
+          <input
+            class="character-image-field__input"
+            type="file"
+            accept="image/*"
+            data-character-image
+          />
+        </label>
+        ${
+          character.tokenUrl
+            ? `<button class="toolbar-button toolbar-button--danger" type="button" data-action="remove-character-image">Quitar</button>`
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
 function renderCharacterAbilityField(character, key) {
   const score = character.abilities[key] ?? 10;
   const modifier = getAbilityModifier(score);
@@ -4191,42 +4328,10 @@ function renderCharacterAbilityField(character, key) {
   `;
 }
 
-function renderCharacterCombatSummary(character) {
-  const proficiencyBonus = getCharacterProficiencyBonus(character.level);
-  const passivePerception = 10 + getAbilityModifier(character.abilities.wis ?? 10) + proficiencyBonus;
-
-  return `
-    <div class="character-combat-summary">
-      ${renderCharacterAvatar(character)}
-      <h3>${escapeHtml(character.name || "Personaje sin nombre")}</h3>
-      <p>${escapeHtml(formatCharacterSubtitle(character))}</p>
-      <div class="character-combat-summary__stats">
-        <span><strong>${escapeHtml(String(character.armorClass || "-"))}</strong> CA</span>
-        <span><strong>${escapeHtml(String(character.maxHp || "-"))}</strong> PG</span>
-        <span><strong>${escapeHtml(character.speed || "-")}</strong> Vel.</span>
-        <span><strong>${formatModifier(toNumber(character.initiativeBonus))}</strong> Ini.</span>
-        <span><strong>${formatModifier(proficiencyBonus)}</strong> Comp.</span>
-        <span><strong>${passivePerception}</strong> Perc.</span>
-      </div>
-      <button class="toolbar-button toolbar-button--combat" type="button" data-action="add-character-to-combat">
-        Anadir al combate
-      </button>
-    </div>
-  `;
-}
-
 function renderCharacterEmpty() {
   return `
     <div class="empty-state empty-state--panel">
       Crea un personaje aliado para editar su ficha rapida.
-    </div>
-  `;
-}
-
-function renderCharacterCombatEmpty() {
-  return `
-    <div class="empty-state empty-state--compact">
-      Selecciona un personaje para enviarlo al combat tracker.
     </div>
   `;
 }
@@ -4288,36 +4393,12 @@ function getVisibleCombatants() {
 }
 
 function getVisibleCharacters() {
-  const query = cleanText(state.characterSearchQuery).toLowerCase();
-  const characters = [...state.characters]
+  return [...state.characters]
     .sort((left, right) => cleanText(left.name).localeCompare(cleanText(right.name), "es", { numeric: true, sensitivity: "base" }));
-
-  if (!query) {
-    return characters;
-  }
-
-  return characters.filter((character) => [
-    character.name,
-    character.playerName,
-    character.className,
-    character.subclassName,
-    character.species,
-    character.background
-  ].some((value) => cleanText(value).toLowerCase().includes(query)));
 }
 
 function getActiveCharacter() {
   return state.characters.find((character) => character.id === state.activeCharacterId) ?? null;
-}
-
-function syncActiveCharacterWithVisibleList() {
-  const visibleCharacters = getVisibleCharacters();
-
-  if (visibleCharacters.some((character) => character.id === state.activeCharacterId)) {
-    return;
-  }
-
-  state.activeCharacterId = visibleCharacters[0]?.id ?? state.characters[0]?.id ?? "";
 }
 
 function getCharacterInitials(character) {
@@ -4342,10 +4423,6 @@ function formatCharacterSubtitle(character) {
     level,
     character.species
   ].filter(Boolean).join(" | ");
-}
-
-function getCharacterProficiencyBonus(level) {
-  return Math.max(2, Math.ceil(Math.max(1, toNumber(level)) / 4) + 1);
 }
 
 function getCombatStatsFromCharacter(character) {
@@ -5064,6 +5141,35 @@ function updateCharacterAbility(key, rawValue, normalize = true) {
     : character);
 }
 
+async function updateActiveCharacterImage(file) {
+  if (!file || !file.type.startsWith("image/")) {
+    return;
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    updateCharacterField("tokenUrl", dataUrl, true);
+    saveCharacters();
+    render();
+  } catch {
+    // The image is optional; keep the current character unchanged on read errors.
+  }
+}
+
+function removeActiveCharacterImage() {
+  updateCharacterField("tokenUrl", "", true);
+  saveCharacters();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(file);
+  });
+}
+
 function addActiveCharacterToCombat() {
   const character = getActiveCharacter();
 
@@ -5071,16 +5177,49 @@ function addActiveCharacterToCombat() {
     return;
   }
 
-  const id = `entity-${state.nextId}`;
-  const combatant = createCombatantFromCharacter(character, id);
+  addCharactersToCombat([character], {
+    closePicker: false
+  });
+}
+
+function addCharacterToCombatById(characterId) {
+  const character = state.characters.find((item) => item.id === characterId);
+
+  if (!character) {
+    return;
+  }
+
+  addCharactersToCombat([character]);
+}
+
+function addAllCharactersToCombat() {
+  addCharactersToCombat(getVisibleCharacters());
+}
+
+function addCharactersToCombat(characters, options = {}) {
+  const validCharacters = characters.filter(Boolean);
+
+  if (validCharacters.length === 0) {
+    return;
+  }
+
+  const combatants = validCharacters.map((character, index) => {
+    const id = `entity-${state.nextId + index}`;
+    state.inlineAdjustments[id] = { ...blankInlineAdjustments };
+    return createCombatantFromCharacter(character, id);
+  });
 
   state.combatants = [
-    combatant,
+    ...combatants,
     ...state.combatants
   ];
-  state.inlineAdjustments[id] = { ...blankInlineAdjustments };
-  state.nextId += 1;
-  state.activeScreen = "combat-tracker";
+  state.nextId += combatants.length;
+
+  if (options.closePicker !== false) {
+    state.combatEncounterPickerOpen = false;
+    state.combatAddPickerMode = "";
+  }
+
   saveCombatTrackerState();
 }
 
@@ -5806,6 +5945,7 @@ function importEncounterToCombat(encounterId) {
   ];
   state.nextId += combatants.length;
   state.combatEncounterPickerOpen = false;
+  state.combatAddPickerMode = "";
 }
 
 function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "") {
@@ -8908,9 +9048,9 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.activeCombatNameSearchId = "";
   state.activeCombatSourceId = "";
   state.combatEncounterPickerOpen = false;
+  state.combatAddPickerMode = "";
   state.characters = campaign.characters;
   state.activeCharacterId = state.characters[0]?.id ?? "";
-  state.characterSearchQuery = "";
 
   state.encounterFolders = campaign.encounterInventory.folders;
   state.encounters = campaign.encounterInventory.encounters;
