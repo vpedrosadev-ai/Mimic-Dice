@@ -5,11 +5,31 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = app.isPackaged ? path.dirname(app.getPath("exe")) : app.getAppPath();
 const CAMPAIGN_EXTENSION = ".mimic-campaign.json";
 const CAMPAIGN_CLOSE_SAVE_TIMEOUT_MS = 4000;
 
 function getCampaignSaveDirectory() {
-  return path.join(app.getPath("userData"), "campaigns");
+  return path.join(PROJECT_ROOT, "campaigns");
+}
+
+function getCampaignNameFromFilePath(filePath) {
+  return path.basename(filePath)
+    .replace(/\.mimic-campaign\.json$/i, "")
+    .replace(/\.json$/i, "")
+    .replace(/-/g, " ")
+    .trim()
+    || "Campaña";
+}
+
+function getCampaignSaveResult(filePath, directory, payload) {
+  return {
+    fileName: path.basename(filePath),
+    filePath,
+    directory,
+    name: payload?.campaign?.name || getCampaignNameFromFilePath(filePath),
+    payload
+  };
 }
 
 function sanitizeCampaignFileName(fileName) {
@@ -32,23 +52,70 @@ async function ensureCampaignSaveDirectory() {
   return directory;
 }
 
+function getSaveDialogDefaultPath(directory, fileName) {
+  return path.join(directory, sanitizeCampaignFileName(fileName));
+}
+
+function getDialogWindow(event) {
+  return BrowserWindow.fromWebContents(event.sender) ?? undefined;
+}
+
+async function writeCampaignFile(filePath, payload, options = {}) {
+  const nextPayload = {
+    ...payload,
+    campaign: {
+      ...(payload?.campaign ?? {})
+    }
+  };
+
+  if (options.deriveNameFromFile) {
+    nextPayload.campaign.name = getCampaignNameFromFilePath(filePath);
+  }
+
+  await fs.writeFile(filePath, JSON.stringify(nextPayload, null, 2), "utf8");
+  return nextPayload;
+}
+
 ipcMain.handle("campaign:save", async (_event, { fileName, payload } = {}) => {
   const directory = await ensureCampaignSaveDirectory();
   const safeFileName = sanitizeCampaignFileName(fileName);
   const filePath = path.join(directory, safeFileName);
+  const savedPayload = await writeCampaignFile(filePath, payload);
 
-  await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+  return getCampaignSaveResult(filePath, directory, savedPayload);
+});
+
+ipcMain.handle("campaign:save-as", async (event, { fileName, payload, deriveNameFromFile = true } = {}) => {
+  const directory = await ensureCampaignSaveDirectory();
+  const result = await dialog.showSaveDialog(getDialogWindow(event), {
+    title: "Guardar campaña",
+    defaultPath: getSaveDialogDefaultPath(directory, fileName),
+    filters: [
+      { name: "Campañas de Mimic Dice", extensions: ["json"] },
+      { name: "JSON", extensions: ["json"] }
+    ]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return {
+      canceled: true,
+      directory
+    };
+  }
+
+  const safeFileName = sanitizeCampaignFileName(result.filePath);
+  const filePath = path.join(directory, safeFileName);
+  const savedPayload = await writeCampaignFile(filePath, payload, { deriveNameFromFile });
 
   return {
-    fileName: safeFileName,
-    filePath,
-    directory
+    canceled: false,
+    ...getCampaignSaveResult(filePath, directory, savedPayload)
   };
 });
 
-ipcMain.handle("campaign:load", async () => {
+ipcMain.handle("campaign:load", async (event) => {
   const directory = await ensureCampaignSaveDirectory();
-  const result = await dialog.showOpenDialog({
+  const result = await dialog.showOpenDialog(getDialogWindow(event), {
     title: "Cargar campana",
     defaultPath: directory,
     properties: ["openFile"],
@@ -73,6 +140,7 @@ ipcMain.handle("campaign:load", async () => {
     fileName: path.basename(filePath),
     filePath,
     directory,
+    name: getCampaignNameFromFilePath(filePath),
     payload: JSON.parse(rawValue)
   };
 });

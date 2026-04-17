@@ -213,7 +213,9 @@ let arcanumSpellLinkCache = {
 const state = {
   activeScreen: "combat-tracker",
   campaignName: initialCampaignMeta.name,
+  campaignFileName: initialCampaignMeta.fileName,
   campaignMessage: "",
+  fileMenuOpen: false,
   combatants: initialCombatTrackerState.combatants,
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
@@ -288,6 +290,7 @@ app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("keydown", handleKeydown);
+document.addEventListener("keydown", handleGlobalKeydown);
 app.addEventListener("scroll", handleScroll, true);
 app.addEventListener("dragstart", handleDragStart);
 app.addEventListener("dragover", handleDragOver);
@@ -306,6 +309,7 @@ function handleClick(event) {
 
   if (screenButton) {
     state.activeScreen = screenButton.dataset.screen;
+    state.fileMenuOpen = false;
     render();
     return;
   }
@@ -322,6 +326,20 @@ function handleClick(event) {
   const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
+  const clickedFileMenu = event.target.closest("[data-file-menu]");
+
+  if (
+    state.fileMenuOpen &&
+    !clickedFileMenu &&
+    actionButton?.dataset.action !== "toggle-file-menu"
+  ) {
+    state.fileMenuOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
 
   if (
     state.activeBestiaryFilterKey &&
@@ -452,12 +470,36 @@ function handleClick(event) {
 
   const { action } = actionButton.dataset;
 
+  if (action === "toggle-file-menu") {
+    state.fileMenuOpen = !state.fileMenuOpen;
+    render();
+    return;
+  }
+
+  if (action === "new-campaign") {
+    state.fileMenuOpen = false;
+    createNewCampaign();
+    render();
+    return;
+  }
+
   if (action === "save-campaign-file") {
+    state.fileMenuOpen = false;
+    render();
     saveCampaignFile();
     return;
   }
 
+  if (action === "save-campaign-file-as") {
+    state.fileMenuOpen = false;
+    render();
+    saveCampaignFileAs();
+    return;
+  }
+
   if (action === "choose-campaign-file") {
+    state.fileMenuOpen = false;
+    render();
     chooseCampaignFile();
     return;
   }
@@ -1086,13 +1128,6 @@ function handleChange(event) {
 function handleInput(event) {
   const target = event.target;
 
-  if (target.matches("[data-campaign-name]")) {
-    state.campaignName = target.value;
-    state.campaignMessage = "";
-    saveCampaignMeta();
-    return;
-  }
-
   if (target.matches("[data-filter-key]")) {
     state.filters[target.dataset.filterKey] = target.value;
     render({
@@ -1241,6 +1276,14 @@ function handleInput(event) {
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
+  }
+}
+
+function handleGlobalKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    state.fileMenuOpen = false;
+    saveCampaignFile();
   }
 }
 
@@ -1510,12 +1553,12 @@ function render(focusState = null) {
           <div>
             <p class="brand__eyebrow">D&D 5e encounter suite</p>
             <h1>Mimic Dice</h1>
+            <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
           </div>
         </div>
         <nav class="nav" aria-label="Pantallas principales">
-          ${screens.map(renderScreenButton).join("")}
+          ${screens.map(renderNavItem).join("")}
         </nav>
-        ${renderCampaignControls()}
       </header>
       <main class="workspace">
         ${renderScreen()}
@@ -1546,6 +1589,10 @@ function render(focusState = null) {
   saveCombatTrackerState();
 }
 
+function renderNavItem(screen) {
+  return screen.id === "session-vault" ? renderFileMenu() : renderScreenButton(screen);
+}
+
 function renderScreenButton(screen) {
   return `
     <button
@@ -1561,34 +1608,56 @@ function renderScreenButton(screen) {
   `;
 }
 
-function renderCampaignControls() {
+function renderFileMenu() {
   return `
-    <div class="campaign-controls" aria-label="Guardado de campana">
-      <label class="campaign-controls__name">
-        <span>Campana</span>
-        <input
-          class="campaign-controls__input"
-          type="text"
-          value="${escapeHtml(state.campaignName)}"
-          placeholder="Nombre de campana"
-          data-campaign-name
-        />
-      </label>
-      <button class="toolbar-button toolbar-button--accent" type="button" data-action="save-campaign-file">
-        Guardar
+    <div class="file-menu" data-file-menu>
+      <button
+        class="nav__button file-menu__trigger ${state.fileMenuOpen ? "is-active" : ""}"
+        type="button"
+        data-action="toggle-file-menu"
+        aria-expanded="${state.fileMenuOpen}"
+        aria-haspopup="menu"
+      >
+        <span class="nav__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 4h7l2 2h7v14H4V4Zm2 4v10h12V8H6Z" />
+          </svg>
+        </span>
+        <span class="nav__label">Archivo</span>
       </button>
-      <button class="toolbar-button" type="button" data-action="choose-campaign-file">
-        Cargar
-      </button>
+      ${
+        state.fileMenuOpen
+          ? `
+            <div class="file-menu__popover" role="menu">
+              <button class="file-menu__item" type="button" role="menuitem" data-action="new-campaign">
+                Nueva campaña
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="save-campaign-file">
+                Guardar campaña
+                <span>Ctrl+S</span>
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="save-campaign-file-as">
+                Guardar campaña como
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="choose-campaign-file">
+                Cargar campaña
+              </button>
+            </div>
+          `
+          : ""
+      }
       <input
-        class="campaign-controls__file"
+        class="file-menu__file"
         type="file"
         accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
         data-campaign-file-input
       />
-      ${state.campaignMessage ? `<span class="campaign-controls__message">${escapeHtml(state.campaignMessage)}</span>` : ""}
     </div>
   `;
+}
+
+function getCampaignDisplayName() {
+  return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaña";
 }
 
 function renderScreen() {
@@ -1634,32 +1703,34 @@ function renderCombatTracker() {
 
   return `
     <section class="panel combat-timer">
-      <article class="summary-card summary-card--timer combat-timer__card">
-        <div class="combat-timer__header">
-          <div class="combat-timer__readout">
-            <span>Contador de batalla</span>
-            <strong data-battle-timer-readout>${battleTimerLabel}</strong>
-          </div>
-          <div class="summary-card__actions">
-            <button
-              class="summary-button"
-              type="button"
-              data-action="start-battle-timer"
-              ${state.battleTimer.isRunning ? "disabled" : ""}
-            >
-              Iniciar
-            </button>
-            <button
-              class="summary-button summary-button--ghost"
-              type="button"
-              data-action="pause-battle-timer"
-              ${state.battleTimer.isRunning ? "" : "disabled"}
-            >
-              Pausar
-            </button>
-            <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
-              Reiniciar
-            </button>
+      <article class="combat-timer__card">
+        <div class="combat-timer__box">
+          <div class="combat-timer__header">
+            <div class="combat-timer__readout">
+              <span>Contador de batalla</span>
+              <strong data-battle-timer-readout>${battleTimerLabel}</strong>
+            </div>
+            <div class="summary-card__actions">
+              <button
+                class="summary-button"
+                type="button"
+                data-action="start-battle-timer"
+                ${state.battleTimer.isRunning ? "disabled" : ""}
+              >
+                Iniciar
+              </button>
+              <button
+                class="summary-button summary-button--ghost"
+                type="button"
+                data-action="pause-battle-timer"
+                ${state.battleTimer.isRunning ? "" : "disabled"}
+              >
+                Pausar
+              </button>
+              <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
+                Reiniciar
+              </button>
+            </div>
           </div>
         </div>
         ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
@@ -7881,9 +7952,13 @@ async function saveCampaignFile() {
   try {
     const result = await saveCampaignToDesktop();
 
+    if (result?.canceled) {
+      return;
+    }
+
     if (result) {
-      state.campaignMessage = `Archivo guardado: ${result.fileName}`;
-      saveCampaignMeta();
+      applyCampaignFileResult(result);
+      state.campaignMessage = `Archivo guardado: ${state.campaignFileName}`;
       render();
       return;
     }
@@ -7896,9 +7971,137 @@ async function saveCampaignFile() {
     saveCampaignMeta();
     render();
   } catch {
-    state.campaignMessage = "No se pudo guardar la campana.";
+    state.campaignMessage = "No se pudo guardar la campaña.";
     render();
   }
+}
+
+async function saveCampaignFileAs() {
+  try {
+    const result = await saveCampaignToDesktop({ saveAs: true, force: true });
+
+    if (result?.canceled) {
+      return;
+    }
+
+    if (result) {
+      applyCampaignFileResult(result);
+      state.campaignMessage = `Archivo guardado: ${state.campaignFileName}`;
+      render();
+      return;
+    }
+
+    saveCampaignFile();
+  } catch {
+    state.campaignMessage = "No se pudo guardar la campaña.";
+    render();
+  }
+}
+
+async function createNewCampaign() {
+  const blankPayload = createBlankCampaignSavePayload();
+
+  try {
+    const desktopSaveAs = getDesktopCampaignApi()?.saveCampaignAs;
+
+    if (typeof desktopSaveAs === "function") {
+      const result = await desktopSaveAs(blankPayload, "nueva-campana.mimic-campaign.json", { deriveNameFromFile: true });
+
+      if (result?.canceled) {
+        return;
+      }
+
+      resetCampaignStateFromPayload(result.payload, result);
+      state.campaignMessage = "Nueva campaña creada.";
+      render();
+      return;
+    }
+
+    const nextName = window.prompt("Nombre de la nueva campaña", "Campaña sin nombre");
+
+    if (nextName === null) {
+      return;
+    }
+
+    resetCampaignStateFromPayload(createBlankCampaignSavePayload(cleanText(nextName) || "Campaña sin nombre"));
+    state.campaignMessage = "Nueva campaña creada.";
+    render();
+  } catch {
+    state.campaignMessage = "No se pudo crear la campaña.";
+    render();
+  }
+}
+
+function resetCampaignStateFromPayload(payload, fileResult = null) {
+  const campaign = normalizeCampaignSave(payload);
+
+  if (!fileResult) {
+    state.campaignFileName = "";
+  }
+
+  applyCampaignSave(campaign, fileResult);
+}
+
+function applyCampaignFileResult(result) {
+  const fileName = cleanText(result?.fileName);
+
+  if (!fileName) {
+    return;
+  }
+
+  state.campaignFileName = fileName;
+  state.campaignName = cleanText(result.name)
+    || cleanText(result.payload?.campaign?.name)
+    || getCampaignNameFromFileName(fileName);
+  saveCampaignMeta();
+}
+
+function getCampaignNameFromFileName(fileName) {
+  return cleanText(fileName)
+    .replace(/\.mimic-campaign\.json$/i, "")
+    .replace(/\.json$/i, "")
+    .replace(/-/g, " ")
+    .trim()
+    || "Campaña";
+}
+
+function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
+  return {
+    schema: CAMPAIGN_FILE_SCHEMA,
+    version: CAMPAIGN_FILE_VERSION,
+    app: "Mimic Dice",
+    savedAt: new Date().toISOString(),
+    campaign: {
+      name: cleanText(name) || "Campaña sin nombre"
+    },
+    encounterInventory: {
+      folders: [],
+      systemFolderExpanded: true,
+      encounters: []
+    },
+    combatTracker: {
+      combatants: [],
+      filters: { ...blankFilters },
+      sort: getDefaultCombatSort(),
+      sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
+      newEntitySide: "allies",
+      nextId: 1,
+      inlineAdjustments: {},
+      areaDamage: "",
+      isCombatActive: false,
+      activeTurnCombatantId: "",
+      combatRound: 1,
+      battleTimer: {
+        elapsedMs: 0,
+        isRunning: false
+      }
+    },
+    ui: {
+      activeScreen: "combat-tracker",
+      activeEncounterId: "",
+      activeEncounterFolderId: ""
+    }
+  };
 }
 
 async function saveCampaignToDesktop(options = {}) {
@@ -7910,23 +8113,35 @@ async function saveCampaignToDesktop(options = {}) {
     await campaignSaveInProgress.catch(() => null);
   }
 
-  const desktopSave = getDesktopCampaignApi()?.saveCampaign;
+  const desktopApi = getDesktopCampaignApi();
 
-  if (typeof desktopSave !== "function") {
+  if (!desktopApi) {
     return null;
   }
 
   const payload = createCampaignSavePayload();
-  const fileName = getCampaignFileName(payload.campaign.name);
+  const fileName = state.campaignFileName || getCampaignFileName(payload.campaign.name);
+  const shouldSaveAs = options.saveAs || (!state.campaignFileName && !options.silent);
+  const saveAction = shouldSaveAs ? desktopApi.saveCampaignAs : desktopApi.saveCampaign;
 
-  campaignSaveInProgress = desktopSave(payload, fileName)
+  if (typeof saveAction !== "function") {
+    return null;
+  }
+
+  campaignSaveInProgress = (
+    shouldSaveAs
+      ? saveAction(payload, fileName, { deriveNameFromFile: true })
+      : saveAction(payload, fileName)
+  )
     .then((result) => {
-      const savedFileName = cleanText(result?.fileName) || fileName;
-      state.campaignName = payload.campaign.name;
-      saveCampaignMeta();
+      if (result?.canceled) {
+        return result;
+      }
+
+      applyCampaignFileResult(result);
       return {
         ...result,
-        fileName: savedFileName
+        fileName: cleanText(result?.fileName) || fileName
       };
     })
     .finally(() => {
@@ -7938,7 +8153,11 @@ async function saveCampaignToDesktop(options = {}) {
 
 async function autosaveCampaign() {
   try {
-    await saveCampaignToDesktop();
+    if (!state.campaignFileName) {
+      return true;
+    }
+
+    await saveCampaignToDesktop({ silent: true });
     return true;
   } catch {
     return false;
@@ -7947,7 +8166,11 @@ async function autosaveCampaign() {
 
 async function saveCampaignBeforeClose() {
   try {
-    await saveCampaignToDesktop({ force: true });
+    if (!state.campaignFileName) {
+      return true;
+    }
+
+    await saveCampaignToDesktop({ force: true, silent: true });
     return true;
   } catch {
     return false;
@@ -8006,11 +8229,11 @@ async function loadDesktopCampaignFile(loadCampaign) {
 
     const campaign = normalizeCampaignSave(result?.payload);
 
-    applyCampaignSave(campaign);
-    state.campaignMessage = `Campana cargada: ${campaign.name}`;
+    applyCampaignSave(campaign, result);
+    state.campaignMessage = `Campaña cargada: ${campaign.name}`;
     render();
   } catch {
-    state.campaignMessage = "No se pudo cargar el archivo de campana.";
+    state.campaignMessage = "No se pudo cargar el archivo de campaña.";
     render();
   }
 }
@@ -8025,11 +8248,15 @@ async function loadCampaignFile(file) {
     const parsedValue = JSON.parse(rawValue);
     const campaign = normalizeCampaignSave(parsedValue);
 
-    applyCampaignSave(campaign);
-    state.campaignMessage = `Campana cargada: ${campaign.name}`;
+    applyCampaignSave(campaign, {
+      fileName: file.name,
+      name: campaign.name,
+      payload: parsedValue
+    });
+    state.campaignMessage = `Campaña cargada: ${campaign.name}`;
     render();
   } catch {
-    state.campaignMessage = "No se pudo cargar el archivo de campana.";
+    state.campaignMessage = "No se pudo cargar el archivo de campaña.";
     render();
   }
 }
@@ -8041,7 +8268,7 @@ function getDesktopCampaignApi() {
 }
 
 function createCampaignSavePayload() {
-  const name = cleanText(state.campaignName) || "Campana sin nombre";
+  const name = cleanText(state.campaignName) || "Campaña sin nombre";
 
   return {
     schema: CAMPAIGN_FILE_SCHEMA,
@@ -8083,7 +8310,7 @@ function normalizeCampaignSave(value) {
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
   const ui = isPlainObject(value.ui) ? value.ui : {};
   const campaign = isPlainObject(value.campaign) ? value.campaign : {};
-  const name = cleanText(campaign.name) || cleanText(value.name) || "Campana sin nombre";
+  const name = cleanText(campaign.name) || cleanText(value.name) || "Campaña sin nombre";
 
   return {
     name,
@@ -8096,11 +8323,13 @@ function normalizeCampaignSave(value) {
   };
 }
 
-function applyCampaignSave(campaign) {
+function applyCampaignSave(campaign, fileResult = null) {
   stopBattleTimerInterval();
 
   state.campaignName = campaign.name;
+  state.campaignFileName = cleanText(fileResult?.fileName) || state.campaignFileName;
   state.activeScreen = campaign.activeScreen;
+  state.fileMenuOpen = false;
   state.combatants = campaign.combatTracker.combatants;
   state.filters = campaign.combatTracker.filters;
   state.sort = campaign.combatTracker.sort;
@@ -8137,6 +8366,11 @@ function applyCampaignSave(campaign) {
 
   saveCombatTrackerState();
   saveEncounterInventory();
+
+  if (fileResult) {
+    applyCampaignFileResult(fileResult);
+  }
+
   saveCampaignMeta();
 }
 
@@ -8206,16 +8440,19 @@ function downloadJsonFile(value, fileName) {
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "Campana sin nombre" };
+    return { name: "", fileName: "" };
   }
 
   try {
     const parsedValue = JSON.parse(window.localStorage.getItem(CAMPAIGN_META_STORAGE_KEY) || "{}");
+    const fileName = cleanText(parsedValue.fileName);
+
     return {
-      name: cleanText(parsedValue.name) || "Campana sin nombre"
+      name: fileName ? cleanText(parsedValue.name) || getCampaignNameFromFileName(fileName) : "",
+      fileName
     };
   } catch {
-    return { name: "Campana sin nombre" };
+    return { name: "", fileName: "" };
   }
 }
 
@@ -8226,7 +8463,8 @@ function saveCampaignMeta() {
 
   try {
     window.localStorage.setItem(CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
-      name: cleanText(state.campaignName) || "Campana sin nombre"
+      name: cleanText(state.campaignName),
+      fileName: cleanText(state.campaignFileName)
     }));
   } catch {
     // Storage can be unavailable in private contexts; campaign files still work.

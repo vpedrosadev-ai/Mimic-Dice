@@ -69,17 +69,109 @@ table {
   opacity: 0.9;
 }
 
+.app-menu,
 .topbar,
 .workspace {
   position: relative;
-  z-index: 1;
   width: 100%;
   min-width: 0;
 }
 
 .topbar {
+  z-index: 40;
+}
+
+.workspace {
+  z-index: 1;
+}
+
+.app-menu {
   display: flex;
   align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  z-index: 20;
+}
+
+.file-menu {
+  position: relative;
+  display: inline-flex;
+  z-index: 50;
+}
+
+.file-menu__trigger,
+.file-menu__item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.file-menu__trigger {
+  min-height: 2.35rem;
+  padding: 0.48rem 0.85rem;
+}
+
+.file-menu__trigger:hover,
+.file-menu__trigger:focus-visible,
+.file-menu__trigger.is-active {
+  border-color: rgba(240, 200, 121, 0.42);
+  background: rgba(240, 200, 121, 0.1);
+}
+
+.file-menu__popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 60;
+  display: grid;
+  gap: 0.35rem;
+  width: min(16rem, 88vw);
+  padding: 0.45rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: rgba(25, 20, 31, 0.98);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+}
+
+.file-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.35rem;
+  padding: 0.48rem 0.65rem;
+  text-align: left;
+}
+
+.file-menu__item:hover,
+.file-menu__item:focus-visible {
+  border-color: rgba(240, 200, 121, 0.32);
+  background: rgba(240, 200, 121, 0.08);
+}
+
+.file-menu__item span,
+.app-menu__message {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.file-menu__file {
+  display: none;
+}
+
+.app-menu__message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1.25rem;
   flex-wrap: wrap;
@@ -93,8 +185,9 @@ table {
 
 .brand {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 1rem;
+  flex: 1 1 18rem;
   min-width: 0;
 }
 
@@ -132,11 +225,18 @@ table {
   font-size: 0.72rem;
 }
 
+.brand__campaign-name {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
 .nav {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .nav__button {
@@ -183,52 +283,6 @@ table {
 
 .nav__label {
   font-size: 0.94rem;
-}
-
-.campaign-controls {
-  display: grid;
-  grid-template-columns: minmax(12rem, 18rem) auto auto;
-  align-items: end;
-  gap: 0.5rem;
-  margin-left: auto;
-}
-
-.campaign-controls__name {
-  display: grid;
-  gap: 0.25rem;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.campaign-controls__name span {
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--accent-soft);
-}
-
-.campaign-controls__input {
-  min-height: 2.55rem;
-  min-width: 0;
-  padding: 0.62rem 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
-}
-
-.campaign-controls__file {
-  display: none;
-}
-
-.campaign-controls__message {
-  grid-column: 1 / -1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.78rem;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .workspace {
@@ -306,7 +360,7 @@ table {
 }
 
 .combat-timer {
-  padding: 0.7rem 0.9rem;
+  padding: 0.5rem 0.65rem;
 }
 
 .combat-timer__card {
@@ -315,38 +369,54 @@ table {
   align-items: stretch;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 0.7rem;
-  padding: 0.75rem 0.9rem;
+  gap: 0.6rem;
+  padding: 0.55rem;
+  border-radius: 12px;
+}
+
+.combat-timer__box {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.48rem 0.55rem;
+  border: 1px solid rgba(240, 200, 121, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 10, 17, 0.42);
 }
 
 .combat-timer__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) auto;
+  align-items: stretch;
+  justify-content: start;
+  gap: 0.55rem;
 }
 
 .combat-timer__card strong {
   margin-top: 0;
-  font-size: clamp(1.5rem, 2vw, 2rem);
+  font-size: 1.35rem;
 }
 
 .combat-timer__readout {
-  display: flex;
-  align-items: baseline;
-  gap: 0.7rem;
+  display: grid;
+  align-content: center;
+  gap: 0.2rem;
   min-width: 0;
 }
 
+.combat-timer__readout span {
+  font-size: 0.78rem;
+}
+
 .combat-timer__card .summary-card__actions {
+  display: grid;
   margin-top: 0;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .combat-timer__card .summary-button {
-  min-height: 2rem;
-  padding: 0.36rem 0.65rem;
-  font-size: 0.86rem;
+  min-height: 1.8rem;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.78rem;
 }
 
 .combat-turn-panel {
@@ -3193,12 +3263,6 @@ table {
     justify-content: flex-start;
   }
 
-  .campaign-controls {
-    width: 100%;
-    margin-left: 0;
-    justify-content: start;
-  }
-
   .table-toolbar {
     align-items: stretch;
   }
@@ -3299,12 +3363,13 @@ table {
     justify-content: center;
   }
 
-  .campaign-controls {
-    grid-template-columns: 1fr;
+  .file-menu {
+    flex: 1 1 calc(50% - 0.75rem);
   }
 
-  .campaign-controls__message {
-    text-align: left;
+  .file-menu__trigger {
+    width: 100%;
+    justify-content: center;
   }
 
   .table-toolbar__group {

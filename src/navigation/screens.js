@@ -42,7 +42,7 @@ export const screens = [
   {
     id: "initiative-board",
     label: "Initiative Board",
-    shortLabel: "Iniciativa",
+    shortLabel: "Personajes",
     icon: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 4h16v4H4V4Zm0 6h10v4H4v-4Zm0 6h16v4H4v-4Zm12-6h4v4h-4v-4Z" />
