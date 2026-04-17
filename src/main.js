@@ -562,6 +562,11 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "focus-combatant-row") {
+    focusCombatantRow(actionButton.dataset.combatantId);
+    return;
+  }
+
   if (action === "adjust-pg-act") {
     applyPgActAdjustment(actionButton.dataset.id, actionButton.dataset.mode);
     render();
@@ -1042,6 +1047,13 @@ function handleChange(event) {
     });
   }
 
+  if (target.matches("[data-encounter-units]")) {
+    updateEncounterRowUnits(target.dataset.encounterUnits, target.value, true);
+    render({
+      focusSelector: `[data-encounter-units="${target.dataset.encounterUnits}"]`
+    });
+  }
+
 }
 
 function handleInput(event) {
@@ -1077,14 +1089,6 @@ function handleInput(event) {
       state.activeCombatNameSearchId = target.dataset.editId;
       scheduleRender({
         focusSelector: `[data-edit-id="${target.dataset.editId}"][data-edit-key="nombre"]`,
-        selectionStart: target.selectionStart,
-        selectionEnd: target.selectionEnd
-      });
-    }
-
-    if (target.dataset.editKey === "iniactiva") {
-      scheduleRender({
-        focusSelector: `[data-edit-id="${target.dataset.editId}"][data-edit-key="iniactiva"]`,
         selectionStart: target.selectionStart,
         selectionEnd: target.selectionEnd
       });
@@ -1197,7 +1201,7 @@ function handleInput(event) {
   }
 
   if (target.matches("[data-encounter-units]")) {
-    updateEncounterRowUnits(target.dataset.encounterUnits, target.value);
+    updateEncounterRowUnits(target.dataset.encounterUnits, target.value, false);
     render({
       focusSelector: `[data-encounter-units="${target.dataset.encounterUnits}"]`,
       selectionStart: target.selectionStart,
@@ -1208,6 +1212,15 @@ function handleInput(event) {
 
 function handleKeydown(event) {
   const target = event.target;
+
+  if (
+    target.matches('[data-action="focus-combatant-row"]')
+    && (event.key === "Enter" || event.key === " ")
+  ) {
+    event.preventDefault();
+    focusCombatantRow(target.dataset.combatantId);
+    return;
+  }
 
   if (
     target.matches('[data-action="select-bestiary-entry"]')
@@ -1725,6 +1738,8 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
     `;
   }
 
+  const turnTokenScale = getCombatTurnTokenScale(turnOrder.length);
+
   return `
     <div class="combat-turn-panel">
       <div class="combat-turn-panel__controls">
@@ -1737,11 +1752,31 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
         </button>
         <span class="round-chip">Ronda ${escapeHtml(String(getCombatRound()))}</span>
       </div>
-      <div class="combat-turn-strip" aria-label="Orden de iniciativa">
+      <div
+        class="combat-turn-strip"
+        style="--turn-token-scale:${turnTokenScale}"
+        aria-label="Orden de iniciativa"
+      >
         ${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeTurnCombatantId)).join("")}
       </div>
     </div>
   `;
+}
+
+function getCombatTurnTokenScale(turnCount) {
+  if (turnCount <= 16) {
+    return 1;
+  }
+
+  if (turnCount <= 20) {
+    return 0.88;
+  }
+
+  if (turnCount <= 24) {
+    return 0.76;
+  }
+
+  return 0.66;
 }
 
 function renderCombatTurnToken(combatant, isActive) {
@@ -1750,10 +1785,18 @@ function renderCombatTurnToken(combatant, isActive) {
   const label = cleanText(combatant.nombre) || "Sin nombre";
   const side = mapTagToSide(combatant.tag);
   const initials = getCombatantInitials(combatant);
+  const isFallenAlly = side === "allies" && toNumber(combatant.pgAct) < 1;
+  const maxHp = Math.max(1, getEffectivePgMax(combatant));
+  const hpFill = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
 
   return `
     <div
-      class="combat-turn-token-wrap ${isActive ? "is-active" : ""}"
+      class="combat-turn-token-wrap ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""}"
+      style="--turn-hp-fill:${hpFill}%"
+      role="button"
+      tabindex="0"
+      data-action="focus-combatant-row"
+      data-combatant-id="${escapeHtml(combatant.id)}"
       title="${escapeHtml(label)} | Inic ${escapeHtml(String(combatant.iniactiva ?? ""))}"
     >
       <span class="combat-turn-token__initiative">${escapeHtml(String(combatant.iniactiva ?? "-"))}</span>
@@ -1767,6 +1810,23 @@ function renderCombatTurnToken(combatant, isActive) {
       </div>
     </div>
   `;
+}
+
+function focusCombatantRow(combatantId) {
+  const row = [...app.querySelectorAll("[data-combat-row-id]")]
+    .find((element) => element.dataset.combatRowId === combatantId);
+
+  if (!row) {
+    return;
+  }
+
+  row.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  row.focus({ preventScroll: true });
+  row.classList.add("row--focus-pulse");
+
+  window.setTimeout(() => {
+    row.classList.remove("row--focus-pulse");
+  }, 1200);
 }
 
 function renderCombatEncounterPicker() {
@@ -2166,9 +2226,9 @@ function renderEncounterRow(row) {
         <span>Unidades</span>
         <input
           class="filter-input"
-          type="number"
-          min="1"
-          step="1"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
           value="${escapeHtml(String(row.units))}"
           data-encounter-units="${escapeHtml(row.id)}"
           aria-label="Unidades de ${escapeHtml(row.name)}"
@@ -3243,7 +3303,11 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
   const isActiveTurn = combatant.id === activeTurnCombatantId;
 
   return `
-    <tr class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""} ${isActiveTurn ? "row--active-turn" : ""}">
+    <tr
+      class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""} ${isActiveTurn ? "row--active-turn" : ""}"
+      data-combat-row-id="${escapeHtml(combatant.id)}"
+      tabindex="-1"
+    >
       <td class="cell-select">
         <input
           type="checkbox"
@@ -3269,8 +3333,8 @@ function renderDataCell(combatant, column, isDead) {
         <div class="initiative-cell">
           <input
             class="cell-input"
-            type="number"
-            inputmode="${inputMode}"
+            type="text"
+            inputmode="text"
             value="${escapeHtml(String(value))}"
             data-edit-id="${combatant.id}"
             data-edit-key="${column.key}"
@@ -4799,9 +4863,11 @@ function removeEncounterRow(rowId) {
   saveEncounterInventory();
 }
 
-function updateEncounterRowUnits(rowId, value) {
+function updateEncounterRowUnits(rowId, value, normalize = true) {
   const activeEncounter = getActiveEncounter();
-  const units = Math.max(1, Math.floor(toNumber(value)));
+  const units = normalize
+    ? Math.max(1, Math.floor(toNumber(value)))
+    : cleanText(value);
 
   if (!activeEncounter) {
     return;
@@ -5324,6 +5390,7 @@ function startCombatTurns() {
   state.isCombatActive = true;
   state.activeTurnCombatantId = turnOrder[0]?.id ?? "";
   state.combatRound = 1;
+  resetBattleTimer();
   startBattleTimer();
 }
 
@@ -5331,6 +5398,7 @@ function endCombatTurns() {
   state.isCombatActive = false;
   state.activeTurnCombatantId = "";
   state.combatRound = 1;
+  pauseBattleTimer();
 }
 
 function advanceCombatTurn() {

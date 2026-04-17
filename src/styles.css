@@ -342,43 +342,62 @@ table {
 .combat-turn-strip {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 0.85rem;
   width: 100%;
   min-width: 0;
   padding: 0.1rem 0.1rem 0.55rem;
-  overflow-x: auto;
-  overflow-y: hidden;
+  max-height: calc(((9rem + 1.84rem) * var(--turn-token-scale, 1)) * 2 + 0.85rem);
+  overflow: hidden;
 }
 
 .combat-turn-token-wrap {
   position: relative;
   display: flex;
-  flex: 0 0 6.3rem;
+  flex: 0 0 calc(6.3rem * var(--turn-token-scale, 1));
   flex-direction: column;
   align-items: center;
-  gap: 0.24rem;
-  width: 6.3rem;
-  transition: transform 180ms ease;
+  gap: calc(0.24rem * var(--turn-token-scale, 1));
+  width: calc(6.3rem * var(--turn-token-scale, 1));
+  transition: flex-basis 180ms ease, width 180ms ease, transform 180ms ease;
+  cursor: pointer;
 }
 
 .combat-turn-token-wrap.is-active {
-  transform: translateY(-0.18rem);
+  flex-basis: calc(9rem * var(--turn-token-scale, 1));
+  width: calc(9rem * var(--turn-token-scale, 1));
+  transform: translateY(-0.25rem);
+}
+
+.combat-turn-token-wrap:focus-visible {
+  outline: 2px solid rgba(240, 200, 121, 0.82);
+  outline-offset: 0.24rem;
 }
 
 .combat-turn-token {
   position: relative;
   flex: none;
-  width: 6.3rem;
-  height: 6.3rem;
+  width: calc(6.3rem * var(--turn-token-scale, 1));
+  height: calc(6.3rem * var(--turn-token-scale, 1));
   border: 4px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background:
+    linear-gradient(
+      0deg,
+      rgba(84, 160, 101, 0.78) 0%,
+      rgba(84, 160, 101, 0.78) var(--turn-hp-fill, 0%),
+      rgba(184, 60, 74, 0.3) var(--turn-hp-fill, 0%),
+      rgba(184, 60, 74, 0.3) 100%
+    ),
+    rgba(255, 255, 255, 0.04);
   overflow: hidden;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.26);
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition: width 180ms ease, height 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .combat-turn-token-wrap.is-active .combat-turn-token {
+  width: calc(9rem * var(--turn-token-scale, 1));
+  height: calc(9rem * var(--turn-token-scale, 1));
   border-color: #f0c879;
   box-shadow: 0 0 0 2px rgba(240, 200, 121, 0.22), 0 12px 26px rgba(0, 0, 0, 0.34);
 }
@@ -404,6 +423,9 @@ table {
   display: block;
   width: 100%;
   height: 100%;
+  position: relative;
+  z-index: 1;
+  opacity: 0.82;
 }
 
 .combat-turn-token img {
@@ -413,9 +435,7 @@ table {
 .combat-turn-token__placeholder {
   display: grid;
   place-items: center;
-  background:
-    linear-gradient(135deg, rgba(240, 200, 121, 0.16), rgba(94, 183, 166, 0.12)),
-    rgba(22, 18, 27, 0.95);
+  background: rgba(22, 18, 27, 0.64);
   color: var(--text);
   font-size: 1.8rem;
   font-weight: 900;
@@ -439,6 +459,7 @@ table {
 
 .combat-turn-token__stand {
   position: absolute;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -462,6 +483,11 @@ table {
 
 .combat-turn-token__initiative {
   position: static;
+}
+
+.combat-turn-token-wrap.is-fallen-ally .combat-turn-token img,
+.combat-turn-token-wrap.is-fallen-ally .combat-turn-token__placeholder {
+  filter: grayscale(1) brightness(0.78);
 }
 
 .summary-card .round-chip {
@@ -1217,6 +1243,21 @@ table {
     inset 3px 0 0 #f0c879,
     inset 0 1px 0 rgba(240, 200, 121, 0.18),
     inset 0 -1px 0 rgba(240, 200, 121, 0.18);
+}
+
+.row--focus-pulse td {
+  animation: combat-row-focus-pulse 1200ms ease;
+}
+
+@keyframes combat-row-focus-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(240, 200, 121, 0);
+  }
+
+  35% {
+    box-shadow: inset 0 0 0 999px rgba(240, 200, 121, 0.2);
+  }
 }
 
 .initiative-cell {
