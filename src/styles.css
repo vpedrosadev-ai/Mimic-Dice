@@ -82,6 +82,7 @@ table {
   align-items: center;
   justify-content: space-between;
   gap: 1.25rem;
+  flex-wrap: wrap;
   padding: 1rem 1.2rem;
   border: 1px solid var(--line);
   border-radius: 28px;
@@ -182,6 +183,52 @@ table {
 
 .nav__label {
   font-size: 0.94rem;
+}
+
+.campaign-controls {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) auto auto;
+  align-items: end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.campaign-controls__name {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.campaign-controls__name span {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent-soft);
+}
+
+.campaign-controls__input {
+  min-height: 2.55rem;
+  min-width: 0;
+  padding: 0.62rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.campaign-controls__file {
+  display: none;
+}
+
+.campaign-controls__message {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace {
@@ -3146,6 +3193,12 @@ table {
     justify-content: flex-start;
   }
 
+  .campaign-controls {
+    width: 100%;
+    margin-left: 0;
+    justify-content: start;
+  }
+
   .table-toolbar {
     align-items: stretch;
   }
@@ -3244,6 +3297,14 @@ table {
   .nav__button {
     flex: 1 1 calc(50% - 0.75rem);
     justify-content: center;
+  }
+
+  .campaign-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .campaign-controls__message {
+    text-align: left;
   }
 
   .table-toolbar__group {

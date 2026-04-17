@@ -6,8 +6,12 @@ const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
 const ITEMS_CSV_PATH = "data/Items.csv";
 const ITEMS_IMAGES_PATH = "data/ItemsImages.json";
 const SPELLS_CSV_PATH = "data/Spells.csv";
+const CAMPAIGN_META_STORAGE_KEY = "mimic-dice:campaign-meta:v1";
 const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
 const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
+const CAMPAIGN_FILE_SCHEMA = "mimic-dice:campaign";
+const CAMPAIGN_FILE_VERSION = 1;
+const CAMPAIGN_AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const COMBAT_TRACKER_SORT_DEFAULT_VERSION = 2;
 const BESTIARY_RENDER_DEBOUNCE_MS = 160;
 const BESTIARY_VIRTUAL_ROW_HEIGHT = 158;
@@ -193,6 +197,9 @@ const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
 let battleTimerInterval = null;
+let campaignAutosaveTimer = 0;
+let campaignSaveInProgress = null;
+const initialCampaignMeta = loadCampaignMeta();
 const initialEncounterInventory = loadEncounterInventory();
 const initialCombatTrackerState = loadCombatTrackerState();
 let scheduledRenderTimer = 0;
@@ -205,6 +212,8 @@ let arcanumSpellLinkCache = {
 
 const state = {
   activeScreen: "combat-tracker",
+  campaignName: initialCampaignMeta.name,
+  campaignMessage: "",
   combatants: initialCombatTrackerState.combatants,
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
@@ -285,6 +294,8 @@ app.addEventListener("dragover", handleDragOver);
 app.addEventListener("drop", handleDrop);
 app.addEventListener("dragend", handleDragEnd);
 
+startCampaignAutosave();
+registerCampaignCloseAutosave();
 render();
 loadBestiary();
 loadItems();
@@ -440,6 +451,16 @@ function handleClick(event) {
   }
 
   const { action } = actionButton.dataset;
+
+  if (action === "save-campaign-file") {
+    saveCampaignFile();
+    return;
+  }
+
+  if (action === "choose-campaign-file") {
+    chooseCampaignFile();
+    return;
+  }
 
   if (action === "toggle-sort") {
     toggleSort(actionButton.dataset.sortKey);
@@ -973,6 +994,12 @@ function handleClick(event) {
 function handleChange(event) {
   const target = event.target;
 
+  if (target.matches("[data-campaign-file-input]")) {
+    loadCampaignFile(target.files?.[0] ?? null);
+    target.value = "";
+    return;
+  }
+
   if (target.matches("[data-select-row]")) {
     toggleRowSelection(target.dataset.selectRow, target.checked);
     render();
@@ -1058,6 +1085,13 @@ function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
+
+  if (target.matches("[data-campaign-name]")) {
+    state.campaignName = target.value;
+    state.campaignMessage = "";
+    saveCampaignMeta();
+    return;
+  }
 
   if (target.matches("[data-filter-key]")) {
     state.filters[target.dataset.filterKey] = target.value;
@@ -1481,6 +1515,7 @@ function render(focusState = null) {
         <nav class="nav" aria-label="Pantallas principales">
           ${screens.map(renderScreenButton).join("")}
         </nav>
+        ${renderCampaignControls()}
       </header>
       <main class="workspace">
         ${renderScreen()}
@@ -1523,6 +1558,36 @@ function renderScreenButton(screen) {
       <span class="nav__icon">${screen.icon}</span>
       <span class="nav__label">${screen.shortLabel}</span>
     </button>
+  `;
+}
+
+function renderCampaignControls() {
+  return `
+    <div class="campaign-controls" aria-label="Guardado de campana">
+      <label class="campaign-controls__name">
+        <span>Campana</span>
+        <input
+          class="campaign-controls__input"
+          type="text"
+          value="${escapeHtml(state.campaignName)}"
+          placeholder="Nombre de campana"
+          data-campaign-name
+        />
+      </label>
+      <button class="toolbar-button toolbar-button--accent" type="button" data-action="save-campaign-file">
+        Guardar
+      </button>
+      <button class="toolbar-button" type="button" data-action="choose-campaign-file">
+        Cargar
+      </button>
+      <input
+        class="campaign-controls__file"
+        type="file"
+        accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
+        data-campaign-file-input
+      />
+      ${state.campaignMessage ? `<span class="campaign-controls__message">${escapeHtml(state.campaignMessage)}</span>` : ""}
+    </div>
   `;
 }
 
@@ -7812,6 +7877,362 @@ function getArcanumFilterDisplayValue(key, value) {
   return value;
 }
 
+async function saveCampaignFile() {
+  try {
+    const result = await saveCampaignToDesktop();
+
+    if (result) {
+      state.campaignMessage = `Archivo guardado: ${result.fileName}`;
+      saveCampaignMeta();
+      render();
+      return;
+    }
+
+    const payload = createCampaignSavePayload();
+    const fileName = getCampaignFileName(payload.campaign.name);
+    downloadJsonFile(payload, fileName);
+    state.campaignName = payload.campaign.name;
+    state.campaignMessage = `Archivo creado: ${fileName}`;
+    saveCampaignMeta();
+    render();
+  } catch {
+    state.campaignMessage = "No se pudo guardar la campana.";
+    render();
+  }
+}
+
+async function saveCampaignToDesktop(options = {}) {
+  if (campaignSaveInProgress && !options.force) {
+    return campaignSaveInProgress;
+  }
+
+  if (campaignSaveInProgress) {
+    await campaignSaveInProgress.catch(() => null);
+  }
+
+  const desktopSave = getDesktopCampaignApi()?.saveCampaign;
+
+  if (typeof desktopSave !== "function") {
+    return null;
+  }
+
+  const payload = createCampaignSavePayload();
+  const fileName = getCampaignFileName(payload.campaign.name);
+
+  campaignSaveInProgress = desktopSave(payload, fileName)
+    .then((result) => {
+      const savedFileName = cleanText(result?.fileName) || fileName;
+      state.campaignName = payload.campaign.name;
+      saveCampaignMeta();
+      return {
+        ...result,
+        fileName: savedFileName
+      };
+    })
+    .finally(() => {
+      campaignSaveInProgress = null;
+    });
+
+  return campaignSaveInProgress;
+}
+
+async function autosaveCampaign() {
+  try {
+    await saveCampaignToDesktop();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function saveCampaignBeforeClose() {
+  try {
+    await saveCampaignToDesktop({ force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function startCampaignAutosave() {
+  if (typeof window === "undefined" || campaignAutosaveTimer) {
+    return;
+  }
+
+  if (typeof getDesktopCampaignApi()?.saveCampaign !== "function") {
+    return;
+  }
+
+  campaignAutosaveTimer = window.setInterval(() => {
+    autosaveCampaign();
+  }, CAMPAIGN_AUTOSAVE_INTERVAL_MS);
+}
+
+function registerCampaignCloseAutosave() {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (
+    typeof desktopApi?.onCampaignSaveBeforeClose !== "function"
+    || typeof desktopApi.finishCampaignSaveBeforeClose !== "function"
+  ) {
+    return;
+  }
+
+  desktopApi.onCampaignSaveBeforeClose(async (requestId) => {
+    const saved = await saveCampaignBeforeClose();
+    desktopApi.finishCampaignSaveBeforeClose(requestId, { saved });
+  });
+}
+
+async function chooseCampaignFile() {
+  const desktopLoad = getDesktopCampaignApi()?.loadCampaign;
+
+  if (typeof desktopLoad === "function") {
+    await loadDesktopCampaignFile(desktopLoad);
+    return;
+  }
+
+  const input = app.querySelector("[data-campaign-file-input]");
+  input?.click();
+}
+
+async function loadDesktopCampaignFile(loadCampaign) {
+  try {
+    const result = await loadCampaign();
+
+    if (result?.canceled) {
+      return;
+    }
+
+    const campaign = normalizeCampaignSave(result?.payload);
+
+    applyCampaignSave(campaign);
+    state.campaignMessage = `Campana cargada: ${campaign.name}`;
+    render();
+  } catch {
+    state.campaignMessage = "No se pudo cargar el archivo de campana.";
+    render();
+  }
+}
+
+async function loadCampaignFile(file) {
+  if (!file) {
+    return;
+  }
+
+  try {
+    const rawValue = await file.text();
+    const parsedValue = JSON.parse(rawValue);
+    const campaign = normalizeCampaignSave(parsedValue);
+
+    applyCampaignSave(campaign);
+    state.campaignMessage = `Campana cargada: ${campaign.name}`;
+    render();
+  } catch {
+    state.campaignMessage = "No se pudo cargar el archivo de campana.";
+    render();
+  }
+}
+
+function getDesktopCampaignApi() {
+  return typeof window !== "undefined" && isPlainObject(window.mimicDice)
+    ? window.mimicDice
+    : null;
+}
+
+function createCampaignSavePayload() {
+  const name = cleanText(state.campaignName) || "Campana sin nombre";
+
+  return {
+    schema: CAMPAIGN_FILE_SCHEMA,
+    version: CAMPAIGN_FILE_VERSION,
+    app: "Mimic Dice",
+    savedAt: new Date().toISOString(),
+    campaign: {
+      name
+    },
+    encounterInventory: getEncounterInventorySaveData(),
+    combatTracker: getCombatTrackerSaveData({
+      includeBattleTimer: true
+    }),
+    ui: {
+      activeScreen: state.activeScreen,
+      activeEncounterId: state.activeEncounterId,
+      activeEncounterFolderId: state.activeEncounterFolderId
+    }
+  };
+}
+
+function normalizeCampaignSave(value) {
+  if (!isPlainObject(value)) {
+    throw new Error("Invalid campaign file");
+  }
+
+  const schema = cleanText(value.schema);
+
+  if (schema && schema !== CAMPAIGN_FILE_SCHEMA) {
+    throw new Error("Unknown campaign schema");
+  }
+
+  if (!schema && !isPlainObject(value.encounterInventory) && !isPlainObject(value.combatTracker)) {
+    throw new Error("Missing campaign data");
+  }
+
+  const encounterInventory = normalizeStoredEncounterInventory(value.encounterInventory);
+  const combatTracker = normalizeStoredCombatTrackerState(value.combatTracker);
+  const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
+  const ui = isPlainObject(value.ui) ? value.ui : {};
+  const campaign = isPlainObject(value.campaign) ? value.campaign : {};
+  const name = cleanText(campaign.name) || cleanText(value.name) || "Campana sin nombre";
+
+  return {
+    name,
+    encounterInventory,
+    combatTracker,
+    battleTimer,
+    activeScreen: normalizeStoredActiveScreen(ui.activeScreen),
+    activeEncounterId: cleanText(ui.activeEncounterId),
+    activeEncounterFolderId: cleanText(ui.activeEncounterFolderId)
+  };
+}
+
+function applyCampaignSave(campaign) {
+  stopBattleTimerInterval();
+
+  state.campaignName = campaign.name;
+  state.activeScreen = campaign.activeScreen;
+  state.combatants = campaign.combatTracker.combatants;
+  state.filters = campaign.combatTracker.filters;
+  state.sort = campaign.combatTracker.sort;
+  state.newEntitySide = campaign.combatTracker.newEntitySide;
+  state.nextId = campaign.combatTracker.nextId;
+  state.inlineAdjustments = campaign.combatTracker.inlineAdjustments;
+  state.areaDamage = campaign.combatTracker.areaDamage;
+  state.isCombatActive = campaign.combatTracker.isCombatActive;
+  state.activeTurnCombatantId = campaign.combatTracker.activeTurnCombatantId;
+  state.combatRound = campaign.combatTracker.combatRound;
+  state.battleTimer = campaign.battleTimer;
+  state.selectedIds = new Set();
+  state.activeFilterKey = "";
+  state.activeCombatNameSearchId = "";
+  state.activeCombatSourceId = "";
+  state.combatEncounterPickerOpen = false;
+
+  state.encounterFolders = campaign.encounterInventory.folders;
+  state.encounters = campaign.encounterInventory.encounters;
+  state.systemEncounterFolderExpanded = campaign.encounterInventory.systemFolderExpanded;
+  state.activeEncounterId = normalizeCampaignActiveEncounterId(campaign.activeEncounterId, state.encounters);
+  state.activeEncounterFolderId = normalizeCampaignActiveEncounterFolderId(
+    campaign.activeEncounterFolderId,
+    state.activeEncounterId,
+    state.encounters,
+    state.encounterFolders
+  );
+  state.activeEncounterRowId = "";
+  state.activeEncounterSourceRowId = "";
+  state.selectedEncounterIds = new Set();
+  state.selectedEncounterFolderIds = new Set();
+  state.encounterSearchQuery = "";
+  state.showEncounterSearchSuggestions = false;
+
+  saveCombatTrackerState();
+  saveEncounterInventory();
+  saveCampaignMeta();
+}
+
+function normalizeCampaignActiveEncounterId(value, encounters) {
+  const activeEncounterId = cleanText(value);
+  return encounters.some((encounter) => encounter.id === activeEncounterId)
+    ? activeEncounterId
+    : encounters[0]?.id ?? "";
+}
+
+function normalizeCampaignActiveEncounterFolderId(value, activeEncounterId, encounters, folders) {
+  const activeEncounter = encounters.find((encounter) => encounter.id === activeEncounterId);
+
+  if (activeEncounter) {
+    return activeEncounter.folderId ?? "";
+  }
+
+  const activeFolderId = cleanText(value);
+  return activeFolderId && folders.some((folder) => folder.id === activeFolderId) ? activeFolderId : "";
+}
+
+function normalizeStoredActiveScreen(value) {
+  const activeScreen = cleanText(value);
+  return screens.some((screen) => screen.id === activeScreen) ? activeScreen : "combat-tracker";
+}
+
+function normalizeStoredBattleTimer(value) {
+  if (!isPlainObject(value)) {
+    return {
+      elapsedMs: 0,
+      startedAt: 0,
+      isRunning: false
+    };
+  }
+
+  return {
+    elapsedMs: Math.max(0, Math.floor(toNumber(value.elapsedMs))),
+    startedAt: 0,
+    isRunning: false
+  };
+}
+
+function getCampaignFileName(name) {
+  const safeName = cleanText(name)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "campana";
+
+  return `${safeName}.mimic-campaign.json`;
+}
+
+function downloadJsonFile(value, fileName) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function loadCampaignMeta() {
+  if (typeof window === "undefined") {
+    return { name: "Campana sin nombre" };
+  }
+
+  try {
+    const parsedValue = JSON.parse(window.localStorage.getItem(CAMPAIGN_META_STORAGE_KEY) || "{}");
+    return {
+      name: cleanText(parsedValue.name) || "Campana sin nombre"
+    };
+  } catch {
+    return { name: "Campana sin nombre" };
+  }
+}
+
+function saveCampaignMeta() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
+      name: cleanText(state.campaignName) || "Campana sin nombre"
+    }));
+  } catch {
+    // Storage can be unavailable in private contexts; campaign files still work.
+  }
+}
+
 function loadCombatTrackerState() {
   const defaultState = getDefaultCombatTrackerState();
 
@@ -7822,34 +8243,37 @@ function loadCombatTrackerState() {
   try {
     const rawValue = window.localStorage.getItem(COMBAT_TRACKER_STORAGE_KEY);
     const parsedValue = JSON.parse(rawValue || "{}");
-
-    if (!isPlainObject(parsedValue)) {
-      return defaultState;
-    }
-
-    const combatants = Array.isArray(parsedValue.combatants)
-      ? parsedValue.combatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean)
-      : defaultState.combatants;
-    const nextId = normalizeStoredNextCombatantId(parsedValue.nextId, combatants);
-    const sort = parsedValue.sortDefaultVersion === COMBAT_TRACKER_SORT_DEFAULT_VERSION
-      ? normalizeStoredCombatSort(parsedValue.sort)
-      : getDefaultCombatSort();
-
-    return {
-      combatants,
-      filters: normalizeStoredCombatFilters(parsedValue.filters),
-      sort,
-      newEntitySide: normalizeStoredCombatSide(parsedValue.newEntitySide),
-      nextId,
-      inlineAdjustments: normalizeStoredInlineAdjustments(parsedValue.inlineAdjustments, combatants),
-      areaDamage: cleanText(parsedValue.areaDamage),
-      isCombatActive: parsedValue.isCombatActive === true,
-      activeTurnCombatantId: normalizeStoredActiveTurnCombatantId(parsedValue.activeTurnCombatantId, combatants),
-      combatRound: normalizeStoredCombatRound(parsedValue.combatRound)
-    };
+    return normalizeStoredCombatTrackerState(parsedValue, defaultState);
   } catch {
     return defaultState;
   }
+}
+
+function normalizeStoredCombatTrackerState(value, defaultState = getDefaultCombatTrackerState()) {
+  if (!isPlainObject(value)) {
+    return defaultState;
+  }
+
+  const combatants = Array.isArray(value.combatants)
+    ? value.combatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean)
+    : defaultState.combatants;
+  const nextId = normalizeStoredNextCombatantId(value.nextId, combatants);
+  const sort = value.sortDefaultVersion === COMBAT_TRACKER_SORT_DEFAULT_VERSION
+    ? normalizeStoredCombatSort(value.sort)
+    : getDefaultCombatSort();
+
+  return {
+    combatants,
+    filters: normalizeStoredCombatFilters(value.filters),
+    sort,
+    newEntitySide: normalizeStoredCombatSide(value.newEntitySide),
+    nextId,
+    inlineAdjustments: normalizeStoredInlineAdjustments(value.inlineAdjustments, combatants),
+    areaDamage: cleanText(value.areaDamage),
+    isCombatActive: value.isCombatActive === true,
+    activeTurnCombatantId: normalizeStoredActiveTurnCombatantId(value.activeTurnCombatantId, combatants),
+    combatRound: normalizeStoredCombatRound(value.combatRound)
+  };
 }
 
 function saveCombatTrackerState() {
@@ -7858,22 +8282,35 @@ function saveCombatTrackerState() {
   }
 
   try {
-    window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify({
-      combatants: state.combatants,
-      filters: state.filters,
-      sort: state.sort,
-      sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
-      newEntitySide: state.newEntitySide,
-      nextId: state.nextId,
-      inlineAdjustments: state.inlineAdjustments,
-      areaDamage: state.areaDamage,
-      isCombatActive: state.isCombatActive,
-      activeTurnCombatantId: state.activeTurnCombatantId,
-      combatRound: state.combatRound
-    }));
+    window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify(getCombatTrackerSaveData()));
   } catch {
     // Storage can be unavailable in private contexts; the in-memory tracker still works.
   }
+}
+
+function getCombatTrackerSaveData(options = {}) {
+  const data = {
+    combatants: state.combatants,
+    filters: state.filters,
+    sort: state.sort,
+    sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
+    newEntitySide: state.newEntitySide,
+    nextId: state.nextId,
+    inlineAdjustments: state.inlineAdjustments,
+    areaDamage: state.areaDamage,
+    isCombatActive: state.isCombatActive,
+    activeTurnCombatantId: state.activeTurnCombatantId,
+    combatRound: state.combatRound
+  };
+
+  if (options.includeBattleTimer) {
+    data.battleTimer = {
+      elapsedMs: getBattleTimerElapsedMs(),
+      isRunning: false
+    };
+  }
+
+  return data;
 }
 
 function getDefaultCombatTrackerState() {
@@ -8052,33 +8489,36 @@ function loadEncounterInventory() {
     const storage = window.localStorage;
     const rawValue = storage.getItem(ENCOUNTER_INVENTORY_STORAGE_KEY);
     const parsedValue = JSON.parse(rawValue || "{}");
-
-    if (Array.isArray(parsedValue)) {
-      return {
-        folders: [],
-        systemFolderExpanded: true,
-        encounters: parsedValue
-          .map((encounter) => normalizeStoredEncounter(encounter))
-          .filter(Boolean)
-      };
-    }
-
-    if (!isPlainObject(parsedValue)) {
-      return { folders: [], encounters: [], systemFolderExpanded: true };
-    }
-
-    return {
-      folders: Array.isArray(parsedValue.folders)
-        ? parsedValue.folders.map((folder) => normalizeStoredEncounterFolder(folder)).filter(Boolean)
-        : [],
-      systemFolderExpanded: parsedValue.systemFolderExpanded !== false,
-      encounters: Array.isArray(parsedValue.encounters)
-        ? parsedValue.encounters.map((encounter) => normalizeStoredEncounter(encounter)).filter(Boolean)
-        : []
-    };
+    return normalizeStoredEncounterInventory(parsedValue);
   } catch {
     return { folders: [], encounters: [], systemFolderExpanded: true };
   }
+}
+
+function normalizeStoredEncounterInventory(value) {
+  if (Array.isArray(value)) {
+    return {
+      folders: [],
+      systemFolderExpanded: true,
+      encounters: value
+        .map((encounter) => normalizeStoredEncounter(encounter))
+        .filter(Boolean)
+    };
+  }
+
+  if (!isPlainObject(value)) {
+    return { folders: [], encounters: [], systemFolderExpanded: true };
+  }
+
+  return {
+    folders: Array.isArray(value.folders)
+      ? value.folders.map((folder) => normalizeStoredEncounterFolder(folder)).filter(Boolean)
+      : [],
+    systemFolderExpanded: value.systemFolderExpanded !== false,
+    encounters: Array.isArray(value.encounters)
+      ? value.encounters.map((encounter) => normalizeStoredEncounter(encounter)).filter(Boolean)
+      : []
+  };
 }
 
 function saveEncounterInventory() {
@@ -8087,14 +8527,18 @@ function saveEncounterInventory() {
   }
 
   try {
-    window.localStorage.setItem(ENCOUNTER_INVENTORY_STORAGE_KEY, JSON.stringify({
-      folders: state.encounterFolders,
-      systemFolderExpanded: state.systemEncounterFolderExpanded,
-      encounters: state.encounters
-    }));
+    window.localStorage.setItem(ENCOUNTER_INVENTORY_STORAGE_KEY, JSON.stringify(getEncounterInventorySaveData()));
   } catch {
     // Storage can be unavailable in private contexts; the in-memory inventory still works.
   }
+}
+
+function getEncounterInventorySaveData() {
+  return {
+    folders: state.encounterFolders,
+    systemFolderExpanded: state.systemEncounterFolderExpanded,
+    encounters: state.encounters
+  };
 }
 
 function normalizeStoredEncounterFolder(folder) {
