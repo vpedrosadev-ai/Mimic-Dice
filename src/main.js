@@ -1547,7 +1547,8 @@ function renderScreen() {
 function renderCombatTracker() {
   const visibleCombatants = getVisibleCombatants();
   const turnOrder = getCombatTurnOrder(visibleCombatants);
-  const activeTurnCombatantId = state.isCombatActive ? getActiveTurnCombatantId(turnOrder) : "";
+  const turnParticipants = getCombatTurnParticipants(turnOrder);
+  const activeTurnCombatantId = state.isCombatActive ? getActiveTurnCombatantId(turnParticipants) : "";
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
     visibleCombatants.every((combatant) => state.selectedIds.has(combatant.id));
@@ -1557,24 +1558,33 @@ function renderCombatTracker() {
     <section class="panel combat-timer">
       <article class="summary-card summary-card--timer combat-timer__card">
         <div class="combat-timer__header">
-          <div>
+          <div class="combat-timer__readout">
             <span>Contador de batalla</span>
-            <strong>${battleTimerLabel}</strong>
+            <strong data-battle-timer-readout>${battleTimerLabel}</strong>
           </div>
           <div class="summary-card__actions">
             <button
               class="summary-button"
               type="button"
-              data-action="${state.battleTimer.isRunning ? "pause-battle-timer" : "start-battle-timer"}"
+              data-action="start-battle-timer"
+              ${state.battleTimer.isRunning ? "disabled" : ""}
             >
-              ${state.battleTimer.isRunning ? "Pausar" : "Iniciar"}
+              Iniciar
+            </button>
+            <button
+              class="summary-button summary-button--ghost"
+              type="button"
+              data-action="pause-battle-timer"
+              ${state.battleTimer.isRunning ? "" : "disabled"}
+            >
+              Pausar
             </button>
             <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
               Reiniciar
             </button>
           </div>
         </div>
-        ${state.isCombatActive ? renderCombatTurnPanel(turnOrder, activeTurnCombatantId) : ""}
+        ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
       </article>
     </section>
 
@@ -1652,7 +1662,7 @@ function renderCombatTracker() {
             class="toolbar-button toolbar-button--combat"
             type="button"
             data-action="${state.isCombatActive ? "end-combat-turns" : "start-combat-turns"}"
-            ${visibleCombatants.length === 0 ? "disabled" : ""}
+            ${!state.isCombatActive && turnParticipants.length === 0 ? "disabled" : ""}
           >
             ${state.isCombatActive ? "FIN COMBATE" : "COMBATE!"}
           </button>
@@ -1715,8 +1725,6 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
     `;
   }
 
-  const rotatedOrder = getRotatedCombatTurnOrder(turnOrder, activeTurnCombatantId);
-
   return `
     <div class="combat-turn-panel">
       <div class="combat-turn-panel__controls">
@@ -1730,7 +1738,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
         <span class="round-chip">Ronda ${escapeHtml(String(getCombatRound()))}</span>
       </div>
       <div class="combat-turn-strip" aria-label="Orden de iniciativa">
-        ${rotatedOrder.map((combatant, index) => renderCombatTurnToken(combatant, index === 0)).join("")}
+        ${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeTurnCombatantId)).join("")}
       </div>
     </div>
   `;
@@ -1745,16 +1753,18 @@ function renderCombatTurnToken(combatant, isActive) {
 
   return `
     <div
-      class="combat-turn-token combat-turn-token--${side} ${isActive ? "is-active" : ""}"
+      class="combat-turn-token-wrap ${isActive ? "is-active" : ""}"
       title="${escapeHtml(label)} | Inic ${escapeHtml(String(combatant.iniactiva ?? ""))}"
     >
-      ${
-        tokenUrl
-          ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true" />`
-          : `<span class="combat-turn-token__placeholder" aria-hidden="true">${escapeHtml(initials)}</span>`
-      }
-      ${isEnemyCombatant(combatant) && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}
       <span class="combat-turn-token__initiative">${escapeHtml(String(combatant.iniactiva ?? "-"))}</span>
+      <div class="combat-turn-token combat-turn-token--${side}">
+        ${
+          tokenUrl
+            ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true" />`
+            : `<span class="combat-turn-token__placeholder" aria-hidden="true">${escapeHtml(initials)}</span>`
+        }
+        ${isEnemyCombatant(combatant) && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}
+      </div>
     </div>
   `;
 }
@@ -3768,6 +3778,20 @@ function getCombatTurnOrder(combatants = getVisibleCombatants()) {
       || cleanText(left.nombre).localeCompare(cleanText(right.nombre), "es", { numeric: true, sensitivity: "base" }));
 }
 
+function getCombatTurnParticipants(turnOrder = getCombatTurnOrder()) {
+  return turnOrder.filter(shouldShowInCombatTurnChain);
+}
+
+function shouldShowInCombatTurnChain(combatant) {
+  const side = combatant.tag ? mapTagToSide(combatant.tag) : combatant.side;
+
+  if ((side === "enemies" || side === "neutral") && toNumber(combatant.pgAct) < 1) {
+    return false;
+  }
+
+  return true;
+}
+
 function getActiveTurnCombatantId(turnOrder = getCombatTurnOrder()) {
   if (turnOrder.length === 0) {
     return "";
@@ -3776,14 +3800,6 @@ function getActiveTurnCombatantId(turnOrder = getCombatTurnOrder()) {
   return turnOrder.some((combatant) => combatant.id === state.activeTurnCombatantId)
     ? state.activeTurnCombatantId
     : turnOrder[0].id;
-}
-
-function getRotatedCombatTurnOrder(turnOrder, activeTurnCombatantId) {
-  const activeIndex = Math.max(0, turnOrder.findIndex((combatant) => combatant.id === activeTurnCombatantId));
-  return [
-    ...turnOrder.slice(activeIndex),
-    ...turnOrder.slice(0, activeIndex)
-  ];
 }
 
 function getCombatNameSuggestions(combatant) {
@@ -5303,7 +5319,7 @@ function isEnemyCombatant(combatant) {
 }
 
 function startCombatTurns() {
-  const turnOrder = getCombatTurnOrder();
+  const turnOrder = getCombatTurnParticipants();
 
   state.isCombatActive = true;
   state.activeTurnCombatantId = turnOrder[0]?.id ?? "";
@@ -5322,7 +5338,7 @@ function advanceCombatTurn() {
     return;
   }
 
-  const turnOrder = getCombatTurnOrder();
+  const turnOrder = getCombatTurnParticipants();
 
   if (turnOrder.length === 0) {
     state.activeTurnCombatantId = "";
@@ -8177,8 +8193,18 @@ function ensureBattleTimerInterval() {
       return;
     }
 
-    render();
+    updateBattleTimerReadout();
   }, 1000);
+}
+
+function updateBattleTimerReadout() {
+  const readout = app.querySelector("[data-battle-timer-readout]");
+
+  if (!readout) {
+    return;
+  }
+
+  readout.textContent = formatBattleTimer(getBattleTimerElapsedMs());
 }
 
 function stopBattleTimerInterval() {
