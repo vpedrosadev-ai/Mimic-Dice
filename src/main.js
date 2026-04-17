@@ -7,6 +7,7 @@ const ITEMS_CSV_PATH = "data/Items.csv";
 const ITEMS_IMAGES_PATH = "data/ItemsImages.json";
 const SPELLS_CSV_PATH = "data/Spells.csv";
 const CAMPAIGN_META_STORAGE_KEY = "mimic-dice:campaign-meta:v1";
+const CHARACTERS_STORAGE_KEY = "mimic-dice:characters:v1";
 const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
 const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
 const CAMPAIGN_FILE_SCHEMA = "mimic-dice:campaign";
@@ -195,11 +196,13 @@ const arcanumFilterLabels = {
 
 const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+const characterAbilityKeys = ["str", "dex", "con", "int", "wis", "cha"];
 const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
 let campaignSaveInProgress = null;
 const initialCampaignMeta = loadCampaignMeta();
+const initialCharacters = loadCharacters();
 const initialEncounterInventory = loadEncounterInventory();
 const initialCombatTrackerState = loadCombatTrackerState();
 let scheduledRenderTimer = 0;
@@ -216,6 +219,9 @@ const state = {
   campaignFileName: initialCampaignMeta.fileName,
   campaignMessage: "",
   fileMenuOpen: false,
+  characters: initialCharacters,
+  activeCharacterId: initialCharacters[0]?.id ?? "",
+  characterSearchQuery: "",
   combatants: initialCombatTrackerState.combatants,
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
@@ -501,6 +507,38 @@ function handleClick(event) {
     state.fileMenuOpen = false;
     render();
     chooseCampaignFile();
+    return;
+  }
+
+  if (action === "create-character") {
+    createCharacter();
+    render({
+      focusSelector: "[data-character-field=\"name\"]"
+    });
+    return;
+  }
+
+  if (action === "select-character") {
+    selectCharacter(actionButton.dataset.characterId);
+    render();
+    return;
+  }
+
+  if (action === "duplicate-character") {
+    duplicateActiveCharacter();
+    render();
+    return;
+  }
+
+  if (action === "delete-character") {
+    deleteActiveCharacter();
+    render();
+    return;
+  }
+
+  if (action === "add-character-to-combat") {
+    addActiveCharacterToCombat();
+    render();
     return;
   }
 
@@ -1036,6 +1074,24 @@ function handleClick(event) {
 function handleChange(event) {
   const target = event.target;
 
+  if (target.matches("[data-character-field]")) {
+    updateCharacterField(target.dataset.characterField, target.value, true);
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-field="${target.dataset.characterField}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-ability]")) {
+    updateCharacterAbility(target.dataset.characterAbility, target.value, true);
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-ability="${target.dataset.characterAbility}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-campaign-file-input]")) {
     loadCampaignFile(target.files?.[0] ?? null);
     target.value = "";
@@ -1127,6 +1183,29 @@ function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
+
+  if (target.matches("[data-character-search]")) {
+    state.characterSearchQuery = target.value;
+    syncActiveCharacterWithVisibleList();
+    render({
+      focusSelector: "[data-character-search]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-field]")) {
+    updateCharacterField(target.dataset.characterField, target.value, false);
+    saveCharacters();
+    return;
+  }
+
+  if (target.matches("[data-character-ability]")) {
+    updateCharacterAbility(target.dataset.characterAbility, target.value, false);
+    saveCharacters();
+    return;
+  }
 
   if (target.matches("[data-filter-key]")) {
     state.filters[target.dataset.filterKey] = target.value;
@@ -1679,10 +1758,7 @@ function renderScreen() {
   }
 
   if (state.activeScreen === "initiative-board") {
-    return renderPlaceholderScreen(
-      "Initiative Board",
-      "Aqui podemos construir el flujo de turnos, rondas, ready actions y recordatorios del combate."
-    );
+    return renderCharactersScreen();
   }
 
   return renderPlaceholderScreen(
@@ -3915,6 +3991,246 @@ function renderEmptyRow() {
   `;
 }
 
+function renderCharactersScreen() {
+  const visibleCharacters = getVisibleCharacters();
+  let activeCharacter = getActiveCharacter();
+
+  if (!activeCharacter && state.characters.length > 0) {
+    activeCharacter = visibleCharacters[0] ?? state.characters[0];
+    state.activeCharacterId = activeCharacter.id;
+  }
+
+  return `
+    <section class="panel panel--table characters-screen">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Aliados de campana</p>
+          <h3>Personajes</h3>
+        </div>
+        <div class="section-meta">
+          <span>${state.characters.length} fichas</span>
+          <span>${visibleCharacters.length} visibles</span>
+        </div>
+      </div>
+
+      <div class="characters-toolbar">
+        <label class="toolbar-field toolbar-field--search">
+          <span>Buscar personaje</span>
+          <input
+            class="filter-input"
+            type="search"
+            value="${escapeHtml(state.characterSearchQuery)}"
+            placeholder="Nombre, clase, especie"
+            data-character-search
+          />
+        </label>
+        <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-character">
+          Nuevo personaje
+        </button>
+        <button class="toolbar-button" type="button" data-action="duplicate-character" ${activeCharacter ? "" : "disabled"}>
+          Duplicar
+        </button>
+        <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-character" ${activeCharacter ? "" : "disabled"}>
+          Eliminar
+        </button>
+      </div>
+
+      <div class="characters-layout">
+        <aside class="characters-list" aria-label="Lista de personajes">
+          ${
+            visibleCharacters.length > 0
+              ? visibleCharacters.map((character) => renderCharacterListItem(character)).join("")
+              : `<div class="empty-state empty-state--compact">No hay personajes. Crea un aliado para usarlo en combate.</div>`
+          }
+        </aside>
+        <div class="characters-editor">
+          ${activeCharacter ? renderCharacterEditor(activeCharacter) : renderCharacterEmpty()}
+        </div>
+        <aside class="characters-combat-card">
+          ${activeCharacter ? renderCharacterCombatSummary(activeCharacter) : renderCharacterCombatEmpty()}
+        </aside>
+      </div>
+    </section>
+  `;
+}
+
+function renderCharacterListItem(character) {
+  const isActive = character.id === state.activeCharacterId;
+  const subtitle = [
+    character.className,
+    character.level ? `Nivel ${character.level}` : "",
+    character.playerName
+  ].filter(Boolean).join(" | ");
+
+  return `
+    <button
+      class="character-list-item ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="select-character"
+      data-character-id="${escapeHtml(character.id)}"
+      aria-pressed="${isActive}"
+    >
+      ${renderCharacterAvatar(character)}
+      <span>
+        <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
+        <small>${escapeHtml(subtitle || "ALIADO")}</small>
+      </span>
+    </button>
+  `;
+}
+
+function renderCharacterAvatar(character) {
+  if (character.tokenUrl) {
+    return `<img class="character-avatar" src="${escapeHtml(character.tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true" />`;
+  }
+
+  return `<span class="character-avatar character-avatar--empty" aria-hidden="true">${escapeHtml(getCharacterInitials(character))}</span>`;
+}
+
+function renderCharacterEditor(character) {
+  return `
+    <div class="character-editor__section">
+      <div class="section-heading section-heading--compact">
+        <div>
+          <p class="eyebrow">Ficha rapida 5e</p>
+          <h3>${escapeHtml(character.name || "Personaje sin nombre")}</h3>
+        </div>
+      </div>
+
+      <div class="character-form-grid">
+        ${renderCharacterTextField("name", "Nombre", character.name, "Seraphina Vale")}
+        ${renderCharacterTextField("playerName", "Jugador", character.playerName, "Victor")}
+        ${renderCharacterTextField("className", "Clase", character.className, "Guerrero")}
+        ${renderCharacterTextField("subclassName", "Subclase", character.subclassName, "Campeon")}
+        ${renderCharacterNumberField("level", "Nivel", character.level)}
+        ${renderCharacterTextField("species", "Especie", character.species, "Humano")}
+        ${renderCharacterTextField("background", "Trasfondo", character.background, "Soldado")}
+        ${renderCharacterTextField("tokenUrl", "Token URL", character.tokenUrl, "images/...")}
+      </div>
+    </div>
+
+    <div class="character-editor__section">
+      <h4>Combate</h4>
+      <div class="character-form-grid character-form-grid--combat">
+        ${renderCharacterNumberField("armorClass", "CA", character.armorClass)}
+        ${renderCharacterNumberField("maxHp", "PG MAX", character.maxHp)}
+        ${renderCharacterNumberField("currentHp", "PG ACT", character.currentHp)}
+        ${renderCharacterNumberField("tempHp", "PG TEMP", character.tempHp)}
+        ${renderCharacterTextField("speed", "Velocidad", character.speed, "30 ft")}
+        ${renderCharacterNumberField("initiativeBonus", "Bonus iniciativa", character.initiativeBonus)}
+        ${renderCharacterTextField("conditions", "Condiciones", character.conditions, "Concentrando")}
+        ${renderCharacterTextField("stand", "Peana", character.stand, "1")}
+      </div>
+    </div>
+
+    <div class="character-editor__section">
+      <h4>Atributos</h4>
+      <div class="character-abilities">
+        ${characterAbilityKeys.map((key) => renderCharacterAbilityField(character, key)).join("")}
+      </div>
+    </div>
+
+    <label class="toolbar-field character-notes">
+      <span>Notas</span>
+      <textarea
+        class="filter-input"
+        rows="4"
+        data-character-field="notes"
+        placeholder="Rasgos, recursos o recordatorios de combate"
+      >${escapeHtml(character.notes)}</textarea>
+    </label>
+  `;
+}
+
+function renderCharacterTextField(key, label, value, placeholder = "") {
+  return `
+    <label class="toolbar-field">
+      <span>${escapeHtml(label)}</span>
+      <input
+        class="filter-input"
+        type="text"
+        value="${escapeHtml(value ?? "")}"
+        placeholder="${escapeHtml(placeholder)}"
+        data-character-field="${escapeHtml(key)}"
+      />
+    </label>
+  `;
+}
+
+function renderCharacterNumberField(key, label, value) {
+  return `
+    <label class="toolbar-field">
+      <span>${escapeHtml(label)}</span>
+      <input
+        class="filter-input"
+        type="number"
+        inputmode="numeric"
+        value="${escapeHtml(String(value ?? ""))}"
+        data-character-field="${escapeHtml(key)}"
+      />
+    </label>
+  `;
+}
+
+function renderCharacterAbilityField(character, key) {
+  const score = character.abilities[key] ?? 10;
+  const modifier = getAbilityModifier(score);
+
+  return `
+    <label class="character-ability">
+      <span>${key.toUpperCase()}</span>
+      <input
+        class="filter-input"
+        type="number"
+        inputmode="numeric"
+        value="${escapeHtml(String(score))}"
+        data-character-ability="${escapeHtml(key)}"
+      />
+      <strong>${formatModifier(modifier)}</strong>
+    </label>
+  `;
+}
+
+function renderCharacterCombatSummary(character) {
+  const proficiencyBonus = getCharacterProficiencyBonus(character.level);
+  const passivePerception = 10 + getAbilityModifier(character.abilities.wis ?? 10) + proficiencyBonus;
+
+  return `
+    <div class="character-combat-summary">
+      ${renderCharacterAvatar(character)}
+      <h3>${escapeHtml(character.name || "Personaje sin nombre")}</h3>
+      <p>${escapeHtml(formatCharacterSubtitle(character))}</p>
+      <div class="character-combat-summary__stats">
+        <span><strong>${escapeHtml(String(character.armorClass || "-"))}</strong> CA</span>
+        <span><strong>${escapeHtml(String(character.maxHp || "-"))}</strong> PG</span>
+        <span><strong>${escapeHtml(character.speed || "-")}</strong> Vel.</span>
+        <span><strong>${formatModifier(toNumber(character.initiativeBonus))}</strong> Ini.</span>
+        <span><strong>${formatModifier(proficiencyBonus)}</strong> Comp.</span>
+        <span><strong>${passivePerception}</strong> Perc.</span>
+      </div>
+      <button class="toolbar-button toolbar-button--combat" type="button" data-action="add-character-to-combat">
+        Anadir al combate
+      </button>
+    </div>
+  `;
+}
+
+function renderCharacterEmpty() {
+  return `
+    <div class="empty-state empty-state--panel">
+      Crea un personaje aliado para editar su ficha rapida.
+    </div>
+  `;
+}
+
+function renderCharacterCombatEmpty() {
+  return `
+    <div class="empty-state empty-state--compact">
+      Selecciona un personaje para enviarlo al combat tracker.
+    </div>
+  `;
+}
+
 function renderPlaceholderScreen(title, description) {
   return `
     <section class="panel panel--placeholder">
@@ -3969,6 +4285,78 @@ function getVisibleCombatants() {
   return [...state.combatants]
     .filter(matchesFilters)
     .sort(compareCombatants);
+}
+
+function getVisibleCharacters() {
+  const query = cleanText(state.characterSearchQuery).toLowerCase();
+  const characters = [...state.characters]
+    .sort((left, right) => cleanText(left.name).localeCompare(cleanText(right.name), "es", { numeric: true, sensitivity: "base" }));
+
+  if (!query) {
+    return characters;
+  }
+
+  return characters.filter((character) => [
+    character.name,
+    character.playerName,
+    character.className,
+    character.subclassName,
+    character.species,
+    character.background
+  ].some((value) => cleanText(value).toLowerCase().includes(query)));
+}
+
+function getActiveCharacter() {
+  return state.characters.find((character) => character.id === state.activeCharacterId) ?? null;
+}
+
+function syncActiveCharacterWithVisibleList() {
+  const visibleCharacters = getVisibleCharacters();
+
+  if (visibleCharacters.some((character) => character.id === state.activeCharacterId)) {
+    return;
+  }
+
+  state.activeCharacterId = visibleCharacters[0]?.id ?? state.characters[0]?.id ?? "";
+}
+
+function getCharacterInitials(character) {
+  const words = cleanText(character.name).split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) {
+    return "PJ";
+  }
+
+  return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "").join("");
+}
+
+function formatCharacterSubtitle(character) {
+  const classParts = [
+    character.className,
+    character.subclassName
+  ].filter(Boolean).join(" / ");
+  const level = character.level ? `Nv ${character.level}` : "";
+
+  return [
+    classParts,
+    level,
+    character.species
+  ].filter(Boolean).join(" | ");
+}
+
+function getCharacterProficiencyBonus(level) {
+  return Math.max(2, Math.ceil(Math.max(1, toNumber(level)) / 4) + 1);
+}
+
+function getCombatStatsFromCharacter(character) {
+  return {
+    STR: toNumber(character.abilities.str) || 10,
+    DEX: toNumber(character.abilities.dex) || 10,
+    CON: toNumber(character.abilities.con) || 10,
+    INT: toNumber(character.abilities.int) || 10,
+    WIS: toNumber(character.abilities.wis) || 10,
+    CHA: toNumber(character.abilities.cha) || 10
+  };
 }
 
 function getCombatTurnOrder(combatants = getVisibleCombatants()) {
@@ -4557,6 +4945,176 @@ function updateItemFilter(key, value) {
 
 function updateArcanumFilter(key, value) {
   state.arcanumFilters[key] = value;
+}
+
+function createCharacter(overrides = {}) {
+  const character = createDefaultCharacter(overrides);
+
+  state.characters = [character, ...state.characters];
+  state.activeCharacterId = character.id;
+  saveCharacters();
+}
+
+function createDefaultCharacter(overrides = {}) {
+  const nextNumber = state.characters.length + 1;
+  const maxHp = normalizeStoredNonNegativeNumber(overrides.maxHp ?? 10);
+
+  return normalizeStoredCharacter({
+    id: createStableId("character"),
+    name: `Personaje ${nextNumber}`,
+    playerName: "",
+    className: "",
+    subclassName: "",
+    level: 1,
+    species: "",
+    background: "",
+    tokenUrl: "",
+    armorClass: 10,
+    maxHp,
+    currentHp: maxHp,
+    tempHp: 0,
+    speed: "30 ft",
+    initiativeBonus: 0,
+    conditions: "",
+    stand: "",
+    notes: "",
+    abilities: {
+      str: 10,
+      dex: 10,
+      con: 10,
+      int: 10,
+      wis: 10,
+      cha: 10
+    },
+    ...overrides
+  });
+}
+
+function selectCharacter(characterId) {
+  if (state.characters.some((character) => character.id === characterId)) {
+    state.activeCharacterId = characterId;
+  }
+}
+
+function duplicateActiveCharacter() {
+  const character = getActiveCharacter();
+
+  if (!character) {
+    return;
+  }
+
+  const copy = normalizeStoredCharacter({
+    ...character,
+    id: createStableId("character"),
+    name: `${character.name || "Personaje"} copia`
+  });
+
+  state.characters = [copy, ...state.characters];
+  state.activeCharacterId = copy.id;
+  saveCharacters();
+}
+
+function deleteActiveCharacter() {
+  const character = getActiveCharacter();
+
+  if (!character) {
+    return;
+  }
+
+  state.characters = state.characters.filter((item) => item.id !== character.id);
+  state.activeCharacterId = state.characters[0]?.id ?? "";
+  saveCharacters();
+}
+
+function updateCharacterField(key, rawValue, normalize = true) {
+  const numberFields = new Set(["level", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus"]);
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const value = numberFields.has(key) && normalize ? normalizeStoredNumber(rawValue) : rawValue;
+    const updatedCharacter = normalizeStoredCharacter({
+      ...character,
+      [key]: value
+    });
+
+    if (key === "maxHp" && toNumber(updatedCharacter.currentHp) > toNumber(updatedCharacter.maxHp)) {
+      updatedCharacter.currentHp = updatedCharacter.maxHp;
+    }
+
+    return updatedCharacter;
+  });
+}
+
+function updateCharacterAbility(key, rawValue, normalize = true) {
+  if (!characterAbilityKeys.includes(key)) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      abilities: {
+        ...character.abilities,
+        [key]: normalize ? normalizeStoredNumber(rawValue) || 10 : rawValue
+      }
+    })
+    : character);
+}
+
+function addActiveCharacterToCombat() {
+  const character = getActiveCharacter();
+
+  if (!character) {
+    return;
+  }
+
+  const id = `entity-${state.nextId}`;
+  const combatant = createCombatantFromCharacter(character, id);
+
+  state.combatants = [
+    combatant,
+    ...state.combatants
+  ];
+  state.inlineAdjustments[id] = { ...blankInlineAdjustments };
+  state.nextId += 1;
+  state.activeScreen = "combat-tracker";
+  saveCombatTrackerState();
+}
+
+function createCombatantFromCharacter(character, id) {
+  const abilities = getCombatStatsFromCharacter(character);
+  const maxHp = Math.max(0, toNumber(character.maxHp));
+  const currentHp = character.currentHp === "" ? maxHp : Math.max(0, Math.min(toNumber(character.currentHp), maxHp));
+
+  return normalizeCombatant({
+    id,
+    side: "allies",
+    characterId: character.id,
+    source: "Personajes",
+    tokenUrl: character.tokenUrl,
+    ubicacion: "",
+    iniactiva: character.initiativeBonus,
+    nombre: character.name,
+    numPeana: cleanText(character.stand),
+    pgMax: maxHp,
+    pgAct: currentHp,
+    pgTemp: Math.max(0, toNumber(character.tempHp)),
+    necrotic: 0,
+    ca: character.armorClass,
+    condiciones: character.conditions,
+    stats: formatStatsFromObject(abilities),
+    tamano: "Mediano",
+    movimiento: character.speed,
+    vision: "",
+    lenguas: "",
+    crExp: formatCharacterSubtitle(character),
+    tag: "ALIADO",
+    initiativeRoll: null,
+    initiativeNat20: false
+  });
 }
 
 function toggleExclusiveBestiaryFilterValue(key, value) {
@@ -8074,6 +8632,7 @@ function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
     campaign: {
       name: cleanText(name) || "Campaña sin nombre"
     },
+    characters: [],
     encounterInventory: {
       folders: [],
       systemFolderExpanded: true,
@@ -8278,6 +8837,7 @@ function createCampaignSavePayload() {
     campaign: {
       name
     },
+    characters: getCharactersSaveData(),
     encounterInventory: getEncounterInventorySaveData(),
     combatTracker: getCombatTrackerSaveData({
       includeBattleTimer: true
@@ -8306,6 +8866,7 @@ function normalizeCampaignSave(value) {
   }
 
   const encounterInventory = normalizeStoredEncounterInventory(value.encounterInventory);
+  const characters = normalizeStoredCharacters(value.characters);
   const combatTracker = normalizeStoredCombatTrackerState(value.combatTracker);
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
   const ui = isPlainObject(value.ui) ? value.ui : {};
@@ -8314,6 +8875,7 @@ function normalizeCampaignSave(value) {
 
   return {
     name,
+    characters,
     encounterInventory,
     combatTracker,
     battleTimer,
@@ -8346,6 +8908,9 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.activeCombatNameSearchId = "";
   state.activeCombatSourceId = "";
   state.combatEncounterPickerOpen = false;
+  state.characters = campaign.characters;
+  state.activeCharacterId = state.characters[0]?.id ?? "";
+  state.characterSearchQuery = "";
 
   state.encounterFolders = campaign.encounterInventory.folders;
   state.encounters = campaign.encounterInventory.encounters;
@@ -8365,6 +8930,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.showEncounterSearchSuggestions = false;
 
   saveCombatTrackerState();
+  saveCharacters();
   saveEncounterInventory();
 
   if (fileResult) {
@@ -8469,6 +9035,96 @@ function saveCampaignMeta() {
   } catch {
     // Storage can be unavailable in private contexts; campaign files still work.
   }
+}
+
+function loadCharacters() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(CHARACTERS_STORAGE_KEY);
+    return normalizeStoredCharacters(JSON.parse(rawValue || "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function saveCharacters() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CHARACTERS_STORAGE_KEY, JSON.stringify(getCharactersSaveData()));
+  } catch {
+    // Storage can be unavailable in private contexts; campaign files still work.
+  }
+}
+
+function getCharactersSaveData() {
+  return state.characters
+    .map((character) => normalizeStoredCharacter(character))
+    .filter(Boolean);
+}
+
+function normalizeStoredCharacters(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((character) => normalizeStoredCharacter(character))
+    .filter(Boolean);
+}
+
+function normalizeStoredCharacter(character) {
+  if (!isPlainObject(character)) {
+    return null;
+  }
+
+  const maxHp = normalizeStoredNonNegativeNumber(character.maxHp);
+  const hasCurrentHp = character.currentHp !== undefined && character.currentHp !== null;
+  let currentHp = hasCurrentHp ? normalizeStoredNonNegativeNumber(character.currentHp) : maxHp;
+
+  if (currentHp !== "" && maxHp !== "") {
+    currentHp = Math.min(currentHp, maxHp);
+  }
+
+  return {
+    id: cleanText(character.id) || createStableId("character"),
+    name: cleanText(character.name) || "Personaje",
+    playerName: cleanText(character.playerName),
+    className: cleanText(character.className),
+    subclassName: cleanText(character.subclassName),
+    level: normalizeStoredCharacterLevel(character.level),
+    species: cleanText(character.species),
+    background: cleanText(character.background),
+    tokenUrl: cleanText(character.tokenUrl),
+    armorClass: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.armorClass)) || 10)),
+    maxHp,
+    currentHp,
+    tempHp: normalizeStoredNonNegativeNumber(character.tempHp),
+    speed: cleanText(character.speed) || "30 ft",
+    initiativeBonus: normalizeStoredNumber(character.initiativeBonus),
+    conditions: cleanText(character.conditions),
+    stand: normalizeStoredStandLabel(character.stand),
+    notes: cleanText(character.notes),
+    abilities: normalizeStoredCharacterAbilities(character.abilities)
+  };
+}
+
+function normalizeStoredCharacterLevel(value) {
+  return Math.max(1, Math.min(20, Math.floor(toNumber(value)) || 1));
+}
+
+function normalizeStoredCharacterAbilities(abilities) {
+  const source = isPlainObject(abilities) ? abilities : {};
+
+  return Object.fromEntries(characterAbilityKeys.map((key) => {
+    const score = Math.max(1, Math.min(30, Math.floor(toNumber(source[key])) || 10));
+    return [key, score];
+  }));
 }
 
 function loadCombatTrackerState() {
@@ -8591,6 +9247,7 @@ function normalizeStoredCombatant(combatant) {
   return {
     id: cleanText(combatant.id) || createStableId("entity"),
     side,
+    characterId: cleanText(combatant.characterId),
     source: cleanText(combatant.source),
     tokenUrl: cleanText(combatant.tokenUrl),
     ubicacion: cleanText(combatant.ubicacion),
