@@ -197,6 +197,35 @@ const arcanumFilterLabels = {
 const app = document.querySelector("#app");
 const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 const characterAbilityKeys = ["str", "dex", "con", "int", "wis", "cha"];
+const characterStatBlocks = {
+  str: { label: "Fuerza", skills: [{ id: "athletics", label: "Atletismo" }] },
+  dex: { label: "Destreza", skills: [
+    { id: "acrobatics", label: "Acrobacias" },
+    { id: "sleightOfHand", label: "Juego de manos" },
+    { id: "stealth", label: "Sigilo" }
+  ] },
+  con: { label: "Constitucion", skills: [] },
+  int: { label: "Inteligencia", skills: [
+    { id: "arcana", label: "Arcano" },
+    { id: "history", label: "Historia" },
+    { id: "investigation", label: "Investigacion" },
+    { id: "nature", label: "Naturaleza" },
+    { id: "religion", label: "Religion" }
+  ] },
+  wis: { label: "Sabiduria", skills: [
+    { id: "animalHandling", label: "Trato animal" },
+    { id: "insight", label: "Perspicacia" },
+    { id: "medicine", label: "Medicina" },
+    { id: "perception", label: "Percepcion" },
+    { id: "survival", label: "Supervivencia" }
+  ] },
+  cha: { label: "Carisma", skills: [
+    { id: "deception", label: "Engano" },
+    { id: "intimidation", label: "Intimidacion" },
+    { id: "performance", label: "Interpretacion" },
+    { id: "persuasion", label: "Persuasion" }
+  ] }
+};
 const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
@@ -1123,6 +1152,13 @@ function handleChange(event) {
     render({
       focusSelector: `[data-character-ability="${target.dataset.characterAbility}"]`
     });
+    return;
+  }
+
+  if (target.matches("[data-character-proficiency]")) {
+    updateCharacterProficiency(target.dataset.characterProficiency, target.checked);
+    saveCharacters();
+    render();
     return;
   }
 
@@ -4199,15 +4235,15 @@ function renderCharacterAvatar(character) {
 
 function renderCharacterEditor(character) {
   return `
-    <div class="character-editor__section">
-      <div class="section-heading section-heading--compact">
-        <div>
-          <p class="eyebrow">Ficha rapida 5e</p>
-          <h3>${escapeHtml(character.name || "Personaje sin nombre")}</h3>
-        </div>
-      </div>
+    <div class="bestiary-detail__header character-sheet__header">
+      <p class="eyebrow">Ficha rapida 5e</p>
+      <h3>${escapeHtml(character.name || "Personaje sin nombre")}</h3>
+      <p class="bestiary-detail__source">${escapeHtml(formatCharacterSubtitle(character) || "Aliado sin clase")}</p>
+      <p class="lead">${escapeHtml(formatCharacterIdentityLine(character))}</p>
+    </div>
 
-      <div class="character-form-grid">
+    <div class="character-editor__section character-editor__section--identity">
+      <div class="character-identity-grid">
         ${renderCharacterTextField("name", "Nombre", character.name, "Seraphina Vale")}
         ${renderCharacterTextField("playerName", "Jugador", character.playerName, "Victor")}
         ${renderCharacterTextField("className", "Clase", character.className, "Guerrero")}
@@ -4219,36 +4255,156 @@ function renderCharacterEditor(character) {
       </div>
     </div>
 
-    <div class="character-editor__section">
-      <h4>Combate</h4>
-      <div class="character-form-grid character-form-grid--combat">
-        ${renderCharacterNumberField("armorClass", "CA", character.armorClass)}
-        ${renderCharacterNumberField("maxHp", "PG MAX", character.maxHp)}
-        ${renderCharacterNumberField("currentHp", "PG ACT", character.currentHp)}
-        ${renderCharacterNumberField("tempHp", "PG TEMP", character.tempHp)}
-        ${renderCharacterTextField("speed", "Velocidad", character.speed, "30 ft")}
-        ${renderCharacterNumberField("initiativeBonus", "Bonus iniciativa", character.initiativeBonus)}
-        ${renderCharacterTextField("conditions", "Condiciones", character.conditions, "Concentrando")}
-        ${renderCharacterTextField("stand", "Peana", character.stand, "1")}
+    <div class="character-stat-portrait-group">
+      ${renderCharacterStatsPanel(character)}
+      <div class="character-sheet__side">
+        <div class="character-metrics-strip">
+          ${renderCharacterMetricField("maxHp", "PG MAX", character.maxHp)}
+          ${renderCharacterMetricField("armorClass", "CA", character.armorClass)}
+          ${renderCharacterMetricField("initiativeBonus", "Bonus iniciativa", character.initiativeBonus)}
+          ${renderCharacterMetricField("size", "Talla", character.size, "Mediano")}
+          ${renderCharacterMetricField("speed", "Velocidad", character.speed, "30 ft")}
+        </div>
+        ${renderCharacterDetailMedia(character)}
       </div>
     </div>
 
-    <div class="character-editor__section">
-      <h4>Atributos</h4>
-      <div class="character-abilities">
-        ${characterAbilityKeys.map((key) => renderCharacterAbilityField(character, key)).join("")}
-      </div>
+    <div class="bestiary-sections character-sheet__notes">
+      <label class="detail-section character-notes">
+        <span>Notas</span>
+        <textarea
+          class="filter-input"
+          rows="5"
+          data-character-field="notes"
+          placeholder="Rasgos, recursos o recordatorios de combate"
+        >${escapeHtml(character.notes)}</textarea>
+      </label>
     </div>
+  `;
+}
 
-    <label class="toolbar-field character-notes">
-      <span>Notas</span>
-      <textarea
-        class="filter-input"
-        rows="4"
-        data-character-field="notes"
-        placeholder="Rasgos, recursos o recordatorios de combate"
-      >${escapeHtml(character.notes)}</textarea>
+function renderCharacterStatsPanel(character) {
+  const proficiencyBonus = getCharacterProficiencyBonus(character);
+  const proficientKeys = getCharacterProficiencySet(character);
+  const passivePerception = 10
+    + getAbilityModifier(character.abilities.wis ?? 10)
+    + (proficientKeys.has("skill:perception") ? proficiencyBonus : 0);
+
+  return `
+    <section class="character-stat-sheet" aria-label="Estadisticas del personaje">
+      <label class="character-stat-sheet__proficiency">
+        <input
+          type="text"
+          inputmode="numeric"
+          value="${escapeHtml(formatModifier(proficiencyBonus))}"
+          data-character-field="proficiencyBonus"
+          aria-label="Bonus de competencia"
+        />
+        <strong>Bonus competencia</strong>
+      </label>
+      <div class="character-stat-sheet__blocks">
+        ${characterAbilityKeys.map((key) => renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus)).join("")}
+      </div>
+      <div class="character-stat-sheet__passive">
+        <span>${escapeHtml(String(passivePerception))}</span>
+        <strong>Percepcion Pasiva</strong>
+      </div>
+    </section>
+  `;
+}
+
+function renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus) {
+  const score = character.abilities[key] ?? 10;
+  const modifier = getAbilityModifier(score);
+  const meta = characterStatBlocks[key];
+  const saveKey = `save:${key}`;
+
+  return `
+    <article class="character-stat-block">
+      <label class="character-stat-block__score">
+        <span class="character-stat-block__modifier">${escapeHtml(formatModifier(modifier))}</span>
+        <input
+          type="number"
+          inputmode="numeric"
+          value="${escapeHtml(String(score))}"
+          data-character-ability="${escapeHtml(key)}"
+          aria-label="${escapeHtml(meta.label)}"
+        />
+        <strong>${escapeHtml(meta.label)}</strong>
+      </label>
+      <div class="character-stat-block__checks">
+        ${renderCharacterCheckRow("save", "Salvacion", modifier, proficiencyBonus, saveKey, proficientKeys.has(saveKey))}
+        ${meta.skills.map((skill) => {
+          const skillKey = `skill:${skill.id}`;
+          return renderCharacterCheckRow("skill", skill.label, modifier, proficiencyBonus, skillKey, proficientKeys.has(skillKey));
+        }).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderCharacterCheckRow(type, label, modifier, proficiencyBonus, proficiencyKey, isChecked) {
+  const value = modifier + (isChecked ? proficiencyBonus : 0);
+
+  return `
+    <label class="character-check-row">
+      <input
+        type="checkbox"
+        data-character-proficiency="${escapeHtml(proficiencyKey)}"
+        ${isChecked ? "checked" : ""}
+        aria-label="${escapeHtml(label)}"
+      />
+      <span class="character-check-row__mark character-check-row__mark--${type}" aria-hidden="true"></span>
+      <strong>${escapeHtml(formatModifier(value))}</strong>
+      <span>${escapeHtml(label)}</span>
     </label>
+  `;
+}
+
+function renderCharacterMetricField(key, label, value, placeholder = "") {
+  const isNumberField = ["armorClass", "currentHp", "maxHp", "initiativeBonus"].includes(key);
+
+  return `
+    <label class="bestiary-metric-card character-metric-field">
+      <span>${escapeHtml(label)}</span>
+      <input
+        class="filter-input character-metric-field__input"
+        type="${isNumberField ? "number" : "text"}"
+        ${isNumberField ? "inputmode=\"numeric\"" : ""}
+        value="${escapeHtml(String(value ?? ""))}"
+        placeholder="${escapeHtml(placeholder)}"
+        data-character-field="${escapeHtml(key)}"
+      />
+    </label>
+  `;
+}
+
+function renderCharacterDetailMedia(character) {
+  const title = character.name || "Personaje sin nombre";
+
+  return `
+    <div class="bestiary-detail__media character-sheet__media">
+      <figure class="bestiary-portrait character-sheet__portrait">
+        ${
+          character.tokenUrl
+            ? `
+              <img
+                class="bestiary-portrait__image character-sheet__portrait-image"
+                src="${escapeHtml(character.tokenUrl)}"
+                alt="Retrato de ${escapeHtml(title)}"
+                loading="lazy"
+                decoding="async"
+              />
+            `
+            : `
+              <div class="bestiary-portrait bestiary-portrait--empty character-sheet__portrait-empty" aria-label="Retrato no disponible">
+                <div class="bestiary-portrait__placeholder">${escapeHtml(getCharacterInitials(character))}</div>
+                <p class="bestiary-portrait__hint">Sin retrato vinculado</p>
+              </div>
+            `
+        }
+      </figure>
+    </div>
   `;
 }
 
@@ -4314,7 +4470,7 @@ function renderCharacterAbilityField(character, key) {
   const modifier = getAbilityModifier(score);
 
   return `
-    <label class="character-ability">
+    <label class="ability-card character-ability">
       <span>${key.toUpperCase()}</span>
       <input
         class="filter-input"
@@ -4423,6 +4579,29 @@ function formatCharacterSubtitle(character) {
     level,
     character.species
   ].filter(Boolean).join(" | ");
+}
+
+function formatCharacterIdentityLine(character) {
+  return [
+    character.background,
+    character.playerName ? `Jugador: ${character.playerName}` : "",
+    character.size ? `Talla ${character.size}` : ""
+  ].filter(Boolean).join(" | ") || "Ficha editable lista para entrar en combate.";
+}
+
+function getCharacterProficiencyBonus(character) {
+  const storedBonus = normalizeStoredNumber(character.proficiencyBonus);
+  return storedBonus === ""
+    ? getDefaultCharacterProficiencyBonus(character.level)
+    : Math.max(0, Math.floor(toNumber(storedBonus)));
+}
+
+function getDefaultCharacterProficiencyBonus(level) {
+  return Math.max(2, Math.ceil((toNumber(level) || 1) / 4) + 1);
+}
+
+function getCharacterProficiencySet(character) {
+  return new Set(normalizeStoredCharacterProficiencies(character.proficiencies));
 }
 
 function getCombatStatsFromCharacter(character) {
@@ -5045,6 +5224,9 @@ function createDefaultCharacter(overrides = {}) {
     level: 1,
     species: "",
     background: "",
+    size: "Mediano",
+    proficiencyBonus: 2,
+    proficiencies: [],
     tokenUrl: "",
     armorClass: 10,
     maxHp,
@@ -5104,7 +5286,7 @@ function deleteActiveCharacter() {
 }
 
 function updateCharacterField(key, rawValue, normalize = true) {
-  const numberFields = new Set(["level", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus"]);
+  const numberFields = new Set(["level", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus", "proficiencyBonus"]);
 
   state.characters = state.characters.map((character) => {
     if (character.id !== state.activeCharacterId) {
@@ -5122,6 +5304,33 @@ function updateCharacterField(key, rawValue, normalize = true) {
     }
 
     return updatedCharacter;
+  });
+}
+
+function updateCharacterProficiency(key, isChecked) {
+  const normalizedKey = normalizeCharacterProficiencyKey(key);
+
+  if (!normalizedKey) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const proficiencies = new Set(normalizeStoredCharacterProficiencies(character.proficiencies));
+
+    if (isChecked) {
+      proficiencies.add(normalizedKey);
+    } else {
+      proficiencies.delete(normalizedKey);
+    }
+
+    return normalizeStoredCharacter({
+      ...character,
+      proficiencies: [...proficiencies]
+    });
   });
 }
 
@@ -5226,7 +5435,7 @@ function addCharactersToCombat(characters, options = {}) {
 function createCombatantFromCharacter(character, id) {
   const abilities = getCombatStatsFromCharacter(character);
   const maxHp = Math.max(0, toNumber(character.maxHp));
-  const currentHp = character.currentHp === "" ? maxHp : Math.max(0, Math.min(toNumber(character.currentHp), maxHp));
+  const currentHp = maxHp;
 
   return normalizeCombatant({
     id,
@@ -5237,15 +5446,15 @@ function createCombatantFromCharacter(character, id) {
     ubicacion: "",
     iniactiva: character.initiativeBonus,
     nombre: character.name,
-    numPeana: cleanText(character.stand),
+    numPeana: "",
     pgMax: maxHp,
     pgAct: currentHp,
-    pgTemp: Math.max(0, toNumber(character.tempHp)),
+    pgTemp: 0,
     necrotic: 0,
     ca: character.armorClass,
-    condiciones: character.conditions,
+    condiciones: "",
     stats: formatStatsFromObject(abilities),
-    tamano: "Mediano",
+    tamano: cleanText(character.size) || "Mediano",
     movimiento: character.speed,
     vision: "",
     lenguas: "",
@@ -9224,6 +9433,7 @@ function normalizeStoredCharacter(character) {
   }
 
   const maxHp = normalizeStoredNonNegativeNumber(character.maxHp);
+  const proficiencyBonus = normalizeStoredNumber(character.proficiencyBonus);
   const hasCurrentHp = character.currentHp !== undefined && character.currentHp !== null;
   let currentHp = hasCurrentHp ? normalizeStoredNonNegativeNumber(character.currentHp) : maxHp;
 
@@ -9240,6 +9450,11 @@ function normalizeStoredCharacter(character) {
     level: normalizeStoredCharacterLevel(character.level),
     species: cleanText(character.species),
     background: cleanText(character.background),
+    size: cleanText(character.size) || "Mediano",
+    proficiencyBonus: proficiencyBonus === ""
+      ? getDefaultCharacterProficiencyBonus(character.level)
+      : Math.max(0, Math.floor(toNumber(proficiencyBonus))),
+    proficiencies: normalizeStoredCharacterProficiencies(character.proficiencies),
     tokenUrl: cleanText(character.tokenUrl),
     armorClass: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.armorClass)) || 10)),
     maxHp,
@@ -9265,6 +9480,28 @@ function normalizeStoredCharacterAbilities(abilities) {
     const score = Math.max(1, Math.min(30, Math.floor(toNumber(source[key])) || 10));
     return [key, score];
   }));
+}
+
+function normalizeStoredCharacterProficiencies(proficiencies) {
+  if (!Array.isArray(proficiencies)) {
+    return [];
+  }
+
+  return [...new Set(proficiencies.map((key) => normalizeCharacterProficiencyKey(key)).filter(Boolean))];
+}
+
+function normalizeCharacterProficiencyKey(key) {
+  const value = cleanText(key);
+
+  if (characterAbilityKeys.some((ability) => value === `save:${ability}`)) {
+    return value;
+  }
+
+  const skillKeys = Object.values(characterStatBlocks)
+    .flatMap((block) => block.skills)
+    .map((skill) => `skill:${skill.id}`);
+
+  return skillKeys.includes(value) ? value : "";
 }
 
 function loadCombatTrackerState() {
