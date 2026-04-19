@@ -2254,6 +2254,8 @@ table {
   top: 1rem;
   display: grid;
   gap: 1rem;
+  align-content: start;
+  justify-items: stretch;
 }
 
 .character-sheet__side .character-metrics-strip {
@@ -2477,25 +2479,33 @@ table {
 }
 
 .character-sheet__media {
+  grid-column: 1 / -1;
   justify-items: stretch;
-}
-
-.character-sheet__portrait {
-  justify-items: stretch;
-}
-
-.character-sheet__portrait-image,
-.character-sheet__portrait-empty {
-  min-height: 22rem;
-}
-
-.character-sheet__portrait-image {
-  object-fit: cover;
-}
-
-.character-sheet__portrait-empty {
   width: 100%;
-  height: 100%;
+}
+
+.characters-editor .character-sheet__portrait {
+  width: 100%;
+  margin-inline: 0;
+  justify-items: stretch;
+}
+
+.characters-editor .character-sheet__portrait-image,
+.characters-editor .character-sheet__portrait-empty {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.characters-editor .character-sheet__portrait-image {
+  height: auto;
+  object-fit: cover;
+  object-position: center;
+}
+
+.characters-editor .character-sheet__portrait-empty {
+  width: 100%;
+  height: auto;
 }
 
 .character-abilities {
