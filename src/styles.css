@@ -2055,6 +2055,115 @@ table {
   gap: 1rem;
 }
 
+.character-overview {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.character-overview__cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.character-overview__table-wrap {
+  max-height: none;
+}
+
+.character-overview-table {
+  min-width: 980px;
+}
+
+.character-overview__identity {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.character-overview__identity strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.character-overview__identity small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.character-overview__stack {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.character-overview__input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(240, 200, 121, 0.16);
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.character-overview__input::placeholder {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.character-overview__input:focus {
+  outline: none;
+  border-color: rgba(94, 183, 166, 0.58);
+  box-shadow: 0 0 0 1px rgba(94, 183, 166, 0.22);
+}
+
+.character-overview__value {
+  display: grid;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0.45rem 0.2rem;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.character-overview-bar {
+  position: relative;
+  min-height: 1.85rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.character-overview-bar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--overview-fill, 0%);
+  border-radius: inherit;
+}
+
+.character-overview-bar--xp .character-overview-bar__fill {
+  background: linear-gradient(90deg, rgba(94, 183, 166, 0.85), rgba(240, 200, 121, 0.88));
+}
+
+.character-overview-bar--load .character-overview-bar__fill {
+  background: linear-gradient(90deg, rgba(111, 177, 101, 0.82), rgba(240, 200, 121, 0.88));
+}
+
+.character-overview-bar__label {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-height: inherit;
+  padding-inline: 0.55rem;
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
 .characters-toolbar {
   display: flex;
   align-items: flex-end;
@@ -2097,7 +2206,7 @@ table {
 .character-list-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.65rem;
   align-items: center;
   width: 100%;
@@ -2108,6 +2217,7 @@ table {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .character-list-item:hover,
@@ -2117,7 +2227,7 @@ table {
   background: rgba(94, 183, 166, 0.1);
 }
 
-.character-list-item span {
+.character-list-item__copy {
   min-width: 0;
   display: grid;
   gap: 0.16rem;
@@ -2150,6 +2260,38 @@ table {
 
 .character-avatar--empty {
   text-transform: uppercase;
+}
+
+.character-list-item__class-icon {
+  display: grid;
+  place-items: center;
+  justify-self: end;
+  width: 3.7rem;
+  height: 3.7rem;
+  flex-shrink: 0;
+  pointer-events: none;
+  margin-right: 0.2rem;
+  overflow: hidden;
+}
+
+.character-list-item__class-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center center;
+  opacity: 0.92;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.28));
+}
+
+.character-list-item__class-icon[data-class-icon-key="guerrero"],
+.character-list-item__class-icon[data-class-icon-key="paladin"] {
+  width: 3rem;
+  height: 4rem;
+  margin-top: 0;
+  margin-right: 0.1rem;
 }
 
 .characters-editor {
@@ -4467,6 +4609,10 @@ table {
     grid-template-columns: 1fr;
   }
 
+  .character-overview__cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .characters-list {
     max-height: none;
   }
@@ -4625,6 +4771,10 @@ table {
   .character-metrics-strip,
   .character-form-grid--combat {
     grid-template-columns: 1fr;
+  }
+
+  .character-overview__cards {
+    grid-template-columns: 1fr 1fr;
   }
 
   .character-stat-sheet {

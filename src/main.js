@@ -1,6 +1,7 @@
 import { SOURCE_NAMES } from "./data/bestiarySources.js";
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { screens } from "./navigation/screens.js";
+import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
 const BESTIARY_CSV_PATH = "data/Bestiary.csv";
 const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
 const ITEMS_CSV_PATH = "data/Items.csv";
@@ -1223,6 +1224,20 @@ function handleClick(event) {
 function handleChange(event) {
   const target = event.target;
 
+  if (target.matches("[data-character-overview-field][data-character-overview-id]")) {
+    updateCharacterFieldForId(
+      target.dataset.characterOverviewId,
+      target.dataset.characterOverviewField,
+      target.value,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-overview-field="${target.dataset.characterOverviewField}"][data-character-overview-id="${target.dataset.characterOverviewId}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-character-field]")) {
     updateCharacterField(target.dataset.characterField, target.value, true);
     saveCharacters();
@@ -1359,6 +1374,17 @@ function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
+
+  if (target.matches("[data-character-overview-field][data-character-overview-id]")) {
+    updateCharacterFieldForId(
+      target.dataset.characterOverviewId,
+      target.dataset.characterOverviewField,
+      target.value,
+      false
+    );
+    saveCharacters();
+    return;
+  }
 
   if (target.matches("[data-character-field]")) {
     updateCharacterField(target.dataset.characterField, target.value, false);
@@ -4305,6 +4331,7 @@ function renderCharactersScreen() {
 
   return `
     <section class="panel panel--table characters-screen">
+      ${renderCharactersOverviewPanel(state.characters)}
       <div class="section-heading">
         <div>
           <p class="eyebrow">Aliados de campana</p>
@@ -4353,6 +4380,7 @@ function renderCharacterListItem(character) {
     character.level ? `Nivel ${character.level}` : "",
     character.playerName
   ].filter(Boolean).join(" | ");
+  const classIcon = getCharacterClassIcon(character.className);
 
   return `
     <button
@@ -4363,10 +4391,15 @@ function renderCharacterListItem(character) {
       aria-pressed="${isActive}"
     >
       ${renderCharacterAvatar(character)}
-      <span>
+      <span class="character-list-item__copy">
         <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
         <small>${escapeHtml(subtitle || "ALIADO")}</small>
       </span>
+      ${
+        classIcon
+          ? `<span class="character-list-item__class-icon" data-class-icon-key="${escapeHtml(classIcon.key)}" aria-hidden="true"><img src="${escapeHtml(classIcon.src)}" alt="${escapeHtml(classIcon.alt)}" /></span>`
+          : ""
+      }
     </button>
   `;
 }
@@ -4416,6 +4449,125 @@ function renderCharacterEditor(character) {
 
     <div class="bestiary-sections character-sheet__extras">
       ${renderCharacterInventorySection(character)}
+    </div>
+  `;
+}
+
+function renderCharactersOverviewPanel(characters) {
+  if (!characters.length) {
+    return "";
+  }
+
+  return `
+    <section class="character-overview">
+      <div class="section-heading section-heading--compact">
+        <div>
+          <p class="eyebrow">Resumen de grupo</p>
+          <h3>Vista rapida</h3>
+        </div>
+      </div>
+      <div class="table-wrap character-overview__table-wrap" role="region" aria-label="Resumen de personajes">
+        <table class="combat-table character-overview-table">
+          <colgroup>
+            <col style="width: 14rem" />
+            <col style="width: 6rem" />
+            <col style="width: 5rem" />
+            <col style="width: 6rem" />
+            <col style="width: 6rem" />
+            <col style="width: 7rem" />
+            <col style="width: 5rem" />
+            <col style="width: 15rem" />
+            <col style="width: 15rem" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Personaje</th>
+              <th scope="col">PG max</th>
+              <th scope="col">CA</th>
+              <th scope="col">Vel.</th>
+              <th scope="col">Talla</th>
+              <th scope="col">Percep.</th>
+              <th scope="col">Nivel</th>
+              <th scope="col">XP</th>
+              <th scope="col">Carga</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${characters.map((character) => renderCharacterOverviewRow(character)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderCharacterOverviewRow(character) {
+  const experience = getCharacterExperienceProgress(character);
+  const load = getCharacterInventoryLoad(character);
+  const xpPercent = Math.round(experience.progressPercent);
+  const loadPercent = Math.round(load.percent);
+
+  return `
+    <tr>
+      <td>
+        <div class="character-overview__identity">
+          <strong>${escapeHtml(character.name || "Personaje")}</strong>
+          <small>${escapeHtml(character.className || "Sin clase")}</small>
+        </div>
+      </td>
+      <td>${renderCharacterOverviewField(character.id, "maxHp", character.maxHp ?? 0, "number")}</td>
+      <td>${renderCharacterOverviewField(character.id, "armorClass", character.armorClass ?? 0, "number")}</td>
+      <td>${renderCharacterOverviewField(character.id, "speed", character.speed || "", "text", "30 ft")}</td>
+      <td>${renderCharacterOverviewField(character.id, "size", character.size || "", "text", "Mediano")}</td>
+      <td>${escapeHtml(String(getCharacterPassivePerception(character)))}</td>
+      <td>${renderCharacterOverviewValue(character.level ?? 1)}</td>
+      <td>
+        <div class="character-overview__stack">
+          ${renderCharacterOverviewValue(`${formatExperiencePoints(experience.levelExperiencePoints)} XP`)}
+          ${renderCharacterOverviewProgressBar(
+        `${xpPercent}%`,
+        experience.progressPercent,
+        "xp"
+      )}
+        </div>
+      </td>
+      <td>${renderCharacterOverviewProgressBar(
+        `${loadPercent}%`,
+        load.percent,
+        "load"
+      )}</td>
+    </tr>
+  `;
+}
+
+function renderCharacterOverviewField(characterId, key, value, type = "text", placeholder = "") {
+  const numericAttributes = type === "number" ? " inputmode=\"numeric\"" : "";
+  const placeholderAttribute = placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : "";
+
+  return `
+    <input
+      class="character-overview__input"
+      type="${type}"
+      ${numericAttributes}
+      value="${escapeHtml(String(value ?? ""))}"
+      ${placeholderAttribute}
+      data-character-overview-id="${escapeHtml(characterId)}"
+      data-character-overview-field="${escapeHtml(key)}"
+    />
+  `;
+}
+
+function renderCharacterOverviewValue(value) {
+  return `<span class="character-overview__value">${escapeHtml(String(value ?? ""))}</span>`;
+}
+
+function renderCharacterOverviewProgressBar(label, percent, tone) {
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+
+  return `
+    <div class="character-overview-bar character-overview-bar--${tone}" style="--overview-fill: ${clampedPercent.toFixed(2)}%">
+      <span class="character-overview-bar__fill" aria-hidden="true"></span>
+      <span class="character-overview-bar__label">${escapeHtml(label)}</span>
     </div>
   `;
 }
@@ -4591,9 +4743,7 @@ function renderCharacterInventoryRow(row) {
 function renderCharacterStatsPanel(character) {
   const proficiencyBonus = getCharacterProficiencyBonus(character);
   const proficientKeys = getCharacterProficiencySet(character);
-  const passivePerception = 10
-    + getAbilityModifier(character.abilities.wis ?? 10)
-    + (proficientKeys.has("skill:perception") ? proficiencyBonus : 0);
+  const passivePerception = getCharacterPassivePerception(character);
 
   return `
     <section class="character-stat-sheet" aria-label="Estadisticas del personaje">
@@ -4610,6 +4760,15 @@ function renderCharacterStatsPanel(character) {
       </div>
     </section>
   `;
+}
+
+function getCharacterPassivePerception(character) {
+  const proficiencyBonus = getCharacterProficiencyBonus(character);
+  const proficientKeys = getCharacterProficiencySet(character);
+
+  return 10
+    + getAbilityModifier(character.abilities.wis ?? 10)
+    + (proficientKeys.has("skill:perception") ? proficiencyBonus : 0);
 }
 
 function renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus) {
@@ -5738,10 +5897,14 @@ function deleteActiveCharacter() {
 }
 
 function updateCharacterField(key, rawValue, normalize = true) {
+  updateCharacterFieldForId(state.activeCharacterId, key, rawValue, normalize);
+}
+
+function updateCharacterFieldForId(characterId, key, rawValue, normalize = true) {
   const numberFields = new Set(["level", "experiencePoints", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus"]);
 
   state.characters = state.characters.map((character) => {
-    if (character.id !== state.activeCharacterId) {
+    if (character.id !== characterId) {
       return character;
     }
 
