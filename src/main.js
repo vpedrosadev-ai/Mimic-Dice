@@ -226,6 +226,44 @@ const characterStatBlocks = {
     { id: "persuasion", label: "Persuasion" }
   ] }
 };
+const characterLevelProgression = [
+  { level: 1, experiencePoints: 0, proficiencyBonus: 2 },
+  { level: 2, experiencePoints: 300, proficiencyBonus: 2 },
+  { level: 3, experiencePoints: 900, proficiencyBonus: 2 },
+  { level: 4, experiencePoints: 2700, proficiencyBonus: 2 },
+  { level: 5, experiencePoints: 6500, proficiencyBonus: 3 },
+  { level: 6, experiencePoints: 14000, proficiencyBonus: 3 },
+  { level: 7, experiencePoints: 23000, proficiencyBonus: 3 },
+  { level: 8, experiencePoints: 34000, proficiencyBonus: 3 },
+  { level: 9, experiencePoints: 48000, proficiencyBonus: 4 },
+  { level: 10, experiencePoints: 64000, proficiencyBonus: 4 },
+  { level: 11, experiencePoints: 85000, proficiencyBonus: 4 },
+  { level: 12, experiencePoints: 100000, proficiencyBonus: 4 },
+  { level: 13, experiencePoints: 120000, proficiencyBonus: 5 },
+  { level: 14, experiencePoints: 140000, proficiencyBonus: 5 },
+  { level: 15, experiencePoints: 165000, proficiencyBonus: 5 },
+  { level: 16, experiencePoints: 195000, proficiencyBonus: 5 },
+  { level: 17, experiencePoints: 225000, proficiencyBonus: 6 },
+  { level: 18, experiencePoints: 265000, proficiencyBonus: 6 },
+  { level: 19, experiencePoints: 305000, proficiencyBonus: 6 },
+  { level: 20, experiencePoints: 355000, proficiencyBonus: 6 }
+];
+const itemSizeThresholds = [
+  { label: "XS", minWeight: 0 },
+  { label: "S", minWeight: 1 },
+  { label: "M", minWeight: 5 },
+  { label: "L", minWeight: 15 },
+  { label: "XL", minWeight: 30 },
+  { label: "XXL", minWeight: 60 }
+];
+const characterCurrencyRows = [
+  { name: "COBRE", shortLabel: "CO", icon: "copper" },
+  { name: "PLATA", shortLabel: "PL", icon: "silver" },
+  { name: "ORO", shortLabel: "OR", icon: "gold" },
+  { name: "ELECTRO", shortLabel: "EL", icon: "electrum" },
+  { name: "PLATINO", shortLabel: "PT", icon: "platinum" }
+];
+const experienceFormatter = new Intl.NumberFormat("es-ES");
 const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
@@ -285,6 +323,8 @@ const state = {
   itemFilterSearch: { ...blankItemFilterSearch },
   showItemQuerySuggestions: false,
   itemSelectedId: "",
+  activeCharacterInventoryRowId: "",
+  showCharacterInventorySuggestions: false,
   itemStatus: "loading",
   itemMessage: "",
   arcanum: [],
@@ -356,6 +396,7 @@ function handleClick(event) {
   const clickedBestiaryQuery = event.target.closest("[data-bestiary-query-menu]");
   const clickedItemFilter = event.target.closest("[data-item-filter-menu]");
   const clickedItemQuery = event.target.closest("[data-item-query-menu]");
+  const clickedCharacterInventoryMenu = event.target.closest("[data-character-inventory-menu]");
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
@@ -415,6 +456,16 @@ function handleClick(event) {
 
   if (state.showItemQuerySuggestions && !clickedItemQuery) {
     state.showItemQuerySuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showCharacterInventorySuggestions && !clickedCharacterInventoryMenu) {
+    state.showCharacterInventorySuggestions = false;
+    state.activeCharacterInventoryRowId = "";
 
     if (!actionButton) {
       render();
@@ -1004,6 +1055,41 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-character-inventory") {
+    toggleCharacterInventorySection();
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "add-character-inventory-row") {
+    const rowId = addCharacterInventoryRow();
+    saveCharacters();
+    render({
+      focusSelector: rowId ? `[data-character-inventory-name="${rowId}"]` : null
+    });
+    return;
+  }
+
+  if (action === "remove-character-inventory-row") {
+    removeCharacterInventoryRow(actionButton.dataset.characterInventoryRowId);
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "select-character-inventory-suggestion") {
+    selectCharacterInventorySuggestion(
+      actionButton.dataset.characterInventoryRowId,
+      actionButton.dataset.itemEntryId
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-inventory-name="${actionButton.dataset.characterInventoryRowId}"]`
+    });
+    return;
+  }
+
   if (action === "toggle-item-filter") {
     const nextKey = state.activeItemFilterKey === actionButton.dataset.itemFilterKey ? "" : actionButton.dataset.itemFilterKey;
     state.activeItemFilterKey = nextKey;
@@ -1146,6 +1232,20 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-character-inventory-field][data-character-inventory-row]")) {
+    updateCharacterInventoryRow(
+      target.dataset.characterInventoryRow,
+      target.dataset.characterInventoryField,
+      target.value,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-inventory-field="${target.dataset.characterInventoryField}"][data-character-inventory-row="${target.dataset.characterInventoryRow}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-character-ability]")) {
     updateCharacterAbility(target.dataset.characterAbility, target.value, true);
     saveCharacters();
@@ -1262,6 +1362,30 @@ function handleInput(event) {
 
   if (target.matches("[data-character-field]")) {
     updateCharacterField(target.dataset.characterField, target.value, false);
+    saveCharacters();
+    return;
+  }
+
+  if (target.matches("[data-character-inventory-name]")) {
+    updateCharacterInventoryRow(target.dataset.characterInventoryName, "name", target.value, false);
+    state.activeCharacterInventoryRowId = target.dataset.characterInventoryName;
+    state.showCharacterInventorySuggestions = cleanText(target.value).length > 0;
+    saveCharacters();
+    scheduleRender({
+      focusSelector: `[data-character-inventory-name="${target.dataset.characterInventoryName}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-inventory-field][data-character-inventory-row]")) {
+    updateCharacterInventoryRow(
+      target.dataset.characterInventoryRow,
+      target.dataset.characterInventoryField,
+      target.value,
+      false
+    );
     saveCharacters();
     return;
   }
@@ -2875,7 +2999,7 @@ function renderItemRow(entry, isSelected) {
     : "";
   const itemStats = [
     entry.value ? `PRECIO: ${entry.valueLabel}` : "",
-    entry.weight ? `PESO: ${entry.weightLabel}` : ""
+    entry.weight ? `PESO: ${entry.weightLabel} | Talla: ${entry.sizeLabel}` : `Talla: ${entry.sizeLabel}`
   ].filter(Boolean).join(" | ");
   const rarityClass = getItemRarityClass(entry.rarityLabel);
   const typeSummary = getItemMostSpecificTypeLabel(entry.type);
@@ -3958,6 +4082,18 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "crExp") {
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+
+    if (linkedCharacter && cleanText(combatant.tag).toUpperCase() === "ALIADO") {
+      return `
+        <td>
+          <div class="combat-character-xp-cell">
+            ${renderCharacterExperienceBar(linkedCharacter, { compact: true })}
+          </div>
+        </td>
+      `;
+    }
+
     return `
       <td>
         <input
@@ -3984,6 +4120,16 @@ function renderDataCell(combatant, column, isDead) {
       />
     </td>
   `;
+}
+
+function getLinkedCharacterForCombatant(combatant) {
+  const characterId = cleanText(combatant.characterId);
+
+  if (!characterId) {
+    return null;
+  }
+
+  return state.characters.find((character) => character.id === characterId) ?? null;
 }
 
 function renderCombatNameSuggestion(combatantId, entry) {
@@ -4236,22 +4382,22 @@ function renderCharacterAvatar(character) {
 function renderCharacterEditor(character) {
   return `
     <div class="bestiary-detail__header character-sheet__header">
-      <p class="eyebrow">Ficha rapida 5e</p>
-      <h3>${escapeHtml(character.name || "Personaje sin nombre")}</h3>
-      <p class="bestiary-detail__source">${escapeHtml(formatCharacterSubtitle(character) || "Aliado sin clase")}</p>
-      <p class="lead">${escapeHtml(formatCharacterIdentityLine(character))}</p>
+      <div class="character-sheet__header-main">
+        <p class="eyebrow">Ficha rapida 5e</p>
+        <div class="character-sheet__header-fields">
+          ${renderCharacterTextField("name", "Nombre", character.name, "Seraphina Vale", { compact: true })}
+          ${renderCharacterTextField("playerName", "Jugador", character.playerName, "Victor", { compact: true })}
+        </div>
+      </div>
+      ${renderCharacterHeaderAside(character)}
     </div>
 
     <div class="character-editor__section character-editor__section--identity">
       <div class="character-identity-grid">
-        ${renderCharacterTextField("name", "Nombre", character.name, "Seraphina Vale")}
-        ${renderCharacterTextField("playerName", "Jugador", character.playerName, "Victor")}
         ${renderCharacterTextField("className", "Clase", character.className, "Guerrero")}
         ${renderCharacterTextField("subclassName", "Subclase", character.subclassName, "Campeon")}
-        ${renderCharacterNumberField("level", "Nivel", character.level)}
         ${renderCharacterTextField("species", "Especie", character.species, "Humano")}
-        ${renderCharacterTextField("background", "Trasfondo", character.background, "Soldado")}
-        ${renderCharacterImageField(character)}
+        ${renderCharacterTextField("size", "Talla", character.size, "Mediano")}
       </div>
     </div>
 
@@ -4262,23 +4408,182 @@ function renderCharacterEditor(character) {
           ${renderCharacterMetricField("maxHp", "PG MAX", character.maxHp)}
           ${renderCharacterMetricField("armorClass", "CA", character.armorClass)}
           ${renderCharacterMetricField("initiativeBonus", "Bonus iniciativa", character.initiativeBonus)}
-          ${renderCharacterMetricField("size", "Talla", character.size, "Mediano")}
           ${renderCharacterMetricField("speed", "Velocidad", character.speed, "30 ft")}
         </div>
         ${renderCharacterDetailMedia(character)}
       </div>
     </div>
 
-    <div class="bestiary-sections character-sheet__notes">
-      <label class="detail-section character-notes">
-        <span>Notas</span>
-        <textarea
-          class="filter-input"
-          rows="5"
-          data-character-field="notes"
-          placeholder="Rasgos, recursos o recordatorios de combate"
-        >${escapeHtml(character.notes)}</textarea>
+    <div class="bestiary-sections character-sheet__extras">
+      ${renderCharacterInventorySection(character)}
+    </div>
+  `;
+}
+
+function renderCharacterHeaderAside(character) {
+  return `
+    <div class="character-sheet__header-side">
+      ${renderCharacterCarryLoadCard(character)}
+      ${renderCharacterExperienceBar(character)}
+    </div>
+  `;
+}
+
+function renderCharacterCarryLoadCard(character) {
+  const load = getCharacterInventoryLoad(character);
+  const loadPercentLabel = `${Math.round(load.percent)}%`;
+
+  return `
+    <section class="character-carry-card" aria-label="Carga del inventario">
+      <div class="character-carry-card__icon-wrap" aria-hidden="true">
+        <svg class="character-carry-card__icon" viewBox="0 0 64 64" focusable="false">
+          <path d="M22 18c0-6 4-10 10-10s10 4 10 10h6c5 0 8 3 8 8v24c0 4-3 7-7 7H15c-4 0-7-3-7-7V26c0-5 3-8 8-8h6zm6 0h8c0-3-1-5-4-5s-4 2-4 5zm-9 8c-3 0-5 2-5 5v18c0 2 1 3 3 3h30c2 0 3-1 3-3V31c0-3-2-5-5-5h-2v5c0 2-1 3-3 3s-3-1-3-3v-5H27v5c0 2-1 3-3 3s-3-1-3-3v-5h-2z"/>
+        </svg>
+        <span class="character-carry-card__percent">${escapeHtml(loadPercentLabel)}</span>
+      </div>
+      <div class="character-carry-card__meta">
+        <span>Carga</span>
+        <strong>${escapeHtml(formatWeight(load.totalWeight))} / ${escapeHtml(formatWeight(load.maxWeight))} lb</strong>
+      </div>
+    </section>
+  `;
+}
+
+function renderCharacterInventorySection(character) {
+  const isOpen = character.inventoryOpen !== false;
+  const itemCount = character.inventory.filter((row) => !isCharacterCurrencyRow(row.name)).length;
+  const load = getCharacterInventoryLoad(character);
+
+  return `
+    <section class="detail-section character-inventory" data-character-inventory-menu>
+      <button
+        class="character-section-toggle"
+        type="button"
+        data-action="toggle-character-inventory"
+        aria-expanded="${isOpen}"
+      >
+        <div class="character-inventory__heading">
+          <span>Inventario</span>
+          <div class="character-inventory__weight-summary">
+            <strong>${escapeHtml(formatWeight(load.totalWeight))} / ${escapeHtml(formatWeight(load.maxWeight))} lb</strong>
+          </div>
+        </div>
+        <div class="character-inventory__currency-summary">
+          ${characterCurrencyRows.map((currency) => {
+            const row = character.inventory.find((entry) => cleanText(entry.name).toUpperCase() === currency.name);
+            return `
+              <span class="character-currency-pill character-currency-pill--${currency.icon}" title="${currency.name}">
+                <span class="character-currency-pill__icon" aria-hidden="true"></span>
+                <strong>${currency.name}</strong>
+                <small>${formatExperiencePoints(row?.quantity ?? 0)}</small>
+              </span>
+            `;
+          }).join("")}
+        </div>
+        <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
+      </button>
+      ${
+        isOpen
+          ? `
+            <div class="character-inventory__body">
+              <div class="character-inventory__toolbar">
+                <p>${itemCount} objetos</p>
+                <button class="toolbar-button toolbar-button--subtle" type="button" data-action="add-character-inventory-row">
+                  Anadir objeto
+                </button>
+              </div>
+              <div class="character-inventory__list">
+                <div class="character-inventory__header" aria-hidden="true">
+                  <span>Nombre</span>
+                  <span>Talla</span>
+                  <span>Cantidad</span>
+                  <span></span>
+                </div>
+                ${
+                  character.inventory.length > 0
+                    ? character.inventory.map((row) => renderCharacterInventoryRow(row)).join("")
+                    : `<div class="empty-state empty-state--compact">No hay objetos en inventario.</div>`
+                }
+              </div>
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderCharacterInventoryRow(row) {
+  const isCurrencyRow = isCharacterCurrencyRow(row.name);
+  const suggestions = getCharacterInventorySuggestions(row.id);
+  const showSuggestions = state.showCharacterInventorySuggestions
+    && state.activeCharacterInventoryRowId === row.id
+    && suggestions.length > 0;
+
+  return `
+    <div class="character-inventory__row" data-character-inventory-menu>
+      <div class="character-inventory__name-cell" data-character-inventory-menu>
+        <input
+          class="filter-input character-inventory__input"
+          type="search"
+          value="${escapeHtml(row.name)}"
+          placeholder="${isCurrencyRow ? "" : "Busca un item del catalogo"}"
+          data-character-inventory-name="${escapeHtml(row.id)}"
+          ${isCurrencyRow ? "readonly" : ""}
+        />
+        ${
+          !isCurrencyRow && showSuggestions
+            ? `
+              <div class="bestiary-query__popover character-inventory__suggestions" role="listbox" aria-label="Sugerencias de inventario">
+                ${suggestions.map((entry) => `
+                  <button
+                    class="bestiary-query__option"
+                    type="button"
+                    data-action="select-character-inventory-suggestion"
+                    data-character-inventory-row-id="${escapeHtml(row.id)}"
+                    data-item-entry-id="${escapeHtml(entry.id)}"
+                  >
+                    ${escapeHtml(entry.name)}
+                  </button>
+                `).join("")}
+              </div>
+            `
+            : ""
+        }
+      </div>
+      <label class="character-inventory__field">
+        <select
+          class="filter-input character-inventory__input"
+          data-character-inventory-field="size"
+          data-character-inventory-row="${escapeHtml(row.id)}"
+          ${isCurrencyRow ? "disabled" : ""}
+        >
+          ${itemSizeThresholds.map((size) => `
+            <option value="${size.label}" ${row.size === size.label ? "selected" : ""}>${size.label}</option>
+          `).join("")}
+        </select>
       </label>
+      <label class="character-inventory__field">
+        <input
+          class="filter-input character-inventory__input"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          value="${escapeHtml(String(row.quantity))}"
+          data-character-inventory-field="quantity"
+          data-character-inventory-row="${escapeHtml(row.id)}"
+        />
+      </label>
+      <button
+        class="toolbar-button toolbar-button--subtle-danger character-inventory__remove"
+        type="button"
+        data-action="remove-character-inventory-row"
+        data-character-inventory-row-id="${escapeHtml(row.id)}"
+        aria-label="Quitar ${escapeHtml(row.name || "objeto")}"
+        ${isCurrencyRow ? "disabled" : ""}
+      >
+        Quitar
+      </button>
     </div>
   `;
 }
@@ -4292,16 +4597,10 @@ function renderCharacterStatsPanel(character) {
 
   return `
     <section class="character-stat-sheet" aria-label="Estadisticas del personaje">
-      <label class="character-stat-sheet__proficiency">
-        <input
-          type="text"
-          inputmode="numeric"
-          value="${escapeHtml(formatModifier(proficiencyBonus))}"
-          data-character-field="proficiencyBonus"
-          aria-label="Bonus de competencia"
-        />
+      <div class="character-stat-sheet__proficiency">
+        <span>${escapeHtml(formatModifier(proficiencyBonus))}</span>
         <strong>Bonus competencia</strong>
-      </label>
+      </div>
       <div class="character-stat-sheet__blocks">
         ${characterAbilityKeys.map((key) => renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus)).join("")}
       </div>
@@ -4365,10 +4664,10 @@ function renderCharacterMetricField(key, label, value, placeholder = "") {
   const isNumberField = ["armorClass", "currentHp", "maxHp", "initiativeBonus"].includes(key);
 
   return `
-    <label class="bestiary-metric-card character-metric-field">
+    <label class="character-metric-field">
       <span>${escapeHtml(label)}</span>
       <input
-        class="filter-input character-metric-field__input"
+        class="character-metric-field__input"
         type="${isNumberField ? "number" : "text"}"
         ${isNumberField ? "inputmode=\"numeric\"" : ""}
         value="${escapeHtml(String(value ?? ""))}"
@@ -4384,6 +4683,9 @@ function renderCharacterDetailMedia(character) {
 
   return `
     <div class="bestiary-detail__media character-sheet__media">
+      <div class="character-sheet__media-actions">
+        ${renderCharacterImageControls(character)}
+      </div>
       <figure class="bestiary-portrait character-sheet__portrait">
         ${
           character.tokenUrl
@@ -4408,12 +4710,51 @@ function renderCharacterDetailMedia(character) {
   `;
 }
 
-function renderCharacterTextField(key, label, value, placeholder = "") {
+function renderCharacterImageControls(character) {
   return `
-    <label class="toolbar-field">
+    <div class="character-image-controls">
+      <label class="toolbar-button toolbar-button--subtle character-image-controls__button">
+        Cargar imagen
+        <input
+          class="character-image-controls__input"
+          type="file"
+          accept="image/*"
+          data-character-image
+        />
+      </label>
+      ${
+        character.tokenUrl
+          ? `<button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="remove-character-image">Quitar</button>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function getCharacterInventorySuggestions(rowId) {
+  const character = getActiveCharacter();
+  const row = character?.inventory.find((entry) => entry.id === rowId);
+  const query = cleanText(row?.name).toLowerCase();
+
+  if (!query || state.itemStatus !== "ready" || isCharacterCurrencyRow(row?.name)) {
+    return [];
+  }
+
+  return state.items
+    .filter((entry) => entry.nameLower.includes(query))
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }))
+    .slice(0, 12);
+}
+
+function renderCharacterTextField(key, label, value, placeholder = "", options = {}) {
+  const compactClass = options.compact ? " character-identity-field--compact" : "";
+  const lengthClass = getCharacterTextLengthClass(value);
+
+  return `
+    <label class="toolbar-field character-identity-field${compactClass}">
       <span>${escapeHtml(label)}</span>
       <input
-        class="filter-input"
+        class="filter-input character-identity-field__input ${lengthClass}"
         type="text"
         value="${escapeHtml(value ?? "")}"
         placeholder="${escapeHtml(placeholder)}"
@@ -4425,10 +4766,10 @@ function renderCharacterTextField(key, label, value, placeholder = "") {
 
 function renderCharacterNumberField(key, label, value) {
   return `
-    <label class="toolbar-field">
+    <label class="toolbar-field character-identity-field">
       <span>${escapeHtml(label)}</span>
       <input
-        class="filter-input"
+        class="filter-input character-identity-field__input"
         type="number"
         inputmode="numeric"
         value="${escapeHtml(String(value ?? ""))}"
@@ -4438,31 +4779,18 @@ function renderCharacterNumberField(key, label, value) {
   `;
 }
 
-function renderCharacterImageField(character) {
-  return `
-    <div class="toolbar-field character-image-field">
-      <span>Imagen</span>
-      <div class="character-image-field__controls">
-        <div class="character-image-field__preview">
-          ${renderCharacterAvatar(character)}
-        </div>
-        <label class="toolbar-button character-image-field__button">
-          Cargar imagen
-          <input
-            class="character-image-field__input"
-            type="file"
-            accept="image/*"
-            data-character-image
-          />
-        </label>
-        ${
-          character.tokenUrl
-            ? `<button class="toolbar-button toolbar-button--danger" type="button" data-action="remove-character-image">Quitar</button>`
-            : ""
-        }
-      </div>
-    </div>
-  `;
+function getCharacterTextLengthClass(value) {
+  const length = cleanText(value).length;
+
+  if (length >= 24) {
+    return "character-identity-field__input--xs";
+  }
+
+  if (length >= 18) {
+    return "character-identity-field__input--sm";
+  }
+
+  return "";
 }
 
 function renderCharacterAbilityField(character, key) {
@@ -4589,15 +4917,134 @@ function formatCharacterIdentityLine(character) {
   ].filter(Boolean).join(" | ") || "Ficha editable lista para entrar en combate.";
 }
 
+function renderCharacterExperienceBar(character, options = {}) {
+  const progress = getCharacterExperienceProgress(character);
+  const fillStyle = `--xp-fill: ${progress.progressPercent.toFixed(2)}%`;
+  const baseClassName = options.compact
+    ? "character-experience character-experience--compact"
+    : "character-experience";
+  const progressPercentLabel = `${Math.round(progress.progressPercent)}%`;
+  const progressLabel = `${formatExperiencePoints(progress.levelExperiencePoints)} / ${formatExperiencePoints(progress.requiredExperiencePoints)} XP`;
+
+  if (options.compact) {
+    const primaryLabel = `Nv ${progress.level}`;
+
+    return `
+      <section class="${baseClassName}" style="${fillStyle}" aria-label="Progreso de experiencia de ${escapeHtml(character.name || "personaje")}">
+        <div class="character-experience__labels">
+          <strong>${escapeHtml(primaryLabel)}</strong>
+        </div>
+        <div class="character-experience__progress">
+          <div class="character-experience__track" aria-hidden="true">
+            <span class="character-experience__fill"></span>
+            <span class="character-experience__track-label">${escapeHtml(progressLabel)}</span>
+          </div>
+          <span class="character-experience__percent">${escapeHtml(progressPercentLabel)}</span>
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="${baseClassName}" style="${fillStyle}" aria-label="Progreso de experiencia de ${escapeHtml(character.name || "personaje")}">
+      <div class="character-experience__fields">
+        <label class="character-experience__field character-experience__field--level">
+          <span>Nivel</span>
+          <input
+            class="character-experience__input"
+            type="number"
+            inputmode="numeric"
+            value="${escapeHtml(String(character.level ?? progress.level))}"
+            data-character-field="level"
+            aria-label="Nivel"
+          />
+        </label>
+        <label class="character-experience__field">
+          <span>XP</span>
+          <input
+            class="character-experience__input"
+            type="number"
+            inputmode="numeric"
+            value="${escapeHtml(String(character.experiencePoints ?? progress.levelExperiencePoints))}"
+            data-character-field="experiencePoints"
+            aria-label="Experiencia"
+          />
+        </label>
+      </div>
+      <div class="character-experience__progress">
+        <div class="character-experience__track" aria-hidden="true">
+          <span class="character-experience__fill"></span>
+          <span class="character-experience__track-label">${escapeHtml(progressLabel)}</span>
+        </div>
+        <span class="character-experience__percent">${escapeHtml(progressPercentLabel)}</span>
+      </div>
+    </section>
+  `;
+}
+
+function getCharacterExperienceProgress(character) {
+  const levelEntry = getCharacterLevelProgressionEntry(character.level);
+  const nextLevelEntry = characterLevelProgression.find((entry) => entry.level === levelEntry.level + 1) ?? null;
+  const requiredExperiencePoints = getCharacterLevelExperienceRequirement(levelEntry.level);
+  const levelExperiencePoints = normalizeStoredCharacterLevelExperiencePoints(character.experiencePoints, levelEntry.level);
+  const totalExperiencePoints = levelEntry.experiencePoints + levelExperiencePoints;
+
+  if (!nextLevelEntry) {
+    return {
+      level: levelEntry.level,
+      levelExperiencePoints,
+      totalExperiencePoints,
+      currentLevelStart: levelEntry.experiencePoints,
+      nextLevelStart: levelEntry.experiencePoints + requiredExperiencePoints,
+      requiredExperiencePoints,
+      progressPercent: requiredExperiencePoints > 0
+        ? (levelExperiencePoints / requiredExperiencePoints) * 100
+        : 100,
+      isMaxLevel: true
+    };
+  }
+
+  return {
+    level: levelEntry.level,
+    levelExperiencePoints,
+    totalExperiencePoints,
+    currentLevelStart: levelEntry.experiencePoints,
+    nextLevelStart: nextLevelEntry.experiencePoints,
+    requiredExperiencePoints,
+    progressPercent: requiredExperiencePoints > 0
+      ? (levelExperiencePoints / requiredExperiencePoints) * 100
+      : 0,
+    isMaxLevel: false
+  };
+}
+
+function formatExperiencePoints(value) {
+  return experienceFormatter.format(Math.max(0, Math.floor(toNumber(value))));
+}
+
+function getCharacterLevelProgressionEntry(level) {
+  const normalizedLevel = normalizeStoredCharacterLevel(level);
+  return characterLevelProgression.find((entry) => entry.level === normalizedLevel) ?? characterLevelProgression[0];
+}
+
+function getCharacterLevelExperienceRequirement(level) {
+  const currentEntry = getCharacterLevelProgressionEntry(level);
+  const nextEntry = characterLevelProgression.find((entry) => entry.level === currentEntry.level + 1);
+
+  if (nextEntry) {
+    return Math.max(0, nextEntry.experiencePoints - currentEntry.experiencePoints);
+  }
+
+  const previousEntry = characterLevelProgression.find((entry) => entry.level === currentEntry.level - 1);
+  return previousEntry ? Math.max(0, currentEntry.experiencePoints - previousEntry.experiencePoints) : 0;
+}
+
 function getCharacterProficiencyBonus(character) {
-  const storedBonus = normalizeStoredNumber(character.proficiencyBonus);
-  return storedBonus === ""
-    ? getDefaultCharacterProficiencyBonus(character.level)
-    : Math.max(0, Math.floor(toNumber(storedBonus)));
+  return getCharacterLevelProgressionEntry(character.level).proficiencyBonus;
 }
 
 function getDefaultCharacterProficiencyBonus(level) {
-  return Math.max(2, Math.ceil((toNumber(level) || 1) / 4) + 1);
+  return getCharacterLevelProgressionEntry(level).proficiencyBonus;
 }
 
 function getCharacterProficiencySet(character) {
@@ -5222,10 +5669,11 @@ function createDefaultCharacter(overrides = {}) {
     className: "",
     subclassName: "",
     level: 1,
+    experiencePoints: 0,
     species: "",
     background: "",
     size: "Mediano",
-    proficiencyBonus: 2,
+    proficiencyBonus: getDefaultCharacterProficiencyBonus(1),
     proficiencies: [],
     tokenUrl: "",
     armorClass: 10,
@@ -5237,6 +5685,8 @@ function createDefaultCharacter(overrides = {}) {
     conditions: "",
     stand: "",
     notes: "",
+    inventoryOpen: true,
+    inventory: getDefaultCharacterInventory(),
     abilities: {
       str: 10,
       dex: 10,
@@ -5252,6 +5702,8 @@ function createDefaultCharacter(overrides = {}) {
 function selectCharacter(characterId) {
   if (state.characters.some((character) => character.id === characterId)) {
     state.activeCharacterId = characterId;
+    state.activeCharacterInventoryRowId = "";
+    state.showCharacterInventorySuggestions = false;
   }
 }
 
@@ -5286,7 +5738,7 @@ function deleteActiveCharacter() {
 }
 
 function updateCharacterField(key, rawValue, normalize = true) {
-  const numberFields = new Set(["level", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus", "proficiencyBonus"]);
+  const numberFields = new Set(["level", "experiencePoints", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus"]);
 
   state.characters = state.characters.map((character) => {
     if (character.id !== state.activeCharacterId) {
@@ -5305,6 +5757,192 @@ function updateCharacterField(key, rawValue, normalize = true) {
 
     return updatedCharacter;
   });
+}
+
+function toggleCharacterInventorySection() {
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      inventoryOpen: character.inventoryOpen === false
+    })
+    : character);
+}
+
+function addCharacterInventoryRow(overrides = {}) {
+  const row = normalizeStoredCharacterInventoryRow({
+    id: createStableId("character-item"),
+    quantity: 1,
+    ...overrides
+  });
+
+  if (!row) {
+    return "";
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      inventoryOpen: true,
+      inventory: [...character.inventory, row]
+    })
+    : character);
+  state.activeCharacterInventoryRowId = row.id;
+  state.showCharacterInventorySuggestions = false;
+  return row.id;
+}
+
+function getDefaultCharacterInventory() {
+  return characterCurrencyRows.map((currency) => normalizeStoredCharacterInventoryRow({
+    id: createStableId("character-item"),
+    name: currency.name,
+    quantity: 0
+  })).filter(Boolean);
+}
+
+function isCharacterCurrencyRow(name) {
+  const normalizedName = cleanText(name).toUpperCase();
+  return characterCurrencyRows.some((currency) => currency.name === normalizedName);
+}
+
+function getCurrencyInventorySizeLabel(quantity) {
+  const weightInPounds = Math.max(0, toNumber(quantity)) / 20;
+  return getItemSizeLabelFromWeight(weightInPounds);
+}
+
+function getCharacterInventoryLoad(character) {
+  const totalWeight = character.inventory.reduce((sum, row) => sum + getCharacterInventoryRowWeight(row), 0);
+  const maxWeight = Math.max(0, (character.abilities?.str ?? 10) * 15);
+  const percent = maxWeight > 0 ? Math.min(999, (totalWeight / maxWeight) * 100) : 0;
+
+  return {
+    totalWeight,
+    maxWeight,
+    percent
+  };
+}
+
+function getCharacterInventoryRowWeight(row) {
+  const quantity = Math.max(0, toNumber(row.quantity));
+
+  if (isCharacterCurrencyRow(row.name)) {
+    return quantity / 20;
+  }
+
+  const matchedItem = state.items.find((entry) => entry.id === row.itemId)
+    ?? getItemEntryByName(row.name);
+
+  if (matchedItem && matchedItem.weightNumber > 0) {
+    return matchedItem.weightNumber * quantity;
+  }
+
+  const sizeLabel = normalizeItemSizeLabel(row.size) || inferItemSizeLabel(row.name);
+  return getItemSizeWeightFloor(sizeLabel) * quantity;
+}
+
+function getItemSizeWeightFloor(sizeLabel) {
+  return itemSizeThresholds.find((entry) => entry.label === sizeLabel)?.minWeight ?? 0;
+}
+
+function formatWeight(value) {
+  const numericValue = Math.max(0, Number(value) || 0);
+  return Number.isInteger(numericValue)
+    ? String(numericValue)
+    : String(Number(numericValue.toFixed(2)));
+}
+
+function removeCharacterInventoryRow(rowId) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      inventory: character.inventory.filter((row) => row.id !== normalizedRowId)
+    })
+    : character);
+
+  if (state.activeCharacterInventoryRowId === normalizedRowId) {
+    state.activeCharacterInventoryRowId = "";
+    state.showCharacterInventorySuggestions = false;
+  }
+}
+
+function updateCharacterInventoryRow(rowId, key, rawValue, normalize = true) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const inventory = character.inventory.map((row) => {
+      if (row.id !== normalizedRowId) {
+        return row;
+      }
+
+      const nextRow = {
+        ...row,
+        [key]: key === "quantity" && normalize
+          ? normalizeStoredNonNegativeNumber(rawValue)
+          : rawValue
+      };
+
+      if (key === "name") {
+        const matchedItem = getItemEntryByName(rawValue);
+        nextRow.itemId = matchedItem?.id ?? "";
+        nextRow.size = matchedItem?.sizeLabel ?? inferItemSizeLabel(rawValue);
+      }
+
+      if (isCharacterCurrencyRow(nextRow.name)) {
+        nextRow.itemId = "";
+        nextRow.size = getCurrencyInventorySizeLabel(nextRow.quantity);
+      }
+
+      return normalizeStoredCharacterInventoryRow(nextRow);
+    });
+
+    return normalizeStoredCharacter({
+      ...character,
+      inventory
+    });
+  });
+}
+
+function selectCharacterInventorySuggestion(rowId, itemEntryId) {
+  const normalizedRowId = cleanText(rowId);
+  const itemEntry = state.items.find((entry) => entry.id === cleanText(itemEntryId));
+
+  if (!normalizedRowId || !itemEntry) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    return normalizeStoredCharacter({
+      ...character,
+      inventory: character.inventory.map((row) => row.id === normalizedRowId
+        ? normalizeStoredCharacterInventoryRow({
+          ...row,
+          itemId: itemEntry.id,
+          name: itemEntry.name,
+          size: itemEntry.sizeLabel
+        })
+        : row)
+    });
+  });
+
+  state.activeCharacterInventoryRowId = normalizedRowId;
+  state.showCharacterInventorySuggestions = false;
 }
 
 function updateCharacterProficiency(key, isChecked) {
@@ -7063,7 +7701,8 @@ function normalizeItemEntry(row, index, imageMap = {}) {
   const typeLine = [type, requiresAttunement ? "Requiere attunement" : ""].filter(Boolean).join(" | ");
   const compositeKey = buildItemCompositeKey(name, source);
   const valueNumber = parseItemValue(value);
-  const weightNumber = parseLeadingNumber(weight);
+  const weightNumber = parseItemWeight(weight);
+  const sizeLabel = getItemSizeLabel(weightNumber, name, type);
   const imageUrl = resolveItemImageAsset(name, source, imageMap);
   const searchText = [
     name,
@@ -7075,6 +7714,7 @@ function normalizeItemEntry(row, index, imageMap = {}) {
     properties,
     mastery,
     weight,
+    sizeLabel,
     value,
     text
   ]
@@ -7105,6 +7745,7 @@ function normalizeItemEntry(row, index, imageMap = {}) {
     weightNumber,
     weightLabel: weight || "Peso N/D",
     weightShort: shortenLabel(weight || "N/D", 10),
+    sizeLabel,
     value,
     valueNumber,
     valueLabel: value || "Valor N/D",
@@ -7116,6 +7757,66 @@ function normalizeItemEntry(row, index, imageMap = {}) {
     propertiesShort: shortenLabel(properties, 36),
     searchText
   };
+}
+
+function getItemEntryByName(name) {
+  const normalizedName = cleanText(name).toLowerCase();
+
+  if (!normalizedName) {
+    return null;
+  }
+
+  return state.items.find((entry) => entry.nameLower === normalizedName) ?? null;
+}
+
+function getItemSizeLabel(weightNumber, name = "", type = "") {
+  if (Number.isFinite(weightNumber) && weightNumber > 0) {
+    return getItemSizeLabelFromWeight(weightNumber);
+  }
+
+  return inferItemSizeLabel([type, name].filter(Boolean).join(" "));
+}
+
+function getItemSizeLabelFromWeight(weightNumber) {
+  let currentSize = itemSizeThresholds[0].label;
+
+  for (const threshold of itemSizeThresholds) {
+    if (weightNumber >= threshold.minWeight) {
+      currentSize = threshold.label;
+    }
+  }
+
+  return currentSize;
+}
+
+function inferItemSizeLabel(value) {
+  const normalizedValue = cleanText(value).toLowerCase();
+
+  if (!normalizedValue) {
+    return "S";
+  }
+
+  if (/(vehicle|ship|wagon|cart|cannon|ballista|mythallar|catapult|boat|war machine)/.test(normalizedValue)) {
+    return "XXL";
+  }
+
+  if (/(armor|shield|chest|crate|barrel|cauldron|apparatus|carpet|broom|saddle)/.test(normalizedValue)) {
+    return "L";
+  }
+
+  if (/(sword|axe|hammer|mace|spear|staff|bow|crossbow|halberd|glaive|trident|lance|maul|flail|weapon|tool)/.test(normalizedValue)) {
+    return "M";
+  }
+
+  if (/(book|scroll|wand|rod|lantern|mask|helm|helmet|boots|gloves|gauntlets|cloak|cape|bag|pouch|quiver|orb|idol|figurine|instrument|torch|potion|vial)/.test(normalizedValue)) {
+    return "S";
+  }
+
+  if (/(ring|amulet|necklace|brooch|bracelet|earring|coin|gem|jewel|key|token|needle|badge|stone|pearl|card|charm)/.test(normalizedValue)) {
+    return "XS";
+  }
+
+  return "S";
 }
 
 function normalizeSpellEntry(row, index) {
@@ -7455,6 +8156,7 @@ function renderItemKpis(entry) {
     renderItemKpi("Rareza", entry.rarity && entry.rarity !== "none" ? entry.rarityShort : ""),
     renderItemKpi("Valor", entry.value ? entry.valueShort : ""),
     renderItemKpi("Peso", entry.weight ? entry.weightShort : ""),
+    renderItemKpi("Talla", entry.sizeLabel),
     renderItemKpi("Attunement", entry.attunement ? entry.attunementShort : "")
   ].filter(Boolean).join("");
 }
@@ -7483,7 +8185,8 @@ function renderItemDetailBlocks(entry) {
     renderItemDetailBlock("Mastery", entry.mastery),
     renderItemDetailBlock("Valor y peso", [
       entry.value ? entry.valueLabel : "",
-      entry.weight ? entry.weightLabel : ""
+      entry.weight ? entry.weightLabel : "",
+      `Talla ${entry.sizeLabel}`
     ].filter(Boolean).join(" | "))
   ].filter(Boolean).join("");
 }
@@ -8518,6 +9221,31 @@ function parseLeadingNumber(value) {
   return match ? Number(match[0]) : 0;
 }
 
+function parseItemWeight(value) {
+  const text = cleanText(value);
+
+  if (!text) {
+    return 0;
+  }
+
+  const fractionMatch = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)/);
+
+  if (fractionMatch) {
+    return Number(fractionMatch[1].replace(",", ".")) / Number(fractionMatch[2].replace(",", "."));
+  }
+
+  const numberMatch = text.match(/\d[\d.,]*/);
+
+  if (!numberMatch) {
+    return 0;
+  }
+
+  let normalized = numberMatch[0].replace(/(?<=\d)[.,](?=\d{3}(?:[.,]|$))/g, "");
+  normalized = normalized.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function parseCrValue(value) {
   const match = String(value).match(/^\s*(\d+)\s*\/\s*(\d+)|^\s*(\d+(?:\.\d+)?)/);
 
@@ -9433,9 +10161,14 @@ function normalizeStoredCharacter(character) {
   }
 
   const maxHp = normalizeStoredNonNegativeNumber(character.maxHp);
-  const proficiencyBonus = normalizeStoredNumber(character.proficiencyBonus);
   const hasCurrentHp = character.currentHp !== undefined && character.currentHp !== null;
   let currentHp = hasCurrentHp ? normalizeStoredNonNegativeNumber(character.currentHp) : maxHp;
+  const level = normalizeStoredCharacterLevel(character.level);
+  const levelStartExperiencePoints = getCharacterLevelProgressionEntry(level).experiencePoints;
+  const hasSeparatedExperience = character.totalExperiencePoints !== undefined;
+  const levelExperiencePoints = hasSeparatedExperience
+    ? normalizeStoredCharacterLevelExperiencePoints(character.experiencePoints, level)
+    : normalizeLegacyCharacterLevelExperiencePoints(character.experiencePoints, level);
 
   if (currentHp !== "" && maxHp !== "") {
     currentHp = Math.min(currentHp, maxHp);
@@ -9447,13 +10180,13 @@ function normalizeStoredCharacter(character) {
     playerName: cleanText(character.playerName),
     className: cleanText(character.className),
     subclassName: cleanText(character.subclassName),
-    level: normalizeStoredCharacterLevel(character.level),
+    level,
+    experiencePoints: levelExperiencePoints,
+    totalExperiencePoints: levelStartExperiencePoints + levelExperiencePoints,
     species: cleanText(character.species),
     background: cleanText(character.background),
     size: cleanText(character.size) || "Mediano",
-    proficiencyBonus: proficiencyBonus === ""
-      ? getDefaultCharacterProficiencyBonus(character.level)
-      : Math.max(0, Math.floor(toNumber(proficiencyBonus))),
+    proficiencyBonus: getDefaultCharacterProficiencyBonus(level),
     proficiencies: normalizeStoredCharacterProficiencies(character.proficiencies),
     tokenUrl: cleanText(character.tokenUrl),
     armorClass: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.armorClass)) || 10)),
@@ -9465,12 +10198,25 @@ function normalizeStoredCharacter(character) {
     conditions: cleanText(character.conditions),
     stand: normalizeStoredStandLabel(character.stand),
     notes: cleanText(character.notes),
+    inventoryOpen: character.inventoryOpen !== false,
+    inventory: normalizeStoredCharacterInventory(character.inventory),
     abilities: normalizeStoredCharacterAbilities(character.abilities)
   };
 }
 
 function normalizeStoredCharacterLevel(value) {
   return Math.max(1, Math.min(20, Math.floor(toNumber(value)) || 1));
+}
+
+function normalizeStoredCharacterLevelExperiencePoints(value, level) {
+  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
+  return Math.min(numericValue, getCharacterLevelExperienceRequirement(level));
+}
+
+function normalizeLegacyCharacterLevelExperiencePoints(value, level) {
+  const totalExperiencePoints = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
+  const levelStartExperiencePoints = getCharacterLevelProgressionEntry(level).experiencePoints;
+  return normalizeStoredCharacterLevelExperiencePoints(totalExperiencePoints - levelStartExperiencePoints, level);
 }
 
 function normalizeStoredCharacterAbilities(abilities) {
@@ -9480,6 +10226,49 @@ function normalizeStoredCharacterAbilities(abilities) {
     const score = Math.max(1, Math.min(30, Math.floor(toNumber(source[key])) || 10));
     return [key, score];
   }));
+}
+
+function normalizeStoredCharacterInventory(inventory) {
+  const normalizedRows = Array.isArray(inventory)
+    ? inventory.map((row) => normalizeStoredCharacterInventoryRow(row)).filter(Boolean)
+    : [];
+  const nonCurrencyRows = normalizedRows.filter((row) => !isCharacterCurrencyRow(row.name));
+  const currencyRows = characterCurrencyRows.map((currency) => {
+    const existingRow = normalizedRows.find((row) => cleanText(row.name).toUpperCase() === currency.name);
+    return normalizeStoredCharacterInventoryRow(existingRow ?? {
+      id: createStableId("character-item"),
+      name: currency.name,
+      quantity: 0
+    });
+  }).filter(Boolean);
+
+  return [...currencyRows, ...nonCurrencyRows];
+}
+
+function normalizeStoredCharacterInventoryRow(row) {
+  if (!isPlainObject(row)) {
+    return null;
+  }
+
+  const name = cleanText(row.name);
+  const matchedItem = getItemEntryByName(name);
+  const quantity = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.quantity)) || 0));
+  const size = isCharacterCurrencyRow(name)
+    ? getCurrencyInventorySizeLabel(quantity)
+    : normalizeItemSizeLabel(row.size) || matchedItem?.sizeLabel || inferItemSizeLabel(name);
+
+  return {
+    id: cleanText(row.id) || createStableId("character-item"),
+    itemId: isCharacterCurrencyRow(name) ? "" : cleanText(row.itemId) || matchedItem?.id || "",
+    name,
+    size,
+    quantity
+  };
+}
+
+function normalizeItemSizeLabel(value) {
+  const normalizedValue = cleanText(value).toUpperCase();
+  return itemSizeThresholds.some((entry) => entry.label === normalizedValue) ? normalizedValue : "";
 }
 
 function normalizeStoredCharacterProficiencies(proficiencies) {

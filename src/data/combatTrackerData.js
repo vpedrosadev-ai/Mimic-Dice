@@ -7,7 +7,7 @@ export const columns = [
   { key: "pgAct", label: "PG act", type: "number", width: "14rem" },
   { key: "pgTemp", label: "PG temp", type: "number", width: "10rem" },
   { key: "necrotic", label: "Necrotic", type: "number", width: "12rem" },
-  { key: "crExp", label: "CR", type: "text", width: "5rem" },
+  { key: "crExp", label: "CR", type: "text", width: "14rem" },
   { key: "tag", label: "Bando", type: "tag", width: "12rem" }
 ];
 
