@@ -9,6 +9,7 @@ const ITEMS_IMAGES_PATH = "data/ItemsImages.json";
 const SPELLS_CSV_PATH = "data/Spells.csv";
 const CAMPAIGN_META_STORAGE_KEY = "mimic-dice:campaign-meta:v1";
 const CHARACTERS_STORAGE_KEY = "mimic-dice:characters:v1";
+const CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY = "mimic-dice:character-skills:v1";
 const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
 const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
 const CAMPAIGN_FILE_SCHEMA = "mimic-dice:campaign";
@@ -249,6 +250,40 @@ const characterLevelProgression = [
   { level: 19, experiencePoints: 305000, proficiencyBonus: 6 },
   { level: 20, experiencePoints: 355000, proficiencyBonus: 6 }
 ];
+const characterSkillLevelProgression = [
+  { level: 1, label: "Suertudo", bonus: 1, experiencePoints: 4 },
+  { level: 2, label: "Novato", bonus: 2, experiencePoints: 6 },
+  { level: 3, label: "Junior", bonus: 3, experiencePoints: 8 },
+  { level: 4, label: "Instructor", bonus: 4, experiencePoints: 10 },
+  { level: 5, label: "Senior", bonus: 5, experiencePoints: 12 },
+  { level: 6, label: "Experto", bonus: 6, experiencePoints: 14 },
+  { level: 7, label: "Veterano", bonus: 7, experiencePoints: 16 },
+  { level: 8, label: "Honorable", bonus: 8, experiencePoints: 18 },
+  { level: 9, label: "Elite", bonus: 9, experiencePoints: 20 },
+  { level: 10, label: "Leyenda", bonus: 10, experiencePoints: 25 }
+];
+const characterSkillColorPalette = [
+  "#d88d5a",
+  "#5d9cec",
+  "#78b96d",
+  "#f0c879",
+  "#b987f2",
+  "#e06d78",
+  "#49b8c8",
+  "#c7a45b",
+  "#7dd18c",
+  "#d97fd0",
+  "#6bb0ff",
+  "#ff9f6e"
+];
+const defaultCharacterSkillTemplates = [
+  { id: "skill-despiece", name: "Despiece", color: "#d88d5a", successGains: [2], intermediateGains: [], failureGains: [1] },
+  { id: "skill-pesca", name: "Pesca", color: "#5d9cec", successGains: [2], intermediateGains: [], failureGains: [1] },
+  { id: "skill-forrajeo", name: "Forrajeo", color: "#78b96d", successGains: [2], intermediateGains: [], failureGains: [1] },
+  { id: "skill-cocina", name: "Cocina", color: "#f0c879", successGains: [3], intermediateGains: [2], failureGains: [1] },
+  { id: "skill-cerraduras", name: "Cerraduras", color: "#b987f2", successGains: [2], intermediateGains: [], failureGains: [1] },
+  { id: "skill-trampas-puertas-secretas", name: "Trampas y puertas secretas", color: "#e06d78", successGains: [3], intermediateGains: [], failureGains: [0] }
+];
 const itemSizeThresholds = [
   { label: "XS", minWeight: 0 },
   { label: "S", minWeight: 1 },
@@ -270,7 +305,8 @@ let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
 let campaignSaveInProgress = null;
 const initialCampaignMeta = loadCampaignMeta();
-const initialCharacters = loadCharacters();
+const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
+const initialCharacters = loadCharacters(initialCharacterSkillDefinitions);
 const initialEncounterInventory = loadEncounterInventory();
 const initialCombatTrackerState = loadCombatTrackerState();
 let scheduledRenderTimer = 0;
@@ -287,6 +323,9 @@ const state = {
   campaignFileName: initialCampaignMeta.fileName,
   campaignMessage: "",
   fileMenuOpen: false,
+  characterSkillConfigOpen: false,
+  expandedCharacterSkillIds: new Set(),
+  characterSkillDefinitions: initialCharacterSkillDefinitions,
   characters: initialCharacters,
   activeCharacterId: initialCharacters[0]?.id ?? "",
   combatants: initialCombatTrackerState.combatants,
@@ -406,6 +445,7 @@ function handleClick(event) {
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
   const clickedFileMenu = event.target.closest("[data-file-menu]");
+  const clickedCharacterSkillConfig = event.target.closest("[data-character-skill-config-menu]");
 
   if (
     state.fileMenuOpen &&
@@ -413,6 +453,19 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-file-menu"
   ) {
     state.fileMenuOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.characterSkillConfigOpen &&
+    !clickedCharacterSkillConfig &&
+    actionButton?.dataset.action !== "toggle-character-skill-config"
+  ) {
+    state.characterSkillConfigOpen = false;
 
     if (!actionButton) {
       render();
@@ -616,6 +669,12 @@ function handleClick(event) {
 
   if (action === "delete-character") {
     deleteActiveCharacter();
+    render();
+    return;
+  }
+
+  if (action === "toggle-character-skill-config") {
+    state.characterSkillConfigOpen = !state.characterSkillConfigOpen;
     render();
     return;
   }
@@ -1063,6 +1122,41 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "add-character-skill-definition") {
+    const skillId = addCharacterSkillDefinition();
+    saveCharacters();
+    saveCharacterSkillDefinitions();
+    render({
+      focusSelector: skillId ? `[data-character-skill-definition-field="name"][data-character-skill-definition-id="${skillId}"]` : null
+    });
+    return;
+  }
+
+  if (action === "award-character-skill-xp") {
+    awardCharacterSkillExperience(
+      actionButton.dataset.characterSkillId,
+      actionButton.dataset.characterSkillResult,
+      actionButton.dataset.characterSkillGainIndex
+    );
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "toggle-character-skill-row") {
+    toggleCharacterSkillRow(actionButton.dataset.characterSkillId);
+    render();
+    return;
+  }
+
+  if (action === "remove-character-skill-definition") {
+    removeCharacterSkillDefinition(actionButton.dataset.characterSkillDefinitionId);
+    saveCharacters();
+    saveCharacterSkillDefinitions();
+    render();
+    return;
+  }
+
   if (action === "add-character-inventory-row") {
     const rowId = addCharacterInventoryRow();
     saveCharacters();
@@ -1247,6 +1341,36 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-character-skill-definition-field][data-character-skill-definition-id]")) {
+    updateCharacterSkillDefinition(
+      target.dataset.characterSkillDefinitionId,
+      target.dataset.characterSkillDefinitionField,
+      target.value,
+      true,
+      target.dataset.characterSkillDefinitionGainIndex
+    );
+    saveCharacters();
+    saveCharacterSkillDefinitions();
+    render({
+      focusSelector: `[data-character-skill-definition-field="${target.dataset.characterSkillDefinitionField}"][data-character-skill-definition-id="${target.dataset.characterSkillDefinitionId}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-skill-progress-field][data-character-skill-id]")) {
+    updateCharacterSkillProgress(
+      target.dataset.characterSkillId,
+      target.dataset.characterSkillProgressField,
+      target.value,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-skill-progress-field="${target.dataset.characterSkillProgressField}"][data-character-skill-id="${target.dataset.characterSkillId}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-character-inventory-field][data-character-inventory-row]")) {
     updateCharacterInventoryRow(
       target.dataset.characterInventoryRow,
@@ -1388,6 +1512,30 @@ function handleInput(event) {
 
   if (target.matches("[data-character-field]")) {
     updateCharacterField(target.dataset.characterField, target.value, false);
+    saveCharacters();
+    return;
+  }
+
+  if (target.matches("[data-character-skill-definition-field][data-character-skill-definition-id]")) {
+    updateCharacterSkillDefinition(
+      target.dataset.characterSkillDefinitionId,
+      target.dataset.characterSkillDefinitionField,
+      target.value,
+      false,
+      target.dataset.characterSkillDefinitionGainIndex
+    );
+    saveCharacters();
+    saveCharacterSkillDefinitions();
+    return;
+  }
+
+  if (target.matches("[data-character-skill-progress-field][data-character-skill-id]")) {
+    updateCharacterSkillProgress(
+      target.dataset.characterSkillId,
+      target.dataset.characterSkillProgressField,
+      target.value,
+      false
+    );
     saveCharacters();
     return;
   }
@@ -4328,7 +4476,6 @@ function renderCharactersScreen() {
     activeCharacter = visibleCharacters[0] ?? state.characters[0];
     state.activeCharacterId = activeCharacter.id;
   }
-
   return `
     <section class="panel panel--table characters-screen">
       ${renderCharactersOverviewPanel(state.characters)}
@@ -4342,6 +4489,7 @@ function renderCharactersScreen() {
         </div>
       </div>
 
+      <div class="characters-toolbar-wrap" data-character-skill-config-menu>
       <div class="characters-toolbar">
         <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-character">
           Nuevo personaje
@@ -4352,9 +4500,24 @@ function renderCharactersScreen() {
         <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-character" ${activeCharacter ? "" : "disabled"}>
           Eliminar
         </button>
+        <button
+          class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
+          type="button"
+          data-action="toggle-character-skill-config"
+          aria-expanded="${state.characterSkillConfigOpen}"
+        >
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="m19.14 12.94.04-.94-.04-.94 2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.57.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58-.04.94.04.94-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.57-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
+            </svg>
+          </span>
+          Skills
+        </button>
         <button class="toolbar-button toolbar-button--combat characters-toolbar__combat-action" type="button" data-action="add-character-to-combat" ${activeCharacter ? "" : "disabled"}>
           Anadir al combate
         </button>
+      </div>
+      ${state.characterSkillConfigOpen ? renderCharacterSkillConfigSection() : ""}
       </div>
 
       <div class="characters-layout">
@@ -4448,6 +4611,7 @@ function renderCharacterEditor(character) {
     </div>
 
     <div class="bestiary-sections character-sheet__extras">
+      ${renderCharacterSkillSection(character)}
       ${renderCharacterInventorySection(character)}
     </div>
   `;
@@ -4475,8 +4639,8 @@ function renderCharactersOverviewPanel(characters) {
             <col style="width: 6rem" />
             <col style="width: 6rem" />
             <col style="width: 7rem" />
-            <col style="width: 5rem" />
             <col style="width: 15rem" />
+            <col style="width: 19rem" />
             <col style="width: 15rem" />
           </colgroup>
           <thead>
@@ -4487,8 +4651,8 @@ function renderCharactersOverviewPanel(characters) {
               <th scope="col">Vel.</th>
               <th scope="col">Talla</th>
               <th scope="col">Percep.</th>
-              <th scope="col">Nivel</th>
               <th scope="col">XP</th>
+              <th scope="col">Skills</th>
               <th scope="col">Carga</th>
             </tr>
           </thead>
@@ -4506,6 +4670,7 @@ function renderCharacterOverviewRow(character) {
   const load = getCharacterInventoryLoad(character);
   const xpPercent = Math.round(experience.progressPercent);
   const loadPercent = Math.round(load.percent);
+  const xpLabel = `Nv ${experience.level} · ${xpPercent}%`;
 
   return `
     <tr>
@@ -4520,17 +4685,16 @@ function renderCharacterOverviewRow(character) {
       <td>${renderCharacterOverviewField(character.id, "speed", character.speed || "", "text", "30 ft")}</td>
       <td>${renderCharacterOverviewField(character.id, "size", character.size || "", "text", "Mediano")}</td>
       <td>${escapeHtml(String(getCharacterPassivePerception(character)))}</td>
-      <td>${renderCharacterOverviewValue(character.level ?? 1)}</td>
       <td>
         <div class="character-overview__stack">
-          ${renderCharacterOverviewValue(`${formatExperiencePoints(experience.levelExperiencePoints)} XP`)}
           ${renderCharacterOverviewProgressBar(
-        `${xpPercent}%`,
+        xpLabel,
         experience.progressPercent,
         "xp"
       )}
         </div>
       </td>
+      <td>${renderCharacterSkillSummary(character)}</td>
       <td>${renderCharacterOverviewProgressBar(
         `${loadPercent}%`,
         load.percent,
@@ -4561,13 +4725,166 @@ function renderCharacterOverviewValue(value) {
   return `<span class="character-overview__value">${escapeHtml(String(value ?? ""))}</span>`;
 }
 
-function renderCharacterOverviewProgressBar(label, percent, tone) {
+function renderCharacterOverviewProgressBar(label, percent, tone, extraStyle = "") {
   const clampedPercent = Math.max(0, Math.min(100, percent));
+  const styleAttribute = [`--overview-fill: ${clampedPercent.toFixed(2)}%`, extraStyle].filter(Boolean).join("; ");
 
   return `
-    <div class="character-overview-bar character-overview-bar--${tone}" style="--overview-fill: ${clampedPercent.toFixed(2)}%">
+    <div class="character-overview-bar character-overview-bar--${tone}" style="${styleAttribute}">
       <span class="character-overview-bar__fill" aria-hidden="true"></span>
       <span class="character-overview-bar__label">${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function normalizeStoredCharacterSkillColor(value, fallback = "#5eb7a6") {
+  const normalizedValue = cleanText(value);
+  const hexPattern = /^#([0-9a-f]{6})$/i;
+
+  if (hexPattern.test(normalizedValue)) {
+    return normalizedValue.toLowerCase();
+  }
+
+  return cleanText(fallback) || "#5eb7a6";
+}
+
+function hexToRgba(hexColor, alpha) {
+  const normalized = normalizeStoredCharacterSkillColor(hexColor, "#5eb7a6").replace("#", "");
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function buildCharacterSkillThemeFromAccent(accentColor) {
+  const accent = normalizeStoredCharacterSkillColor(accentColor, "#5eb7a6");
+  return {
+    accent,
+    border: hexToRgba(accent, 0.34),
+    surfaceGlow: hexToRgba(accent, 0.18),
+    surface: hexToRgba(accent, 0.12),
+    summarySurface: hexToRgba(accent, 0.18),
+    fillStart: hexToRgba(accent, 0.94),
+    fillEnd: "rgba(240, 200, 121, 0.92)"
+  };
+}
+
+function hslToHex(hue, saturation = 68, lightness = 63) {
+  const normalizedHue = ((hue % 360) + 360) % 360;
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const chroma = (1 - Math.abs((2 * l) - 1)) * s;
+  const x = chroma * (1 - Math.abs(((normalizedHue / 60) % 2) - 1));
+  const match = l - chroma / 2;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  if (normalizedHue < 60) {
+    red = chroma;
+    green = x;
+  } else if (normalizedHue < 120) {
+    red = x;
+    green = chroma;
+  } else if (normalizedHue < 180) {
+    green = chroma;
+    blue = x;
+  } else if (normalizedHue < 240) {
+    green = x;
+    blue = chroma;
+  } else if (normalizedHue < 300) {
+    red = x;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = x;
+  }
+
+  const toHex = (value) => Math.round((value + match) * 255).toString(16).padStart(2, "0");
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+function getDefaultCharacterSkillColorForIdentity(skillId = "", skillName = "") {
+  const normalizedId = cleanText(skillId);
+  const normalizedName = cleanText(skillName).toLowerCase();
+  const directColors = {
+    "skill-despiece": "#d88d5a",
+    "skill-pesca": "#5d9cec",
+    "skill-forrajeo": "#78b96d",
+    "skill-cocina": "#f0c879",
+    "skill-cerraduras": "#b987f2",
+    "skill-trampas-puertas-secretas": "#e06d78"
+  };
+
+  if (directColors[normalizedId]) {
+    return directColors[normalizedId];
+  }
+
+  const key = normalizedId || normalizedName || "skill";
+  const hash = [...key].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return characterSkillColorPalette[hash % characterSkillColorPalette.length];
+}
+
+function getNextCharacterSkillColor(existingDefinitions = state.characterSkillDefinitions) {
+  const usedColors = new Set(
+    Array.isArray(existingDefinitions)
+      ? existingDefinitions.map((definition) => normalizeStoredCharacterSkillColor(definition?.color, "")).filter(Boolean)
+      : []
+  );
+  const firstUnused = characterSkillColorPalette.find((color) => !usedColors.has(color));
+
+  if (firstUnused) {
+    return firstUnused;
+  }
+
+  const nextIndex = Array.isArray(existingDefinitions) ? existingDefinitions.length : 0;
+  return hslToHex((nextIndex * 47) + 23);
+}
+
+function getCharacterSkillTheme(skillDefinition) {
+  return buildCharacterSkillThemeFromAccent(
+    skillDefinition?.color || getDefaultCharacterSkillColorForIdentity(skillDefinition?.id, skillDefinition?.name)
+  );
+}
+
+function getCharacterSkillThemeStyle(skillDefinition) {
+  const theme = getCharacterSkillTheme(skillDefinition);
+  return [
+    `--skill-accent: ${theme.accent}`,
+    `--skill-border: ${theme.border}`,
+    `--skill-surface-glow: ${theme.surfaceGlow}`,
+    `--skill-surface: ${theme.surface}`,
+    `--skill-summary-surface: ${theme.summarySurface}`,
+    `--skill-fill-start: ${theme.fillStart}`,
+    `--skill-fill-end: ${theme.fillEnd}`
+  ].join("; ");
+}
+
+function renderCharacterSkillSummary(character) {
+  if (!state.characterSkillDefinitions.length) {
+    return `<span class="character-overview__value">Sin skills</span>`;
+  }
+
+  return `
+    <div class="character-skill-summary">
+      ${state.characterSkillDefinitions.map((skillDefinition) => {
+        const progress = getCharacterSkillProgress(getCharacterSkillProgressEntry(character, skillDefinition.id));
+        const label = progress.level > 0
+          ? `Nv ${progress.level} · +${progress.bonus}`
+          : `${Math.round(progress.progressPercent)}%`;
+
+        const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
+
+        return `
+          <div class="character-skill-summary__item" style="${themeStyle}">
+            <div class="character-skill-summary__meta">
+              <strong>${escapeHtml(skillDefinition.name || "Skill")}</strong>
+              <small>${escapeHtml(progress.label)}</small>
+            </div>
+            ${renderCharacterOverviewProgressBar(label, progress.progressPercent, "skill", themeStyle)}
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
 }
@@ -4598,6 +4915,270 @@ function renderCharacterCarryLoadCard(character) {
         <strong>${escapeHtml(formatWeight(load.totalWeight))} / ${escapeHtml(formatWeight(load.maxWeight))} lb</strong>
       </div>
     </section>
+  `;
+}
+
+function renderCharacterSkillConfigSection() {
+  return `
+    <section class="detail-section character-skill-config">
+      <div class="character-skill-config__header">
+        <div>
+          <h4>Skills comunes</h4>
+          <p>Esta lista y sus ganancias de XP se comparten entre todos los personajes.</p>
+        </div>
+      </div>
+      <div class="character-skill-config__actions">
+        <button class="toolbar-button toolbar-button--subtle" type="button" data-action="add-character-skill-definition">
+          Anadir skill
+        </button>
+      </div>
+      <div class="character-skill-config__list">
+        ${
+          state.characterSkillDefinitions.length > 0
+            ? state.characterSkillDefinitions.map((skillDefinition) => renderCharacterSkillConfigRow(skillDefinition)).join("")
+            : `<div class="empty-state empty-state--compact">No hay skills comunes configuradas.</div>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderCharacterSkillConfigRow(skillDefinition) {
+  const hasIntermediateGains = normalizeStoredCharacterSkillGains(skillDefinition.intermediateGains, []).length > 0;
+  const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
+
+  return `
+    <div class="character-skill-config__row ${hasIntermediateGains ? "character-skill-config__row--with-intermediate" : ""}" style="${themeStyle}">
+      <label class="character-skill-config__field character-skill-config__field--name">
+        <span>Skill</span>
+        <input
+          class="filter-input character-skill-config__input"
+          type="text"
+          value="${escapeHtml(skillDefinition.name)}"
+          placeholder="Nueva skill"
+          data-character-skill-definition-field="name"
+          data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
+        />
+      </label>
+      <label class="character-skill-config__field character-skill-config__field--color">
+        <span>Color</span>
+        <input
+          class="character-skill-config__color-input"
+          type="color"
+          value="${escapeHtml(skillDefinition.color || getNextCharacterSkillColor([]))}"
+          data-character-skill-definition-field="color"
+          data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
+          aria-label="Color de skill"
+        />
+      </label>
+      <label class="character-skill-config__field">
+        <span>XP por fracaso</span>
+        <span class="character-skill-config__gains">
+          ${renderCharacterSkillGainInputs(skillDefinition.id, "failureGains", skillDefinition.failureGains)}
+        </span>
+      </label>
+      ${
+        hasIntermediateGains
+          ? `
+            <label class="character-skill-config__field">
+              <span>XP intermedio</span>
+              <span class="character-skill-config__gains">
+                ${renderCharacterSkillGainInputs(skillDefinition.id, "intermediateGains", skillDefinition.intermediateGains)}
+              </span>
+            </label>
+          `
+          : ""
+      }
+      <label class="character-skill-config__field">
+        <span>XP por exito</span>
+        <span class="character-skill-config__gains">
+          ${renderCharacterSkillGainInputs(skillDefinition.id, "successGains", skillDefinition.successGains)}
+        </span>
+      </label>
+      <button
+        class="toolbar-button toolbar-button--subtle-danger"
+        type="button"
+        data-action="remove-character-skill-definition"
+        data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
+      >
+        Quitar
+      </button>
+    </div>
+  `;
+}
+
+function renderCharacterSkillGainInputs(skillDefinitionId, field, values) {
+  return values.map((value, index) => `
+    <input
+      class="filter-input character-skill-config__input"
+      type="number"
+      inputmode="numeric"
+      min="0"
+      value="${escapeHtml(String(value))}"
+      data-character-skill-definition-field="${escapeHtml(field)}"
+      data-character-skill-definition-id="${escapeHtml(skillDefinitionId)}"
+      data-character-skill-definition-gain-index="${index}"
+      aria-label="${escapeHtml(`${field} ${index + 1}`)}"
+    />
+  `).join("");
+}
+
+function renderCharacterSkillSection(character) {
+  return `
+    <section class="detail-section character-skill-tracks">
+      <div class="character-skill-tracks__header">
+        <div>
+          <h4>Skills de campana</h4>
+          <p>Configura nivel y progreso de este personaje en las skills comunes.</p>
+        </div>
+      </div>
+      <div class="character-skill-tracks__list">
+        ${
+          state.characterSkillDefinitions.length > 0
+            ? state.characterSkillDefinitions.map((skillDefinition) => renderCharacterSkillRow(character, skillDefinition)).join("")
+            : `<div class="empty-state empty-state--compact">No hay skills comunes configuradas.</div>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderCharacterSkillRow(character, skillDefinition) {
+  const skillProgress = getCharacterSkillProgressEntry(character, skillDefinition.id);
+  const progress = getCharacterSkillProgress(skillProgress);
+  const successGains = normalizeStoredCharacterSkillGains(skillDefinition.successGains, [2]);
+  const intermediateGains = normalizeStoredCharacterSkillGains(skillDefinition.intermediateGains, []);
+  const failureGains = normalizeStoredCharacterSkillGains(skillDefinition.failureGains, [1]);
+  const levelExperienceLabel = progress.isMaxLevel
+    ? "Rango maximo"
+    : `${formatExperiencePoints(progress.levelExperiencePoints)} / ${formatExperiencePoints(progress.requiredExperiencePoints)} XP`;
+  const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
+  const isExpanded = state.expandedCharacterSkillIds.has(skillDefinition.id);
+
+  return `
+    <article class="character-skill-row" style="${themeStyle}">
+      <div class="character-skill-row__top">
+        <div class="character-skill-row__rank">
+          <strong>${escapeHtml(skillDefinition.name)}</strong>
+          <span>${escapeHtml(progress.level > 0 ? `Rango ${progress.label}` : "Sin rango")}</span>
+          ${isExpanded ? `<small>Bonus +${escapeHtml(String(progress.bonus))}</small>` : ""}
+        </div>
+        <button
+          class="character-skill-row__toggle"
+          type="button"
+          data-action="toggle-character-skill-row"
+          data-character-skill-id="${escapeHtml(skillDefinition.id)}"
+          aria-expanded="${isExpanded}"
+        >
+          ${isExpanded ? "Ocultar" : "Ver detalle"}
+        </button>
+      </div>
+      <div class="character-skill-row__progress">
+        ${renderCharacterSkillProgressBar(skillDefinition, skillProgress, levelExperienceLabel, isExpanded)}
+      </div>
+      ${
+        isExpanded
+          ? `
+            <div class="character-skill-row__fields">
+              <label class="character-skill-row__field character-skill-row__field--level">
+                <span>Nivel</span>
+                <select
+                  class="character-skill-row__input character-skill-row__input--select"
+                  data-character-skill-progress-field="level"
+                  data-character-skill-id="${escapeHtml(skillDefinition.id)}"
+                >
+                  <option value="0" ${progress.level === 0 ? "selected" : ""}>0 - Sin rango</option>
+                  ${characterSkillLevelProgression.map((entry) => `
+                    <option value="${entry.level}" ${progress.level === entry.level ? "selected" : ""}>
+                      ${entry.level} - ${escapeHtml(entry.label)}
+                    </option>
+                  `).join("")}
+                </select>
+              </label>
+              <label class="character-skill-row__field">
+                <span>XP nivel</span>
+                <input
+                  class="character-skill-row__input"
+                  type="number"
+                  inputmode="numeric"
+                  min="0"
+                  max="${escapeHtml(String(progress.requiredExperiencePoints))}"
+                  value="${escapeHtml(String(progress.levelExperiencePoints))}"
+                  data-character-skill-progress-field="experiencePoints"
+                  data-character-skill-id="${escapeHtml(skillDefinition.id)}"
+                  aria-label="Experiencia del nivel actual"
+                  ${progress.isMaxLevel ? "disabled" : ""}
+                />
+              </label>
+            </div>
+            <div class="character-skill-row__actions">
+              ${renderCharacterSkillAwardButtons(skillDefinition.id, "failure", failureGains)}
+              ${renderCharacterSkillAwardButtons(skillDefinition.id, "intermediate", intermediateGains)}
+              ${renderCharacterSkillAwardButtons(skillDefinition.id, "success", successGains)}
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderCharacterSkillAwardButtons(skillDefinitionId, result, gains) {
+  const resultLabel = result === "failure"
+    ? "Fracaso"
+    : result === "intermediate"
+      ? "Intermedio"
+      : "Exito";
+  const toneClass = result === "failure"
+    ? "character-skill-row__action--failure"
+    : result === "intermediate"
+      ? "character-skill-row__action--intermediate"
+      : "character-skill-row__action--success";
+
+  return gains.map((gain, index) => {
+    const hasTiers = gains.length > 1;
+    const tierLabel = hasTiers ? ` ${index + 1}` : "";
+
+    return `
+      <button
+        class="character-skill-row__action ${toneClass}"
+        type="button"
+        data-action="award-character-skill-xp"
+        data-character-skill-id="${escapeHtml(skillDefinitionId)}"
+        data-character-skill-result="${escapeHtml(result)}"
+        data-character-skill-gain-index="${index}"
+      >
+        <span>${escapeHtml(`${resultLabel}${tierLabel}`)}</span>
+        <strong>+${escapeHtml(String(gain))} XP</strong>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderCharacterSkillProgressBar(skillDefinition, skillProgress, progressLabelOverride = "", showBonus = true) {
+  const progress = getCharacterSkillProgress(skillProgress);
+  const fillStyle = `--skill-fill: ${progress.progressPercent.toFixed(2)}%`;
+  const progressLabel = progressLabelOverride || (progress.isMaxLevel
+    ? "Rango maximo"
+    : `${progress.levelExperiencePoints} / ${progress.requiredExperiencePoints} XP`);
+  const rankLabel = progress.level > 0
+    ? `Nv ${progress.level} · ${progress.label}`
+    : "Nv 0 · Sin rango";
+
+  return `
+    <div class="character-skill-progress" style="${fillStyle}" aria-label="Progreso de ${escapeHtml(skillDefinition.name || "skill")}">
+      <div class="character-skill-progress__labels">
+        <strong>${escapeHtml(rankLabel)}</strong>
+        ${showBonus ? `<span>Bonus +${escapeHtml(String(progress.bonus))}</span>` : ""}
+      </div>
+      <div class="character-skill-progress__status">
+        <div class="character-skill-progress__track">
+          <span class="character-skill-progress__fill" aria-hidden="true"></span>
+          <span class="character-skill-progress__label">${escapeHtml(progressLabel)}</span>
+        </div>
+        <span class="character-skill-progress__percent">${escapeHtml(progress.isMaxLevel ? "MAX" : `${Math.round(progress.progressPercent)}%`)}</span>
+      </div>
+    </div>
   `;
 }
 
@@ -5196,6 +5777,40 @@ function getCharacterLevelExperienceRequirement(level) {
 
   const previousEntry = characterLevelProgression.find((entry) => entry.level === currentEntry.level - 1);
   return previousEntry ? Math.max(0, currentEntry.experiencePoints - previousEntry.experiencePoints) : 0;
+}
+
+function getCharacterSkillMaxExperiencePoints() {
+  return characterSkillLevelProgression[characterSkillLevelProgression.length - 1]?.experiencePoints ?? 0;
+}
+
+function getCharacterSkillProgress(skillTrack) {
+  const experiencePoints = normalizeStoredCharacterSkillExperiencePoints(skillTrack?.experiencePoints);
+  const currentEntry = [...characterSkillLevelProgression]
+    .reverse()
+    .find((entry) => experiencePoints >= entry.experiencePoints) ?? null;
+  const nextEntry = currentEntry
+    ? characterSkillLevelProgression.find((entry) => entry.level === currentEntry.level + 1) ?? null
+    : characterSkillLevelProgression[0] ?? null;
+  const currentLevelStart = currentEntry?.experiencePoints ?? 0;
+  const nextLevelStart = nextEntry?.experiencePoints ?? currentLevelStart;
+  const levelExperiencePoints = Math.max(0, experiencePoints - currentLevelStart);
+  const requiredExperiencePoints = nextEntry ? Math.max(1, nextLevelStart - currentLevelStart) : 0;
+  const progressPercent = nextEntry
+    ? ((experiencePoints - currentLevelStart) / Math.max(1, nextLevelStart - currentLevelStart)) * 100
+    : 100;
+
+  return {
+    level: currentEntry?.level ?? 0,
+    label: currentEntry?.label ?? "Sin rango",
+    bonus: currentEntry?.bonus ?? 0,
+    experiencePoints,
+    levelExperiencePoints,
+    currentLevelStart,
+    nextLevelStart,
+    requiredExperiencePoints,
+    progressPercent: Math.max(0, Math.min(100, progressPercent)),
+    isMaxLevel: !nextEntry
+  };
 }
 
 function getCharacterProficiencyBonus(character) {
@@ -5844,6 +6459,7 @@ function createDefaultCharacter(overrides = {}) {
     conditions: "",
     stand: "",
     notes: "",
+    skillProgress: getDefaultCharacterSkillProgress(),
     inventoryOpen: true,
     inventory: getDefaultCharacterInventory(),
     abilities: {
@@ -5919,6 +6535,204 @@ function updateCharacterFieldForId(characterId, key, rawValue, normalize = true)
     }
 
     return updatedCharacter;
+  });
+}
+
+function getDefaultCharacterSkillDefinitions() {
+  return defaultCharacterSkillTemplates.map((template) => normalizeStoredCharacterSkillDefinition({
+    id: template.id,
+    name: template.name,
+    successGains: template.successGains,
+    intermediateGains: template.intermediateGains,
+    failureGains: template.failureGains
+  })).filter(Boolean);
+}
+
+function createDefaultCharacterSkillDefinition(overrides = {}) {
+  return normalizeStoredCharacterSkillDefinition({
+    id: createStableId("skill-def"),
+    name: "Nueva skill",
+    color: getNextCharacterSkillColor(state.characterSkillDefinitions),
+    successGains: [2],
+    intermediateGains: [],
+    failureGains: [1],
+    ...overrides
+  });
+}
+
+function getDefaultCharacterSkillProgress() {
+  return state.characterSkillDefinitions.map((skillDefinition) => normalizeStoredCharacterSkillProgressEntry({
+    skillId: skillDefinition.id,
+    experiencePoints: 0
+  })).filter(Boolean);
+}
+
+function syncCharactersToSkillDefinitions() {
+  state.characters = state.characters
+    .map((character) => normalizeStoredCharacter(character, state.characterSkillDefinitions))
+    .filter(Boolean);
+}
+
+function addCharacterSkillDefinition(overrides = {}) {
+  const skillDefinition = createDefaultCharacterSkillDefinition(overrides);
+  state.characterSkillDefinitions = [...state.characterSkillDefinitions, skillDefinition];
+  syncCharactersToSkillDefinitions();
+  return skillDefinition.id;
+}
+
+function updateCharacterSkillDefinition(skillDefinitionId, key, rawValue, normalize = true, gainIndex = 0) {
+  const normalizedSkillDefinitionId = cleanText(skillDefinitionId);
+  const normalizedGainIndex = Math.max(0, Math.floor(toNumber(gainIndex) || 0));
+
+  if (!normalizedSkillDefinitionId) {
+    return;
+  }
+
+  state.characterSkillDefinitions = state.characterSkillDefinitions
+    .map((skillDefinition) => {
+      if (skillDefinition.id !== normalizedSkillDefinitionId) {
+        return skillDefinition;
+      }
+
+      if (key === "successGains" || key === "intermediateGains" || key === "failureGains") {
+        const defaultGains = key === "successGains" ? [2] : key === "intermediateGains" ? [] : [1];
+        const nextValues = [...normalizeStoredCharacterSkillGains(skillDefinition[key], defaultGains)];
+        nextValues[normalizedGainIndex] = normalize
+          ? normalizeStoredCharacterSkillGain(rawValue, defaultGains[normalizedGainIndex] ?? defaultGains[0] ?? 0)
+          : rawValue;
+
+        return normalizeStoredCharacterSkillDefinition({
+          ...skillDefinition,
+          [key]: nextValues
+        });
+      }
+
+      return normalizeStoredCharacterSkillDefinition({
+        ...skillDefinition,
+        [key]: rawValue
+      });
+    })
+    .filter(Boolean);
+
+  syncCharactersToSkillDefinitions();
+}
+
+function removeCharacterSkillDefinition(skillDefinitionId) {
+  const normalizedSkillDefinitionId = cleanText(skillDefinitionId);
+
+  if (!normalizedSkillDefinitionId) {
+    return;
+  }
+
+  state.characterSkillDefinitions = state.characterSkillDefinitions
+    .filter((skillDefinition) => skillDefinition.id !== normalizedSkillDefinitionId);
+  state.expandedCharacterSkillIds.delete(normalizedSkillDefinitionId);
+  syncCharactersToSkillDefinitions();
+}
+
+function toggleCharacterSkillRow(skillId) {
+  const normalizedSkillId = cleanText(skillId);
+
+  if (!normalizedSkillId) {
+    return;
+  }
+
+  if (state.expandedCharacterSkillIds.has(normalizedSkillId)) {
+    state.expandedCharacterSkillIds.delete(normalizedSkillId);
+    return;
+  }
+
+  state.expandedCharacterSkillIds.add(normalizedSkillId);
+}
+
+function getCharacterSkillLevelStartExperience(level) {
+  if (toNumber(level) <= 0) {
+    return 0;
+  }
+
+  return characterSkillLevelProgression.find((entry) => entry.level === toNumber(level))?.experiencePoints ?? getCharacterSkillMaxExperiencePoints();
+}
+
+function getCharacterSkillProgressEntry(character, skillId) {
+  const normalizedSkillId = cleanText(skillId);
+  const skillProgress = Array.isArray(character?.skillProgress)
+    ? character.skillProgress.find((entry) => entry.skillId === normalizedSkillId)
+    : null;
+
+  return normalizeStoredCharacterSkillProgressEntry({
+    skillId: normalizedSkillId,
+    experiencePoints: skillProgress?.experiencePoints ?? 0
+  });
+}
+
+function updateCharacterSkillProgress(skillId, key, rawValue, normalize = true) {
+  const normalizedSkillId = cleanText(skillId);
+
+  if (!normalizedSkillId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const currentProgress = getCharacterSkillProgressEntry(character, normalizedSkillId);
+    const currentProgressState = getCharacterSkillProgress(currentProgress);
+    const nextRelativeExperiencePoints = normalizeStoredNonNegativeNumber(rawValue);
+    const nextExperiencePoints = key === "level"
+      ? getCharacterSkillLevelStartExperience(rawValue)
+      : key === "experiencePoints"
+        ? currentProgressState.currentLevelStart + Math.min(
+          Math.max(0, Math.floor(toNumber(nextRelativeExperiencePoints) || 0)),
+          currentProgressState.requiredExperiencePoints
+        )
+        : (normalize ? normalizeStoredNumber(rawValue) : rawValue);
+
+    return normalizeStoredCharacter({
+      ...character,
+      skillProgress: character.skillProgress.map((entry) => entry.skillId === normalizedSkillId
+        ? normalizeStoredCharacterSkillProgressEntry({
+          ...currentProgress,
+          experiencePoints: nextExperiencePoints
+        })
+        : entry)
+    }, state.characterSkillDefinitions);
+  });
+}
+
+function awardCharacterSkillExperience(skillId, result, gainIndex = 0) {
+  const normalizedSkillId = cleanText(skillId);
+  const skillDefinition = state.characterSkillDefinitions.find((entry) => entry.id === normalizedSkillId);
+  const gains = normalizeStoredCharacterSkillGains(
+    result === "failure"
+      ? skillDefinition?.failureGains
+      : result === "intermediate"
+        ? skillDefinition?.intermediateGains
+        : skillDefinition?.successGains,
+    result === "failure" ? [1] : result === "intermediate" ? [] : [2]
+  );
+  const normalizedGainIndex = Math.max(0, Math.floor(toNumber(gainIndex) || 0));
+  const gain = Math.max(0, toNumber(gains[normalizedGainIndex] ?? gains[0] ?? 0));
+
+  if (!normalizedSkillId || !skillDefinition) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    return normalizeStoredCharacter({
+      ...character,
+      skillProgress: character.skillProgress.map((entry) => entry.skillId === normalizedSkillId
+        ? normalizeStoredCharacterSkillProgressEntry({
+          ...entry,
+          experiencePoints: toNumber(entry.experiencePoints) + gain
+        })
+        : entry)
+    }, state.characterSkillDefinitions);
   });
 }
 
@@ -9872,6 +10686,9 @@ function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
     campaign: {
       name: cleanText(name) || "Campaña sin nombre"
     },
+    characterSkills: {
+      definitions: getDefaultCharacterSkillDefinitions()
+    },
     characters: [],
     encounterInventory: {
       folders: [],
@@ -10077,6 +10894,9 @@ function createCampaignSavePayload() {
     campaign: {
       name
     },
+    characterSkills: {
+      definitions: getCharacterSkillDefinitionsSaveData()
+    },
     characters: getCharactersSaveData(),
     encounterInventory: getEncounterInventorySaveData(),
     combatTracker: getCombatTrackerSaveData({
@@ -10105,8 +10925,13 @@ function normalizeCampaignSave(value) {
     throw new Error("Missing campaign data");
   }
 
+  const characterSkills = isPlainObject(value.characterSkills) ? value.characterSkills : {};
+  const characterSkillDefinitions = normalizeStoredCharacterSkillDefinitions(
+    characterSkills.definitions,
+    value.characters
+  );
   const encounterInventory = normalizeStoredEncounterInventory(value.encounterInventory);
-  const characters = normalizeStoredCharacters(value.characters);
+  const characters = normalizeStoredCharacters(value.characters, characterSkillDefinitions);
   const combatTracker = normalizeStoredCombatTrackerState(value.combatTracker);
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
   const ui = isPlainObject(value.ui) ? value.ui : {};
@@ -10115,6 +10940,7 @@ function normalizeCampaignSave(value) {
 
   return {
     name,
+    characterSkillDefinitions,
     characters,
     encounterInventory,
     combatTracker,
@@ -10149,6 +10975,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.activeCombatSourceId = "";
   state.combatEncounterPickerOpen = false;
   state.combatAddPickerMode = "";
+  state.characterSkillDefinitions = campaign.characterSkillDefinitions;
   state.characters = campaign.characters;
   state.activeCharacterId = state.characters[0]?.id ?? "";
 
@@ -10170,6 +10997,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.showEncounterSearchSuggestions = false;
 
   saveCombatTrackerState();
+  saveCharacterSkillDefinitions();
   saveCharacters();
   saveEncounterInventory();
 
@@ -10277,14 +11105,54 @@ function saveCampaignMeta() {
   }
 }
 
-function loadCharacters() {
+function loadCharacterSkillDefinitions() {
+  if (typeof window === "undefined") {
+    return getDefaultCharacterSkillDefinitions();
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY);
+
+    if (rawValue) {
+      return normalizeStoredCharacterSkillDefinitions(JSON.parse(rawValue || "[]"));
+    }
+
+    const legacyCharactersRaw = window.localStorage.getItem(CHARACTERS_STORAGE_KEY);
+    return normalizeStoredCharacterSkillDefinitions(undefined, JSON.parse(legacyCharactersRaw || "[]"));
+  } catch {
+    return getDefaultCharacterSkillDefinitions();
+  }
+}
+
+function saveCharacterSkillDefinitions() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY,
+      JSON.stringify(getCharacterSkillDefinitionsSaveData())
+    );
+  } catch {
+    // Storage can be unavailable in private contexts; campaign files still work.
+  }
+}
+
+function getCharacterSkillDefinitionsSaveData() {
+  return state.characterSkillDefinitions
+    .map((skillDefinition) => normalizeStoredCharacterSkillDefinition(skillDefinition))
+    .filter(Boolean);
+}
+
+function loadCharacters(skillDefinitions = getDefaultCharacterSkillDefinitions()) {
   if (typeof window === "undefined") {
     return [];
   }
 
   try {
     const rawValue = window.localStorage.getItem(CHARACTERS_STORAGE_KEY);
-    return normalizeStoredCharacters(JSON.parse(rawValue || "[]"));
+    return normalizeStoredCharacters(JSON.parse(rawValue || "[]"), skillDefinitions);
   } catch {
     return [];
   }
@@ -10304,24 +11172,40 @@ function saveCharacters() {
 
 function getCharactersSaveData() {
   return state.characters
-    .map((character) => normalizeStoredCharacter(character))
+    .map((character) => normalizeStoredCharacter(character, state.characterSkillDefinitions))
     .filter(Boolean);
 }
 
-function normalizeStoredCharacters(value) {
+function resolveCharacterSkillDefinitions(skillDefinitions, legacyCharacters = []) {
+  if (Array.isArray(skillDefinitions)) {
+    return skillDefinitions;
+  }
+
+  if (typeof state !== "undefined" && Array.isArray(state.characterSkillDefinitions)) {
+    return state.characterSkillDefinitions;
+  }
+
+  return normalizeStoredCharacterSkillDefinitions(undefined, legacyCharacters);
+}
+
+function normalizeStoredCharacters(value, skillDefinitions = undefined) {
   if (!Array.isArray(value)) {
     return [];
   }
 
+  const resolvedSkillDefinitions = resolveCharacterSkillDefinitions(skillDefinitions, value);
+
   return value
-    .map((character) => normalizeStoredCharacter(character))
+    .map((character) => normalizeStoredCharacter(character, resolvedSkillDefinitions))
     .filter(Boolean);
 }
 
-function normalizeStoredCharacter(character) {
+function normalizeStoredCharacter(character, skillDefinitions = undefined) {
   if (!isPlainObject(character)) {
     return null;
   }
+
+  const resolvedSkillDefinitions = resolveCharacterSkillDefinitions(skillDefinitions, [character]);
 
   const maxHp = normalizeStoredNonNegativeNumber(character.maxHp);
   const hasCurrentHp = character.currentHp !== undefined && character.currentHp !== null;
@@ -10361,6 +11245,11 @@ function normalizeStoredCharacter(character) {
     conditions: cleanText(character.conditions),
     stand: normalizeStoredStandLabel(character.stand),
     notes: cleanText(character.notes),
+    skillProgress: normalizeStoredCharacterSkillProgress(
+      character.skillProgress,
+      resolvedSkillDefinitions,
+      character.skillTracks
+    ),
     inventoryOpen: character.inventoryOpen !== false,
     inventory: normalizeStoredCharacterInventory(character.inventory),
     abilities: normalizeStoredCharacterAbilities(character.abilities)
@@ -10389,6 +11278,235 @@ function normalizeStoredCharacterAbilities(abilities) {
     const score = Math.max(1, Math.min(30, Math.floor(toNumber(source[key])) || 10));
     return [key, score];
   }));
+}
+
+function normalizeStoredCharacterSkillDefinitions(definitions, legacyCharacters = []) {
+  if (Array.isArray(definitions)) {
+    const normalizedDefinitions = definitions
+      .map((definition) => normalizeStoredCharacterSkillDefinition(definition))
+      .filter(Boolean);
+
+    return dedupeCharacterSkillDefinitions(normalizedDefinitions);
+  }
+
+  const legacyDefinitions = getLegacyCharacterSkillDefinitionsFromCharacters(legacyCharacters);
+  return legacyDefinitions.length > 0 ? legacyDefinitions : getDefaultCharacterSkillDefinitions();
+}
+
+function dedupeCharacterSkillDefinitions(definitions) {
+  const seen = new Set();
+
+  return definitions.filter((definition) => {
+    if (!definition || seen.has(definition.id)) {
+      return false;
+    }
+
+    seen.add(definition.id);
+    return true;
+  });
+}
+
+function getLegacyCharacterSkillDefinitionsFromCharacters(characters) {
+  if (!Array.isArray(characters)) {
+    return [];
+  }
+
+  const definitions = [];
+  const seenNames = new Set();
+
+  characters.forEach((character) => {
+    if (!isPlainObject(character) || !Array.isArray(character.skillTracks)) {
+      return;
+    }
+
+    character.skillTracks.forEach((skillTrack) => {
+      const normalizedSkillTrack = normalizeLegacyCharacterSkillTrack(skillTrack);
+
+      if (!normalizedSkillTrack || seenNames.has(normalizedSkillTrack.name.toLowerCase())) {
+        return;
+      }
+
+      seenNames.add(normalizedSkillTrack.name.toLowerCase());
+      definitions.push(normalizeStoredCharacterSkillDefinition({
+        id: normalizedSkillTrack.id,
+        name: normalizedSkillTrack.name,
+        successGains: normalizedSkillTrack.successGains,
+        intermediateGains: normalizedSkillTrack.intermediateGains,
+        failureGains: normalizedSkillTrack.failureGains
+      }));
+    });
+  });
+
+  return definitions.filter(Boolean);
+}
+
+function normalizeLegacyCharacterSkillTrack(skillTrack) {
+  if (!isPlainObject(skillTrack)) {
+    return null;
+  }
+
+  const name = cleanText(skillTrack.name);
+  const id = cleanText(skillTrack.id) || createCharacterSkillDefinitionId(name);
+  const canonicalConfig = getCharacterSkillCanonicalConfig(id, name);
+
+  return {
+    id,
+    name: name || "Nueva skill",
+    color: canonicalConfig?.color ?? normalizeStoredCharacterSkillColor(
+      skillTrack.color,
+      getDefaultCharacterSkillColorForIdentity(id, name)
+    ),
+    experiencePoints: normalizeStoredCharacterSkillExperiencePoints(skillTrack.experiencePoints),
+    successGains: canonicalConfig?.successGains
+      ?? normalizeStoredCharacterSkillGains(skillTrack.successGains ?? skillTrack.successGain, [2]),
+    intermediateGains: canonicalConfig?.intermediateGains
+      ?? normalizeStoredCharacterSkillGains(skillTrack.intermediateGains, []),
+    failureGains: canonicalConfig?.failureGains
+      ?? normalizeStoredCharacterSkillGains(skillTrack.failureGains ?? skillTrack.failureGain, [1])
+  };
+}
+
+function normalizeStoredCharacterSkillDefinition(definition) {
+  if (!isPlainObject(definition)) {
+    return null;
+  }
+
+  const name = cleanText(definition.name) || "Nueva skill";
+  const id = cleanText(definition.id) || createCharacterSkillDefinitionId(name) || createStableId("skill-def");
+  const canonicalConfig = getCharacterSkillCanonicalConfig(id, name);
+
+  return {
+    id,
+    name,
+    color: canonicalConfig?.color ?? normalizeStoredCharacterSkillColor(
+      definition.color,
+      getDefaultCharacterSkillColorForIdentity(id, name)
+    ),
+    successGains: canonicalConfig?.successGains
+      ?? normalizeStoredCharacterSkillGains(definition.successGains ?? definition.successGain, [2]),
+    intermediateGains: canonicalConfig?.intermediateGains
+      ?? normalizeStoredCharacterSkillGains(definition.intermediateGains, []),
+    failureGains: canonicalConfig?.failureGains
+      ?? normalizeStoredCharacterSkillGains(definition.failureGains ?? definition.failureGain, [1])
+  };
+}
+
+function getCharacterSkillCanonicalConfig(skillId, skillName) {
+  const normalizedId = cleanText(skillId);
+  const normalizedName = cleanText(skillName).toLowerCase();
+
+  if (normalizedId === "skill-cocina" || normalizedName === "cocina") {
+    return {
+      color: "#f0c879",
+      successGains: [3],
+      intermediateGains: [2],
+      failureGains: [1]
+    };
+  }
+
+  if (
+    normalizedId === "skill-trampas-puertas-secretas"
+    || normalizedName === "trampas y puertas secretas"
+  ) {
+    return {
+      color: "#e06d78",
+      successGains: [3],
+      intermediateGains: [],
+      failureGains: [0]
+    };
+  }
+
+  return null;
+}
+
+function createCharacterSkillDefinitionId(name) {
+  const slug = cleanText(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug ? `skill-${slug}` : "";
+}
+
+function normalizeStoredCharacterSkillProgress(skillProgress, skillDefinitions, legacySkillTracks = []) {
+  const progressBySkillId = new Map();
+  const legacySkillTracksByName = new Map(
+    Array.isArray(legacySkillTracks)
+      ? legacySkillTracks
+        .map((skillTrack) => normalizeLegacyCharacterSkillTrack(skillTrack))
+        .filter(Boolean)
+        .map((skillTrack) => [skillTrack.name.toLowerCase(), skillTrack])
+      : []
+  );
+
+  if (Array.isArray(skillProgress)) {
+    skillProgress
+      .map((entry) => normalizeStoredCharacterSkillProgressEntry(entry))
+      .filter(Boolean)
+      .forEach((entry) => progressBySkillId.set(entry.skillId, entry));
+  }
+
+  return skillDefinitions.map((skillDefinition) => {
+    const existingProgress = progressBySkillId.get(skillDefinition.id);
+    const legacyProgress = legacySkillTracksByName.get(skillDefinition.name.toLowerCase());
+
+    return normalizeStoredCharacterSkillProgressEntry({
+      skillId: skillDefinition.id,
+      experiencePoints: existingProgress?.experiencePoints ?? legacyProgress?.experiencePoints ?? 0
+    });
+  }).filter(Boolean);
+}
+
+function normalizeStoredCharacterSkillProgressEntry(entry) {
+  if (!isPlainObject(entry)) {
+    return null;
+  }
+
+  const skillId = cleanText(entry.skillId);
+
+  if (!skillId) {
+    return null;
+  }
+
+  return {
+    skillId,
+    experiencePoints: normalizeStoredCharacterSkillExperiencePoints(entry.experiencePoints)
+  };
+}
+
+function normalizeStoredCharacterSkillExperiencePoints(value) {
+  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
+  return Math.min(numericValue, getCharacterSkillMaxExperiencePoints());
+}
+
+function normalizeStoredCharacterSkillGain(value, fallback = 0) {
+  if (value === "" || value === undefined || value === null) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
+}
+
+function normalizeStoredCharacterSkillGains(value, defaultValues = [0]) {
+  const normalizedDefaults = Array.isArray(defaultValues)
+    ? defaultValues.map((entry) => normalizeStoredCharacterSkillGain(entry, 0))
+    : [normalizeStoredCharacterSkillGain(defaultValues, 0)];
+  const sourceValues = Array.isArray(value)
+    ? value
+    : (value === undefined || value === null || value === "")
+      ? normalizedDefaults
+      : [value];
+  const normalizedValues = sourceValues
+    .map((entry, index) => normalizeStoredCharacterSkillGain(entry, normalizedDefaults[Math.min(index, normalizedDefaults.length - 1)] ?? 0))
+    .filter((entry) => entry !== null && entry !== undefined);
+
+  if (normalizedValues.length > 0 || normalizedDefaults.length === 0) {
+    return normalizedValues;
+  }
+
+  return normalizedDefaults;
 }
 
 function normalizeStoredCharacterInventory(inventory) {
