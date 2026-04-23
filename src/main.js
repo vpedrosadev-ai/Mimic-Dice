@@ -1,4 +1,4 @@
-import { SOURCE_NAMES } from "./data/bestiarySources.js";
+﻿import { SOURCE_NAMES } from "./data/bestiarySources.js";
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
@@ -299,6 +299,42 @@ const characterCurrencyRows = [
   { name: "ELECTRO", shortLabel: "EL", icon: "electrum" },
   { name: "PLATINO", shortLabel: "PT", icon: "platinum" }
 ];
+const challengeRatingExperienceByCr = {
+  "0": 10,
+  "1/8": 25,
+  "1/4": 50,
+  "1/2": 100,
+  "1": 200,
+  "2": 450,
+  "3": 700,
+  "4": 1100,
+  "5": 1800,
+  "6": 2300,
+  "7": 2900,
+  "8": 3900,
+  "9": 5000,
+  "10": 5900,
+  "11": 7200,
+  "12": 8400,
+  "13": 10000,
+  "14": 11500,
+  "15": 13000,
+  "16": 15000,
+  "17": 18000,
+  "18": 20000,
+  "19": 22000,
+  "20": 25000,
+  "21": 33000,
+  "22": 41000,
+  "23": 50000,
+  "24": 62000,
+  "25": 75000,
+  "26": 90000,
+  "27": 105000,
+  "28": 120000,
+  "29": 135000,
+  "30": 155000
+};
 const experienceFormatter = new Intl.NumberFormat("es-ES");
 const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
 let battleTimerInterval = null;
@@ -324,7 +360,7 @@ const state = {
   campaignMessage: "",
   fileMenuOpen: false,
   characterSkillConfigOpen: false,
-  expandedCharacterSkillIds: new Set(),
+  characterSkillsExpanded: false,
   characterSkillDefinitions: initialCharacterSkillDefinitions,
   characters: initialCharacters,
   activeCharacterId: initialCharacters[0]?.id ?? "",
@@ -1143,8 +1179,8 @@ function handleClick(event) {
     return;
   }
 
-  if (action === "toggle-character-skill-row") {
-    toggleCharacterSkillRow(actionButton.dataset.characterSkillId);
+  if (action === "toggle-character-skills-view") {
+    toggleCharacterSkillsView();
     render();
     return;
   }
@@ -2072,17 +2108,17 @@ function renderFileMenu() {
           ? `
             <div class="file-menu__popover" role="menu">
               <button class="file-menu__item" type="button" role="menuitem" data-action="new-campaign">
-                Nueva campaña
+                Nueva campaÃ±a
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="save-campaign-file">
-                Guardar campaña
+                Guardar campaÃ±a
                 <span>Ctrl+S</span>
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="save-campaign-file-as">
-                Guardar campaña como
+                Guardar campaÃ±a como
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="choose-campaign-file">
-                Cargar campaña
+                Cargar campaÃ±a
               </button>
             </div>
           `
@@ -2099,7 +2135,7 @@ function renderFileMenu() {
 }
 
 function getCampaignDisplayName() {
-  return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaña";
+  return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaÃ±a";
 }
 
 function renderScreen() {
@@ -4633,15 +4669,15 @@ function renderCharactersOverviewPanel(characters) {
       <div class="table-wrap character-overview__table-wrap" role="region" aria-label="Resumen de personajes">
         <table class="combat-table character-overview-table">
           <colgroup>
-            <col style="width: 14rem" />
-            <col style="width: 6rem" />
-            <col style="width: 5rem" />
-            <col style="width: 6rem" />
-            <col style="width: 6rem" />
-            <col style="width: 7rem" />
-            <col style="width: 15rem" />
-            <col style="width: 19rem" />
-            <col style="width: 15rem" />
+            <col style="width: 9rem" />
+            <col style="width: 5.5rem" />
+            <col style="width: 4.5rem" />
+            <col style="width: 5.5rem" />
+            <col style="width: 5.5rem" />
+            <col style="width: 6.5rem" />
+            <col style="width: 10.5rem" />
+            <col style="width: 9.5rem" />
+            <col style="width: 33rem" />
           </colgroup>
           <thead>
             <tr>
@@ -4652,8 +4688,8 @@ function renderCharactersOverviewPanel(characters) {
               <th scope="col">Talla</th>
               <th scope="col">Percep.</th>
               <th scope="col">XP</th>
-              <th scope="col">Skills</th>
               <th scope="col">Carga</th>
+              <th scope="col">Skills</th>
             </tr>
           </thead>
           <tbody>
@@ -4668,9 +4704,14 @@ function renderCharactersOverviewPanel(characters) {
 function renderCharacterOverviewRow(character) {
   const experience = getCharacterExperienceProgress(character);
   const load = getCharacterInventoryLoad(character);
-  const xpPercent = Math.round(experience.progressPercent);
-  const loadPercent = Math.round(load.percent);
-  const xpLabel = `Nv ${experience.level} · ${xpPercent}%`;
+  const xpLabelParts = {
+    left: `NV ${experience.level}`,
+    right: `${Math.round(experience.progressPercent)}%`
+  };
+  const loadLabelParts = {
+    left: `${formatWeight(load.totalWeight)} / ${formatWeight(load.maxWeight)}`,
+    right: `${Math.round(load.percent)}%`
+  };
 
   return `
     <tr>
@@ -4687,19 +4728,21 @@ function renderCharacterOverviewRow(character) {
       <td>${escapeHtml(String(getCharacterPassivePerception(character)))}</td>
       <td>
         <div class="character-overview__stack">
-          ${renderCharacterOverviewProgressBar(
-        xpLabel,
+          ${renderCharacterOverviewSplitProgressBar(
+        xpLabelParts.left,
+        xpLabelParts.right,
         experience.progressPercent,
         "xp"
       )}
         </div>
       </td>
-      <td>${renderCharacterSkillSummary(character)}</td>
-      <td>${renderCharacterOverviewProgressBar(
-        `${loadPercent}%`,
+      <td>${renderCharacterOverviewSplitProgressBar(
+        loadLabelParts.left,
+        loadLabelParts.right,
         load.percent,
         "load"
       )}</td>
+      <td>${renderCharacterSkillSummary(character)}</td>
     </tr>
   `;
 }
@@ -4733,6 +4776,46 @@ function renderCharacterOverviewProgressBar(label, percent, tone, extraStyle = "
     <div class="character-overview-bar character-overview-bar--${tone}" style="${styleAttribute}">
       <span class="character-overview-bar__fill" aria-hidden="true"></span>
       <span class="character-overview-bar__label">${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function renderCharacterOverviewSplitProgressBar(leftLabel, rightLabel, percent, tone, extraStyle = "") {
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+  const styleAttribute = [`--overview-fill: ${clampedPercent.toFixed(2)}%`, extraStyle].filter(Boolean).join("; ");
+
+  return `
+    <div class="character-overview-bar character-overview-bar--${tone}" style="${styleAttribute}">
+      <span class="character-overview-bar__fill" aria-hidden="true"></span>
+      <span class="character-overview-bar__label character-overview-bar__label--split">
+        <span class="character-overview-bar__label-left">${escapeHtml(leftLabel)}</span>
+        <span class="character-overview-bar__label-right">${escapeHtml(rightLabel)}</span>
+      </span>
+    </div>
+  `;
+}
+
+function getCharacterSkillSummaryBarParts(progress) {
+  return {
+    level: `NV. ${progress.level}`,
+    detail: progress.isMaxLevel
+      ? "MAX"
+      : `${formatExperiencePoints(progress.levelExperiencePoints)} / ${formatExperiencePoints(progress.requiredExperiencePoints)}`
+  };
+}
+
+function renderCharacterOverviewSkillProgressBar(progress, extraStyle = "") {
+  const clampedPercent = Math.max(0, Math.min(100, progress.progressPercent));
+  const styleAttribute = [`--overview-fill: ${clampedPercent.toFixed(2)}%`, extraStyle].filter(Boolean).join("; ");
+  const parts = getCharacterSkillSummaryBarParts(progress);
+
+  return `
+    <div class="character-overview-bar character-overview-bar--skill" style="${styleAttribute}">
+      <span class="character-overview-bar__fill" aria-hidden="true"></span>
+      <span class="character-overview-bar__label character-overview-bar__label--split">
+        <span class="character-overview-bar__label-left">${escapeHtml(parts.level)}</span>
+        <span class="character-overview-bar__label-right">${escapeHtml(parts.detail)}</span>
+      </span>
     </div>
   `;
 }
@@ -4869,10 +4952,6 @@ function renderCharacterSkillSummary(character) {
     <div class="character-skill-summary">
       ${state.characterSkillDefinitions.map((skillDefinition) => {
         const progress = getCharacterSkillProgress(getCharacterSkillProgressEntry(character, skillDefinition.id));
-        const label = progress.level > 0
-          ? `Nv ${progress.level} · +${progress.bonus}`
-          : `${Math.round(progress.progressPercent)}%`;
-
         const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
 
         return `
@@ -4881,7 +4960,7 @@ function renderCharacterSkillSummary(character) {
               <strong>${escapeHtml(skillDefinition.name || "Skill")}</strong>
               <small>${escapeHtml(progress.label)}</small>
             </div>
-            ${renderCharacterOverviewProgressBar(label, progress.progressPercent, "skill", themeStyle)}
+            ${renderCharacterOverviewSkillProgressBar(progress, themeStyle)}
           </div>
         `;
       }).join("")}
@@ -4960,17 +5039,6 @@ function renderCharacterSkillConfigRow(skillDefinition) {
           data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
         />
       </label>
-      <label class="character-skill-config__field character-skill-config__field--color">
-        <span>Color</span>
-        <input
-          class="character-skill-config__color-input"
-          type="color"
-          value="${escapeHtml(skillDefinition.color || getNextCharacterSkillColor([]))}"
-          data-character-skill-definition-field="color"
-          data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
-          aria-label="Color de skill"
-        />
-      </label>
       <label class="character-skill-config__field">
         <span>XP por fracaso</span>
         <span class="character-skill-config__gains">
@@ -5024,13 +5092,23 @@ function renderCharacterSkillGainInputs(skillDefinitionId, field, values) {
 }
 
 function renderCharacterSkillSection(character) {
+  const isExpanded = state.characterSkillsExpanded;
+
   return `
     <section class="detail-section character-skill-tracks">
       <div class="character-skill-tracks__header">
         <div>
           <h4>Skills de campana</h4>
-          <p>Configura nivel y progreso de este personaje en las skills comunes.</p>
+          <p>${isExpanded ? "Configura nivel y progreso de este personaje en las skills comunes." : "Vista resumida de progreso y nivel actual."}</p>
         </div>
+        <button
+          class="character-skill-tracks__toggle"
+          type="button"
+          data-action="toggle-character-skills-view"
+          aria-expanded="${isExpanded}"
+        >
+          ${isExpanded ? "Ocultar detalle" : "Ver detalle"}
+        </button>
       </div>
       <div class="character-skill-tracks__list">
         ${
@@ -5053,28 +5131,26 @@ function renderCharacterSkillRow(character, skillDefinition) {
     ? "Rango maximo"
     : `${formatExperiencePoints(progress.levelExperiencePoints)} / ${formatExperiencePoints(progress.requiredExperiencePoints)} XP`;
   const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
-  const isExpanded = state.expandedCharacterSkillIds.has(skillDefinition.id);
+  const isExpanded = state.characterSkillsExpanded;
+  const skillLevelLabel = progress.level > 0 ? `Nv ${progress.level}` : "Nv 0";
+  const skillRankLabel = progress.level > 0 ? progress.label : "Sin rango";
+  const clickableAttributes = !isExpanded
+    ? ' data-action="toggle-character-skills-view" role="button" tabindex="0" aria-expanded="false"'
+    : "";
 
   return `
-    <article class="character-skill-row" style="${themeStyle}">
+    <article class="character-skill-row${!isExpanded ? " character-skill-row--clickable" : ""}" style="${themeStyle}"${clickableAttributes}>
       <div class="character-skill-row__top">
         <div class="character-skill-row__rank">
           <strong>${escapeHtml(skillDefinition.name)}</strong>
-          <span>${escapeHtml(progress.level > 0 ? `Rango ${progress.label}` : "Sin rango")}</span>
-          ${isExpanded ? `<small>Bonus +${escapeHtml(String(progress.bonus))}</small>` : ""}
         </div>
-        <button
-          class="character-skill-row__toggle"
-          type="button"
-          data-action="toggle-character-skill-row"
-          data-character-skill-id="${escapeHtml(skillDefinition.id)}"
-          aria-expanded="${isExpanded}"
-        >
-          ${isExpanded ? "Ocultar" : "Ver detalle"}
-        </button>
+        <div class="character-skill-row__meta">
+          <span>${escapeHtml(skillRankLabel)}</span>
+          <strong>${escapeHtml(skillLevelLabel)}</strong>
+        </div>
       </div>
       <div class="character-skill-row__progress">
-        ${renderCharacterSkillProgressBar(skillDefinition, skillProgress, levelExperienceLabel, isExpanded)}
+        ${renderCharacterSkillProgressBar(skillDefinition, skillProgress, levelExperienceLabel)}
       </div>
       ${
         isExpanded
@@ -5155,21 +5231,20 @@ function renderCharacterSkillAwardButtons(skillDefinitionId, result, gains) {
   }).join("");
 }
 
-function renderCharacterSkillProgressBar(skillDefinition, skillProgress, progressLabelOverride = "", showBonus = true) {
+function renderCharacterSkillProgressBar(skillDefinition, skillProgress, progressLabelOverride = "") {
   const progress = getCharacterSkillProgress(skillProgress);
   const fillStyle = `--skill-fill: ${progress.progressPercent.toFixed(2)}%`;
   const progressLabel = progressLabelOverride || (progress.isMaxLevel
     ? "Rango maximo"
     : `${progress.levelExperiencePoints} / ${progress.requiredExperiencePoints} XP`);
   const rankLabel = progress.level > 0
-    ? `Nv ${progress.level} · ${progress.label}`
-    : "Nv 0 · Sin rango";
+    ? `Nv ${progress.level} Â· ${progress.label}`
+    : "Nv 0 Â· Sin rango";
 
   return `
     <div class="character-skill-progress" style="${fillStyle}" aria-label="Progreso de ${escapeHtml(skillDefinition.name || "skill")}">
       <div class="character-skill-progress__labels">
         <strong>${escapeHtml(rankLabel)}</strong>
-        ${showBonus ? `<span>Bonus +${escapeHtml(String(progress.bonus))}</span>` : ""}
       </div>
       <div class="character-skill-progress__status">
         <div class="character-skill-progress__track">
@@ -5184,17 +5259,13 @@ function renderCharacterSkillProgressBar(skillDefinition, skillProgress, progres
 
 function renderCharacterInventorySection(character) {
   const isOpen = character.inventoryOpen !== false;
-  const itemCount = character.inventory.filter((row) => !isCharacterCurrencyRow(row.name)).length;
+  const nonCurrencyRows = character.inventory.filter((row) => !isCharacterCurrencyRow(row.name));
+  const itemCount = nonCurrencyRows.length;
   const load = getCharacterInventoryLoad(character);
 
   return `
     <section class="detail-section character-inventory" data-character-inventory-menu>
-      <button
-        class="character-section-toggle"
-        type="button"
-        data-action="toggle-character-inventory"
-        aria-expanded="${isOpen}"
-      >
+      <div class="character-section-toggle character-section-toggle--inventory">
         <div class="character-inventory__heading">
           <span>Inventario</span>
           <div class="character-inventory__weight-summary">
@@ -5202,19 +5273,18 @@ function renderCharacterInventorySection(character) {
           </div>
         </div>
         <div class="character-inventory__currency-summary">
-          ${characterCurrencyRows.map((currency) => {
-            const row = character.inventory.find((entry) => cleanText(entry.name).toUpperCase() === currency.name);
-            return `
-              <span class="character-currency-pill character-currency-pill--${currency.icon}" title="${currency.name}">
-                <span class="character-currency-pill__icon" aria-hidden="true"></span>
-                <strong>${currency.name}</strong>
-                <small>${formatExperiencePoints(row?.quantity ?? 0)}</small>
-              </span>
-            `;
-          }).join("")}
+          ${characterCurrencyRows.map((currency) => renderCharacterCurrencyPill(character, currency)).join("")}
         </div>
-        <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
-      </button>
+        <button
+          class="character-section-toggle__button"
+          type="button"
+          data-action="toggle-character-inventory"
+          aria-expanded="${isOpen}"
+          aria-label="${isOpen ? "Ocultar inventario" : "Mostrar inventario"}"
+        >
+          <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
+        </button>
+      </div>
       ${
         isOpen
           ? `
@@ -5233,8 +5303,8 @@ function renderCharacterInventorySection(character) {
                   <span></span>
                 </div>
                 ${
-                  character.inventory.length > 0
-                    ? character.inventory.map((row) => renderCharacterInventoryRow(row)).join("")
+                  nonCurrencyRows.length > 0
+                    ? nonCurrencyRows.map((row) => renderCharacterInventoryRow(row)).join("")
                     : `<div class="empty-state empty-state--compact">No hay objetos en inventario.</div>`
                 }
               </div>
@@ -5246,24 +5316,62 @@ function renderCharacterInventorySection(character) {
   `;
 }
 
+function renderCharacterCurrencyPill(character, currency) {
+  const row = character.inventory.find((entry) => cleanText(entry.name).toUpperCase() === currency.name);
+
+  return `
+    <label class="character-currency-pill character-currency-pill--${currency.icon}" title="${currency.name}">
+      <span class="character-currency-pill__icon" aria-hidden="true"></span>
+      <strong>${currency.shortLabel}</strong>
+      <input
+        class="character-currency-pill__input"
+        type="number"
+        inputmode="numeric"
+        min="0"
+        value="${escapeHtml(String(row?.quantity ?? 0))}"
+        aria-label="${escapeHtml(currency.name)}"
+        data-character-inventory-field="quantity"
+        data-character-inventory-row="${escapeHtml(row?.id ?? "")}"
+      />
+    </label>
+  `;
+}
+
+function getCharacterInventoryMatchedItemEntry(row) {
+  return state.items.find((entry) => entry.id === row.itemId)
+    ?? getItemEntryByName(row.name);
+}
+
+function renderCharacterInventoryItemPreview(entry) {
+  return `
+    <div class="character-inventory__item-preview" role="tooltip">
+      <div class="character-inventory__item-preview-card">
+        ${renderItemDetail(entry)}
+      </div>
+    </div>
+  `;
+}
+
 function renderCharacterInventoryRow(row) {
   const isCurrencyRow = isCharacterCurrencyRow(row.name);
   const suggestions = getCharacterInventorySuggestions(row.id);
   const showSuggestions = state.showCharacterInventorySuggestions
     && state.activeCharacterInventoryRowId === row.id
     && suggestions.length > 0;
+  const matchedItem = !isCurrencyRow ? getCharacterInventoryMatchedItemEntry(row) : null;
 
   return `
     <div class="character-inventory__row" data-character-inventory-menu>
-      <div class="character-inventory__name-cell" data-character-inventory-menu>
+      <div class="character-inventory__name-cell${matchedItem ? " character-inventory__name-cell--linked" : ""}" data-character-inventory-menu>
         <input
-          class="filter-input character-inventory__input"
+          class="filter-input character-inventory__input${matchedItem ? " character-inventory__input--linked" : ""}"
           type="search"
           value="${escapeHtml(row.name)}"
           placeholder="${isCurrencyRow ? "" : "Busca un item del catalogo"}"
           data-character-inventory-name="${escapeHtml(row.id)}"
           ${isCurrencyRow ? "readonly" : ""}
         />
+        ${matchedItem ? renderCharacterInventoryItemPreview(matchedItem) : ""}
         ${
           !isCurrencyRow && showSuggestions
             ? `
@@ -5783,33 +5891,49 @@ function getCharacterSkillMaxExperiencePoints() {
   return characterSkillLevelProgression[characterSkillLevelProgression.length - 1]?.experiencePoints ?? 0;
 }
 
+function getCharacterSkillMaxLevel() {
+  return characterSkillLevelProgression[characterSkillLevelProgression.length - 1]?.level ?? 0;
+}
+
+function getCharacterSkillRequiredExperienceForLevel(level) {
+  const numericLevel = Math.max(0, Math.floor(toNumber(level) || 0));
+
+  if (numericLevel <= 0) {
+    return characterSkillLevelProgression[0]?.experiencePoints ?? 0;
+  }
+
+  const nextEntry = characterSkillLevelProgression.find((entry) => entry.level === numericLevel + 1) ?? null;
+  const currentEntry = characterSkillLevelProgression.find((entry) => entry.level === numericLevel) ?? null;
+
+  return nextEntry?.experiencePoints
+    ?? currentEntry?.experiencePoints
+    ?? getCharacterSkillMaxExperiencePoints();
+}
+
 function getCharacterSkillProgress(skillTrack) {
-  const experiencePoints = normalizeStoredCharacterSkillExperiencePoints(skillTrack?.experiencePoints);
-  const currentEntry = [...characterSkillLevelProgression]
-    .reverse()
-    .find((entry) => experiencePoints >= entry.experiencePoints) ?? null;
-  const nextEntry = currentEntry
-    ? characterSkillLevelProgression.find((entry) => entry.level === currentEntry.level + 1) ?? null
-    : characterSkillLevelProgression[0] ?? null;
-  const currentLevelStart = currentEntry?.experiencePoints ?? 0;
-  const nextLevelStart = nextEntry?.experiencePoints ?? currentLevelStart;
-  const levelExperiencePoints = Math.max(0, experiencePoints - currentLevelStart);
-  const requiredExperiencePoints = nextEntry ? Math.max(1, nextLevelStart - currentLevelStart) : 0;
-  const progressPercent = nextEntry
-    ? ((experiencePoints - currentLevelStart) / Math.max(1, nextLevelStart - currentLevelStart)) * 100
-    : 100;
+  const level = normalizeStoredCharacterSkillLevel(skillTrack?.level);
+  const currentEntry = characterSkillLevelProgression.find((entry) => entry.level === level) ?? null;
+  const requiredExperiencePoints = getCharacterSkillRequiredExperienceForLevel(level);
+  const levelExperiencePoints = Math.min(
+    normalizeStoredCharacterSkillExperiencePoints(skillTrack?.experiencePoints),
+    requiredExperiencePoints
+  );
+  const progressPercent = requiredExperiencePoints > 0
+    ? (levelExperiencePoints / requiredExperiencePoints) * 100
+    : 0;
+  const isMaxLevel = level >= getCharacterSkillMaxLevel() && levelExperiencePoints >= requiredExperiencePoints;
 
   return {
-    level: currentEntry?.level ?? 0,
+    level,
     label: currentEntry?.label ?? "Sin rango",
     bonus: currentEntry?.bonus ?? 0,
-    experiencePoints,
+    experiencePoints: levelExperiencePoints,
     levelExperiencePoints,
-    currentLevelStart,
-    nextLevelStart,
+    currentLevelStart: 0,
+    nextLevelStart: requiredExperiencePoints,
     requiredExperiencePoints,
     progressPercent: Math.max(0, Math.min(100, progressPercent)),
-    isMaxLevel: !nextEntry
+    isMaxLevel
   };
 }
 
@@ -5849,6 +5973,11 @@ function getCombatTurnParticipants(turnOrder = getCombatTurnOrder()) {
 
 function shouldShowInCombatTurnChain(combatant) {
   const side = combatant.tag ? mapTagToSide(combatant.tag) : combatant.side;
+  const hasInitiative = cleanText(combatant.iniactiva) !== "";
+
+  if (!hasInitiative) {
+    return false;
+  }
 
   if ((side === "enemies" || side === "neutral") && toNumber(combatant.pgAct) < 1) {
     return false;
@@ -6371,6 +6500,7 @@ function toggleAllVisible(selected) {
 }
 
 function updateCombatantField(id, key, rawValue, normalize = true) {
+  const previousCombatants = state.combatants;
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
@@ -6394,6 +6524,10 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
 
     return normalizeCombatant(updatedCombatant, key);
   });
+
+  if (["pgAct", "pgMax", "pgTemp", "necrotic"].includes(key)) {
+    distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+  }
 }
 
 function updateCombatantStat(id, statKey, rawValue, normalize = true) {
@@ -6538,6 +6672,54 @@ function updateCharacterFieldForId(characterId, key, rawValue, normalize = true)
   });
 }
 
+function getCharacterProgressStateFromTotalExperience(totalExperiencePoints) {
+  const normalizedTotalExperiencePoints = Math.max(0, Math.floor(toNumber(totalExperiencePoints) || 0));
+  const levelEntry = [...characterLevelProgression]
+    .reverse()
+    .find((entry) => normalizedTotalExperiencePoints >= entry.experiencePoints) ?? characterLevelProgression[0];
+
+  return {
+    level: levelEntry.level,
+    experiencePoints: normalizeStoredCharacterLevelExperiencePoints(
+      normalizedTotalExperiencePoints - levelEntry.experiencePoints,
+      levelEntry.level
+    ),
+    totalExperiencePoints: normalizedTotalExperiencePoints
+  };
+}
+
+function addExperienceToCharacters(characterIds, totalExperiencePoints) {
+  const uniqueCharacterIds = [...new Set(characterIds.map((characterId) => cleanText(characterId)).filter(Boolean))];
+
+  if (uniqueCharacterIds.length === 0 || totalExperiencePoints <= 0) {
+    return;
+  }
+
+  const baseGain = Math.floor(totalExperiencePoints / uniqueCharacterIds.length);
+  const remainder = totalExperiencePoints % uniqueCharacterIds.length;
+  const gainByCharacterId = new Map(
+    uniqueCharacterIds.map((characterId, index) => [characterId, baseGain + (index < remainder ? 1 : 0)])
+  );
+
+  state.characters = state.characters.map((character) => {
+    const gain = gainByCharacterId.get(character.id);
+
+    if (!gain) {
+      return character;
+    }
+
+    const currentProgress = getCharacterExperienceProgress(character);
+    const nextProgress = getCharacterProgressStateFromTotalExperience(currentProgress.totalExperiencePoints + gain);
+
+    return normalizeStoredCharacter({
+      ...character,
+      level: nextProgress.level,
+      experiencePoints: nextProgress.experiencePoints,
+      totalExperiencePoints: nextProgress.totalExperiencePoints
+    });
+  });
+}
+
 function getDefaultCharacterSkillDefinitions() {
   return defaultCharacterSkillTemplates.map((template) => normalizeStoredCharacterSkillDefinition({
     id: template.id,
@@ -6626,31 +6808,11 @@ function removeCharacterSkillDefinition(skillDefinitionId) {
 
   state.characterSkillDefinitions = state.characterSkillDefinitions
     .filter((skillDefinition) => skillDefinition.id !== normalizedSkillDefinitionId);
-  state.expandedCharacterSkillIds.delete(normalizedSkillDefinitionId);
   syncCharactersToSkillDefinitions();
 }
 
-function toggleCharacterSkillRow(skillId) {
-  const normalizedSkillId = cleanText(skillId);
-
-  if (!normalizedSkillId) {
-    return;
-  }
-
-  if (state.expandedCharacterSkillIds.has(normalizedSkillId)) {
-    state.expandedCharacterSkillIds.delete(normalizedSkillId);
-    return;
-  }
-
-  state.expandedCharacterSkillIds.add(normalizedSkillId);
-}
-
-function getCharacterSkillLevelStartExperience(level) {
-  if (toNumber(level) <= 0) {
-    return 0;
-  }
-
-  return characterSkillLevelProgression.find((entry) => entry.level === toNumber(level))?.experiencePoints ?? getCharacterSkillMaxExperiencePoints();
+function toggleCharacterSkillsView() {
+  state.characterSkillsExpanded = !state.characterSkillsExpanded;
 }
 
 function getCharacterSkillProgressEntry(character, skillId) {
@@ -6661,6 +6823,7 @@ function getCharacterSkillProgressEntry(character, skillId) {
 
   return normalizeStoredCharacterSkillProgressEntry({
     skillId: normalizedSkillId,
+    level: skillProgress?.level ?? 0,
     experiencePoints: skillProgress?.experiencePoints ?? 0
   });
 }
@@ -6680,12 +6843,16 @@ function updateCharacterSkillProgress(skillId, key, rawValue, normalize = true) 
     const currentProgress = getCharacterSkillProgressEntry(character, normalizedSkillId);
     const currentProgressState = getCharacterSkillProgress(currentProgress);
     const nextRelativeExperiencePoints = normalizeStoredNonNegativeNumber(rawValue);
+    const nextLevel = key === "level"
+      ? normalizeStoredCharacterSkillLevel(rawValue)
+      : currentProgress.level;
+    const requiredExperiencePoints = getCharacterSkillRequiredExperienceForLevel(nextLevel);
     const nextExperiencePoints = key === "level"
-      ? getCharacterSkillLevelStartExperience(rawValue)
+      ? 0
       : key === "experiencePoints"
-        ? currentProgressState.currentLevelStart + Math.min(
+        ? Math.min(
           Math.max(0, Math.floor(toNumber(nextRelativeExperiencePoints) || 0)),
-          currentProgressState.requiredExperiencePoints
+          requiredExperiencePoints
         )
         : (normalize ? normalizeStoredNumber(rawValue) : rawValue);
 
@@ -6694,6 +6861,7 @@ function updateCharacterSkillProgress(skillId, key, rawValue, normalize = true) 
       skillProgress: character.skillProgress.map((entry) => entry.skillId === normalizedSkillId
         ? normalizeStoredCharacterSkillProgressEntry({
           ...currentProgress,
+          level: nextLevel,
           experiencePoints: nextExperiencePoints
         })
         : entry)
@@ -6724,12 +6892,36 @@ function awardCharacterSkillExperience(skillId, result, gainIndex = 0) {
       return character;
     }
 
+    const currentProgress = getCharacterSkillProgressEntry(character, normalizedSkillId);
+    let nextLevel = currentProgress.level;
+    let nextExperiencePoints = Math.max(0, toNumber(currentProgress.experiencePoints) + gain);
+
+    while (nextLevel < getCharacterSkillMaxLevel()) {
+      const requiredExperiencePoints = getCharacterSkillRequiredExperienceForLevel(nextLevel);
+
+      if (nextExperiencePoints < requiredExperiencePoints) {
+        break;
+      }
+
+      nextExperiencePoints -= requiredExperiencePoints;
+      nextLevel += 1;
+    }
+
+    if (nextLevel >= getCharacterSkillMaxLevel()) {
+      nextLevel = getCharacterSkillMaxLevel();
+      nextExperiencePoints = Math.min(
+        nextExperiencePoints,
+        getCharacterSkillRequiredExperienceForLevel(nextLevel)
+      );
+    }
+
     return normalizeStoredCharacter({
       ...character,
       skillProgress: character.skillProgress.map((entry) => entry.skillId === normalizedSkillId
         ? normalizeStoredCharacterSkillProgressEntry({
-          ...entry,
-          experiencePoints: toNumber(entry.experiencePoints) + gain
+          ...currentProgress,
+          level: nextLevel,
+          experiencePoints: nextExperiencePoints
         })
         : entry)
     }, state.characterSkillDefinitions);
@@ -7934,11 +8126,11 @@ function addBlankCombatant() {
     ...state.combatants,
     {
       id,
-      side: "neutral",
+      side: "enemies",
       source: "",
       ubicacion: "",
       iniactiva: "",
-      nombre: "",
+      nombre: "Nueva entidad enemiga",
       numPeana: formatStandNumber(getNextEnemyStandNumber()),
       pgMax: "",
       pgAct: "",
@@ -7952,7 +8144,7 @@ function addBlankCombatant() {
       vision: "",
       lenguas: "",
       crExp: "",
-      tag: "NEUTRAL",
+      tag: "ENEMIGO",
       initiativeRoll: null,
       initiativeNat20: false
     }
@@ -8138,6 +8330,7 @@ function applyPgActAdjustment(id, mode) {
     return;
   }
 
+  const previousCombatants = state.combatants;
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
@@ -8162,6 +8355,7 @@ function applyPgActAdjustment(id, mode) {
     }, "pgAct");
   });
 
+  distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -8172,6 +8366,7 @@ function applyNecroticAdjustment(id) {
     return;
   }
 
+  const previousCombatants = state.combatants;
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
@@ -8183,6 +8378,7 @@ function applyNecroticAdjustment(id) {
     }, "necrotic");
   });
 
+  distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   setInlineAdjustment(id, "necrotic", "");
 }
 
@@ -8193,6 +8389,7 @@ function applyAreaDamage() {
     return;
   }
 
+  const previousCombatants = state.combatants;
   state.combatants = state.combatants.map((combatant) => {
     if (!state.selectedIds.has(combatant.id)) {
       return combatant;
@@ -8210,7 +8407,64 @@ function applyAreaDamage() {
     }, "pgAct");
   });
 
+  distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   state.areaDamage = "";
+}
+
+function distributeExperienceForNewlyDefeatedEnemies(previousCombatants = []) {
+  const previousCombatantsById = new Map(previousCombatants.map((combatant) => [combatant.id, combatant]));
+  const defeatedEnemies = state.combatants.filter((combatant) => {
+    const previousCombatant = previousCombatantsById.get(combatant.id);
+
+    return Boolean(previousCombatant)
+      && isEnemyCombatant(combatant)
+      && combatant.experienceGranted !== true
+      && !isCombatantDead(previousCombatant)
+      && isCombatantDead(combatant);
+  });
+
+  if (defeatedEnemies.length === 0) {
+    return;
+  }
+
+  const totalExperience = defeatedEnemies.reduce((sum, combatant) => sum + getCombatantExperienceAward(combatant), 0);
+  const eligibleCharacterIds = getEligibleCharacterIdsForCombatExperience();
+
+  state.combatants = state.combatants.map((combatant) => defeatedEnemies.some((entry) => entry.id === combatant.id)
+    ? {
+      ...combatant,
+      experienceGranted: true
+    }
+    : combatant);
+
+  if (totalExperience > 0 && eligibleCharacterIds.length > 0) {
+    addExperienceToCharacters(eligibleCharacterIds, totalExperience);
+  }
+}
+
+function getEligibleCharacterIdsForCombatExperience() {
+  const seenCharacterIds = new Set();
+
+  return getCombatTurnOrder(state.combatants)
+    .filter((combatant) => combatant.side === "allies" && combatant.iniactiva !== "")
+    .map((combatant) => getLinkedCharacterForCombatant(combatant))
+    .filter(Boolean)
+    .filter((character) => {
+      if (seenCharacterIds.has(character.id)) {
+        return false;
+      }
+
+      seenCharacterIds.add(character.id);
+      return true;
+    })
+    .map((character) => character.id);
+}
+
+function getCombatantExperienceAward(combatant) {
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  const challengeRatingLabel = formatCombatCrDisplay(bestiaryEntry?.crBaseLabel || bestiaryEntry?.crLabel || combatant.crExp);
+
+  return challengeRatingExperienceByCr[challengeRatingLabel] ?? 0;
 }
 
 function normalizeCombatant(combatant, changedKey = "") {
@@ -10583,7 +10837,7 @@ async function saveCampaignFile() {
     saveCampaignMeta();
     render();
   } catch {
-    state.campaignMessage = "No se pudo guardar la campaña.";
+    state.campaignMessage = "No se pudo guardar la campaÃ±a.";
     render();
   }
 }
@@ -10605,7 +10859,7 @@ async function saveCampaignFileAs() {
 
     saveCampaignFile();
   } catch {
-    state.campaignMessage = "No se pudo guardar la campaña.";
+    state.campaignMessage = "No se pudo guardar la campaÃ±a.";
     render();
   }
 }
@@ -10624,22 +10878,22 @@ async function createNewCampaign() {
       }
 
       resetCampaignStateFromPayload(result.payload, result);
-      state.campaignMessage = "Nueva campaña creada.";
+      state.campaignMessage = "Nueva campaÃ±a creada.";
       render();
       return;
     }
 
-    const nextName = window.prompt("Nombre de la nueva campaña", "Campaña sin nombre");
+    const nextName = window.prompt("Nombre de la nueva campaÃ±a", "CampaÃ±a sin nombre");
 
     if (nextName === null) {
       return;
     }
 
-    resetCampaignStateFromPayload(createBlankCampaignSavePayload(cleanText(nextName) || "Campaña sin nombre"));
-    state.campaignMessage = "Nueva campaña creada.";
+    resetCampaignStateFromPayload(createBlankCampaignSavePayload(cleanText(nextName) || "CampaÃ±a sin nombre"));
+    state.campaignMessage = "Nueva campaÃ±a creada.";
     render();
   } catch {
-    state.campaignMessage = "No se pudo crear la campaña.";
+    state.campaignMessage = "No se pudo crear la campaÃ±a.";
     render();
   }
 }
@@ -10674,17 +10928,17 @@ function getCampaignNameFromFileName(fileName) {
     .replace(/\.json$/i, "")
     .replace(/-/g, " ")
     .trim()
-    || "Campaña";
+    || "CampaÃ±a";
 }
 
-function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
+function createBlankCampaignSavePayload(name = "CampaÃ±a sin nombre") {
   return {
     schema: CAMPAIGN_FILE_SCHEMA,
     version: CAMPAIGN_FILE_VERSION,
     app: "Mimic Dice",
     savedAt: new Date().toISOString(),
     campaign: {
-      name: cleanText(name) || "Campaña sin nombre"
+      name: cleanText(name) || "CampaÃ±a sin nombre"
     },
     characterSkills: {
       definitions: getDefaultCharacterSkillDefinitions()
@@ -10846,10 +11100,10 @@ async function loadDesktopCampaignFile(loadCampaign) {
     const campaign = normalizeCampaignSave(result?.payload);
 
     applyCampaignSave(campaign, result);
-    state.campaignMessage = `Campaña cargada: ${campaign.name}`;
+    state.campaignMessage = `CampaÃ±a cargada: ${campaign.name}`;
     render();
   } catch {
-    state.campaignMessage = "No se pudo cargar el archivo de campaña.";
+    state.campaignMessage = "No se pudo cargar el archivo de campaÃ±a.";
     render();
   }
 }
@@ -10869,10 +11123,10 @@ async function loadCampaignFile(file) {
       name: campaign.name,
       payload: parsedValue
     });
-    state.campaignMessage = `Campaña cargada: ${campaign.name}`;
+    state.campaignMessage = `CampaÃ±a cargada: ${campaign.name}`;
     render();
   } catch {
-    state.campaignMessage = "No se pudo cargar el archivo de campaña.";
+    state.campaignMessage = "No se pudo cargar el archivo de campaÃ±a.";
     render();
   }
 }
@@ -10884,7 +11138,7 @@ function getDesktopCampaignApi() {
 }
 
 function createCampaignSavePayload() {
-  const name = cleanText(state.campaignName) || "Campaña sin nombre";
+  const name = cleanText(state.campaignName) || "CampaÃ±a sin nombre";
 
   return {
     schema: CAMPAIGN_FILE_SCHEMA,
@@ -10936,7 +11190,7 @@ function normalizeCampaignSave(value) {
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
   const ui = isPlainObject(value.ui) ? value.ui : {};
   const campaign = isPlainObject(value.campaign) ? value.campaign : {};
-  const name = cleanText(campaign.name) || cleanText(value.name) || "Campaña sin nombre";
+  const name = cleanText(campaign.name) || cleanText(value.name) || "CampaÃ±a sin nombre";
 
   return {
     name,
@@ -11454,6 +11708,7 @@ function normalizeStoredCharacterSkillProgress(skillProgress, skillDefinitions, 
 
     return normalizeStoredCharacterSkillProgressEntry({
       skillId: skillDefinition.id,
+      level: existingProgress?.level,
       experiencePoints: existingProgress?.experiencePoints ?? legacyProgress?.experiencePoints ?? 0
     });
   }).filter(Boolean);
@@ -11470,10 +11725,33 @@ function normalizeStoredCharacterSkillProgressEntry(entry) {
     return null;
   }
 
+  const hasExplicitLevel = entry.level !== undefined && entry.level !== null && entry.level !== "";
+
+  if (!hasExplicitLevel) {
+    const legacyExperiencePoints = normalizeStoredCharacterSkillExperiencePoints(entry.experiencePoints);
+    const legacyCurrentEntry = [...characterSkillLevelProgression]
+      .reverse()
+      .find((progressionEntry) => legacyExperiencePoints >= progressionEntry.experiencePoints) ?? null;
+    const legacyLevel = legacyCurrentEntry?.level ?? 0;
+    const legacyLevelStart = legacyCurrentEntry?.experiencePoints ?? 0;
+
+    return {
+      skillId,
+      level: legacyLevel,
+      experiencePoints: Math.max(0, legacyExperiencePoints - legacyLevelStart)
+    };
+  }
+
   return {
     skillId,
+    level: normalizeStoredCharacterSkillLevel(entry.level),
     experiencePoints: normalizeStoredCharacterSkillExperiencePoints(entry.experiencePoints)
   };
+}
+
+function normalizeStoredCharacterSkillLevel(value) {
+  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
+  return Math.min(numericValue, getCharacterSkillMaxLevel());
 }
 
 function normalizeStoredCharacterSkillExperiencePoints(value) {
@@ -11714,6 +11992,7 @@ function normalizeStoredCombatant(combatant) {
     lenguas: cleanText(combatant.lenguas),
     crExp: cleanText(combatant.crExp),
     tag,
+    experienceGranted: combatant.experienceGranted === true,
     initiativeRoll: combatant.initiativeRoll === null || combatant.initiativeRoll === ""
       ? null
       : normalizeStoredNumber(combatant.initiativeRoll),
@@ -12077,3 +12356,4 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }
+

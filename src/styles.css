@@ -2069,22 +2069,33 @@ table {
 }
 
 .character-overview-table {
-  min-width: 1180px;
+  min-width: 1220px;
 }
 
 .character-overview__identity {
   display: grid;
+  min-width: 0;
   gap: 0.12rem;
 }
 
 .character-overview__identity strong {
   color: var(--text);
   font-size: 0.92rem;
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .character-overview__identity small {
   color: var(--muted);
   font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .character-overview__stack {
@@ -2166,18 +2177,66 @@ table {
   line-height: 1;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.character-overview-bar--xp .character-overview-bar__label,
+.character-overview-bar--load .character-overview-bar__label {
+  font-size: 0.67rem;
+  letter-spacing: -0.01em;
+}
+
+.character-overview-bar--xp .character-overview-bar__label--split,
+.character-overview-bar--load .character-overview-bar__label--split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.character-overview-bar--skill .character-overview-bar__label {
+  padding-inline: 0.38rem;
+  font-size: clamp(0.5rem, 0.64vw, 0.58rem);
+  letter-spacing: -0.02em;
+}
+
+.character-overview-bar--skill .character-overview-bar__label--split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.character-overview-bar__label-left,
+.character-overview-bar__label-right {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character-overview-bar__label-left {
+  text-align: left;
+}
+
+.character-overview-bar__label-right {
+  text-align: right;
 }
 
 .character-skill-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.36rem;
 }
 
 .character-skill-summary__item {
   display: grid;
-  gap: 0.28rem;
-  padding: 0.42rem 0.48rem;
+  min-width: 0;
+  gap: 0.24rem;
+  padding: 0.34rem 0.38rem;
   border: 1px solid var(--skill-border, rgba(76, 138, 212, 0.24));
   border-radius: 12px;
   background: var(--skill-summary-surface, rgba(255, 255, 255, 0.03));
@@ -2185,20 +2244,26 @@ table {
 
 .character-skill-summary__meta {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.55rem;
+  gap: 0.35rem;
 }
 
 .character-skill-summary__meta strong {
   color: var(--skill-accent, var(--text));
-  font-size: 0.7rem;
+  flex: 1 1 auto;
+  font-size: clamp(0.5rem, 0.58vw, 0.62rem);
   font-weight: 700;
+  line-height: 1.05;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .character-skill-summary__meta small {
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: 0.54rem;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
@@ -2473,7 +2538,7 @@ table {
 
 .character-experience__fields {
   display: grid;
-  grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 0.88fr);
   gap: 0.45rem;
 }
 
@@ -2489,7 +2554,7 @@ table {
 }
 
 .character-experience__field--level {
-  max-width: 6.2rem;
+  max-width: 7.8rem;
 }
 
 .character-experience__field span {
@@ -3204,6 +3269,25 @@ table {
   font-size: 0.78rem;
 }
 
+.character-skill-tracks__toggle {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent-soft);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.character-skill-tracks__toggle:hover,
+.character-skill-tracks__toggle:focus-visible {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .character-skill-config__header p {
   font-size: 0.72rem;
   line-height: 1.45;
@@ -3231,35 +3315,28 @@ table {
 
 .character-skill-config__row {
   display: grid;
-  grid-template-columns: minmax(4.8rem, 1fr) 4.4rem fit-content(6.2rem) fit-content(6.2rem) auto;
+  grid-template-columns: minmax(4.8rem, 1fr) fit-content(6.2rem) fit-content(6.2rem) auto;
   gap: 0.45rem;
   align-items: end;
   min-width: 0;
-  padding-top: 0.55rem;
-  border-top: 1px solid var(--skill-border, rgba(240, 200, 121, 0.14));
+  padding: 0.58rem 0.62rem;
+  border: 1px solid var(--skill-border, rgba(240, 200, 121, 0.14));
+  border-radius: 14px;
+  background:
+    linear-gradient(90deg, var(--skill-surface-glow, rgba(94, 183, 166, 0.16)) 0, transparent 18%),
+    var(--skill-summary-surface, rgba(255, 255, 255, 0.03));
 }
 
 .character-skill-config__row--with-intermediate {
-  grid-template-columns: minmax(4.8rem, 1fr) 4.4rem fit-content(6.2rem) fit-content(6.2rem) fit-content(6.2rem) auto;
+  grid-template-columns: minmax(4.8rem, 1fr) fit-content(6.2rem) fit-content(6.2rem) fit-content(6.2rem) auto;
 }
 
 .character-skill-config__row:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.character-skill-config__field {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.character-skill-config__field--color {
-  align-content: start;
+  margin-top: 0;
 }
 
 .character-skill-config__field span {
-  color: var(--accent-soft);
+  color: var(--skill-accent, var(--accent-soft));
   font-size: 0.54rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -3273,15 +3350,10 @@ table {
   font-size: 0.84rem;
 }
 
-.character-skill-config__color-input {
-  width: 100%;
+.character-skill-config__field {
+  display: grid;
+  gap: 0.18rem;
   min-width: 0;
-  height: 2.35rem;
-  padding: 0.16rem;
-  border: 1px solid var(--skill-border, var(--line));
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  cursor: pointer;
 }
 
 .character-skill-config__gains {
@@ -3316,14 +3388,26 @@ table {
 
 .character-skill-row {
   display: grid;
-  gap: 0.72rem;
+  gap: 0.4rem;
   align-items: start;
-  padding: 0.82rem 0.92rem;
+  padding: 0.6rem 0.72rem;
   border: 1px solid var(--skill-border, rgba(94, 183, 166, 0.28));
   border-radius: 20px;
   background:
     radial-gradient(circle at top right, var(--skill-surface-glow, rgba(94, 183, 166, 0.18)), transparent 32%),
     var(--skill-surface, rgba(8, 11, 18, 0.34));
+}
+
+.character-skill-row--clickable {
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.character-skill-row--clickable:hover,
+.character-skill-row--clickable:focus-visible {
+  border-color: var(--skill-accent, rgba(94, 183, 166, 0.55));
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  transform: translateY(-1px);
 }
 
 .character-skill-row:first-child {
@@ -3333,13 +3417,13 @@ table {
 .character-skill-row__top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.55rem;
-  align-items: start;
+  gap: 0.5rem;
+  align-items: baseline;
 }
 
 .character-skill-row__fields {
   display: grid;
-  grid-template-columns: minmax(0, 6.2rem) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem;
 }
 
@@ -3353,10 +3437,6 @@ table {
   border: 1px solid rgba(240, 200, 121, 0.18);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);
-}
-
-.character-skill-row__field--level {
-  max-width: 6.2rem;
 }
 
 .character-skill-row__field span {
@@ -3412,47 +3492,36 @@ table {
 
 .character-skill-row__rank {
   display: grid;
-  gap: 0.16rem;
+  gap: 0;
   min-width: 0;
 }
 
 .character-skill-row__rank strong {
   color: var(--skill-accent, var(--text));
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   letter-spacing: 0.03em;
 }
 
-.character-skill-row__toggle {
-  min-height: 2.2rem;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid var(--skill-border, var(--line));
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--skill-accent, var(--text));
-  cursor: pointer;
-  font-size: 0.74rem;
-  font-weight: 700;
+.character-skill-row__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  text-align: right;
+  min-width: 0;
   white-space: nowrap;
 }
 
-.character-skill-row__toggle:hover,
-.character-skill-row__toggle:focus-visible {
-  border-color: var(--skill-accent, var(--line-strong));
-  background: rgba(255, 255, 255, 0.08);
+.character-skill-row__meta strong {
+  color: var(--skill-accent, var(--text));
+  font-size: 0.78rem;
+  line-height: 1;
 }
 
-.character-skill-row__rank span,
-.character-skill-row__rank small {
+.character-skill-row__meta span {
   color: var(--muted);
-  line-height: 1.2;
-}
-
-.character-skill-row__rank span {
-  font-size: 0.76rem;
-}
-
-.character-skill-row__rank small {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+  line-height: 1;
 }
 
 .character-skill-row__progress {
@@ -3467,15 +3536,11 @@ table {
 
 .character-skill-progress {
   display: grid;
-  gap: 0.42rem;
+  gap: 0.18rem;
 }
 
 .character-skill-progress__labels {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.55rem;
-  flex-wrap: wrap;
+  display: none;
 }
 
 .character-skill-progress__labels strong {
@@ -3493,12 +3558,12 @@ table {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .character-skill-progress__track {
   position: relative;
-  min-height: 1.85rem;
+  min-height: 1.55rem;
   border-radius: 999px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.05);
@@ -3518,24 +3583,26 @@ table {
   display: grid;
   place-items: center;
   min-height: inherit;
-  padding-inline: 0.6rem;
+  padding-inline: 0.45rem;
   color: var(--text);
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 800;
   line-height: 1;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .character-skill-progress__percent {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 3rem;
-  min-height: 1.55rem;
-  padding: 0.1rem 0.45rem;
+  min-width: 2.5rem;
+  min-height: 1.35rem;
+  padding: 0.06rem 0.3rem;
   color: var(--skill-accent, var(--accent-soft));
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
@@ -3613,10 +3680,7 @@ table {
   justify-content: space-between;
   width: 100%;
   padding: 0;
-  border: 0;
-  background: transparent;
   color: var(--text);
-  cursor: pointer;
   text-align: left;
 }
 
@@ -3631,6 +3695,28 @@ table {
   color: var(--muted);
   font-size: 1.1rem;
   line-height: 1;
+}
+
+.character-section-toggle__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 2.2rem;
+  min-height: 2.2rem;
+  padding: 0;
+  border: 1px solid rgba(240, 200, 121, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.character-section-toggle__button:hover,
+.character-section-toggle__button:focus-visible {
+  border-color: rgba(240, 200, 121, 0.38);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 .character-inventory__heading {
@@ -3664,7 +3750,7 @@ table {
   align-items: center;
   gap: 0.3rem;
   min-height: 1.7rem;
-  padding: 0.2rem 0.45rem;
+  padding: 0.18rem 0.38rem;
   border: 1px solid rgba(240, 200, 121, 0.14);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
@@ -3692,6 +3778,29 @@ table {
   color: var(--text);
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.character-currency-pill__input {
+  width: 4rem;
+  min-width: 0;
+  padding: 0.12rem 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.character-currency-pill__input:focus {
+  outline: none;
+}
+
+.character-currency-pill__input::-webkit-outer-spin-button,
+.character-currency-pill__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .character-currency-pill--copper .character-currency-pill__icon {
@@ -3762,9 +3871,79 @@ table {
   min-width: 0;
 }
 
+.character-inventory__name-cell--linked {
+  position: relative;
+}
+
 .character-inventory__input {
   min-width: 0;
   width: 100%;
+}
+
+.character-inventory__input--linked {
+  color: var(--accent-soft);
+  cursor: help;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(240, 200, 121, 0.52);
+  text-underline-offset: 0.18em;
+  box-shadow: inset 0 -1px 0 rgba(240, 200, 121, 0.58);
+}
+
+.character-inventory__input--linked:hover,
+.character-inventory__input--linked:focus-visible {
+  color: var(--text);
+  text-decoration-color: rgba(240, 200, 121, 0.82);
+  box-shadow: inset 0 -1px 0 rgba(240, 200, 121, 0.82);
+}
+
+.character-inventory__item-preview {
+  position: absolute;
+  bottom: 0;
+  right: calc(100% + 0.18rem);
+  z-index: 320;
+  width: min(28rem, 44vw);
+  max-width: 28rem;
+  max-height: min(72vh, 42rem);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: auto;
+  transform: translate3d(0.35rem, 0, 0);
+  transition: opacity 160ms ease, transform 160ms ease, visibility 160ms ease;
+}
+
+.character-inventory__item-preview::after {
+  content: "";
+  position: absolute;
+  inset: 0 -0.24rem 0 auto;
+  width: 0.24rem;
+}
+
+.character-inventory__name-cell--linked:hover .character-inventory__item-preview {
+  opacity: 1;
+  visibility: visible;
+  transform: translate3d(0, 0, 0);
+}
+
+.character-inventory__item-preview-card {
+  overflow: auto;
+  max-height: inherit;
+  pointer-events: auto;
+  padding: 0.9rem 0.95rem;
+  border: 1px solid rgba(240, 200, 121, 0.24);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(74, 58, 44, 0.96), rgba(39, 37, 42, 0.98)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
+}
+
+.character-inventory__item-preview-card .bestiary-detail__header h3 {
+  font-size: 1.18rem;
+}
+
+.character-inventory__item-preview-card .bestiary-sections {
+  gap: 0.75rem;
 }
 
 .character-inventory__suggestions {
@@ -5160,6 +5339,11 @@ table {
     grid-template-columns: 1fr;
   }
 
+  .character-skill-row__meta {
+    justify-items: start;
+    text-align: left;
+  }
+
   .character-skill-summary,
   .character-skill-tracks__list {
     grid-template-columns: 1fr;
@@ -5341,6 +5525,11 @@ table {
   .character-skill-row__fields,
   .character-skill-progress__status {
     grid-template-columns: 1fr;
+  }
+
+  .character-skill-row__meta {
+    justify-items: start;
+    text-align: left;
   }
 
   .character-skill-summary,

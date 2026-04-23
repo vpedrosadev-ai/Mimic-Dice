@@ -25,11 +25,22 @@
 - Caso especial actual: `Cocina` usa tres resultados: fracaso `1`, intermedio `2`, exito `3`.
 - Caso especial actual: `Trampas y puertas secretas` solo da XP por exito y da `3`; por fracaso da `0`.
 - Resumen de grupo mostrando XP de personaje con nivel integrado en barra y progreso compacto de skills comunes.
+- Resumen de grupo reordena columnas con `Carga` antes de `Skills`; XP muestra nivel y `%`, Carga muestra `actual/max` y `%` sin `lb`, y Skills muestra `NV.` separado del divisor `actual/requerida` sin texto `XP`.
+- Resumen de grupo comprime `Personaje` a la mitad de ancho anterior y usa 3 barras de skill por fila para aprovechar mas espacio horizontal.
+- En resumen de grupo, nombres largos de personaje pueden ocupar dos lineas y el titulo de cada skill se adapta mejor al ancho de su tarjeta.
+- En barras de `Skills` del resumen de grupo, `NV.` queda alineado a la izquierda y el divisor `actual/requerida` a la derecha.
+- Las skills de ficha ahora tratan el selector de nivel y el campo `XP nivel` como progreso real dentro del nivel actual, no como XP acumulada total.
+- En la ficha, cuando las skills estan en vista resumida, clicar una tarjeta tambien despliega el detalle global igual que el boton `Ver detalle`.
+- En inventario de personaje, si una fila coincide con un item del catalogo, el nombre se subraya y al pasar el raton aparece a la izquierda una ficha flotante del item.
+- La ficha flotante del item en inventario queda alineada para que su esquina inferior derecha coincida en altura con la fila del objeto.
+- La ficha flotante del item en inventario se puede recorrer con el raton sin desaparecer, y las monedas ya no salen como filas: se editan desde las chips superiores.
+- En resumen de grupo, `XP` y `Carga` alinean su texto partido como las barras de `Skills`. Si un enemigo del combat tracker muere, su XP se reparte automaticamente entre personajes aliados con iniciativa y se suma a sus fichas.
+- En combat tracker, la fila en blanco nace como `ENEMIGO` sin iniciativa, `COMBATE!` ignora entidades sin iniciativa, y la tarjeta de experiencia de ficha rapida ensancha el campo de nivel.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
-- Configuracion global de skills muestra tambien color por skill y nuevas skills reciben color nuevo automatico.
-- Tarjetas de skills en ficha arrancan resumidas por defecto y se despliegan para mostrar controles completos.
+- Configuracion global de skills muestra color por skill en fondo de cada fila y nuevas skills reciben color nuevo automatico.
+- Tarjetas de skills en ficha arrancan resumidas por defecto y un unico boton en cabecera despliega u oculta el detalle de todas.
 - Shell Electron con guardar, guardar como, cargar y autosave de campanas.
 - `Session Vault` aun no tiene implementacion real; renderiza placeholder.
 

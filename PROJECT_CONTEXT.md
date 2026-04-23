@@ -134,8 +134,6 @@ Leer solo bajo demanda:
 ## Session Preferences
 
 - Iniciar cada sesion usando skill `$caveman` por defecto, salvo que usuario pida `stop caveman` o `normal mode`.
-- Tras cada respuesta, intentar indicar porcentaje restante de rate limit de ventana de 5 horas y de cuota semanal.
-- Si entorno no expone esos datos de rate limit en la sesion actual, decirlo de forma explicita en vez de inventarlo.
 
 ## Merge And Maintenance Risk
 
