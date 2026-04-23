@@ -42,6 +42,7 @@
 - `npm run electron:build:portable` genera ya `dist-electron/Mimic-Dice-portable-0.1.0-x64.exe`.
 - Para evitar el bloqueo local de `winCodeSign` por permisos de symlink en Windows, la build portable usa `signAndEditExecutable: false`.
 - El portable actual pesa aprox. `1.1 GB` porque la build arrastra el contenido de `public/`, incluidas caches grandes de imagenes.
+- Se corrigio una pantalla negra al arrancar el portable: Vite ahora compila con `base: "./"` para que Electron empaquetado no rompa rutas de `assets` al abrir con `file://`.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
