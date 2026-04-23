@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = app.isPackaged ? path.dirname(app.getPath("exe")) : app.getAppPath();
+const APP_ICON_PATH = path.join(__dirname, "assets", "icon.png");
 const CAMPAIGN_EXTENSION = ".mimic-campaign.json";
 const CAMPAIGN_CLOSE_SAVE_TIMEOUT_MS = 4000;
 
@@ -152,6 +153,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: "#0d1321",
+    icon: APP_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -198,6 +200,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  app.setAppUserModelId("com.mimicdice.app");
   createWindow();
 
   app.on("activate", () => {

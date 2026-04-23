@@ -25,6 +25,7 @@ npm run dev
 npm run build
 npm run electron:dev
 npm run electron:build
+npm run electron:build:portable
 npm run cache:bestiary-images
 npm run cache:item-images
 ```
@@ -41,6 +42,8 @@ Notas:
 - `src/styles.css`: estilos globales.
 - `electron/main.js`: shell de escritorio, dialogos y guardado/carga de campanas.
 - `electron/preload.js`: API segura expuesta al frontend.
+- `electron/assets/`: recursos del shell desktop, incluido icono runtime de app.
+- `build-resources/`: recursos de empaquetado de Electron Builder, incluido icono `.ico` de Windows.
 
 ## Directory Map
 
@@ -54,6 +57,7 @@ Notas:
 - `scripts/`: scripts PowerShell para poblar caches de imagenes.
 - `docs/`: notas operativas del repo.
 - `electron/`: wrapper desktop.
+- `build-resources/`: iconos y recursos para empaquetado desktop.
 - `dist/` y `dist-electron/`: salidas generadas.
 - `node_modules/`: dependencias instaladas.
 
@@ -98,6 +102,10 @@ Persistencia desktop:
 - `src/main.js` es archivo monolitico grande, aprox. 9.4k lineas.
 - `state` global vive en `src/main.js` y concentra UI, compendios, personajes, encuentros y combate.
 - Cada cambio de UX suele implicar tocar handlers, estado y `render()` en mismo archivo.
+- La build desktop usa Electron + Electron Builder y ahora prioriza salida `portable` de Windows para pruebas en otros equipos.
+- El icono desktop vive en `electron/assets/icon.png` para runtime y en `build-resources/icon.ico` para empaquetado Windows.
+- El flujo de distribucion mas simple para terceros sin entorno local es descargar el artefacto portable desde GitHub Actions.
+- La config de `electron-builder` usa `signAndEditExecutable: false` para evitar un bloqueo local de `winCodeSign` por permisos de symlink en ciertos Windows.
 - Las skills de campana ahora se definen a nivel global de campana y se comparten entre todos los personajes.
 - Cada personaje solo guarda su progreso por skill comun: nivel derivado de XP y avance individual por skill.
 - Las skills comunes pueden definir XP por resultado. Caso especial actual: `Cocina` usa tres resultados distintos: fracaso `1`, intermedio `2`, exito `3`.

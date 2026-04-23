@@ -1,6 +1,6 @@
 # Mimic Dice
 
-Starter project for a JavaScript web app prepared to become an Electron desktop app.
+Mimic Dice es una app web y de escritorio para ayudar a dirigir partidas de D&D 5e.
 
 ## Stack
 
@@ -42,9 +42,38 @@ npm run electron:dev
 
 ## Desktop build
 
+Version portable de Windows:
+
 ```powershell
-npm run electron:build
+npm run electron:build:portable
 ```
+
+La salida queda en `dist-electron/`. El ejecutable portable esperado queda con nombre:
+
+```text
+Mimic-Dice-portable-0.1.0-x64.exe
+```
+
+Si en tu Windows local alguna build de Electron da guerra con permisos de firma o symlinks, la ruta mas fiable para distribuirla sigue siendo GitHub Actions.
+
+## Descargar y probar en otro PC
+
+La forma mas sencilla para alguien que no tenga Node, npm o entorno de desarrollo es usar la build portable ya empaquetada.
+
+En GitHub:
+
+1. Abre el repositorio.
+2. Ve a `Actions`.
+3. Abre la ultima ejecucion correcta del workflow `Build Desktop` en la rama `feature/desktop-build`.
+4. Descarga el artefacto `mimic-dice-windows-portable`.
+5. Extrae el `.zip` descargado.
+6. Ejecuta `Mimic-Dice-portable-0.1.0-x64.exe`.
+
+En el otro PC:
+
+1. No hace falta instalar Node ni dependencias.
+2. Si Windows muestra SmartScreen, pulsa `Mas informacion` y luego `Ejecutar de todas formas`.
+3. Guarda el `.exe` en una carpeta fija si quieres conservar ahi las campanas guardadas.
 
 ## Notes
 

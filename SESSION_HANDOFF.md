@@ -1,11 +1,11 @@
 # Session Handoff
 
 - Fecha: 2026-04-23
-- Objetivo de sesion: pulir pantalla de personajes y dejar contexto persistente para ahorrar tokens entre sesiones.
-- Cambios hechos: creados `PROJECT_CONTEXT.md`, `CURRENT_STATE.md` y `SESSION_HANDOFF.md`; resumen de grupo con barra XP sin total, nivel integrado y sin columna separada; sistema de skills comunes por campana con progreso por personaje; menu `Skills` oculto tras boton; `Cocina` usa fracaso `1`, intermedio `2`, exito `3`; `Trampas y puertas secretas` da XP solo por exito `3`; panel de configuracion de skills ahora se superpone sobre la UI.
-- Archivos tocados: `src/main.js`, `src/styles.css`, `PROJECT_CONTEXT.md`, `CURRENT_STATE.md`, `SESSION_HANDOFF.md`.
-- Verificacion corrida: `npm run build` OK tras ultimos cambios.
-- Bloqueos o riesgos: `src/main.js` sigue muy grande y es punto principal de conflicto; falta revisar UX fina del overlay de `Skills` en uso real por si algun ancho concreto necesita ajuste.
+- Objetivo de sesion: dejar montada la version de escritorio portable de Windows y el flujo de descarga simple desde GitHub.
+- Cambios hechos: icono desktop reubicado desde `ICONO.png` a `electron/assets/icon.png`; generado `build-resources/icon.ico`; `electron/main.js` usa icono y `appUserModelId`; `package.json` configura `electron:build:portable`, icono Windows y `signAndEditExecutable: false`; workflow `.github/workflows/build-desktop.yml` publica artefacto portable; `README.md`, `PROJECT_CONTEXT.md` y `CURRENT_STATE.md` actualizados con guia y contexto desktop.
+- Archivos tocados: `package.json`, `electron/main.js`, `.github/workflows/build-desktop.yml`, `README.md`, `PROJECT_CONTEXT.md`, `CURRENT_STATE.md`, `SESSION_HANDOFF.md`, `electron/assets/`, `build-resources/`.
+- Verificacion corrida: `npm run electron:build:portable` OK y genera `dist-electron/Mimic-Dice-portable-0.1.0-x64.exe`.
+- Bloqueos o riesgos: portable actual pesa aprox. `1.1 GB` porque empaqueta caches grandes de `public/`; `src/main.js` sigue siendo punto principal de conflicto.
 - Preguntas para usuario: ninguna abierta ahora mismo.
-- Siguiente paso recomendado: seguir cerrando funcionalidades pendientes de pantalla de personajes y probar visualmente el overlay de `Skills` y los botones de progreso de `Cocina`.
+- Siguiente paso recomendado: subir rama `feature/desktop-build`, validar el workflow `Build Desktop` en GitHub y despues recortar tamano del portable si se quiere una descarga mas ligera.
 - Comando de arranque: `npm run electron:dev`

@@ -4,9 +4,9 @@
 
 - Fecha de revision: 2026-04-23
 - Repo asumido: `Mimic Dice`
-- Rama actual: `feature/personajes`
-- HEAD: `acae44c`
-- Working tree al crear este archivo: limpio
+- Rama actual: `feature/desktop-build`
+- HEAD: `6d204df`
+- Working tree al crear este archivo: con cambios locales enfocados en desktop packaging
 - Objetivo producto confirmado: app funcional y comoda para gestionar sesiones de D&D para master
 - Usuario principal confirmado: master de D&D 5e
 - Prioridad actual confirmada: terminar pantalla de personajes
@@ -36,6 +36,12 @@
 - La ficha flotante del item en inventario se puede recorrer con el raton sin desaparecer, y las monedas ya no salen como filas: se editan desde las chips superiores.
 - En resumen de grupo, `XP` y `Carga` alinean su texto partido como las barras de `Skills`. Si un enemigo del combat tracker muere, su XP se reparte automaticamente entre personajes aliados con iniciativa y se suma a sus fichas.
 - En combat tracker, la fila en blanco nace como `ENEMIGO` sin iniciativa, `COMBATE!` ignora entidades sin iniciativa, y la tarjeta de experiencia de ficha rapida ensancha el campo de nivel.
+- En `feature/desktop-build`, foco actual pasa a desktop: icono dedicado, empaquetado portable de Windows y descarga simple desde GitHub Actions para probar en otro PC sin instalar Node.
+- `ICONO.png` del root se recoloco en `electron/assets/icon.png` para runtime desktop y se genero `build-resources/icon.ico` para empaquetado de Windows.
+- Ya existe workflow `Build Desktop` en `.github/workflows/build-desktop.yml` para construir en GitHub un artefacto portable descargable.
+- `npm run electron:build:portable` genera ya `dist-electron/Mimic-Dice-portable-0.1.0-x64.exe`.
+- Para evitar el bloqueo local de `winCodeSign` por permisos de symlink en Windows, la build portable usa `signAndEditExecutable: false`.
+- El portable actual pesa aprox. `1.1 GB` porque la build arrastra el contenido de `public/`, incluidas caches grandes de imagenes.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
@@ -65,6 +71,7 @@
 - `src/main.js` concentra casi toda logica del frontend y mide aprox. 9425 lineas.
 - No se detecto carpeta `tests/` ni scripts de test en `package.json`.
 - Verificacion minima actual parece ser `npm run build`.
+- La build desktop portable tarda varios minutos porque el paquete actual supera 1 GB.
 - `public/images/` es enorme; mala idea releerlo en sesiones normales.
 - `session-vault` sigue siendo deuda funcional clara.
 

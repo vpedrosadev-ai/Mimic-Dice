@@ -1,0 +1,33 @@
+name: Build Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/desktop-build
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable desktop app
+        run: npm run electron:build:portable
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mimic-dice-windows-portable
+          path: dist-electron/Mimic-Dice-portable-*.exe
