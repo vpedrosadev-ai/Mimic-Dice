@@ -73,6 +73,12 @@
 - Tradeoff: la editable zip vuelve a pesar aprox. `1.43 GB`, pero evita el problema del `portable` de primera ejecucion porque el usuario descomprime antes de lanzar el `.exe`.
 - Fix adicional: la editable zip ya no usa `fetch(file://...)` para CSV y JSON. `preload` expone lectura por filesystem y el renderer usa esa via cuando detecta carpeta externa de assets.
 - La deteccion de `resources/app-assets` ahora prueba varias rutas posibles relativas al `.exe` descomprimido, no solo `process.resourcesPath`.
+- Nuevo fix para imagenes en la editable zip: assets externos ahora se sirven por protocolo Electron `mimic-assets://local/...` en vez de `file://`, para que `img src` cargue bien desde `resources/app-assets/images` en la app descomprimida.
+- Nuevo fix de diagnostico desktop: si `Bestiario`, `Items` o `Arcanum` fallan al cargar, la UI ya no muestra solo `Failed to fetch`; ahora ensena modulo, recurso esperado, URL runtime, secuencia de carga, rutas candidatas de `app-assets` y existencia de ficheros clave.
+- `loadTextAsset()` y `loadJsonAsset()` ya intentan `desktopApi.readAssetText()` siempre que exista, sin depender solo del flag `hasExternalAssetDirectory`; esto cubre casos donde la deteccion inicial falle pero la ruta real si sea resoluble.
+- Fix adicional: en runtime desktop con `file:` el renderer ya no cae a rutas web tipo `data/Bestiary.csv`; fuerza base `mimic-assets://local/...` aunque `preload` no marque assets externos, para seguir leyendo `resources/app-assets/data` y `resources/app-assets/images`.
+- `Items` ya usa lista virtual igual que `Bestiario` y `Arcanum`: scroll virtual, restauracion de posicion y reseteo al cambiar filtros, busqueda, sintonizacion o sort. Esto evita pintar toda la lista completa en la ejecutable.
+- En desktop empaquetado ya no se rehidrata campana desde `localStorage`: `campaign meta`, personajes, inventario de encuentros, skills y combat tracker arrancan vacios y solo persisten mediante fichero de campana. `Nueva campana` ya no abre `Guardar como` automaticamente; ahora limpia a estado en blanco y deja la campana sin fichero activo.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.

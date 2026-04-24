@@ -2289,6 +2289,66 @@ table {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.empty-state--debug {
+  place-items: stretch;
+  text-align: left;
+}
+
+.empty-state__debug {
+  display: grid;
+  gap: 0.9rem;
+  width: min(62rem, 100%);
+  padding: 1.5rem;
+}
+
+.empty-state__debug-title,
+.empty-state__debug-message {
+  margin: 0;
+}
+
+.empty-state__debug-title {
+  color: var(--danger);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.empty-state__debug-message {
+  color: var(--text);
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.asset-debug-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid rgba(216, 122, 132, 0.22);
+  border-radius: 18px;
+  background: rgba(216, 122, 132, 0.06);
+}
+
+.asset-debug-card__title,
+.asset-debug-card__body {
+  margin: 0;
+}
+
+.asset-debug-card__title {
+  color: #ffd3d8;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.asset-debug-card__body {
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .empty-state--compact {
   min-height: 8rem;
   display: grid;

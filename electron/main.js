@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
+import nodeFs from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,10 +10,129 @@ const PROJECT_ROOT = app.isPackaged ? path.dirname(app.getPath("exe")) : app.get
 const APP_ICON_PATH = path.join(__dirname, "assets", "icon.png");
 const CAMPAIGN_EXTENSION = ".mimic-campaign.json";
 const CAMPAIGN_CLOSE_SAVE_TIMEOUT_MS = 1800;
+const DESKTOP_ASSET_PROTOCOL = "mimic-assets";
 const campaignCloseStateByWebContentsId = new Map();
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: DESKTOP_ASSET_PROTOCOL,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    stream: true
+  }
+}]);
 
 function getCampaignSaveDirectory() {
   return path.join(PROJECT_ROOT, "campaigns");
+}
+
+function resolveDesktopAssetDirectory() {
+  const candidateDirectories = [
+    path.join(process.resourcesPath || "", "app-assets"),
+    path.join(path.dirname(app.getPath("exe")), "resources", "app-assets"),
+    path.join(path.dirname(app.getPath("exe")), "app-assets")
+  ];
+
+  return candidateDirectories.find((candidateDirectory) => {
+    try {
+      return candidateDirectory && requirePathExists(candidateDirectory);
+    } catch {
+      return false;
+    }
+  }) || "";
+}
+
+function requirePathExists(targetPath) {
+  try {
+    return Boolean(targetPath) && nodeFs.existsSync(targetPath);
+  } catch {
+    return false;
+  }
+}
+
+function getMimeTypeForAsset(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".csv":
+      return "text/csv; charset=utf-8";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".txt":
+      return "text/plain; charset=utf-8";
+    case ".webp":
+      return "image/webp";
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".svg":
+      return "image/svg+xml";
+    case ".ico":
+      return "image/x-icon";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+async function handleDesktopAssetRequest(request) {
+  const assetDirectory = resolveDesktopAssetDirectory();
+
+  if (!assetDirectory) {
+    return new Response("Desktop asset directory not available.", {
+      status: 404,
+      headers: {
+        "content-type": "text/plain; charset=utf-8"
+      }
+    });
+  }
+
+  const requestUrl = new URL(request.url);
+  const normalizedRelativePath = decodeURIComponent(requestUrl.pathname || "/").replace(/^\/+/, "");
+
+  if (!normalizedRelativePath) {
+    return new Response("Missing asset path.", {
+      status: 400,
+      headers: {
+        "content-type": "text/plain; charset=utf-8"
+      }
+    });
+  }
+
+  const resolvedAssetDirectory = path.resolve(assetDirectory);
+  const resolvedAssetPath = path.resolve(assetDirectory, normalizedRelativePath);
+  const normalizedRoot = `${resolvedAssetDirectory}${path.sep}`;
+
+  if (resolvedAssetPath !== resolvedAssetDirectory && !resolvedAssetPath.startsWith(normalizedRoot)) {
+    return new Response("Asset path outside allowed directory.", {
+      status: 403,
+      headers: {
+        "content-type": "text/plain; charset=utf-8"
+      }
+    });
+  }
+
+  try {
+    const data = await fs.readFile(resolvedAssetPath);
+
+    return new Response(data, {
+      status: 200,
+      headers: {
+        "content-type": getMimeTypeForAsset(resolvedAssetPath),
+        "cache-control": "no-store"
+      }
+    });
+  } catch {
+    return new Response("Asset not found.", {
+      status: 404,
+      headers: {
+        "content-type": "text/plain; charset=utf-8"
+      }
+    });
+  }
 }
 
 function getCampaignNameFromFilePath(filePath) {
@@ -256,6 +376,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   app.setAppUserModelId("com.mimicdice.app");
+  protocol.handle(DESKTOP_ASSET_PROTOCOL, handleDesktopAssetRequest);
   createWindow();
 
   app.on("activate", () => {

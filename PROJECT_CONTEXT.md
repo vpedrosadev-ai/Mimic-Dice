@@ -106,6 +106,7 @@ Persistencia desktop:
 - El icono desktop vive en `electron/assets/icon.png` para runtime y en `build-resources/icon.ico` para empaquetado Windows.
 - El flujo de distribucion mas simple para terceros sin entorno local es descargar el artefacto portable desde GitHub Actions.
 - La config de `electron-builder` usa `signAndEditExecutable: false` para evitar un bloqueo local de `winCodeSign` por permisos de symlink en ciertos Windows.
+- La build desktop editable sirve `resources/app-assets/*` mediante protocolo custom de Electron `mimic-assets://local/...` para evitar fallos de carga de imagenes con `file://` en la ejecutable descomprimida.
 - Las skills de campana ahora se definen a nivel global de campana y se comparten entre todos los personajes.
 - Cada personaje solo guarda su progreso por skill comun: nivel derivado de XP y avance individual por skill.
 - Las skills comunes pueden definir XP por resultado. Caso especial actual: `Cocina` usa tres resultados distintos: fracaso `1`, intermedio `2`, exito `3`.

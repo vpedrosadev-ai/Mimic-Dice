@@ -3,11 +3,14 @@ import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
 import appIconUrl from "../build-resources/icon.png";
+const IS_FILE_PROTOCOL_RUNTIME = typeof window !== "undefined"
+  ? /^file:$/i.test(String(window.location?.protocol || ""))
+  : false;
 const HAS_DESKTOP_EXTERNAL_ASSETS = typeof window !== "undefined"
   ? Boolean(window.mimicDice?.hasExternalAssetDirectory)
   : false;
 const DESKTOP_ASSET_BASE_URL = typeof window !== "undefined"
-  ? String(window.mimicDice?.assetBaseUrl || "").replace(/\/+$/, "")
+  ? String(window.mimicDice?.assetBaseUrl || (IS_FILE_PROTOCOL_RUNTIME ? "mimic-assets://local" : "")).replace(/\/+$/, "")
   : "";
 const BESTIARY_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Bestiary.csv` : "data/Bestiary.csv";
 const BESTIARY_IMAGES_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/BestiaryImages.json` : "data/BestiaryImages.json";
@@ -31,6 +34,8 @@ const BESTIARY_RENDER_DEBOUNCE_MS = 160;
 const BESTIARY_VIRTUAL_ROW_HEIGHT = 158;
 const BESTIARY_VIRTUAL_OVERSCAN = 6;
 const BESTIARY_VIRTUAL_DEFAULT_VIEWPORT = 760;
+const ITEM_VIRTUAL_ROW_HEIGHT = 132;
+const ITEM_VIRTUAL_OVERSCAN = 8;
 const bestiaryRenderCache = {
   filteredEntries: new Map(),
   optionEntries: new Map(),
@@ -418,6 +423,7 @@ const state = {
   bestiarySelectedId: "",
   bestiaryStatus: "loading",
   bestiaryMessage: "",
+  bestiaryDebugInfo: null,
   items: [],
   itemImageMap: {},
   itemFilters: { ...blankItemFilters },
@@ -430,6 +436,9 @@ const state = {
   showCharacterInventorySuggestions: false,
   itemStatus: "loading",
   itemMessage: "",
+  itemDebugInfo: null,
+  itemListScrollTop: 0,
+  itemListViewportHeight: 0,
   arcanum: [],
   arcanumFilters: { ...blankArcanumFilters },
   arcanumSort: { key: "name", direction: "asc" },
@@ -439,6 +448,7 @@ const state = {
   arcanumSelectedId: "",
   arcanumStatus: "loading",
   arcanumMessage: "",
+  arcanumDebugInfo: null,
   arcanumListScrollTop: 0,
   arcanumListViewportHeight: 0,
   bestiaryListScrollTop: 0,
@@ -1078,7 +1088,14 @@ function handleClick(event) {
 
 
   if (action === "select-item-entry") {
+    const previousSelectedId = state.itemSelectedId;
     state.itemSelectedId = actionButton.dataset.entryId;
+
+    if (state.activeScreen === "items") {
+      updateItemSelectionUI(previousSelectedId, state.itemSelectedId);
+      return;
+    }
+
     render();
     return;
   }
@@ -1167,18 +1184,21 @@ function handleClick(event) {
   }
 
   if (action === "toggle-item-sort") {
+    resetItemVirtualScroll();
     toggleItemSort(actionButton.dataset.itemSortKey);
     render();
     return;
   }
 
   if (action === "toggle-item-attunement-filter") {
+    resetItemVirtualScroll();
     toggleItemAttunementFilter();
     render();
     return;
   }
 
   if (action === "select-item-query-suggestion") {
+    resetItemVirtualScroll();
     state.itemFilters.query = actionButton.dataset.itemQueryValue ?? "";
     state.showItemQuerySuggestions = false;
     render({
@@ -1267,6 +1287,7 @@ function handleClick(event) {
   }
 
   if (action === "clear-item-filter") {
+    resetItemVirtualScroll();
     updateItemFilter(actionButton.dataset.itemFilterKey, []);
     render({
       focusSelector: `[data-item-filter-search="${actionButton.dataset.itemFilterKey}"]`
@@ -1275,6 +1296,7 @@ function handleClick(event) {
   }
 
   if (action === "select-visible-item-options") {
+    resetItemVirtualScroll();
     updateItemFilter(actionButton.dataset.itemFilterKey, getVisibleItemFilterOptions(actionButton.dataset.itemFilterKey));
     render({
       focusSelector: `[data-item-filter-search="${actionButton.dataset.itemFilterKey}"]`
@@ -1364,6 +1386,7 @@ function handleClick(event) {
   }
 
   if (action === "clear-item-filters") {
+    resetItemVirtualScroll();
     state.itemFilters = { ...blankItemFilters };
     state.itemFilterSearch = { ...blankItemFilterSearch };
     state.activeItemFilterKey = "";
@@ -1545,6 +1568,7 @@ function handleChange(event) {
   }
 
   if (target.matches("[data-item-filter-option]")) {
+    resetItemVirtualScroll();
     toggleItemFilterValue(target.dataset.itemFilterOption, target.value, target.checked);
     render({
       focusSelector: `[data-item-filter-search="${target.dataset.itemFilterOption}"]`
@@ -1706,6 +1730,7 @@ function handleInput(event) {
 
 
   if (target.matches("[data-item-query]")) {
+    resetItemVirtualScroll();
     state.itemFilters.query = target.value;
     state.showItemQuerySuggestions = cleanText(target.value).length > 0;
     scheduleRender({
@@ -1901,6 +1926,22 @@ function handleScroll(event) {
 
     const nextStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
     const viewportChanged = Math.abs(previousViewportHeight - state.bestiaryListViewportHeight) > 24;
+
+    if (previousStartIndex !== nextStartIndex || viewportChanged) {
+      render();
+    }
+
+    return;
+  }
+
+  if (target.matches?.("[data-item-list-root]")) {
+    const previousStartIndex = getItemVirtualStartIndex(state.itemListScrollTop);
+    const previousViewportHeight = state.itemListViewportHeight;
+    state.itemListScrollTop = target.scrollTop;
+    state.itemListViewportHeight = target.clientHeight;
+
+    const nextStartIndex = getItemVirtualStartIndex(state.itemListScrollTop);
+    const viewportChanged = Math.abs(previousViewportHeight - state.itemListViewportHeight) > 24;
 
     if (previousStartIndex !== nextStartIndex || viewportChanged) {
       render();
@@ -2256,6 +2297,10 @@ function render(focusState = null) {
 
   if (state.activeScreen === "bestiary") {
     restoreBestiaryListScroll();
+  }
+
+  if (state.activeScreen === "items") {
+    restoreItemListScroll();
   }
 
   if (state.activeScreen === "arcanum") {
@@ -3363,27 +3408,15 @@ function renderItemsContent(filteredEntries, selectedEntry) {
   }
 
   if (state.itemStatus === "error") {
-    return `
-      <div class="empty-state empty-state--panel">
-        ${escapeHtml(state.itemMessage || "No se pudo leer Items.csv.")}
-      </div>
-    `;
+    return renderAssetLoadErrorState(state.itemMessage || "No se pudo leer Items.csv.", state.itemDebugInfo);
   }
 
   return `
     <div class="bestiary-layout">
-      <div class="bestiary-list" role="list" aria-label="Items del catalogo">
-        ${
-          filteredEntries.length > 0
-            ? filteredEntries.map((entry) => renderItemRow(entry, entry.id === selectedEntry?.id)).join("")
-            : `
-              <div class="empty-state empty-state--panel">
-                No hay items que coincidan con los filtros actuales.
-              </div>
-            `
-        }
+      <div class="bestiary-list" role="list" aria-label="Items del catalogo" data-item-list-root>
+        ${renderItemList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
-      <aside class="bestiary-detail panel panel--inner">
+      <aside class="bestiary-detail panel panel--inner" data-item-detail-root>
         ${selectedEntry ? renderItemDetail(selectedEntry) : renderItemDetailEmpty()}
       </aside>
     </div>
@@ -3400,11 +3433,7 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
   }
 
   if (state.arcanumStatus === "error") {
-    return `
-      <div class="empty-state empty-state--panel">
-        ${escapeHtml(state.arcanumMessage || "No se pudo leer Spells.csv.")}
-      </div>
-    `;
+    return renderAssetLoadErrorState(state.arcanumMessage || "No se pudo leer Spells.csv.", state.arcanumDebugInfo);
   }
 
   return `
@@ -3437,6 +3466,7 @@ function renderItemRow(entry, isSelected) {
       role="listitem"
       data-action="select-item-entry"
       data-entry-id="${entry.id}"
+      data-item-row-id="${entry.id}"
     >
       <div class="bestiary-row__main item-row__main">
         <div class="item-row__heading">
@@ -3457,6 +3487,33 @@ function renderItemRow(entry, isSelected) {
         </div>
       ` : ""}
     </button>
+  `;
+}
+
+function renderItemList(filteredEntries, selectedId) {
+  if (filteredEntries.length === 0) {
+    return `
+      <div class="empty-state empty-state--panel">
+        No hay items que coincidan con los filtros actuales.
+      </div>
+    `;
+  }
+
+  const virtualWindow = getItemVirtualWindow(filteredEntries.length);
+  const visibleEntries = filteredEntries.slice(virtualWindow.startIndex, virtualWindow.endIndex);
+  const listHtml = visibleEntries
+    .map((entry) => renderItemRow(entry, entry.id === selectedId))
+    .join("");
+
+  return `
+    <div
+      class="bestiary-list__virtual"
+      style="padding-top: ${virtualWindow.topPadding}px; padding-bottom: ${virtualWindow.bottomPadding}px;"
+      data-item-virtual-start="${virtualWindow.startIndex}"
+      data-item-virtual-end="${virtualWindow.endIndex}"
+    >
+      ${listHtml}
+    </div>
   `;
 }
 
@@ -3644,11 +3701,7 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
   }
 
   if (state.bestiaryStatus === "error") {
-    return `
-      <div class="empty-state empty-state--panel">
-        ${escapeHtml(state.bestiaryMessage || "No se pudo leer Bestiary.csv.")}
-      </div>
-    `;
+    return renderAssetLoadErrorState(state.bestiaryMessage || "No se pudo leer Bestiary.csv.", state.bestiaryDebugInfo);
   }
 
   return `
@@ -3839,6 +3892,59 @@ function updateBestiarySelectionUI(previousSelectedId, nextSelectedId) {
   detailRoot.innerHTML = selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty();
 }
 
+function getItemVirtualWindow(totalEntries) {
+  const viewportHeight = state.itemListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT;
+  const maxScrollTop = Math.max(0, totalEntries * ITEM_VIRTUAL_ROW_HEIGHT - viewportHeight);
+  const scrollTop = Math.min(state.itemListScrollTop, maxScrollTop);
+  const startIndex = getItemVirtualStartIndex(scrollTop);
+  const visibleCount = Math.ceil(viewportHeight / ITEM_VIRTUAL_ROW_HEIGHT) + ITEM_VIRTUAL_OVERSCAN * 2;
+  const endIndex = Math.min(totalEntries, startIndex + visibleCount);
+
+  return {
+    startIndex,
+    endIndex,
+    topPadding: startIndex * ITEM_VIRTUAL_ROW_HEIGHT,
+    bottomPadding: Math.max(0, (totalEntries - endIndex) * ITEM_VIRTUAL_ROW_HEIGHT)
+  };
+}
+
+function getItemVirtualStartIndex(scrollTop) {
+  return Math.max(0, Math.floor(scrollTop / ITEM_VIRTUAL_ROW_HEIGHT) - ITEM_VIRTUAL_OVERSCAN);
+}
+
+function resetItemVirtualScroll() {
+  state.itemListScrollTop = 0;
+}
+
+function restoreItemListScroll() {
+  const listRoot = app.querySelector("[data-item-list-root]");
+
+  if (!listRoot) {
+    return;
+  }
+
+  state.itemListViewportHeight = listRoot.clientHeight;
+  listRoot.scrollTop = state.itemListScrollTop;
+}
+
+function updateItemSelectionUI(previousSelectedId, nextSelectedId) {
+  if (previousSelectedId && previousSelectedId !== nextSelectedId) {
+    app.querySelector(`[data-item-row-id="${previousSelectedId}"]`)?.classList.remove("is-selected");
+  }
+
+  app.querySelector(`[data-item-row-id="${nextSelectedId}"]`)?.classList.add("is-selected");
+
+  const detailRoot = app.querySelector("[data-item-detail-root]");
+
+  if (!detailRoot) {
+    return;
+  }
+
+  const filteredEntries = getFilteredItems();
+  const selectedEntry = getSelectedItemEntry(filteredEntries);
+  detailRoot.innerHTML = selectedEntry ? renderItemDetail(selectedEntry) : renderItemDetailEmpty();
+}
+
 function renderArcanumList(filteredEntries, selectedId) {
   if (filteredEntries.length === 0) {
     return `
@@ -3986,6 +4092,107 @@ function renderBestiaryDetailEmpty() {
       Selecciona una criatura para ver la ficha completa.
     </div>
   `;
+}
+
+function renderAssetLoadErrorState(message, debugInfo) {
+  const debugLines = formatAssetLoadDebugLines(debugInfo);
+
+  return `
+    <div class="empty-state empty-state--panel empty-state--debug">
+      <div class="empty-state__debug">
+        <p class="empty-state__debug-title">Error de lectura</p>
+        <p class="empty-state__debug-message">${escapeHtml(message)}</p>
+        ${
+          debugLines.length > 0
+            ? `
+              <div class="asset-debug-card">
+                <p class="asset-debug-card__title">Diagnostico desktop</p>
+                <pre class="asset-debug-card__body">${escapeHtml(debugLines.join("\n"))}</pre>
+              </div>
+            `
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
+function formatAssetLoadDebugLines(debugInfo) {
+  if (!isPlainObject(debugInfo)) {
+    return [];
+  }
+
+  const lines = [];
+  const snapshot = isPlainObject(debugInfo.snapshot) ? debugInfo.snapshot : null;
+
+  if (debugInfo.label) {
+    lines.push(`Modulo: ${cleanText(debugInfo.label)}`);
+  }
+
+  if (debugInfo.desktopRelativePath) {
+    lines.push(`Recurso esperado: ${cleanText(debugInfo.desktopRelativePath)}`);
+  }
+
+  if (debugInfo.assetUrl) {
+    lines.push(`URL runtime: ${cleanText(debugInfo.assetUrl)}`);
+  }
+
+  if (debugInfo.loaderMode) {
+    lines.push(`Secuencia de carga: ${cleanText(debugInfo.loaderMode)}`);
+  }
+
+  if (debugInfo.primaryError) {
+    lines.push(`Error principal: ${cleanText(debugInfo.primaryError)}`);
+  }
+
+  if (debugInfo.secondaryError) {
+    lines.push(`Error secundario: ${cleanText(debugInfo.secondaryError)}`);
+  }
+
+  lines.push(`Assets externos detectados: ${debugInfo.hasExternalAssets ? "si" : "no"}`);
+
+  if (debugInfo.runtimeProtocol) {
+    lines.push(`Protocolo runtime: ${cleanText(debugInfo.runtimeProtocol)}`);
+  }
+
+  lines.push(`API desktop visible: ${debugInfo.desktopApiAvailable ? "si" : "no"}`);
+  lines.push(`readAssetText disponible: ${debugInfo.desktopApiReadAssetAvailable ? "si" : "no"}`);
+
+  if (debugInfo.assetBaseUrl) {
+    lines.push(`Base assets: ${cleanText(debugInfo.assetBaseUrl)}`);
+  }
+
+  if (snapshot) {
+    if (snapshot.assetDirectory) {
+      lines.push(`Carpeta assets resuelta: ${cleanText(snapshot.assetDirectory)}`);
+    }
+
+    if (Array.isArray(snapshot.candidates) && snapshot.candidates.length > 0) {
+      lines.push("Rutas candidatas:");
+
+      for (const candidate of snapshot.candidates) {
+        if (!candidate?.path) {
+          continue;
+        }
+
+        lines.push(`- ${candidate.exists ? "[OK]" : "[NO]"} ${cleanText(candidate.path)}`);
+      }
+    }
+
+    if (Array.isArray(snapshot.files) && snapshot.files.length > 0) {
+      lines.push("Ficheros revisados:");
+
+      for (const file of snapshot.files) {
+        if (!file?.relativePath) {
+          continue;
+        }
+
+        lines.push(`- ${file.exists ? "[OK]" : "[NO]"} ${cleanText(file.relativePath)}`);
+      }
+    }
+  }
+
+  return lines;
 }
 
 function renderBestiaryDetailMedia(entry) {
@@ -8822,6 +9029,7 @@ function mapSideToTag(side) {
 async function loadBestiary() {
   state.bestiaryStatus = "loading";
   state.bestiaryMessage = "";
+  state.bestiaryDebugInfo = null;
   render();
 
   try {
@@ -8836,11 +9044,18 @@ async function loadBestiary() {
     hydrateBestiaryStaticOptions();
     resetBestiaryRenderCache();
     state.bestiaryStatus = "ready";
+    state.bestiaryDebugInfo = null;
     state.bestiarySelectedId = state.bestiary[0]?.id ?? "";
     render();
   } catch (error) {
     state.bestiaryStatus = "error";
     state.bestiaryMessage = error instanceof Error ? error.message : `No se pudo cargar ${BESTIARY_CSV_PATH}.`;
+    state.bestiaryDebugInfo = await resolveAssetLoadDebugInfo(error, {
+      label: "Bestiario",
+      assetUrl: BESTIARY_CSV_PATH,
+      desktopRelativePath: "data/Bestiary.csv",
+      loaderMode: "desktopApi.readAssetText -> fetch"
+    });
     render();
   }
 }
@@ -8848,6 +9063,7 @@ async function loadBestiary() {
 async function loadItems() {
   state.itemStatus = "loading";
   state.itemMessage = "";
+  state.itemDebugInfo = null;
   render();
 
   try {
@@ -8859,12 +9075,20 @@ async function loadItems() {
 
     state.itemImageMap = imageMap;
     state.items = rows.map((row, index) => normalizeItemEntry(row, index, imageMap));
+    resetItemVirtualScroll();
     state.itemStatus = "ready";
+    state.itemDebugInfo = null;
     state.itemSelectedId = state.items[0]?.id ?? "";
     render();
   } catch (error) {
     state.itemStatus = "error";
     state.itemMessage = error instanceof Error ? error.message : `No se pudo cargar ${ITEMS_CSV_PATH}.`;
+    state.itemDebugInfo = await resolveAssetLoadDebugInfo(error, {
+      label: "Items",
+      assetUrl: ITEMS_CSV_PATH,
+      desktopRelativePath: "data/Items.csv",
+      loaderMode: "desktopApi.readAssetText -> fetch"
+    });
     render();
   }
 }
@@ -8872,6 +9096,7 @@ async function loadItems() {
 async function loadArcanum() {
   state.arcanumStatus = "loading";
   state.arcanumMessage = "";
+  state.arcanumDebugInfo = null;
   render();
 
   try {
@@ -8881,11 +9106,18 @@ async function loadArcanum() {
     state.arcanum = rows.map((row, index) => normalizeSpellEntry(row, index));
     resetBestiaryRenderCache();
     state.arcanumStatus = "ready";
+    state.arcanumDebugInfo = null;
     state.arcanumSelectedId = state.arcanum[0]?.id ?? "";
     render();
   } catch (error) {
     state.arcanumStatus = "error";
     state.arcanumMessage = error instanceof Error ? error.message : `No se pudo cargar ${SPELLS_CSV_PATH}.`;
+    state.arcanumDebugInfo = await resolveAssetLoadDebugInfo(error, {
+      label: "Arcanum",
+      assetUrl: SPELLS_CSV_PATH,
+      desktopRelativePath: "data/Spells.csv",
+      loaderMode: "desktopApi.readAssetText -> fetch"
+    });
     render();
   }
 }
@@ -10435,12 +10667,16 @@ function resolveRuntimeAssetUrl(assetUrl) {
     return "";
   }
 
-  if (/^(?:https?:|file:|data:|blob:)/i.test(normalizedAssetUrl)) {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(normalizedAssetUrl)) {
     return normalizedAssetUrl;
   }
 
   if (DESKTOP_ASSET_BASE_URL) {
-    return `${DESKTOP_ASSET_BASE_URL}/${normalizedAssetUrl.replace(/^\.?\//, "")}`;
+    try {
+      return new URL(normalizedAssetUrl.replace(/^\.?\//, ""), `${DESKTOP_ASSET_BASE_URL}/`).toString();
+    } catch {
+      return `${DESKTOP_ASSET_BASE_URL}/${normalizedAssetUrl.replace(/^\.?\//, "")}`;
+    }
   }
 
   return normalizedAssetUrl;
@@ -11164,41 +11400,11 @@ async function createNewCampaign() {
   const blankPayload = createBlankCampaignSavePayload();
 
   try {
-    const desktopSaveAs = getDesktopCampaignApi()?.saveCampaignAs;
-
-    if (typeof desktopSaveAs === "function") {
-      clearPersistedCampaignState();
-      clearActiveCampaignFileSelection();
-      resetCampaignStateFromPayload(blankPayload);
-      state.campaignName = cleanText(blankPayload.campaign?.name) || "CampaÃ±a sin nombre";
-      state.campaignMessage = "Nueva campaÃ±a sin guardar.";
-      render();
-      await waitForNextPaint();
-
-      const result = await desktopSaveAs(blankPayload, "nueva-campana.mimic-campaign.json", { deriveNameFromFile: true });
-
-      if (result?.canceled) {
-        clearPersistedCampaignState();
-        clearActiveCampaignFileSelection();
-        return;
-      }
-
-      resetCampaignStateFromPayload(result.payload, result);
-      state.campaignMessage = "Nueva campaÃ±a creada.";
-      render();
-      return;
-    }
-
-    const nextName = window.prompt("Nombre de la nueva campaÃ±a", "CampaÃ±a sin nombre");
-
-    if (nextName === null) {
-      return;
-    }
-
     clearPersistedCampaignState();
     clearActiveCampaignFileSelection();
-    resetCampaignStateFromPayload(createBlankCampaignSavePayload(cleanText(nextName) || "CampaÃ±a sin nombre"));
-    state.campaignMessage = "Nueva campaÃ±a creada.";
+    resetCampaignStateFromPayload(blankPayload);
+    state.campaignName = cleanText(blankPayload.campaign?.name) || "CampaÃ±a sin nombre";
+    state.campaignMessage = "Nueva campaÃ±a sin guardar.";
     render();
   } catch {
     state.campaignMessage = "No se pudo crear la campaÃ±a.";
@@ -11471,28 +11677,116 @@ function getDesktopCampaignApi() {
     : null;
 }
 
-async function loadTextAsset(assetUrl, desktopRelativePath = "") {
+function getErrorMessage(error) {
+  if (error instanceof Error) {
+    return cleanText(error.message) || error.name;
+  }
+
+  return cleanText(error);
+}
+
+async function getDesktopAssetDebugSnapshot() {
   const desktopApi = getDesktopCampaignApi();
 
-  if (HAS_DESKTOP_EXTERNAL_ASSETS && desktopRelativePath && typeof desktopApi?.readAssetText === "function") {
-    return desktopApi.readAssetText(desktopRelativePath);
+  if (typeof desktopApi?.getDesktopDebugInfo !== "function") {
+    return null;
   }
 
-  const response = await fetch(assetUrl, {
-    cache: "no-store"
+  try {
+    const debugInfo = await desktopApi.getDesktopDebugInfo();
+    return isPlainObject(debugInfo) ? debugInfo : null;
+  } catch {
+    return null;
+  }
+}
+
+async function createAssetLoadDebugInfo({ label = "", assetUrl = "", desktopRelativePath = "", loaderMode = "", primaryError = null, secondaryError = null } = {}) {
+  const desktopApi = getDesktopCampaignApi();
+
+  return {
+    label: cleanText(label),
+    assetUrl: cleanText(assetUrl),
+    desktopRelativePath: cleanText(desktopRelativePath),
+    loaderMode: cleanText(loaderMode),
+    primaryError: getErrorMessage(primaryError),
+    secondaryError: getErrorMessage(secondaryError),
+    hasExternalAssets: HAS_DESKTOP_EXTERNAL_ASSETS,
+    assetBaseUrl: DESKTOP_ASSET_BASE_URL,
+    runtimeProtocol: typeof window !== "undefined" ? cleanText(window.location?.protocol) : "",
+    desktopApiAvailable: Boolean(desktopApi),
+    desktopApiReadAssetAvailable: typeof desktopApi?.readAssetText === "function",
+    snapshot: await getDesktopAssetDebugSnapshot()
+  };
+}
+
+async function resolveAssetLoadDebugInfo(error, fallbackInfo = {}) {
+  if (isPlainObject(error?.assetDebugInfo)) {
+    return error.assetDebugInfo;
+  }
+
+  return createAssetLoadDebugInfo({
+    ...fallbackInfo,
+    primaryError: error
   });
+}
 
-  if (!response.ok) {
-    throw new Error(`No se pudo leer ${assetUrl} (${response.status}).`);
+async function loadTextAsset(assetUrl, desktopRelativePath = "") {
+  const desktopApi = getDesktopCampaignApi();
+  let desktopReadError = null;
+
+  if (desktopRelativePath && typeof desktopApi?.readAssetText === "function") {
+    try {
+      return await desktopApi.readAssetText(desktopRelativePath);
+    } catch (error) {
+      desktopReadError = error;
+    }
   }
 
-  return response.text();
+  try {
+    const response = await fetch(assetUrl, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      const statusError = new Error(`No se pudo leer ${assetUrl} (${response.status}).`);
+      statusError.assetDebugInfo = await createAssetLoadDebugInfo({
+        label: assetUrl.includes("Bestiary") ? "Bestiario" : assetUrl.includes("Items") ? "Items" : assetUrl.includes("Spells") ? "Arcanum" : "Assets",
+        assetUrl,
+        desktopRelativePath,
+        loaderMode: desktopReadError ? "desktopApi.readAssetText -> fetch" : "fetch",
+        primaryError: desktopReadError || statusError,
+        secondaryError: desktopReadError ? statusError : null
+      });
+      throw statusError;
+    }
+
+    return response.text();
+  } catch (fetchError) {
+    const combinedMessageParts = [];
+
+    if (desktopReadError) {
+      combinedMessageParts.push(`Desktop API: ${getErrorMessage(desktopReadError)}`);
+    }
+
+    combinedMessageParts.push(`Fetch: ${getErrorMessage(fetchError) || `No se pudo leer ${assetUrl}.`}`);
+
+    const combinedError = new Error(combinedMessageParts.join(" | "));
+    combinedError.assetDebugInfo = await createAssetLoadDebugInfo({
+      label: assetUrl.includes("Bestiary") ? "Bestiario" : assetUrl.includes("Items") ? "Items" : assetUrl.includes("Spells") ? "Arcanum" : "Assets",
+      assetUrl,
+      desktopRelativePath,
+      loaderMode: desktopReadError ? "desktopApi.readAssetText -> fetch" : "fetch",
+      primaryError: desktopReadError || fetchError,
+      secondaryError: desktopReadError ? fetchError : null
+    });
+    throw combinedError;
+  }
 }
 
 async function loadJsonAsset(assetUrl, desktopRelativePath = "") {
   const desktopApi = getDesktopCampaignApi();
 
-  if (HAS_DESKTOP_EXTERNAL_ASSETS && desktopRelativePath && typeof desktopApi?.readAssetText === "function") {
+  if (desktopRelativePath && typeof desktopApi?.readAssetText === "function") {
     try {
       const rawValue = await desktopApi.readAssetText(desktopRelativePath);
       const data = JSON.parse(rawValue);
@@ -11860,12 +12154,20 @@ function clearPersistedCampaignState() {
   }
 }
 
+function usesDesktopFileOnlyPersistence() {
+  return isPackagedDesktopApp() || IS_FILE_PROTOCOL_RUNTIME;
+}
+
 function getFileNameFromPath(filePath) {
   return cleanText(filePath).split(/[\\/]/).filter(Boolean).pop() || "";
 }
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
+    return { name: "", fileName: "", filePath: "" };
+  }
+
+  if (usesDesktopFileOnlyPersistence()) {
     return { name: "", fileName: "", filePath: "" };
   }
 
@@ -11889,14 +12191,16 @@ function saveCampaignMeta() {
     return;
   }
 
-  try {
-    window.localStorage.setItem(CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
-      name: cleanText(state.campaignName),
-      fileName: cleanText(state.campaignFileName),
-      filePath: cleanText(state.campaignFilePath)
-    }));
-  } catch {
-    // Storage can be unavailable in private contexts; campaign files still work.
+  if (!usesDesktopFileOnlyPersistence()) {
+    try {
+      window.localStorage.setItem(CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
+        name: cleanText(state.campaignName),
+        fileName: cleanText(state.campaignFileName),
+        filePath: cleanText(state.campaignFilePath)
+      }));
+    } catch {
+      // Storage can be unavailable in private contexts; campaign files still work.
+    }
   }
 
   scheduleDesktopCampaignDirtyStateSync(60);
@@ -11904,6 +12208,10 @@ function saveCampaignMeta() {
 
 function loadCharacterSkillDefinitions() {
   if (typeof window === "undefined") {
+    return getDefaultCharacterSkillDefinitions();
+  }
+
+  if (usesDesktopFileOnlyPersistence()) {
     return getDefaultCharacterSkillDefinitions();
   }
 
@@ -11926,13 +12234,15 @@ function saveCharacterSkillDefinitions() {
     return;
   }
 
-  try {
-    window.localStorage.setItem(
-      CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY,
-      JSON.stringify(getCharacterSkillDefinitionsSaveData())
-    );
-  } catch {
-    // Storage can be unavailable in private contexts; campaign files still work.
+  if (!usesDesktopFileOnlyPersistence()) {
+    try {
+      window.localStorage.setItem(
+        CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY,
+        JSON.stringify(getCharacterSkillDefinitionsSaveData())
+      );
+    } catch {
+      // Storage can be unavailable in private contexts; campaign files still work.
+    }
   }
 
   scheduleDesktopCampaignDirtyStateSync(60);
@@ -11949,6 +12259,10 @@ function loadCharacters(skillDefinitions = getDefaultCharacterSkillDefinitions()
     return [];
   }
 
+  if (usesDesktopFileOnlyPersistence()) {
+    return [];
+  }
+
   try {
     const rawValue = window.localStorage.getItem(CHARACTERS_STORAGE_KEY);
     return normalizeStoredCharacters(JSON.parse(rawValue || "[]"), skillDefinitions);
@@ -11962,10 +12276,12 @@ function saveCharacters() {
     return;
   }
 
-  try {
-    window.localStorage.setItem(CHARACTERS_STORAGE_KEY, JSON.stringify(getCharactersSaveData()));
-  } catch {
-    // Storage can be unavailable in private contexts; campaign files still work.
+  if (!usesDesktopFileOnlyPersistence()) {
+    try {
+      window.localStorage.setItem(CHARACTERS_STORAGE_KEY, JSON.stringify(getCharactersSaveData()));
+    } catch {
+      // Storage can be unavailable in private contexts; campaign files still work.
+    }
   }
 
   scheduleDesktopCampaignDirtyStateSync(60);
@@ -12406,6 +12722,10 @@ function loadCombatTrackerState() {
     return defaultState;
   }
 
+  if (usesDesktopFileOnlyPersistence()) {
+    return defaultState;
+  }
+
   try {
     const rawValue = window.localStorage.getItem(COMBAT_TRACKER_STORAGE_KEY);
     const parsedValue = JSON.parse(rawValue || "{}");
@@ -12464,10 +12784,12 @@ function saveCombatTrackerState() {
     return;
   }
 
-  try {
-    window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify(getCombatTrackerSaveData()));
-  } catch {
-    // Storage can be unavailable in private contexts; the in-memory tracker still works.
+  if (!usesDesktopFileOnlyPersistence()) {
+    try {
+      window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify(getCombatTrackerSaveData()));
+    } catch {
+      // Storage can be unavailable in private contexts; the in-memory tracker still works.
+    }
   }
 
   scheduleDesktopCampaignDirtyStateSync(60);
@@ -12672,6 +12994,10 @@ function loadEncounterInventory() {
     return { folders: [], encounters: [], systemFolderExpanded: true };
   }
 
+  if (usesDesktopFileOnlyPersistence()) {
+    return { folders: [], encounters: [], systemFolderExpanded: true };
+  }
+
   try {
     const storage = window.localStorage;
     const rawValue = storage.getItem(ENCOUNTER_INVENTORY_STORAGE_KEY);
@@ -12713,10 +13039,12 @@ function saveEncounterInventory() {
     return;
   }
 
-  try {
-    window.localStorage.setItem(ENCOUNTER_INVENTORY_STORAGE_KEY, JSON.stringify(getEncounterInventorySaveData()));
-  } catch {
-    // Storage can be unavailable in private contexts; the in-memory inventory still works.
+  if (!usesDesktopFileOnlyPersistence()) {
+    try {
+      window.localStorage.setItem(ENCOUNTER_INVENTORY_STORAGE_KEY, JSON.stringify(getEncounterInventorySaveData()));
+    } catch {
+      // Storage can be unavailable in private contexts; the in-memory inventory still works.
+    }
   }
 
   scheduleDesktopCampaignDirtyStateSync(60);
