@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = app.isPackaged ? path.dirname(app.getPath("exe")) : app.getAppPath();
 const APP_ICON_PATH = path.join(__dirname, "assets", "icon.png");
 const CAMPAIGN_EXTENSION = ".mimic-campaign.json";
-const CAMPAIGN_CLOSE_SAVE_TIMEOUT_MS = 4000;
+const CAMPAIGN_CLOSE_SAVE_TIMEOUT_MS = 1800;
+const campaignCloseStateByWebContentsId = new Map();
 
 function getCampaignSaveDirectory() {
   return path.join(PROJECT_ROOT, "campaigns");
@@ -77,10 +78,35 @@ async function writeCampaignFile(filePath, payload, options = {}) {
   return nextPayload;
 }
 
-ipcMain.handle("campaign:save", async (_event, { fileName, payload } = {}) => {
-  const directory = await ensureCampaignSaveDirectory();
-  const safeFileName = sanitizeCampaignFileName(fileName);
-  const filePath = path.join(directory, safeFileName);
+function getCampaignCloseState(webContentsId) {
+  return campaignCloseStateByWebContentsId.get(webContentsId) ?? {
+    closeSaveReady: false,
+    hasUnsavedChanges: false
+  };
+}
+
+function setCampaignCloseState(webContentsId, patch) {
+  campaignCloseStateByWebContentsId.set(webContentsId, {
+    ...getCampaignCloseState(webContentsId),
+    ...patch
+  });
+}
+
+ipcMain.handle("campaign:save", async (_event, { fileName, filePath: rawFilePath, payload } = {}) => {
+  const requestedFilePath = rawFilePath ? path.resolve(String(rawFilePath)) : "";
+  let directory = "";
+  let filePath = "";
+
+  if (requestedFilePath) {
+    directory = path.dirname(requestedFilePath);
+    await fs.mkdir(directory, { recursive: true });
+    filePath = path.join(directory, sanitizeCampaignFileName(path.basename(requestedFilePath)));
+  } else {
+    directory = await ensureCampaignSaveDirectory();
+    const safeFileName = sanitizeCampaignFileName(fileName);
+    filePath = path.join(directory, safeFileName);
+  }
+
   const savedPayload = await writeCampaignFile(filePath, payload);
 
   return getCampaignSaveResult(filePath, directory, savedPayload);
@@ -104,13 +130,15 @@ ipcMain.handle("campaign:save-as", async (event, { fileName, payload, deriveName
     };
   }
 
-  const safeFileName = sanitizeCampaignFileName(result.filePath);
-  const filePath = path.join(directory, safeFileName);
+  const selectedDirectory = path.dirname(result.filePath);
+  await fs.mkdir(selectedDirectory, { recursive: true });
+  const safeFileName = sanitizeCampaignFileName(path.basename(result.filePath));
+  const filePath = path.join(selectedDirectory, safeFileName);
   const savedPayload = await writeCampaignFile(filePath, payload, { deriveNameFromFile });
 
   return {
     canceled: false,
-    ...getCampaignSaveResult(filePath, directory, savedPayload)
+    ...getCampaignSaveResult(filePath, selectedDirectory, savedPayload)
   };
 });
 
@@ -146,6 +174,16 @@ ipcMain.handle("campaign:load", async (event) => {
   };
 });
 
+ipcMain.on("campaign:close-save-ready", (event) => {
+  setCampaignCloseState(event.sender.id, { closeSaveReady: true });
+});
+
+ipcMain.on("campaign:set-dirty-state", (event, payload = {}) => {
+  setCampaignCloseState(event.sender.id, {
+    hasUnsavedChanges: payload?.hasUnsavedChanges === true
+  });
+});
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1280,
@@ -160,10 +198,27 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  const windowWebContentsId = window.webContents.id;
   let canClose = false;
+  setCampaignCloseState(windowWebContentsId, {
+    closeSaveReady: false,
+    hasUnsavedChanges: false
+  });
+  window.maximize();
+
+  window.on("closed", () => {
+    campaignCloseStateByWebContentsId.delete(windowWebContentsId);
+  });
 
   window.on("close", (event) => {
     if (canClose || window.webContents.isDestroyed()) {
+      return;
+    }
+
+    const closeState = getCampaignCloseState(windowWebContentsId);
+
+    if (!closeState.closeSaveReady || !closeState.hasUnsavedChanges) {
+      canClose = true;
       return;
     }
 

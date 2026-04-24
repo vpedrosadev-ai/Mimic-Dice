@@ -26,8 +26,17 @@ jobs:
       - name: Build portable desktop app
         run: npm run electron:build:portable
 
+      - name: Build editable desktop zip
+        run: npm run electron:build:editable-zip
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mimic-dice-windows-portable
           path: dist-electron/Mimic-Dice-portable-*.exe
+
+      - name: Upload editable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mimic-dice-windows-editable-zip
+          path: dist-electron/Mimic-Dice-editable-*.zip

@@ -69,6 +69,129 @@ table {
   opacity: 0.9;
 }
 
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at top, rgba(240, 200, 121, 0.14), transparent 30%),
+    rgba(8, 6, 11, 0.82);
+  backdrop-filter: blur(12px);
+}
+
+.boot-overlay__panel {
+  width: min(34rem, 100%);
+  padding: 1.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(30, 24, 37, 0.96), rgba(18, 14, 24, 0.96));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.4);
+}
+
+.boot-overlay__crest {
+  display: grid;
+  place-items: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(240, 200, 121, 0.3);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(240, 200, 121, 0.2), rgba(94, 183, 166, 0.12));
+  color: var(--accent-soft);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+}
+
+.boot-overlay__eyebrow,
+.boot-overlay__title,
+.boot-overlay__text {
+  margin: 0;
+}
+
+.boot-overlay__eyebrow {
+  margin-bottom: 0.45rem;
+  color: var(--accent-soft);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.boot-overlay__title {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.boot-overlay__text {
+  margin-top: 0.65rem;
+  color: var(--muted);
+}
+
+.boot-overlay__bar {
+  width: 100%;
+  height: 0.7rem;
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(240, 200, 121, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.boot-overlay__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(240, 200, 121, 0.95), rgba(94, 183, 166, 0.9));
+  transition: width 180ms ease;
+}
+
+.boot-overlay__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.boot-overlay__chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.boot-overlay__chip strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+.boot-overlay__chip--ready strong {
+  color: var(--heal);
+}
+
+.boot-overlay__chip--error strong {
+  color: var(--danger);
+}
+
+.boot-overlay__chip--loading strong {
+  color: var(--accent-soft);
+}
+
+@media (max-width: 720px) {
+  .boot-overlay__panel {
+    padding: 1.2rem;
+  }
+
+  .boot-overlay__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .app-menu,
 .topbar,
 .workspace {
@@ -135,6 +258,35 @@ table {
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
 }
 
+.file-menu__status {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.35rem 0.45rem 0.55rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 0.1rem;
+}
+
+.file-menu__status-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.file-menu__status-name {
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.file-menu__status-path {
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-menu__item {
   display: flex;
   align-items: center;
@@ -162,6 +314,92 @@ table {
   display: none;
 }
 
+.campaign-save-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.campaign-save-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(7, 9, 14, 0.68);
+}
+
+.campaign-save-dialog__panel {
+  position: relative;
+  z-index: 1;
+  width: min(30rem, 100%);
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.3rem;
+  border: 1px solid rgba(240, 200, 121, 0.22);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(22, 18, 27, 0.99), rgba(15, 12, 20, 0.99));
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+}
+
+.campaign-save-dialog__eyebrow,
+.campaign-save-dialog__title,
+.campaign-save-dialog__text,
+.campaign-save-dialog__error {
+  margin: 0;
+}
+
+.campaign-save-dialog__eyebrow {
+  color: var(--accent);
+  font-size: 0.76rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.campaign-save-dialog__title {
+  font-size: 1.3rem;
+}
+
+.campaign-save-dialog__text {
+  color: var(--muted);
+}
+
+.campaign-save-dialog__field {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.campaign-save-dialog__input {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+}
+
+.campaign-save-dialog__input:focus {
+  outline: none;
+  border-color: rgba(240, 200, 121, 0.45);
+  box-shadow: 0 0 0 3px rgba(240, 200, 121, 0.14);
+}
+
+.campaign-save-dialog__error {
+  color: #f29a8d;
+  font-size: 0.82rem;
+}
+
+.campaign-save-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
 .app-menu__message {
   min-width: 0;
   overflow: hidden;
@@ -171,7 +409,7 @@ table {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1.25rem;
   flex-wrap: wrap;
@@ -185,7 +423,7 @@ table {
 
 .brand {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 1rem;
   flex: 1 1 18rem;
   min-width: 0;
@@ -194,15 +432,26 @@ table {
 .brand__crest {
   display: grid;
   place-items: center;
-  width: 3.25rem;
+  width: clamp(4.4rem, 6vw, 5.25rem);
   aspect-ratio: 1;
-  border-radius: 18px;
+  padding: 0.2rem;
+  border-radius: 22px;
   border: 1px solid rgba(240, 200, 121, 0.32);
   background: linear-gradient(145deg, rgba(240, 200, 121, 0.22), rgba(94, 183, 166, 0.1));
   color: var(--accent-soft);
   font-weight: 700;
   letter-spacing: 0.08em;
   flex-shrink: 0;
+  overflow: hidden;
+  margin-block: 0.1rem;
+}
+
+.app-icon-badge__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
 }
 
 .brand h1,

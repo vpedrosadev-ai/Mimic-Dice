@@ -1,0 +1,39 @@
+{
+  "appId": "com.mimicdice.app",
+  "productName": "Mimic Dice",
+  "artifactName": "Mimic-Dice-editable-${version}-${arch}.${ext}",
+  "compression": "store",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "build-resources"
+  },
+  "files": [
+    "dist/**/*",
+    "!dist/data/**/*",
+    "!dist/images/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "dist/data",
+      "to": "app-assets/data"
+    },
+    {
+      "from": "dist/images",
+      "to": "app-assets/images"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "zip",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "build-resources/icon.ico",
+    "signAndEditExecutable": false
+  }
+}

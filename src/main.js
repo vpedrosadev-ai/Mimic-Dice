@@ -2,16 +2,27 @@
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
-const BESTIARY_CSV_PATH = "data/Bestiary.csv";
-const BESTIARY_IMAGES_PATH = "data/BestiaryImages.json";
-const ITEMS_CSV_PATH = "data/Items.csv";
-const ITEMS_IMAGES_PATH = "data/ItemsImages.json";
-const SPELLS_CSV_PATH = "data/Spells.csv";
+import appIconUrl from "../build-resources/icon.png";
+const HAS_DESKTOP_EXTERNAL_ASSETS = typeof window !== "undefined"
+  ? Boolean(window.mimicDice?.hasExternalAssetDirectory)
+  : false;
+const DESKTOP_ASSET_BASE_URL = typeof window !== "undefined"
+  ? String(window.mimicDice?.assetBaseUrl || "").replace(/\/+$/, "")
+  : "";
+const BESTIARY_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Bestiary.csv` : "data/Bestiary.csv";
+const BESTIARY_IMAGES_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/BestiaryImages.json` : "data/BestiaryImages.json";
+const ITEMS_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Items.csv` : "data/Items.csv";
+const ITEMS_IMAGES_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/ItemsImages.json` : "data/ItemsImages.json";
+const SPELLS_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Spells.csv` : "data/Spells.csv";
 const CAMPAIGN_META_STORAGE_KEY = "mimic-dice:campaign-meta:v1";
 const CHARACTERS_STORAGE_KEY = "mimic-dice:characters:v1";
 const CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY = "mimic-dice:character-skills:v1";
 const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
 const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
+const MANAGED_STORAGE_KEY_PREFIX = "mimic-dice:";
+const DESKTOP_STORAGE_RESET_VERSION_KEY = "mimic-dice:desktop-storage-reset:v1";
+const DESKTOP_BUILD_SIGNATURE_STORAGE_KEY = "mimic-dice:desktop-build-signature:v1";
+const DESKTOP_STORAGE_RESET_VERSION = "2026-04-24-d";
 const CAMPAIGN_FILE_SCHEMA = "mimic-dice:campaign";
 const CAMPAIGN_FILE_VERSION = 1;
 const CAMPAIGN_AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
@@ -337,9 +348,20 @@ const challengeRatingExperienceByCr = {
 };
 const experienceFormatter = new Intl.NumberFormat("es-ES");
 const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
+const LEGACY_COMBAT_PLACEHOLDER_NAMES = new Set([
+  "seraphina vale",
+  "thoren ashbrand",
+  "ghoul packleader",
+  "cult adept"
+]);
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
 let campaignSaveInProgress = null;
+let lastSavedCampaignSnapshot = "";
+let initialDataLoadQueued = false;
+let campaignDirtyStateSyncTimer = 0;
+let lastDesktopCampaignDirtyValue = null;
+resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
 const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
 const initialCharacters = loadCharacters(initialCharacterSkillDefinitions);
@@ -357,8 +379,13 @@ const state = {
   activeScreen: "combat-tracker",
   campaignName: initialCampaignMeta.name,
   campaignFileName: initialCampaignMeta.fileName,
+  campaignFilePath: initialCampaignMeta.filePath,
   campaignMessage: "",
   fileMenuOpen: false,
+  campaignSaveNameDialogOpen: false,
+  campaignSaveNameDialogMode: "",
+  campaignSaveNameDialogValue: "",
+  campaignSaveNameDialogError: "",
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   characterSkillDefinitions: initialCharacterSkillDefinitions,
@@ -451,9 +478,7 @@ app.addEventListener("dragend", handleDragEnd);
 startCampaignAutosave();
 registerCampaignCloseAutosave();
 render();
-loadBestiary();
-loadItems();
-loadArcanum();
+queueInitialDataLoad();
 
 function handleClick(event) {
   const screenButton = event.target.closest("[data-screen]");
@@ -680,6 +705,17 @@ function handleClick(event) {
     state.fileMenuOpen = false;
     render();
     chooseCampaignFile();
+    return;
+  }
+
+  if (action === "dismiss-campaign-save-name-dialog") {
+    closeCampaignSaveNameDialog();
+    render();
+    return;
+  }
+
+  if (action === "confirm-campaign-save-name-dialog") {
+    submitCampaignSaveNameDialog();
     return;
   }
 
@@ -1535,6 +1571,12 @@ function handleChange(event) {
 function handleInput(event) {
   const target = event.target;
 
+  if (target.matches("[data-campaign-save-name-input]")) {
+    state.campaignSaveNameDialogValue = target.value;
+    state.campaignSaveNameDialogError = "";
+    return;
+  }
+
   if (target.matches("[data-character-overview-field][data-character-overview-id]")) {
     updateCharacterFieldForId(
       target.dataset.characterOverviewId,
@@ -1758,6 +1800,13 @@ function handleInput(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (state.campaignSaveNameDialogOpen && event.key === "Escape") {
+    event.preventDefault();
+    closeCampaignSaveNameDialog();
+    render();
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     state.fileMenuOpen = false;
@@ -1767,6 +1816,12 @@ function handleGlobalKeydown(event) {
 
 function handleKeydown(event) {
   const target = event.target;
+
+  if (target.matches("[data-campaign-save-name-input]") && event.key === "Enter") {
+    event.preventDefault();
+    submitCampaignSaveNameDialog();
+    return;
+  }
 
   if (
     target.matches('[data-action="focus-combatant-row"]')
@@ -2019,6 +2074,145 @@ function cancelScheduledRender() {
   scheduledRenderFocusState = null;
 }
 
+function queueInitialDataLoad() {
+  if (initialDataLoadQueued || typeof window === "undefined") {
+    return;
+  }
+
+  initialDataLoadQueued = true;
+  const schedule = typeof window.requestAnimationFrame === "function"
+    ? window.requestAnimationFrame.bind(window)
+    : (callback) => window.setTimeout(callback, 16);
+
+  schedule(() => {
+    schedule(() => {
+      loadBestiary();
+      window.setTimeout(() => {
+        loadItems();
+      }, 140);
+      window.setTimeout(() => {
+        loadArcanum();
+      }, 280);
+    });
+  });
+}
+
+function isAppBootLoading() {
+  return [state.bestiaryStatus, state.itemStatus, state.arcanumStatus].some((status) => status === "loading");
+}
+
+function getAppBootProgress() {
+  const statuses = [
+    { label: "Bestiario", status: state.bestiaryStatus },
+    { label: "Objetos", status: state.itemStatus },
+    { label: "Arcanum", status: state.arcanumStatus }
+  ];
+  const completed = statuses.filter((entry) => entry.status !== "loading").length;
+
+  return {
+    completed,
+    total: statuses.length,
+    statuses
+  };
+}
+
+function renderBootOverlay() {
+  if (!isAppBootLoading()) {
+    return "";
+  }
+
+  const progress = getAppBootProgress();
+
+  return `
+    <div class="boot-overlay" role="status" aria-live="polite" aria-label="Cargando aplicacion">
+      <div class="boot-overlay__panel">
+        <div class="boot-overlay__crest">
+          <img class="app-icon-badge__image" src="${appIconUrl}" alt="Icono de Mimic Dice" />
+        </div>
+        <p class="boot-overlay__eyebrow">Preparando escritorio</p>
+        <h2 class="boot-overlay__title">Cargando Mimic Dice</h2>
+        <p class="boot-overlay__text">
+          ${progress.completed}/${progress.total} modulos listos. Cargando compendios y datos de campana.
+        </p>
+        <div class="boot-overlay__bar" aria-hidden="true">
+          <span style="width: ${(progress.completed / progress.total) * 100}%"></span>
+        </div>
+        <div class="boot-overlay__grid">
+          ${progress.statuses.map((entry) => `
+            <div class="boot-overlay__chip boot-overlay__chip--${entry.status}">
+              <span>${entry.label}</span>
+              <strong>${entry.status === "loading" ? "Cargando" : entry.status === "error" ? "Error" : "OK"}</strong>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCampaignSaveNameDialog() {
+  if (!state.campaignSaveNameDialogOpen) {
+    return "";
+  }
+
+  const isSaveAs = state.campaignSaveNameDialogMode === "save-as";
+
+  return `
+    <div class="campaign-save-dialog" role="presentation">
+      <div
+        class="campaign-save-dialog__backdrop"
+        data-action="dismiss-campaign-save-name-dialog"
+        aria-hidden="true"
+      ></div>
+      <section
+        class="campaign-save-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="campaign-save-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">Guardado de campana</p>
+        <h2 class="campaign-save-dialog__title" id="campaign-save-dialog-title">
+          ${isSaveAs ? "Guardar campana como" : "Guardar campana"}
+        </h2>
+        <p class="campaign-save-dialog__text">
+          Escribe el nombre de la campana antes de abrir el explorador de Windows.
+        </p>
+        <label class="campaign-save-dialog__field">
+          <span>Nombre de la campana</span>
+          <input
+            class="campaign-save-dialog__input"
+            type="text"
+            value="${escapeHtml(state.campaignSaveNameDialogValue)}"
+            data-campaign-save-name-input
+            placeholder="Ej. Las ruinas de Korrin"
+          />
+        </label>
+        ${
+          state.campaignSaveNameDialogError
+            ? `<p class="campaign-save-dialog__error">${escapeHtml(state.campaignSaveNameDialogError)}</p>`
+            : ""
+        }
+        <div class="campaign-save-dialog__actions">
+          <button
+            class="summary-button summary-button--ghost"
+            type="button"
+            data-action="dismiss-campaign-save-name-dialog"
+          >
+            Cancelar
+          </button>
+          <button
+            class="summary-button"
+            type="button"
+            data-action="confirm-campaign-save-name-dialog"
+          >
+            Confirmar
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function render(focusState = null) {
   cancelScheduledRender();
 
@@ -2027,7 +2221,9 @@ function render(focusState = null) {
       <div class="shell__backdrop"></div>
       <header class="topbar">
         <div class="brand">
-          <div class="brand__crest">MD</div>
+          <div class="brand__crest">
+            <img class="app-icon-badge__image" src="${appIconUrl}" alt="Icono de Mimic Dice" />
+          </div>
           <div>
             <p class="brand__eyebrow">D&D 5e encounter suite</p>
             <h1>Mimic Dice</h1>
@@ -2041,6 +2237,8 @@ function render(focusState = null) {
       <main class="workspace">
         ${renderScreen()}
       </main>
+      ${renderBootOverlay()}
+      ${renderCampaignSaveNameDialog()}
     </div>
   `;
 
@@ -2087,6 +2285,9 @@ function renderScreenButton(screen) {
 }
 
 function renderFileMenu() {
+  const activeCampaignFileName = cleanText(state.campaignFileName) || getFileNameFromPath(state.campaignFilePath);
+  const activeCampaignFilePath = cleanText(state.campaignFilePath);
+
   return `
     <div class="file-menu" data-file-menu>
       <button
@@ -2107,6 +2308,21 @@ function renderFileMenu() {
         state.fileMenuOpen
           ? `
             <div class="file-menu__popover" role="menu">
+              ${
+                activeCampaignFileName
+                  ? `
+                    <div class="file-menu__status">
+                      <span class="file-menu__status-label">Fichero de campana activa:</span>
+                      <strong class="file-menu__status-name">${escapeHtml(activeCampaignFileName)}</strong>
+                      ${
+                        activeCampaignFilePath
+                          ? `<small class="file-menu__status-path" title="${escapeHtml(activeCampaignFilePath)}">${escapeHtml(activeCampaignFilePath)}</small>`
+                          : ""
+                      }
+                    </div>
+                  `
+                  : ""
+              }
               <button class="file-menu__item" type="button" role="menuitem" data-action="new-campaign">
                 Nueva campaÃ±a
               </button>
@@ -8609,18 +8825,10 @@ async function loadBestiary() {
   render();
 
   try {
-    const [response, imageMap] = await Promise.all([
-      fetch(BESTIARY_CSV_PATH, {
-        cache: "no-store"
-      }),
+    const [text, imageMap] = await Promise.all([
+      loadTextAsset(BESTIARY_CSV_PATH, "data/Bestiary.csv"),
       loadBestiaryImages()
     ]);
-
-    if (!response.ok) {
-      throw new Error(`No se pudo leer ${BESTIARY_CSV_PATH} (${response.status}).`);
-    }
-
-    const text = await response.text();
     const rows = parseCsv(text);
 
     state.bestiaryImageMap = imageMap;
@@ -8643,18 +8851,10 @@ async function loadItems() {
   render();
 
   try {
-    const [response, imageMap] = await Promise.all([
-      fetch(ITEMS_CSV_PATH, {
-        cache: "no-store"
-      }),
+    const [text, imageMap] = await Promise.all([
+      loadTextAsset(ITEMS_CSV_PATH, "data/Items.csv"),
       loadItemImages()
     ]);
-
-    if (!response.ok) {
-      throw new Error(`No se pudo leer ${ITEMS_CSV_PATH} (${response.status}).`);
-    }
-
-    const text = await response.text();
     const rows = parseCsv(text);
 
     state.itemImageMap = imageMap;
@@ -8675,15 +8875,7 @@ async function loadArcanum() {
   render();
 
   try {
-    const response = await fetch(SPELLS_CSV_PATH, {
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      throw new Error(`No se pudo leer ${SPELLS_CSV_PATH} (${response.status}).`);
-    }
-
-    const text = await response.text();
+    const text = await loadTextAsset(SPELLS_CSV_PATH, "data/Spells.csv");
     const rows = parseCsv(text);
 
     state.arcanum = rows.map((row, index) => normalizeSpellEntry(row, index));
@@ -8699,37 +8891,11 @@ async function loadArcanum() {
 }
 
 async function loadBestiaryImages() {
-  try {
-    const response = await fetch(BESTIARY_IMAGES_PATH, {
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      return {};
-    }
-
-    const data = await response.json();
-    return isPlainObject(data) ? data : {};
-  } catch {
-    return {};
-  }
+  return loadJsonAsset(BESTIARY_IMAGES_PATH, "data/BestiaryImages.json");
 }
 
 async function loadItemImages() {
-  try {
-    const response = await fetch(ITEMS_IMAGES_PATH, {
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      return {};
-    }
-
-    const data = await response.json();
-    return isPlainObject(data) ? data : {};
-  } catch {
-    return {};
-  }
+  return loadJsonAsset(ITEMS_IMAGES_PATH, "data/ItemsImages.json");
 }
 
 function parseCsv(csvText) {
@@ -10262,15 +10428,33 @@ function resolveItemImageAsset(name, source, imageMap) {
   return "";
 }
 
+function resolveRuntimeAssetUrl(assetUrl) {
+  const normalizedAssetUrl = cleanText(assetUrl).trim();
+
+  if (!normalizedAssetUrl) {
+    return "";
+  }
+
+  if (/^(?:https?:|file:|data:|blob:)/i.test(normalizedAssetUrl)) {
+    return normalizedAssetUrl;
+  }
+
+  if (DESKTOP_ASSET_BASE_URL) {
+    return `${DESKTOP_ASSET_BASE_URL}/${normalizedAssetUrl.replace(/^\.?\//, "")}`;
+  }
+
+  return normalizedAssetUrl;
+}
+
 function findImageMapValue(imageMap, key) {
   const entry = imageMap?.[key];
 
   if (typeof entry === "string") {
-    return entry;
+    return resolveRuntimeAssetUrl(entry);
   }
 
   if (isPlainObject(entry) && typeof entry.imageUrl === "string") {
-    return entry.imageUrl;
+    return resolveRuntimeAssetUrl(entry.imageUrl);
   }
 
   return "";
@@ -10404,15 +10588,35 @@ function resolveBestiaryImageAsset(name, source, imageMap, assetKey) {
     const imageValue = imageMap[key];
 
     if (typeof imageValue === "string" && imageValue.trim()) {
-      return assetKey === "imageUrl" ? imageValue.trim() : "";
+      const resolvedValue = resolveRuntimeAssetUrl(assetKey === "imageUrl" ? imageValue.trim() : "");
+      return shouldUseBestiaryAssetInCurrentRuntime(resolvedValue) ? resolvedValue : "";
     }
 
     if (isPlainObject(imageValue) && typeof imageValue[assetKey] === "string" && imageValue[assetKey].trim()) {
-      return imageValue[assetKey].trim();
+      const resolvedValue = resolveRuntimeAssetUrl(imageValue[assetKey].trim());
+      return shouldUseBestiaryAssetInCurrentRuntime(resolvedValue) ? resolvedValue : "";
     }
   }
 
   return "";
+}
+
+function shouldUseBestiaryAssetInCurrentRuntime(assetUrl) {
+  const normalizedAssetUrl = cleanText(assetUrl).trim();
+
+  if (!normalizedAssetUrl) {
+    return false;
+  }
+
+  if (!isPackagedDesktopApp()) {
+    return true;
+  }
+
+  if (/^file:/i.test(normalizedAssetUrl)) {
+    return true;
+  }
+
+  return !/^\.?\/?images\/bestiary\//i.test(normalizedAssetUrl);
 }
 
 function getBestiaryInitials(name) {
@@ -10814,9 +11018,83 @@ function getArcanumFilterDisplayValue(key, value) {
   return value;
 }
 
-async function saveCampaignFile() {
+function getCampaignSaveNameDialogDefaultValue() {
+  return cleanText(state.campaignName)
+    || getCampaignNameFromFileName(cleanText(state.campaignFileName))
+    || "Campana sin nombre";
+}
+
+function openCampaignSaveNameDialog(mode) {
+  state.campaignSaveNameDialogOpen = true;
+  state.campaignSaveNameDialogMode = mode;
+  state.campaignSaveNameDialogValue = getCampaignSaveNameDialogDefaultValue();
+  state.campaignSaveNameDialogError = "";
+  render({
+    focusSelector: "[data-campaign-save-name-input]",
+    selectionStart: state.campaignSaveNameDialogValue.length,
+    selectionEnd: state.campaignSaveNameDialogValue.length
+  });
+}
+
+function closeCampaignSaveNameDialog() {
+  state.campaignSaveNameDialogOpen = false;
+  state.campaignSaveNameDialogMode = "";
+  state.campaignSaveNameDialogValue = "";
+  state.campaignSaveNameDialogError = "";
+}
+
+function clearActiveCampaignFileSelection() {
+  state.campaignFileName = "";
+  state.campaignFilePath = "";
+  saveCampaignMeta();
+}
+
+async function submitCampaignSaveNameDialog() {
+  const campaignName = cleanText(state.campaignSaveNameDialogValue);
+  const dialogMode = state.campaignSaveNameDialogMode;
+
+  if (!campaignName) {
+    state.campaignSaveNameDialogError = "Escribe un nombre para la campana.";
+    render({
+      focusSelector: "[data-campaign-save-name-input]"
+    });
+    return;
+  }
+
+  closeCampaignSaveNameDialog();
+  render();
+  await waitForNextPaint();
+
+  if (dialogMode === "save-as") {
+    await saveCampaignFileAs({
+      campaignName,
+      suggestedFileName: getCampaignFileName(campaignName),
+      skipNamePrompt: true
+    });
+    return;
+  }
+
+  await saveCampaignFile({
+    campaignName,
+    suggestedFileName: getCampaignFileName(campaignName),
+    skipNamePrompt: true
+  });
+}
+
+async function saveCampaignFile(options = {}) {
   try {
-    const result = await saveCampaignToDesktop();
+    const hasSelectedCampaignFile = Boolean(cleanText(state.campaignFilePath) || cleanText(state.campaignFileName));
+    const campaignName = cleanText(options.campaignName) || cleanText(state.campaignName) || "Campana sin nombre";
+
+    if (!hasSelectedCampaignFile && !options.skipNamePrompt) {
+      openCampaignSaveNameDialog("save");
+      return;
+    }
+
+    state.campaignName = campaignName;
+    const result = await saveCampaignToDesktop({
+      suggestedFileName: cleanText(options.suggestedFileName) || getCampaignFileName(campaignName)
+    });
 
     if (result?.canceled) {
       return;
@@ -10830,7 +11108,7 @@ async function saveCampaignFile() {
     }
 
     const payload = createCampaignSavePayload();
-    const fileName = getCampaignFileName(payload.campaign.name);
+    const fileName = cleanText(options.suggestedFileName) || getCampaignFileName(payload.campaign.name);
     downloadJsonFile(payload, fileName);
     state.campaignName = payload.campaign.name;
     state.campaignMessage = `Archivo creado: ${fileName}`;
@@ -10842,9 +11120,21 @@ async function saveCampaignFile() {
   }
 }
 
-async function saveCampaignFileAs() {
+async function saveCampaignFileAs(options = {}) {
   try {
-    const result = await saveCampaignToDesktop({ saveAs: true, force: true });
+    const campaignName = cleanText(options.campaignName) || cleanText(state.campaignName) || "Campana sin nombre";
+
+    if (!options.skipNamePrompt) {
+      openCampaignSaveNameDialog("save-as");
+      return;
+    }
+
+    state.campaignName = campaignName;
+    const result = await saveCampaignToDesktop({
+      saveAs: true,
+      force: true,
+      suggestedFileName: cleanText(options.suggestedFileName) || getCampaignFileName(campaignName)
+    });
 
     if (result?.canceled) {
       return;
@@ -10857,7 +11147,13 @@ async function saveCampaignFileAs() {
       return;
     }
 
-    saveCampaignFile();
+    const payload = createCampaignSavePayload();
+    const fileName = cleanText(options.suggestedFileName) || getCampaignFileName(payload.campaign.name);
+    downloadJsonFile(payload, fileName);
+    state.campaignName = payload.campaign.name;
+    state.campaignMessage = `Archivo creado: ${fileName}`;
+    saveCampaignMeta();
+    render();
   } catch {
     state.campaignMessage = "No se pudo guardar la campaÃ±a.";
     render();
@@ -10871,9 +11167,19 @@ async function createNewCampaign() {
     const desktopSaveAs = getDesktopCampaignApi()?.saveCampaignAs;
 
     if (typeof desktopSaveAs === "function") {
+      clearPersistedCampaignState();
+      clearActiveCampaignFileSelection();
+      resetCampaignStateFromPayload(blankPayload);
+      state.campaignName = cleanText(blankPayload.campaign?.name) || "CampaÃ±a sin nombre";
+      state.campaignMessage = "Nueva campaÃ±a sin guardar.";
+      render();
+      await waitForNextPaint();
+
       const result = await desktopSaveAs(blankPayload, "nueva-campana.mimic-campaign.json", { deriveNameFromFile: true });
 
       if (result?.canceled) {
+        clearPersistedCampaignState();
+        clearActiveCampaignFileSelection();
         return;
       }
 
@@ -10889,6 +11195,8 @@ async function createNewCampaign() {
       return;
     }
 
+    clearPersistedCampaignState();
+    clearActiveCampaignFileSelection();
     resetCampaignStateFromPayload(createBlankCampaignSavePayload(cleanText(nextName) || "CampaÃ±a sin nombre"));
     state.campaignMessage = "Nueva campaÃ±a creada.";
     render();
@@ -10903,19 +11211,22 @@ function resetCampaignStateFromPayload(payload, fileResult = null) {
 
   if (!fileResult) {
     state.campaignFileName = "";
+    state.campaignFilePath = "";
   }
 
   applyCampaignSave(campaign, fileResult);
 }
 
 function applyCampaignFileResult(result) {
-  const fileName = cleanText(result?.fileName);
+  const filePath = cleanText(result?.filePath);
+  const fileName = cleanText(result?.fileName) || getFileNameFromPath(filePath);
 
-  if (!fileName) {
+  if (!fileName && !filePath) {
     return;
   }
 
-  state.campaignFileName = fileName;
+  state.campaignFileName = fileName || state.campaignFileName;
+  state.campaignFilePath = filePath || state.campaignFilePath;
   state.campaignName = cleanText(result.name)
     || cleanText(result.payload?.campaign?.name)
     || getCampaignNameFromFileName(fileName);
@@ -10990,8 +11301,13 @@ async function saveCampaignToDesktop(options = {}) {
   }
 
   const payload = createCampaignSavePayload();
-  const fileName = state.campaignFileName || getCampaignFileName(payload.campaign.name);
-  const shouldSaveAs = options.saveAs || (!state.campaignFileName && !options.silent);
+  const comparableSnapshot = getComparableCampaignSnapshot(payload);
+  const filePath = cleanText(state.campaignFilePath);
+  const fileName = cleanText(options.suggestedFileName)
+    || state.campaignFileName
+    || getCampaignFileName(payload.campaign.name);
+  const hasExistingCampaignFile = Boolean(filePath || state.campaignFileName);
+  const shouldSaveAs = options.saveAs || (!hasExistingCampaignFile && !options.silent);
   const saveAction = shouldSaveAs ? desktopApi.saveCampaignAs : desktopApi.saveCampaign;
 
   if (typeof saveAction !== "function") {
@@ -11000,18 +11316,22 @@ async function saveCampaignToDesktop(options = {}) {
 
   campaignSaveInProgress = (
     shouldSaveAs
-      ? saveAction(payload, fileName, { deriveNameFromFile: true })
-      : saveAction(payload, fileName)
+      ? saveAction(payload, fileName, { deriveNameFromFile: true, filePath })
+      : saveAction(payload, fileName, filePath)
   )
     .then((result) => {
       if (result?.canceled) {
+        scheduleDesktopCampaignDirtyStateSync();
         return result;
       }
 
       applyCampaignFileResult(result);
+      lastSavedCampaignSnapshot = comparableSnapshot;
+      scheduleDesktopCampaignDirtyStateSync();
       return {
         ...result,
-        fileName: cleanText(result?.fileName) || fileName
+        fileName: cleanText(result?.fileName) || fileName,
+        filePath: cleanText(result?.filePath) || filePath
       };
     })
     .finally(() => {
@@ -11023,7 +11343,11 @@ async function saveCampaignToDesktop(options = {}) {
 
 async function autosaveCampaign() {
   try {
-    if (!state.campaignFileName) {
+    if (!state.campaignFilePath && !state.campaignFileName) {
+      return true;
+    }
+
+    if (!hasCampaignChangesSinceLastSave()) {
       return true;
     }
 
@@ -11036,7 +11360,11 @@ async function autosaveCampaign() {
 
 async function saveCampaignBeforeClose() {
   try {
-    if (!state.campaignFileName) {
+    if (!state.campaignFilePath && !state.campaignFileName) {
+      return true;
+    }
+
+    if (!hasCampaignChangesSinceLastSave()) {
       return true;
     }
 
@@ -11070,6 +11398,12 @@ function registerCampaignCloseAutosave() {
   ) {
     return;
   }
+
+  if (typeof desktopApi.markCampaignCloseReady === "function") {
+    desktopApi.markCampaignCloseReady();
+  }
+
+  syncDesktopCampaignDirtyState(true);
 
   desktopApi.onCampaignSaveBeforeClose(async (requestId) => {
     const saved = await saveCampaignBeforeClose();
@@ -11137,14 +11471,110 @@ function getDesktopCampaignApi() {
     : null;
 }
 
-function createCampaignSavePayload() {
+async function loadTextAsset(assetUrl, desktopRelativePath = "") {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (HAS_DESKTOP_EXTERNAL_ASSETS && desktopRelativePath && typeof desktopApi?.readAssetText === "function") {
+    return desktopApi.readAssetText(desktopRelativePath);
+  }
+
+  const response = await fetch(assetUrl, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo leer ${assetUrl} (${response.status}).`);
+  }
+
+  return response.text();
+}
+
+async function loadJsonAsset(assetUrl, desktopRelativePath = "") {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (HAS_DESKTOP_EXTERNAL_ASSETS && desktopRelativePath && typeof desktopApi?.readAssetText === "function") {
+    try {
+      const rawValue = await desktopApi.readAssetText(desktopRelativePath);
+      const data = JSON.parse(rawValue);
+      return isPlainObject(data) ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
+  try {
+    const response = await fetch(assetUrl, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    const data = await response.json();
+    return isPlainObject(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function waitForNextPaint() {
+  if (typeof window === "undefined") {
+    return Promise.resolve();
+  }
+
+  const schedule = typeof window.requestAnimationFrame === "function"
+    ? window.requestAnimationFrame.bind(window)
+    : (callback) => window.setTimeout(callback, 16);
+
+  return new Promise((resolve) => {
+    schedule(() => {
+      schedule(resolve);
+    });
+  });
+}
+
+function syncDesktopCampaignDirtyState(force = false) {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.setCampaignDirtyState !== "function") {
+    return;
+  }
+
+  const hasUnsavedChanges = hasCampaignChangesSinceLastSave();
+
+  if (!force && lastDesktopCampaignDirtyValue === hasUnsavedChanges) {
+    return;
+  }
+
+  lastDesktopCampaignDirtyValue = hasUnsavedChanges;
+  desktopApi.setCampaignDirtyState({ hasUnsavedChanges });
+}
+
+function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (campaignDirtyStateSyncTimer) {
+    window.clearTimeout(campaignDirtyStateSyncTimer);
+  }
+
+  campaignDirtyStateSyncTimer = window.setTimeout(() => {
+    campaignDirtyStateSyncTimer = 0;
+    syncDesktopCampaignDirtyState();
+  }, Math.max(0, delay));
+}
+
+function createCampaignSavePayload(options = {}) {
   const name = cleanText(state.campaignName) || "CampaÃ±a sin nombre";
+  const savedAt = options.savedAt ?? new Date().toISOString();
 
   return {
     schema: CAMPAIGN_FILE_SCHEMA,
     version: CAMPAIGN_FILE_VERSION,
     app: "Mimic Dice",
-    savedAt: new Date().toISOString(),
+    savedAt,
     campaign: {
       name
     },
@@ -11162,6 +11592,17 @@ function createCampaignSavePayload() {
       activeEncounterFolderId: state.activeEncounterFolderId
     }
   };
+}
+
+function getComparableCampaignSnapshot(payload = createCampaignSavePayload({ savedAt: "" })) {
+  return JSON.stringify({
+    ...payload,
+    savedAt: ""
+  });
+}
+
+function hasCampaignChangesSinceLastSave() {
+  return getComparableCampaignSnapshot() !== lastSavedCampaignSnapshot;
 }
 
 function normalizeCampaignSave(value) {
@@ -11205,13 +11646,39 @@ function normalizeCampaignSave(value) {
   };
 }
 
+function resetTransientCampaignUiState() {
+  state.fileMenuOpen = false;
+  closeCampaignSaveNameDialog();
+  state.characterSkillConfigOpen = false;
+  state.characterSkillsExpanded = false;
+  state.activeCharacterInventoryRowId = "";
+  state.showCharacterInventorySuggestions = false;
+  state.encounterInventoryOpen = false;
+  state.selectedIds = new Set();
+  state.activeFilterKey = "";
+  state.activeCombatNameSearchId = "";
+  state.activeCombatSourceId = "";
+  state.combatEncounterPickerOpen = false;
+  state.combatAddPickerMode = "";
+  state.activeEncounterRowId = "";
+  state.activeEncounterSourceRowId = "";
+  state.selectedEncounterIds = new Set();
+  state.selectedEncounterFolderIds = new Set();
+  state.encounterSearchQuery = "";
+  state.showEncounterSearchSuggestions = false;
+  state.draggedEncounterId = "";
+  state.draggedEncounterFolderId = "";
+  state.draggedFolderId = "";
+}
+
 function applyCampaignSave(campaign, fileResult = null) {
   stopBattleTimerInterval();
 
   state.campaignName = campaign.name;
   state.campaignFileName = cleanText(fileResult?.fileName) || state.campaignFileName;
+  state.campaignFilePath = cleanText(fileResult?.filePath) || state.campaignFilePath;
   state.activeScreen = campaign.activeScreen;
-  state.fileMenuOpen = false;
+  resetTransientCampaignUiState();
   state.combatants = campaign.combatTracker.combatants;
   state.filters = campaign.combatTracker.filters;
   state.sort = campaign.combatTracker.sort;
@@ -11223,12 +11690,6 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.activeTurnCombatantId = campaign.combatTracker.activeTurnCombatantId;
   state.combatRound = campaign.combatTracker.combatRound;
   state.battleTimer = campaign.battleTimer;
-  state.selectedIds = new Set();
-  state.activeFilterKey = "";
-  state.activeCombatNameSearchId = "";
-  state.activeCombatSourceId = "";
-  state.combatEncounterPickerOpen = false;
-  state.combatAddPickerMode = "";
   state.characterSkillDefinitions = campaign.characterSkillDefinitions;
   state.characters = campaign.characters;
   state.activeCharacterId = state.characters[0]?.id ?? "";
@@ -11243,12 +11704,6 @@ function applyCampaignSave(campaign, fileResult = null) {
     state.encounters,
     state.encounterFolders
   );
-  state.activeEncounterRowId = "";
-  state.activeEncounterSourceRowId = "";
-  state.selectedEncounterIds = new Set();
-  state.selectedEncounterFolderIds = new Set();
-  state.encounterSearchQuery = "";
-  state.showEncounterSearchSuggestions = false;
 
   saveCombatTrackerState();
   saveCharacterSkillDefinitions();
@@ -11260,6 +11715,8 @@ function applyCampaignSave(campaign, fileResult = null) {
   }
 
   saveCampaignMeta();
+  lastSavedCampaignSnapshot = getComparableCampaignSnapshot();
+  scheduleDesktopCampaignDirtyStateSync();
 }
 
 function normalizeCampaignActiveEncounterId(value, encounters) {
@@ -11326,21 +11783,104 @@ function downloadJsonFile(value, fileName) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function isPackagedDesktopApp() {
+  return typeof window !== "undefined" && Boolean(window.mimicDice?.isPackaged);
+}
+
+function getDesktopBuildSignature() {
+  return typeof window !== "undefined"
+    ? cleanText(window.mimicDice?.buildSignature)
+    : "";
+}
+
+function removeManagedLocalStorageKeys(options = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const includeResetMarker = options.includeResetMarker === true;
+
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = cleanText(window.localStorage.key(index));
+
+    if (!key.startsWith(MANAGED_STORAGE_KEY_PREFIX)) {
+      continue;
+    }
+
+    if (!includeResetMarker && key === DESKTOP_STORAGE_RESET_VERSION_KEY) {
+      continue;
+    }
+
+    window.localStorage.removeItem(key);
+  }
+}
+
+function resetDesktopLocalStorageIfNeeded() {
+  if (typeof window === "undefined" || !isPackagedDesktopApp()) {
+    return;
+  }
+
+  try {
+    const currentBuildSignature = getDesktopBuildSignature();
+    const storedResetVersion = window.localStorage.getItem(DESKTOP_STORAGE_RESET_VERSION_KEY);
+    const storedBuildSignature = cleanText(window.localStorage.getItem(DESKTOP_BUILD_SIGNATURE_STORAGE_KEY));
+
+    if (
+      storedResetVersion === DESKTOP_STORAGE_RESET_VERSION
+      && (!currentBuildSignature || storedBuildSignature === currentBuildSignature)
+    ) {
+      return;
+    }
+
+    removeManagedLocalStorageKeys();
+    window.localStorage.setItem(DESKTOP_STORAGE_RESET_VERSION_KEY, DESKTOP_STORAGE_RESET_VERSION);
+    if (currentBuildSignature) {
+      window.localStorage.setItem(DESKTOP_BUILD_SIGNATURE_STORAGE_KEY, currentBuildSignature);
+    }
+  } catch {
+    // Desktop build can continue even if storage is unavailable.
+  }
+}
+
+function clearPersistedCampaignState() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    removeManagedLocalStorageKeys();
+    window.localStorage.setItem(DESKTOP_STORAGE_RESET_VERSION_KEY, DESKTOP_STORAGE_RESET_VERSION);
+    const currentBuildSignature = getDesktopBuildSignature();
+
+    if (currentBuildSignature) {
+      window.localStorage.setItem(DESKTOP_BUILD_SIGNATURE_STORAGE_KEY, currentBuildSignature);
+    }
+  } catch {
+    // Ignore storage cleanup failures and keep the in-memory reset.
+  }
+}
+
+function getFileNameFromPath(filePath) {
+  return cleanText(filePath).split(/[\\/]/).filter(Boolean).pop() || "";
+}
+
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "", fileName: "" };
+    return { name: "", fileName: "", filePath: "" };
   }
 
   try {
     const parsedValue = JSON.parse(window.localStorage.getItem(CAMPAIGN_META_STORAGE_KEY) || "{}");
-    const fileName = cleanText(parsedValue.fileName);
+    const filePath = cleanText(parsedValue.filePath);
+    const fileName = cleanText(parsedValue.fileName) || getFileNameFromPath(filePath);
 
     return {
       name: fileName ? cleanText(parsedValue.name) || getCampaignNameFromFileName(fileName) : "",
-      fileName
+      fileName,
+      filePath
     };
   } catch {
-    return { name: "", fileName: "" };
+    return { name: "", fileName: "", filePath: "" };
   }
 }
 
@@ -11352,11 +11892,14 @@ function saveCampaignMeta() {
   try {
     window.localStorage.setItem(CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
       name: cleanText(state.campaignName),
-      fileName: cleanText(state.campaignFileName)
+      fileName: cleanText(state.campaignFileName),
+      filePath: cleanText(state.campaignFilePath)
     }));
   } catch {
     // Storage can be unavailable in private contexts; campaign files still work.
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function loadCharacterSkillDefinitions() {
@@ -11391,6 +11934,8 @@ function saveCharacterSkillDefinitions() {
   } catch {
     // Storage can be unavailable in private contexts; campaign files still work.
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function getCharacterSkillDefinitionsSaveData() {
@@ -11422,6 +11967,8 @@ function saveCharacters() {
   } catch {
     // Storage can be unavailable in private contexts; campaign files still work.
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function getCharactersSaveData() {
@@ -11868,14 +12415,31 @@ function loadCombatTrackerState() {
   }
 }
 
+function removeLegacyCombatTrackerPlaceholders(combatants) {
+  if (!Array.isArray(combatants) || combatants.length === 0) {
+    return [];
+  }
+
+  const normalizedNames = combatants.map((combatant) => cleanText(combatant?.nombre).toLowerCase()).filter(Boolean);
+
+  if (
+    normalizedNames.length === LEGACY_COMBAT_PLACEHOLDER_NAMES.size
+    && normalizedNames.every((name) => LEGACY_COMBAT_PLACEHOLDER_NAMES.has(name))
+  ) {
+    return [];
+  }
+
+  return combatants;
+}
+
 function normalizeStoredCombatTrackerState(value, defaultState = getDefaultCombatTrackerState()) {
   if (!isPlainObject(value)) {
     return defaultState;
   }
 
-  const combatants = Array.isArray(value.combatants)
+  const combatants = removeLegacyCombatTrackerPlaceholders(Array.isArray(value.combatants)
     ? value.combatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean)
-    : defaultState.combatants;
+    : defaultState.combatants);
   const nextId = normalizeStoredNextCombatantId(value.nextId, combatants);
   const sort = value.sortDefaultVersion === COMBAT_TRACKER_SORT_DEFAULT_VERSION
     ? normalizeStoredCombatSort(value.sort)
@@ -11905,6 +12469,8 @@ function saveCombatTrackerState() {
   } catch {
     // Storage can be unavailable in private contexts; the in-memory tracker still works.
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function getCombatTrackerSaveData(options = {}) {
@@ -12152,6 +12718,8 @@ function saveEncounterInventory() {
   } catch {
     // Storage can be unavailable in private contexts; the in-memory inventory still works.
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function getEncounterInventorySaveData() {
