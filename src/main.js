@@ -1086,7 +1086,6 @@ function handleClick(event) {
     return;
   }
 
-
   if (action === "select-item-entry") {
     const previousSelectedId = state.itemSelectedId;
     state.itemSelectedId = actionButton.dataset.entryId;
@@ -3294,16 +3293,18 @@ function renderBestiary() {
   return `
     ${renderEncounterInventorySection()}
 
-    <section class="panel panel--table">
+    <section class="panel panel--table bestiary-showcase bestiary-showcase--hearth">
       <div class="section-heading">
         <div>
           <p class="eyebrow">Repositorio de enemigos</p>
           <h3>Catalogo sincronizado con CSV</h3>
         </div>
-        <div class="section-meta">
-          <span>${getBestiaryStatusLabel()}</span>
-          <span>${filteredEntries.length} visibles</span>
-          <span>${state.bestiary.length} totales</span>
+        <div class="section-heading__side">
+          <div class="section-meta">
+            <span>${getBestiaryStatusLabel()}</span>
+            <span>${filteredEntries.length} visibles</span>
+            <span>${state.bestiary.length} totales</span>
+          </div>
         </div>
       </div>
 

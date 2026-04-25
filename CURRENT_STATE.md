@@ -2,14 +2,14 @@
 
 ## Snapshot
 
-- Fecha de revision: 2026-04-24
+- Fecha de revision: 2026-04-25
 - Repo asumido: `Mimic Dice`
-- Rama actual: `feature/desktop-build`
-- HEAD: `6d204df`
-- Working tree al crear este archivo: con cambios locales enfocados en desktop packaging
+- Rama actual: `main`
+- HEAD: `a174a49`
+- Working tree al crear este archivo: con cambios locales enfocados en redireccion visual de la UI
 - Objetivo producto confirmado: app funcional y comoda para gestionar sesiones de D&D para master
 - Usuario principal confirmado: master de D&D 5e
-- Prioridad actual confirmada: terminar pantalla de personajes
+- Prioridad actual confirmada: redefinir identidad visual sin mover layout
 
 ## What Exists Today
 
@@ -79,6 +79,11 @@
 - Fix adicional: en runtime desktop con `file:` el renderer ya no cae a rutas web tipo `data/Bestiary.csv`; fuerza base `mimic-assets://local/...` aunque `preload` no marque assets externos, para seguir leyendo `resources/app-assets/data` y `resources/app-assets/images`.
 - `Items` ya usa lista virtual igual que `Bestiario` y `Arcanum`: scroll virtual, restauracion de posicion y reseteo al cambiar filtros, busqueda, sintonizacion o sort. Esto evita pintar toda la lista completa en la ejecutable.
 - En desktop empaquetado ya no se rehidrata campana desde `localStorage`: `campaign meta`, personajes, inventario de encuentros, skills y combat tracker arrancan vacios y solo persisten mediante fichero de campana. `Nueva campana` ya no abre `Guardar como` automaticamente; ahora limpia a estado en blanco y deja la campana sin fichero activo.
+- Nuevo foco de UX visual: se han montado 3 muestras de piel solo para `Bestiario`, manteniendo layout y dimensiones. Las muestras actuales son `Taberna` (madera y laton), `Hierro` (oscura marcial) y `Marfil` (grimorio limpio), pensadas para elegir direccion antes de extender la transformacion a toda la app.
+- Ajuste actual sobre esas muestras: ya no son solo variaciones de color. Se reforzaron fondos texturizados y marcos materiales en `section-heading`, toolbar, filas y paneles internos para alejar el look de app moderna generica.
+- Nueva referencia visual confirmada por usuario: taberna medieval oscura con madera profunda, metal envejecido y marfil sutil, inspiracion muy cercana a la captura compartida. La base global (`topbar`, `paneles`, botones y campos) ya se esta moviendo a ese lenguaje sin alterar layout.
+- Ajuste adicional ya aplicado: la piel visual se extendio a tipografia, tarjetas resumen, tablas, bloques de personaje, encuentros, estados vacios y superficies comunes para que toda la pantalla comparta el mismo lenguaje de taberna/grimorio oscuro.
+- Bestiario ya no muestra selector ni mockup de variantes visuales: queda fijado a la direccion final elegida. Tambien se oscurecieron un poco mas las superficies generales para ganar contraste con filas seleccionadas y estados activos.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
@@ -100,7 +105,8 @@
 
 ## Immediate Focus
 
-- Cerrar funcionalidades pendientes de pantalla de personajes antes de abrir nuevas superficies grandes.
+- Convertir la piel visual de `Bestiario` en una direccion de arte medieval/fantasy mas fisica y menos generica, sin tocar posiciones ni dimensiones.
+- Usar `Bestiario` como banco de pruebas antes de extender la misma identidad a toda la app.
 - Evitar expandir `Session Vault` hasta que exista definicion de uso real.
 
 ## Current Technical Constraints
