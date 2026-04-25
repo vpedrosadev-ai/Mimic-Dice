@@ -84,6 +84,7 @@
 - Nueva referencia visual confirmada por usuario: taberna medieval oscura con madera profunda, metal envejecido y marfil sutil, inspiracion muy cercana a la captura compartida. La base global (`topbar`, `paneles`, botones y campos) ya se esta moviendo a ese lenguaje sin alterar layout.
 - Ajuste adicional ya aplicado: la piel visual se extendio a tipografia, tarjetas resumen, tablas, bloques de personaje, encuentros, estados vacios y superficies comunes para que toda la pantalla comparta el mismo lenguaje de taberna/grimorio oscuro.
 - Bestiario ya no muestra selector ni mockup de variantes visuales: queda fijado a la direccion final elegida. Tambien se oscurecieron un poco mas las superficies generales para ganar contraste con filas seleccionadas y estados activos.
+- Existen ya dos saves de ejemplo para pruebas manuales de usabilidad en `campaigns/examples/`: uno pequeno y rapido (`mini-grupo-usabilidad`) y otro mas cargado para recorrer pantallas largas (`campana-larga-usabilidad`).
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
@@ -124,6 +125,7 @@
 2. Decidir alcance de `Session Vault`: placeholder temporal o siguiente modulo real.
 3. Definir smoke checklist minima para no depender solo de inspeccion manual.
 4. Mantener `public/data/` y scripts de cache como fuente canonica para compendios.
+5. Los saves de ejemplo en `campaigns/examples/` ya usan enemigos y fuentes que existen en `Bestiary.csv`; mantener esa coherencia si se amplian.
 
 ## Known Good Navigation Map
 

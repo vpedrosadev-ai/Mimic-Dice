@@ -256,7 +256,7 @@ table {
   position: absolute;
   right: 0;
   top: calc(100% + 0.35rem);
-  z-index: 60;
+  z-index: 90;
   display: grid;
   gap: 0.35rem;
   width: min(16rem, 88vw);
@@ -441,7 +441,7 @@ table {
     0 18px 44px rgba(0, 0, 0, 0.35),
     inset 0 0 0 1px rgba(84, 54, 30, 0.72),
     inset 0 1px 0 rgba(255, 230, 183, 0.05);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .topbar::before {
