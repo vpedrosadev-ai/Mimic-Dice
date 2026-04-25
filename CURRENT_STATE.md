@@ -85,6 +85,15 @@
 - Ajuste adicional ya aplicado: la piel visual se extendio a tipografia, tarjetas resumen, tablas, bloques de personaje, encuentros, estados vacios y superficies comunes para que toda la pantalla comparta el mismo lenguaje de taberna/grimorio oscuro.
 - Bestiario ya no muestra selector ni mockup de variantes visuales: queda fijado a la direccion final elegida. Tambien se oscurecieron un poco mas las superficies generales para ganar contraste con filas seleccionadas y estados activos.
 - Existen ya dos saves de ejemplo para pruebas manuales de usabilidad en `campaigns/examples/`: uno pequeno y rapido (`mini-grupo-usabilidad`) y otro mas cargado para recorrer pantallas largas (`campana-larga-usabilidad`).
+- Combat tracker ahora puede mostrar tambien retrato junto al nombre de aliados enlazados a personaje, no solo en enemigos.
+- El picker `Anadir > Personajes` ya permite `Anadir todos` evitando duplicados, y desactiva personajes que ya estan en la tabla.
+- En pantalla de personajes ya existe multiseleccion con `Ctrl`/`Cmd`; `Anadir al combate` envia la seleccion actual y `Anadir todos` mete todos los visibles evitando repetidos. La lista muestra ya una marca visual de seleccion y el detector de modificadores se reforzo.
+- En combat tracker, el submenu del boton `Anadir` se elevo por encima del resto de la UI y el panel principal deja de recortarlo.
+- En combat tracker, los aliados ya muestran preview flotante al pasar por su retrato igual que enemigos, pero con contenido de personaje en modo lectura: competencias, skills de campana e inventario.
+- La preview flotante de aliados ya permite mover el raton desde el retrato hasta la propia ventana sin perder hover, y clicar en ella abre directo la ficha del personaje.
+- La preview de aliados en combat tracker se simplifico: solo muestra panel de caracteristicas/competencias en formato ficha, chips de skills con color y nivel, y bloque de inventario centrado en monedas.
+- Bajo las monedas de esa preview de aliado ya se listan tambien objetos de forma simplificada.
+- La cabecera de combat tracker ahora pasa a `Tabla de combate` y el toggle del contador se aloja bajo el titulo; el orden de iniciativa vive en su propia seccion separada y los retratos de la cadena son mas rectangulares, altos y estrechos.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
@@ -127,6 +136,7 @@
 4. Mantener `public/data/` y scripts de cache como fuente canonica para compendios.
 5. Los saves de ejemplo en `campaigns/examples/` ya usan enemigos y fuentes que existen en `Bestiary.csv`; mantener esa coherencia si se amplian.
 6. `Combat tracker`: contador de batalla ahora arranca oculto tras boton `Contador`, y el orden de iniciativa vive en una tarjeta separada.
+7. `Combat tracker`: cabecera se sigue compactando; `Pasar turno` vuelve a ir encima de la cadena de iniciativa y el contador se esta estrechando con botoneria centrada para ceder mas ancho al orden de turnos.
 
 ## Known Good Navigation Map
 

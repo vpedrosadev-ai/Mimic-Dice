@@ -396,6 +396,7 @@ const state = {
   characterSkillDefinitions: initialCharacterSkillDefinitions,
   characters: initialCharacters,
   activeCharacterId: initialCharacters[0]?.id ?? "",
+  selectedCharacterIds: new Set(initialCharacters[0]?.id ? [initialCharacters[0].id] : []),
   combatants: initialCombatTrackerState.combatants,
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
@@ -739,7 +740,13 @@ function handleClick(event) {
   }
 
   if (action === "select-character") {
-    selectCharacter(actionButton.dataset.characterId);
+    const shouldToggleCharacterSelection = event.ctrlKey
+      || event.metaKey
+      || event.getModifierState?.("Control")
+      || event.getModifierState?.("Meta");
+    selectCharacter(actionButton.dataset.characterId, {
+      toggleSelection: shouldToggleCharacterSelection
+    });
     render();
     return;
   }
@@ -764,6 +771,12 @@ function handleClick(event) {
 
   if (action === "add-character-to-combat") {
     addActiveCharacterToCombat();
+    render();
+    return;
+  }
+
+  if (action === "add-all-characters-to-combat") {
+    addAllCharactersToCombat();
     render();
     return;
   }
@@ -892,6 +905,12 @@ function handleClick(event) {
 
   if (action === "open-combatant-bestiary") {
     openCombatantBestiary(actionButton.dataset.entryId);
+    render();
+    return;
+  }
+
+  if (action === "open-combatant-character") {
+    openCombatantCharacter(actionButton.dataset.characterId);
     render();
     return;
   }
@@ -2444,27 +2463,32 @@ function renderCombatTracker() {
   const battleTimerLabel = formatBattleTimer(getBattleTimerElapsedMs());
 
   return `
-    ${state.combatTimerPanelOpen
-      ? renderCombatTimerPanel(battleTimerLabel)
-      : `
-        <div class="combat-overview-bar">
-          ${renderCombatTimerToggleButton()}
-        </div>
-      `}
-
-    <section class="panel panel--table">
+    <section class="panel panel--table combat-tracker-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Encuentro actual</p>
-          <h3>Ruins of Saint Korrin</h3>
+          <h3>Tabla de combate</h3>
         </div>
-        <div class="section-meta">
-          <span>${visibleCombatants.length} visibles</span>
-          <span>${state.selectedIds.size} seleccionados</span>
+        <div class="section-heading__side">
+          ${!state.combatTimerPanelOpen
+            ? `
+              <div class="combat-heading__actions">
+                ${renderCombatTimerToggleButton(false)}
+              </div>
+            `
+            : ""}
         </div>
       </div>
 
-      ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
+      ${
+        state.combatTimerPanelOpen || state.isCombatActive
+          ? `
+            <div class="combat-top-row">
+              ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
+              ${state.combatTimerPanelOpen ? renderCombatTimerPanel(battleTimerLabel) : ""}
+            </div>
+          `
+          : ""
+      }
 
       <div class="table-toolbar" aria-label="Acciones de tabla">
         <div class="table-toolbar__group">
@@ -2651,33 +2675,37 @@ function renderCombatTimerPanel(battleTimerLabel) {
 function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
   if (turnOrder.length === 0) {
     return `
-      <div class="combat-turn-panel">
-        <p class="combat-turn-panel__empty">No hay entidades visibles para el turno.</p>
-      </div>
+      <section class="panel panel--inner combat-turn-section">
+        <div class="combat-turn-panel">
+          <p class="combat-turn-panel__empty">No hay entidades visibles para el turno.</p>
+        </div>
+      </section>
     `;
   }
 
   const turnTokenScale = getCombatTurnTokenScale(turnOrder.length);
 
   return `
-    <div class="combat-turn-panel">
-      <div class="combat-turn-panel__controls">
-        <button
-          class="summary-button summary-button--turn combat-turn-panel__button"
-          type="button"
-          data-action="advance-combat-turn"
+    <section class="panel panel--inner combat-turn-section">
+      <div class="combat-turn-panel">
+        <div class="combat-turn-panel__controls">
+          <button
+            class="summary-button summary-button--turn combat-turn-panel__button"
+            type="button"
+            data-action="advance-combat-turn"
+          >
+            Pasar turno
+          </button>
+        </div>
+        <div
+          class="combat-turn-strip"
+          style="--turn-token-scale:${turnTokenScale}"
+          aria-label="Orden de iniciativa"
         >
-          Pasar turno
-        </button>
+          ${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeTurnCombatantId)).join("")}
+        </div>
       </div>
-      <div
-        class="combat-turn-strip"
-        style="--turn-token-scale:${turnTokenScale}"
-        aria-label="Orden de iniciativa"
-      >
-        ${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeTurnCombatantId)).join("")}
-      </div>
-    </div>
+    </section>
   `;
 }
 
@@ -2823,6 +2851,7 @@ function renderCombatEncounterPickerContent(hasEncounters) {
 
 function renderCombatCharacterPicker(hasCharacters) {
   const characters = getVisibleCharacters();
+  const availableCharacters = characters.filter((character) => !isCharacterAlreadyInCombat(character.id));
 
   return `
     ${renderCombatAddPickerBackButton()}
@@ -2830,10 +2859,10 @@ function renderCombatCharacterPicker(hasCharacters) {
       class="combat-encounter-picker__option combat-encounter-picker__option--accent"
       type="button"
       data-action="import-all-combat-characters"
-      ${hasCharacters ? "" : "disabled"}
+      ${availableCharacters.length > 0 ? "" : "disabled"}
     >
       <strong>Anadir todos</strong>
-      <span>${characters.length} personajes</span>
+      <span>${availableCharacters.length} disponibles</span>
     </button>
     ${
       hasCharacters
@@ -2845,6 +2874,7 @@ function renderCombatCharacterPicker(hasCharacters) {
 
 function renderCombatCharacterOption(character) {
   const subtitle = formatCharacterSubtitle(character) || "ALIADO";
+  const isAlreadyInCombat = isCharacterAlreadyInCombat(character.id);
 
   return `
     <button
@@ -2852,11 +2882,14 @@ function renderCombatCharacterOption(character) {
       type="button"
       data-action="import-combat-character"
       data-character-id="${escapeHtml(character.id)}"
+      ${isAlreadyInCombat ? "disabled" : ""}
     >
-      ${renderCharacterAvatar(character)}
+      <span class="combat-character-picker__avatar">
+        ${renderCharacterAvatar(character)}
+      </span>
       <span>
         <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
-        <small>${escapeHtml(subtitle)}</small>
+        <small>${escapeHtml(isAlreadyInCombat ? `${subtitle} | Ya en combate` : subtitle)}</small>
       </span>
     </button>
   `;
@@ -4831,14 +4864,39 @@ function renderCombatNameSuggestion(combatantId, entry) {
 }
 
 function renderCombatantNameToken(combatant) {
-  if (!isEnemyCombatant(combatant)) {
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  const tokenUrl = getCombatantTokenUrl(combatant);
+  const initials = linkedCharacter
+    ? getCharacterInitials(linkedCharacter)
+    : getCombatantInitials(combatant);
+
+  if (!tokenUrl && !linkedCharacter) {
     return "";
   }
 
-  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
-  const tokenUrl = bestiaryEntry?.tokenUrl || "";
+  if (!isEnemyCombatant(combatant)) {
+    return `
+      <span class="combat-name-token-wrap combat-name-token-wrap--ally">
+        <span class="combat-name-token-static">
+          ${
+            tokenUrl
+              ? `<img
+                  class="combat-name-token"
+                  src="${escapeHtml(tokenUrl)}"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />`
+              : `<span class="combat-name-token__placeholder">${escapeHtml(initials)}</span>`
+          }
+        </span>
+        ${linkedCharacter ? renderCombatCharacterPreview(linkedCharacter) : ""}
+      </span>
+    `;
+  }
 
-  if (!tokenUrl) {
+  if (!bestiaryEntry || !tokenUrl) {
     return "";
   }
 
@@ -4913,6 +4971,173 @@ function renderCombatTokenPreview(entry) {
   `;
 }
 
+function renderCombatCharacterPreview(character) {
+  const subtitleParts = [
+    character.className,
+    character.subclassName,
+    character.species,
+    character.level ? `Nivel ${character.level}` : ""
+  ].filter(Boolean);
+
+  return `
+    <button
+      class="combat-token-preview combat-token-preview--character"
+      type="button"
+      data-action="open-combatant-character"
+      data-character-id="${escapeHtml(character.id)}"
+      aria-label="Abrir ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"
+    >
+      <div class="combat-token-preview__header">
+        <div>
+          <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
+          <span>${escapeHtml(subtitleParts.join(" | ") || "Aliado")}</span>
+        </div>
+        <small>PB ${escapeHtml(formatModifier(getCharacterProficiencyBonus(character)))}</small>
+      </div>
+      <div class="combat-token-preview__sections">
+        ${renderCombatCharacterStatsPreview(character)}
+        ${renderCombatCharacterSkillChipsSection(character)}
+        ${renderCombatCharacterCurrencySection(character)}
+      </div>
+    </button>
+  `;
+}
+
+function renderCombatCharacterStatsPreview(character) {
+  const proficiencyBonus = getCharacterProficiencyBonus(character);
+  const proficientKeys = getCharacterProficiencySet(character);
+  const passivePerception = getCharacterPassivePerception(character);
+
+  return `
+    <section class="character-stat-sheet character-stat-sheet--preview" aria-label="Caracteristicas y competencias">
+      <div class="character-stat-sheet__proficiency">
+        <span>${escapeHtml(formatModifier(proficiencyBonus))}</span>
+        <strong>Bonus competencia</strong>
+      </div>
+      <div class="character-stat-sheet__blocks">
+        ${characterAbilityKeys.map((key) => renderCombatCharacterStatBlockPreview(character, key, proficientKeys, proficiencyBonus)).join("")}
+      </div>
+      <div class="character-stat-sheet__passive">
+        <span>${escapeHtml(String(passivePerception))}</span>
+        <strong>Percepcion Pasiva</strong>
+      </div>
+    </section>
+  `;
+}
+
+function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, proficiencyBonus) {
+  const score = character.abilities[key] ?? 10;
+  const modifier = getAbilityModifier(score);
+  const meta = characterStatBlocks[key];
+  const saveKey = `save:${key}`;
+
+  return `
+    <article class="character-stat-block">
+      <div class="character-stat-block__score character-stat-block__score--readonly">
+        <span class="character-stat-block__modifier">${escapeHtml(formatModifier(modifier))}</span>
+        <strong class="character-stat-block__score-value">${escapeHtml(String(score))}</strong>
+        <strong>${escapeHtml(meta.label)}</strong>
+      </div>
+      <div class="character-stat-block__checks">
+        ${renderCombatCharacterCheckRowPreview("save", "Salvacion", modifier, proficiencyBonus, proficientKeys.has(saveKey))}
+        ${meta.skills.map((skill) => {
+          const skillKey = `skill:${skill.id}`;
+          return renderCombatCharacterCheckRowPreview("skill", skill.label, modifier, proficiencyBonus, proficientKeys.has(skillKey));
+        }).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderCombatCharacterCheckRowPreview(type, label, modifier, proficiencyBonus, isChecked) {
+  const value = modifier + (isChecked ? proficiencyBonus : 0);
+
+  return `
+    <div class="character-check-row character-check-row--readonly">
+      <span class="character-check-row__mark character-check-row__mark--${type} ${isChecked ? "is-checked" : ""}" aria-hidden="true"></span>
+      <strong>${escapeHtml(formatModifier(value))}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function renderCombatCharacterSkillChipsSection(character) {
+  if (state.characterSkillDefinitions.length === 0) {
+    return `
+      <section class="detail-section">
+        <h4>Skills</h4>
+        <p>Sin skills de campana configuradas.</p>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="detail-section">
+      <h4>Skills</h4>
+      <div class="combat-token-preview__skill-chips">
+        ${state.characterSkillDefinitions.map((skillDefinition) => {
+          const progress = getCharacterSkillProgress(getCharacterSkillProgressEntry(character, skillDefinition.id));
+          const skillColor = normalizeStoredCharacterSkillColor(skillDefinition.color, getDefaultCharacterSkillColorForIdentity(skillDefinition.id, skillDefinition.name));
+          return `
+            <span class="combat-character-skill-chip" style="--combat-skill-color:${skillColor}">
+              <strong>${escapeHtml(skillDefinition.name)}</strong>
+              <span>NV ${escapeHtml(String(progress.level))}</span>
+            </span>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCombatCharacterCurrencySection(character) {
+  const load = getCharacterInventoryLoad(character);
+  const rows = character.inventory.filter((row) => !isCharacterCurrencyRow(row.name) && (cleanText(row.name) || toNumber(row.quantity) > 0));
+
+  return `
+    <section class="detail-section">
+      <h4>Inventario</h4>
+      <div class="combat-token-preview__currency-grid">
+        ${characterCurrencyRows.map((currency) => renderCombatCharacterCurrencyPill(character, currency)).join("")}
+      </div>
+      ${
+        rows.length > 0
+          ? `
+            <div class="combat-token-preview__inventory-list combat-token-preview__inventory-list--simple">
+              ${rows.map((row) => renderCombatCharacterInventoryPreviewRow(row)).join("")}
+            </div>
+          `
+          : `<p class="combat-token-preview__inventory-empty">Sin objetos cargados.</p>`
+      }
+      <p class="combat-token-preview__inventory-meta">Carga ${escapeHtml(formatWeight(load.totalWeight))} / ${escapeHtml(formatWeight(load.maxWeight))} lb</p>
+    </section>
+  `;
+}
+
+function renderCombatCharacterCurrencyPill(character, currency) {
+  const row = character.inventory.find((entry) => cleanText(entry.name).toUpperCase() === currency.name);
+
+  return `
+    <div class="character-currency-pill character-currency-pill--${currency.icon} character-currency-pill--readonly" title="${currency.name}">
+      <span class="character-currency-pill__icon" aria-hidden="true"></span>
+      <strong>${currency.shortLabel}</strong>
+      <small class="character-currency-pill__value">${escapeHtml(String(row?.quantity ?? 0))}</small>
+    </div>
+  `;
+}
+
+function renderCombatCharacterInventoryPreviewRow(row) {
+  const quantity = Math.max(0, toNumber(row.quantity) || 0);
+  const sizeLabel = normalizeItemSizeLabel(row.size) || inferItemSizeLabel(row.name);
+
+  return `
+    <div class="combat-token-preview__inventory-row">
+      <strong>${escapeHtml(row.name || "Objeto sin nombre")}</strong>
+      <span>x${escapeHtml(String(quantity))}${sizeLabel ? ` | ${escapeHtml(sizeLabel)}` : ""}</span>
+    </div>
+  `;
+}
+
 function renderCombatantSourceChip(combatant) {
   if (!isEnemyCombatant(combatant)) {
     return "";
@@ -4978,6 +5203,8 @@ function renderEmptyRow() {
 function renderCharactersScreen() {
   const visibleCharacters = getVisibleCharacters();
   let activeCharacter = getActiveCharacter();
+  const selectedCombatCharacters = getSelectedCharactersForCombat().filter((character) => !isCharacterAlreadyInCombat(character.id));
+  const availableCombatCharacters = visibleCharacters.filter((character) => !isCharacterAlreadyInCombat(character.id));
 
   if (!activeCharacter && state.characters.length > 0) {
     activeCharacter = visibleCharacters[0] ?? state.characters[0];
@@ -5020,9 +5247,12 @@ function renderCharactersScreen() {
           </span>
           Skills
         </button>
-        <button class="toolbar-button toolbar-button--combat characters-toolbar__combat-action" type="button" data-action="add-character-to-combat" ${activeCharacter ? "" : "disabled"}>
-          Anadir al combate
-        </button>
+      <button class="toolbar-button toolbar-button--combat characters-toolbar__combat-action" type="button" data-action="add-character-to-combat" ${selectedCombatCharacters.length > 0 ? "" : "disabled"}>
+        Anadir al combate
+      </button>
+      <button class="toolbar-button toolbar-button--combat characters-toolbar__combat-action" type="button" data-action="add-all-characters-to-combat" ${availableCombatCharacters.length > 0 ? "" : "disabled"}>
+        Anadir todos
+      </button>
       </div>
       ${state.characterSkillConfigOpen ? renderCharacterSkillConfigSection() : ""}
       </div>
@@ -5045,6 +5275,7 @@ function renderCharactersScreen() {
 
 function renderCharacterListItem(character) {
   const isActive = character.id === state.activeCharacterId;
+  const isSelected = state.selectedCharacterIds.has(character.id);
   const subtitle = [
     character.className,
     character.level ? `Nivel ${character.level}` : "",
@@ -5054,16 +5285,18 @@ function renderCharacterListItem(character) {
 
   return `
     <button
-      class="character-list-item ${isActive ? "is-active" : ""}"
+      class="character-list-item ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""}"
       type="button"
       data-action="select-character"
       data-character-id="${escapeHtml(character.id)}"
-      aria-pressed="${isActive}"
+      aria-pressed="${isSelected}"
+      title="Ctrl o Cmd + clic para multiseleccionar"
     >
       ${renderCharacterAvatar(character)}
       <span class="character-list-item__copy">
         <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
         <small>${escapeHtml(subtitle || "ALIADO")}</small>
+        ${isSelected ? `<span class="character-list-item__selection-mark" aria-hidden="true">+</span>` : ""}
       </span>
       ${
         classIcon
@@ -6498,7 +6731,9 @@ function getCombatantBestiaryEntry(combatant) {
 }
 
 function getCombatantTokenUrl(combatant) {
-  return getCombatantBestiaryEntry(combatant)?.tokenUrl || cleanText(combatant.tokenUrl);
+  return cleanText(getLinkedCharacterForCombatant(combatant)?.tokenUrl)
+    || getCombatantBestiaryEntry(combatant)?.tokenUrl
+    || cleanText(combatant.tokenUrl);
 }
 
 function getCombatantInitials(combatant) {
@@ -7034,6 +7269,7 @@ function createCharacter(overrides = {}) {
 
   state.characters = [character, ...state.characters];
   state.activeCharacterId = character.id;
+  state.selectedCharacterIds = new Set([character.id]);
   saveCharacters();
 }
 
@@ -7079,12 +7315,33 @@ function createDefaultCharacter(overrides = {}) {
   });
 }
 
-function selectCharacter(characterId) {
-  if (state.characters.some((character) => character.id === characterId)) {
-    state.activeCharacterId = characterId;
-    state.activeCharacterInventoryRowId = "";
-    state.showCharacterInventorySuggestions = false;
+function selectCharacter(characterId, options = {}) {
+  if (!state.characters.some((character) => character.id === characterId)) {
+    return;
   }
+
+  const toggleSelection = options.toggleSelection === true;
+  const nextSelectedCharacterIds = new Set(state.selectedCharacterIds);
+
+  if (toggleSelection) {
+    if (nextSelectedCharacterIds.has(characterId)) {
+      nextSelectedCharacterIds.delete(characterId);
+    } else {
+      nextSelectedCharacterIds.add(characterId);
+    }
+
+    if (nextSelectedCharacterIds.size === 0) {
+      nextSelectedCharacterIds.add(characterId);
+    }
+  } else {
+    nextSelectedCharacterIds.clear();
+    nextSelectedCharacterIds.add(characterId);
+  }
+
+  state.selectedCharacterIds = nextSelectedCharacterIds;
+  state.activeCharacterId = characterId;
+  state.activeCharacterInventoryRowId = "";
+  state.showCharacterInventorySuggestions = false;
 }
 
 function duplicateActiveCharacter() {
@@ -7102,6 +7359,7 @@ function duplicateActiveCharacter() {
 
   state.characters = [copy, ...state.characters];
   state.activeCharacterId = copy.id;
+  state.selectedCharacterIds = new Set([copy.id]);
   saveCharacters();
 }
 
@@ -7114,6 +7372,7 @@ function deleteActiveCharacter() {
 
   state.characters = state.characters.filter((item) => item.id !== character.id);
   state.activeCharacterId = state.characters[0]?.id ?? "";
+  state.selectedCharacterIds = new Set(state.activeCharacterId ? [state.activeCharacterId] : []);
   saveCharacters();
 }
 
@@ -7658,13 +7917,13 @@ function readFileAsDataUrl(file) {
 }
 
 function addActiveCharacterToCombat() {
-  const character = getActiveCharacter();
+  const characters = getSelectedCharactersForCombat();
 
-  if (!character) {
+  if (characters.length === 0) {
     return;
   }
 
-  addCharactersToCombat([character], {
+  addCharactersToCombat(characters, {
     closePicker: false
   });
 }
@@ -7684,7 +7943,22 @@ function addAllCharactersToCombat() {
 }
 
 function addCharactersToCombat(characters, options = {}) {
-  const validCharacters = characters.filter(Boolean);
+  const existingCharacterIds = new Set(
+    state.combatants.map((combatant) => cleanText(combatant.characterId)).filter(Boolean)
+  );
+  const seenCharacterIds = new Set();
+  const validCharacters = characters
+    .filter(Boolean)
+    .filter((character) => {
+      const characterId = cleanText(character.id);
+
+      if (!characterId || existingCharacterIds.has(characterId) || seenCharacterIds.has(characterId)) {
+        return false;
+      }
+
+      seenCharacterIds.add(characterId);
+      return true;
+    });
 
   if (validCharacters.length === 0) {
     return;
@@ -7708,6 +7982,38 @@ function addCharactersToCombat(characters, options = {}) {
   }
 
   saveCombatTrackerState();
+}
+
+function openCombatantCharacter(characterId) {
+  const normalizedCharacterId = cleanText(characterId);
+
+  if (!normalizedCharacterId || !state.characters.some((character) => character.id === normalizedCharacterId)) {
+    return;
+  }
+
+  selectCharacter(normalizedCharacterId);
+  state.activeScreen = "initiative-board";
+}
+
+function getSelectedCharactersForCombat() {
+  const selectedCharacters = state.characters.filter((character) => state.selectedCharacterIds.has(character.id));
+
+  if (selectedCharacters.length > 0) {
+    return selectedCharacters;
+  }
+
+  const activeCharacter = getActiveCharacter();
+  return activeCharacter ? [activeCharacter] : [];
+}
+
+function isCharacterAlreadyInCombat(characterId) {
+  const cleanCharacterId = cleanText(characterId);
+
+  if (!cleanCharacterId) {
+    return false;
+  }
+
+  return state.combatants.some((combatant) => cleanText(combatant.characterId) === cleanCharacterId);
 }
 
 function createCombatantFromCharacter(character, id) {
@@ -12013,6 +12319,7 @@ function resetTransientCampaignUiState() {
   state.draggedEncounterId = "";
   state.draggedEncounterFolderId = "";
   state.draggedFolderId = "";
+  state.selectedCharacterIds = new Set();
 }
 
 function applyCampaignSave(campaign, fileResult = null) {
@@ -12037,6 +12344,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.characterSkillDefinitions = campaign.characterSkillDefinitions;
   state.characters = campaign.characters;
   state.activeCharacterId = state.characters[0]?.id ?? "";
+  state.selectedCharacterIds = new Set(state.activeCharacterId ? [state.activeCharacterId] : []);
 
   state.encounterFolders = campaign.encounterInventory.folders;
   state.encounters = campaign.encounterInventory.encounters;

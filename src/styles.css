@@ -726,13 +726,6 @@ table {
   margin-top: 1rem;
 }
 
-.combat-overview-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
-}
-
 .combat-overview-toggle {
   display: inline-flex;
   align-items: center;
@@ -760,20 +753,25 @@ table {
 
 .combat-timer {
   width: fit-content;
-  max-width: min(22.5rem, 100%);
-  margin-bottom: 0.85rem;
+  max-width: min(14.5rem, 100%);
+  justify-self: end;
+  align-self: stretch;
+  height: 100%;
 }
 
 .combat-timer__card {
   min-height: 0;
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: 1fr;
   grid-template-areas:
-    "toolbar ."
-    "visual actions";
+    "toolbar"
+    "visual"
+    "actions";
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.8rem 0.82rem;
+  justify-items: center;
+  gap: 0.45rem;
+  height: 100%;
+  padding: 0.68rem 0.7rem;
   border: 1px solid rgba(176, 124, 67, 0.34);
   border-radius: 18px;
   background:
@@ -795,14 +793,17 @@ table {
   position: relative;
   display: grid;
   place-items: center;
-  min-width: 6.2rem;
+  justify-items: center;
+  min-width: 0;
   min-height: 6.15rem;
+  width: 100%;
 }
 
 .combat-timer__hourglass {
   position: relative;
   width: 4.55rem;
   height: 6.15rem;
+  justify-self: center;
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.28));
 }
 
@@ -894,7 +895,8 @@ table {
   grid-area: toolbar;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
+  width: 100%;
 }
 
 .combat-timer__readout {
@@ -902,50 +904,58 @@ table {
   inset: 0;
   display: grid;
   place-items: center;
+  justify-items: center;
   min-width: 0;
   text-align: center;
   pointer-events: none;
 }
 
+.combat-timer__readout strong {
+  display: inline-block;
+  min-width: 4.8ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .combat-timer__card .summary-card__actions {
   display: flex;
-  flex-wrap: wrap;
   margin-top: 0;
-  gap: 0.45rem;
+  gap: 0.28rem;
 }
 
 .combat-timer__actions {
   grid-area: actions;
   display: grid !important;
-  grid-template-rows: repeat(3, minmax(0, 1fr));
-  width: max-content;
-  height: 6.15rem;
-  gap: 0.2rem !important;
+  grid-template-columns: 1fr;
+  width: auto;
+  gap: 0.28rem !important;
   align-self: center;
-  justify-self: start;
+  justify-self: center;
+  justify-items: center;
 }
 
 .combat-timer__card .summary-button {
-  min-height: 0;
-  height: 100%;
-  width: 100%;
+  min-height: 1.9rem;
+  width: 6.65rem;
   min-width: 0;
-  padding: 0.3rem 0.52rem;
+  padding: 0.28rem 0.4rem;
   font-size: 0.78rem;
-  justify-self: start;
+  justify-self: center;
 }
 
 .combat-turn-panel {
   display: grid;
-  gap: 0.4rem;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 0.5rem;
   width: 100%;
-  margin-bottom: 0.8rem;
 }
 
 .combat-turn-panel__controls {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  width: 100%;
 }
 
 .combat-turn-panel__empty {
@@ -988,26 +998,26 @@ table {
   gap: 0.85rem;
   width: 100%;
   min-width: 0;
-  padding: 0.1rem 0.1rem 0.35rem;
-  max-height: calc(((9rem + 1.84rem) * var(--turn-token-scale, 1)) * 2 + 0.85rem);
+  padding: 0.1rem 0.1rem 0.2rem;
+  max-height: calc(((10.4rem + 1.7rem) * var(--turn-token-scale, 1)) * 2 + 0.85rem);
   overflow: hidden;
 }
 
 .combat-turn-token-wrap {
   position: relative;
   display: flex;
-  flex: 0 0 calc(6.3rem * var(--turn-token-scale, 1));
+  flex: 0 0 calc(5.9rem * var(--turn-token-scale, 1));
   flex-direction: column;
   align-items: center;
   gap: calc(0.24rem * var(--turn-token-scale, 1));
-  width: calc(6.3rem * var(--turn-token-scale, 1));
+  width: calc(5.9rem * var(--turn-token-scale, 1));
   transition: flex-basis 180ms ease, width 180ms ease, transform 180ms ease;
   cursor: pointer;
 }
 
 .combat-turn-token-wrap.is-active {
-  flex-basis: calc(9rem * var(--turn-token-scale, 1));
-  width: calc(9rem * var(--turn-token-scale, 1));
+  flex-basis: calc(7.45rem * var(--turn-token-scale, 1));
+  width: calc(7.45rem * var(--turn-token-scale, 1));
   transform: translateY(-0.25rem);
 }
 
@@ -1019,8 +1029,8 @@ table {
 .combat-turn-token {
   position: relative;
   flex: none;
-  width: calc(6.3rem * var(--turn-token-scale, 1));
-  height: calc(6.3rem * var(--turn-token-scale, 1));
+  width: calc(5.9rem * var(--turn-token-scale, 1));
+  height: calc(8.2rem * var(--turn-token-scale, 1));
   border: 4px solid var(--line);
   border-radius: 8px;
   background:
@@ -1038,8 +1048,8 @@ table {
 }
 
 .combat-turn-token-wrap.is-active .combat-turn-token {
-  width: calc(9rem * var(--turn-token-scale, 1));
-  height: calc(9rem * var(--turn-token-scale, 1));
+  width: calc(7.45rem * var(--turn-token-scale, 1));
+  height: calc(10.4rem * var(--turn-token-scale, 1));
   border-color: #f0c879;
   box-shadow: 0 0 0 2px rgba(240, 200, 121, 0.22), 0 12px 26px rgba(0, 0, 0, 0.34);
 }
@@ -1071,7 +1081,12 @@ table {
 }
 
 .combat-turn-token img {
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center center;
+  padding: 0.12rem;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01) 62%),
+    rgba(17, 13, 10, 0.68);
 }
 
 .combat-turn-token__placeholder {
@@ -1182,7 +1197,7 @@ table {
 
 .section-heading {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.2rem;
@@ -1190,10 +1205,28 @@ table {
   border-bottom: 1px solid rgba(122, 84, 44, 0.36);
 }
 
+.combat-heading__actions {
+  margin-top: 0;
+  justify-self: end;
+}
+
+.combat-turn-section {
+  margin-bottom: 0;
+  align-self: stretch;
+}
+
+.combat-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 1rem;
+  margin-bottom: 0.95rem;
+}
+
 .section-heading__side {
   display: grid;
   justify-items: end;
-  gap: 0.7rem;
+  gap: 0.45rem;
 }
 
 .section-meta {
@@ -1244,13 +1277,15 @@ table {
 
 .combat-encounter-picker {
   position: relative;
+  isolation: isolate;
+  z-index: 40;
 }
 
 .combat-encounter-picker__popover {
   position: absolute;
   left: 0;
   top: calc(100% + 0.45rem);
-  z-index: 8;
+  z-index: 240;
   display: grid;
   gap: 0.45rem;
   width: min(24rem, 88vw);
@@ -1310,6 +1345,11 @@ table {
 
 .combat-encounter-picker__option--character {
   grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.combat-character-picker__avatar {
+  display: flex;
   align-items: center;
 }
 
@@ -2138,12 +2178,39 @@ table {
   outline-offset: 2px;
 }
 
+.combat-name-token-static {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(240, 200, 121, 0.22);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 214, 140, 0.22), rgba(255, 214, 140, 0) 50%),
+    linear-gradient(180deg, rgba(77, 51, 30, 0.78), rgba(32, 20, 13, 0.96));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 234, 190, 0.04),
+    0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
 .combat-name-token {
   width: 100%;
   height: 100%;
   border-radius: 8px;
   display: block;
   object-fit: cover;
+}
+
+.combat-name-token__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #f3dfb8;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 .combat-token-preview {
@@ -2265,6 +2332,142 @@ table {
 .combat-token-preview__sections {
   display: grid;
   gap: 0.65rem;
+}
+
+.combat-token-preview--character {
+  border: 1px solid var(--line-strong);
+  width: min(32rem, 72vw);
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.combat-token-preview--character:hover,
+.combat-token-preview--character:focus-visible {
+  border-color: rgba(240, 200, 121, 0.36);
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.44);
+}
+
+.combat-token-preview--character .character-stat-sheet {
+  width: 100%;
+  justify-self: stretch;
+  padding: 0.8rem;
+  border-radius: 18px;
+}
+
+.combat-token-preview--character .character-stat-sheet__blocks {
+  gap: 0.6rem;
+}
+
+.combat-token-preview--character .character-stat-block {
+  grid-template-columns: 6.2rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding-top: 0.6rem;
+}
+
+.combat-token-preview--character .character-stat-block__score {
+  min-height: 4.2rem;
+}
+
+.character-stat-block__score--readonly {
+  cursor: default;
+}
+
+.character-stat-block__score-value {
+  display: block;
+  color: var(--text);
+  font-size: clamp(1.35rem, 1.06rem + 0.72vw, 1.85rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.character-check-row--readonly {
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+
+.character-check-row--readonly .character-check-row__mark.is-checked {
+  border-color: rgba(240, 200, 121, 0.42);
+  background: rgba(240, 200, 121, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(240, 200, 121, 0.18);
+}
+
+.combat-token-preview__chip-grid,
+.combat-token-preview__skill-list,
+.combat-token-preview__inventory-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.combat-token-preview__chip-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.combat-token-preview__skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.combat-character-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 1.9rem;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--combat-skill-color) 45%, rgba(240, 200, 121, 0.28));
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--combat-skill-color) 22%, rgba(255,255,255,0.02)), rgba(20, 15, 12, 0.56)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.combat-character-skill-chip strong {
+  color: #fff1d4;
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+
+.combat-character-skill-chip span {
+  color: color-mix(in srgb, var(--combat-skill-color) 65%, #fff2d7);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.combat-token-preview__currency-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.combat-token-preview__inventory-list--simple {
+  margin-top: 0.65rem;
+  max-height: 8.5rem;
+  overflow: auto;
+}
+
+.character-currency-pill--readonly {
+  cursor: default;
+}
+
+.character-currency-pill__value {
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.combat-token-preview__inventory-meta {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.combat-token-preview__inventory-empty {
+  margin-top: 0.65rem;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .combat-name-suggestions {
@@ -2972,6 +3175,10 @@ table {
 }
 
 .characters-toolbar__combat-action {
+  margin-left: 0;
+}
+
+.characters-toolbar__skills-action + .characters-toolbar__combat-action {
   margin-left: auto;
 }
 
@@ -3027,10 +3234,52 @@ table {
   background: rgba(94, 183, 166, 0.1);
 }
 
+.character-list-item.is-selected {
+  border-color: rgba(240, 200, 121, 0.38);
+  background:
+    linear-gradient(180deg, rgba(240, 200, 121, 0.12), rgba(86, 54, 28, 0.08)),
+    rgba(255, 255, 255, 0.035);
+  box-shadow:
+    inset 0 0 0 1px rgba(240, 200, 121, 0.08),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+  transform: translateX(0.12rem);
+}
+
+.character-list-item.is-active.is-selected {
+  border-color: rgba(118, 196, 181, 0.52);
+  background:
+    linear-gradient(180deg, rgba(94, 183, 166, 0.14), rgba(240, 200, 121, 0.08)),
+    rgba(255, 255, 255, 0.04);
+}
+
 .character-list-item__copy {
+  position: relative;
   min-width: 0;
   display: grid;
   gap: 0.16rem;
+  padding-right: 1.45rem;
+}
+
+.character-list-item__selection-mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(240, 200, 121, 0.38);
+  background: rgba(240, 200, 121, 0.18);
+  color: #fff3d3;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.combat-tracker-panel {
+  overflow: visible;
+  z-index: 1;
 }
 
 .character-list-item strong,
@@ -6462,6 +6711,14 @@ table {
 
   .combat-timer {
     width: 100%;
+  }
+
+  .combat-top-row {
+    grid-template-columns: 1fr;
+  }
+
+  .combat-turn-panel {
+    grid-template-columns: 1fr;
   }
 
   .combat-timer__card {
