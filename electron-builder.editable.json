@@ -22,6 +22,10 @@
     {
       "from": "dist/images",
       "to": "app-assets/images"
+    },
+    {
+      "from": "campaigns",
+      "to": "campaigns"
     }
   ],
   "win": {

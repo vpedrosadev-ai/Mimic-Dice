@@ -137,6 +137,7 @@
 5. Los saves de ejemplo en `campaigns/examples/` ya usan enemigos y fuentes que existen en `Bestiary.csv`; mantener esa coherencia si se amplian.
 6. `Combat tracker`: contador de batalla ahora arranca oculto tras boton `Contador`, y el orden de iniciativa vive en una tarjeta separada.
 7. `Combat tracker`: cabecera se sigue compactando; `Pasar turno` vuelve a ir encima de la cadena de iniciativa y el contador se esta estrechando con botoneria centrada para ceder mas ancho al orden de turnos.
+8. La build `editable zip` ahora incluye tambien `resources/campaigns/` con la estructura y saves actuales de `campaigns/`.
 
 ## Known Good Navigation Map
 

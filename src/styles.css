@@ -504,7 +504,7 @@ table {
 }
 
 .brand h1 {
-  font-size: clamp(1.8rem, 2.6vw, 2.5rem);
+  font-size: clamp(1.55rem, 2.2vw, 2.1rem);
   color: #f2d7a2;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -522,7 +522,8 @@ table {
 .brand__campaign-name {
   margin: 0.45rem 0 0;
   color: #d0b287;
-  font-size: 0.98rem;
+  font-size: 1.14rem;
+  line-height: 1.15;
 }
 
 .nav {
