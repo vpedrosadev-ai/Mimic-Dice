@@ -413,6 +413,7 @@ const state = {
     startedAt: 0,
     isRunning: false
   },
+  combatTimerPanelOpen: false,
   bestiary: [],
   bestiaryImageMap: {},
   bestiaryFilters: { ...blankBestiaryFilters },
@@ -957,6 +958,12 @@ function handleClick(event) {
 
   if (action === "reset-battle-timer") {
     resetBattleTimer();
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-timer-panel") {
+    state.combatTimerPanelOpen = !state.combatTimerPanelOpen;
     render();
     return;
   }
@@ -2437,40 +2444,13 @@ function renderCombatTracker() {
   const battleTimerLabel = formatBattleTimer(getBattleTimerElapsedMs());
 
   return `
-    <section class="panel combat-timer">
-      <article class="combat-timer__card">
-        <div class="combat-timer__box">
-          <div class="combat-timer__header">
-            <div class="combat-timer__readout">
-              <span>Contador de batalla</span>
-              <strong data-battle-timer-readout>${battleTimerLabel}</strong>
-            </div>
-            <div class="summary-card__actions">
-              <button
-                class="summary-button"
-                type="button"
-                data-action="start-battle-timer"
-                ${state.battleTimer.isRunning ? "disabled" : ""}
-              >
-                Iniciar
-              </button>
-              <button
-                class="summary-button summary-button--ghost"
-                type="button"
-                data-action="pause-battle-timer"
-                ${state.battleTimer.isRunning ? "" : "disabled"}
-              >
-                Pausar
-              </button>
-              <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
-                Reiniciar
-              </button>
-            </div>
-          </div>
+    ${state.combatTimerPanelOpen
+      ? renderCombatTimerPanel(battleTimerLabel)
+      : `
+        <div class="combat-overview-bar">
+          ${renderCombatTimerToggleButton()}
         </div>
-        ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
-      </article>
-    </section>
+      `}
 
     <section class="panel panel--table">
       <div class="section-heading">
@@ -2483,6 +2463,8 @@ function renderCombatTracker() {
           <span>${state.selectedIds.size} seleccionados</span>
         </div>
       </div>
+
+      ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
 
       <div class="table-toolbar" aria-label="Acciones de tabla">
         <div class="table-toolbar__group">
@@ -2600,6 +2582,72 @@ function renderCombatTracker() {
   `;
 }
 
+function renderCombatTimerToggleButton(isActive = false) {
+  return `
+    <button
+      class="toolbar-button combat-overview-toggle ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-combat-timer-panel"
+      aria-expanded="${isActive}"
+    >
+      <span class="button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M8 3h8v2h-1v2.1c0 .9.3 1.7.9 2.3l1.7 1.7c.9.9.9 2.3 0 3.2l-1.7 1.7c-.6.6-.9 1.4-.9 2.3V19h1v2H8v-2h1v-.7c0-.9-.3-1.7-.9-2.3l-1.7-1.7a2.27 2.27 0 0 1 0-3.2l1.7-1.7c.6-.6.9-1.4.9-2.3V5H8V3Zm2.6 4.6-.1.8c-.1 1.3-.7 2.5-1.7 3.4L7.3 13l1.5 1.2c1 .9 1.6 2.1 1.7 3.4l.1.4h2.8l.1-.4c.1-1.3.7-2.5 1.7-3.4l1.5-1.2-1.5-1.2c-1-.9-1.6-2.1-1.7-3.4l-.1-.8h-2.8Zm.4 2.4h1.9l.4 1.3 1.4 1.1-1.4 1.1-.4 1.3H11l-.4-1.3-1.4-1.1 1.4-1.1.4-1.3Z" />
+        </svg>
+      </span>
+      Contador
+    </button>
+  `;
+}
+
+function renderCombatTimerPanel(battleTimerLabel) {
+  return `
+    <div class="combat-timer">
+      <article class="combat-timer__card">
+        <div class="combat-timer__toolbar">
+          ${renderCombatTimerToggleButton(true)}
+        </div>
+        <div class="combat-timer__visual">
+          <div class="combat-timer__hourglass" aria-hidden="true">
+            <span class="combat-timer__hourglass-cap combat-timer__hourglass-cap--top"></span>
+            <span class="combat-timer__hourglass-cap combat-timer__hourglass-cap--bottom"></span>
+            <span class="combat-timer__hourglass-bulb combat-timer__hourglass-bulb--top"></span>
+            <span class="combat-timer__hourglass-bulb combat-timer__hourglass-bulb--bottom"></span>
+            <span class="combat-timer__hourglass-neck"></span>
+            <span class="combat-timer__hourglass-sand combat-timer__hourglass-sand--top"></span>
+            <span class="combat-timer__hourglass-sand combat-timer__hourglass-sand--stream"></span>
+            <span class="combat-timer__hourglass-sand combat-timer__hourglass-sand--bottom"></span>
+          </div>
+          <div class="combat-timer__readout">
+            <strong data-battle-timer-readout>${battleTimerLabel}</strong>
+          </div>
+        </div>
+        <div class="summary-card__actions combat-timer__actions">
+            <button
+              class="summary-button"
+              type="button"
+              data-action="start-battle-timer"
+              ${state.battleTimer.isRunning ? "disabled" : ""}
+            >
+              Iniciar
+            </button>
+            <button
+              class="summary-button summary-button--ghost"
+              type="button"
+              data-action="pause-battle-timer"
+              ${state.battleTimer.isRunning ? "" : "disabled"}
+            >
+              Pausar
+            </button>
+            <button class="summary-button summary-button--ghost" type="button" data-action="reset-battle-timer">
+              Reiniciar
+            </button>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
 function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
   if (turnOrder.length === 0) {
     return `
@@ -2615,13 +2663,12 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
     <div class="combat-turn-panel">
       <div class="combat-turn-panel__controls">
         <button
-          class="summary-button summary-button--turn"
+          class="summary-button summary-button--turn combat-turn-panel__button"
           type="button"
           data-action="advance-combat-turn"
         >
           Pasar turno
         </button>
-        <span class="round-chip">Ronda ${escapeHtml(String(getCombatRound()))}</span>
       </div>
       <div
         class="combat-turn-strip"
@@ -8662,6 +8709,8 @@ function startCombatTurns() {
   const turnOrder = getCombatTurnParticipants();
 
   state.isCombatActive = true;
+  state.combatTimerPanelOpen = true;
+  state.sort = { key: "iniactiva", direction: "desc" };
   state.activeTurnCombatantId = turnOrder[0]?.id ?? "";
   state.combatRound = 1;
   resetBattleTimer();

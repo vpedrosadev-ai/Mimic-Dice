@@ -126,6 +126,7 @@
 3. Definir smoke checklist minima para no depender solo de inspeccion manual.
 4. Mantener `public/data/` y scripts de cache como fuente canonica para compendios.
 5. Los saves de ejemplo en `campaigns/examples/` ya usan enemigos y fuentes que existen en `Bestiary.csv`; mantener esa coherencia si se amplian.
+6. `Combat tracker`: contador de batalla ahora arranca oculto tras boton `Contador`, y el orden de iniciativa vive en una tarjeta separada.
 
 ## Known Good Navigation Map
 

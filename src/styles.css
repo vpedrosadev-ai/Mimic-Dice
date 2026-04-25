@@ -726,77 +726,226 @@ table {
   margin-top: 1rem;
 }
 
+.combat-overview-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.combat-overview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.58rem;
+}
+
+.combat-overview-toggle .button-icon {
+  display: inline-flex;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.combat-overview-toggle .button-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.combat-overview-toggle.is-active {
+  border-color: rgba(217, 171, 93, 0.58);
+  background:
+    linear-gradient(180deg, rgba(88, 58, 30, 0.84), rgba(28, 18, 12, 0.96)),
+    rgba(240, 200, 121, 0.08);
+}
+
 .combat-timer {
-  padding: 0.5rem 0.65rem;
+  width: fit-content;
+  max-width: min(22.5rem, 100%);
+  margin-bottom: 0.85rem;
 }
 
 .combat-timer__card {
   min-height: 0;
-  display: flex;
-  align-items: stretch;
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 0.6rem;
-  padding: 0.55rem;
-  border-radius: 12px;
-}
-
-.combat-timer__box {
-  width: fit-content;
-  max-width: 100%;
-  padding: 0.48rem 0.55rem;
-  border: 1px solid rgba(240, 200, 121, 0.18);
-  border-radius: 8px;
-  background: rgba(13, 10, 17, 0.42);
-}
-
-.combat-timer__header {
   display: grid;
-  grid-template-columns: minmax(8rem, auto) auto;
-  align-items: stretch;
-  justify-content: start;
-  gap: 0.55rem;
+  grid-template-columns: auto auto;
+  grid-template-areas:
+    "toolbar ."
+    "visual actions";
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 0.82rem;
+  border: 1px solid rgba(176, 124, 67, 0.34);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at center, rgba(127, 76, 34, 0.12), transparent 58%),
+    linear-gradient(180deg, rgba(56, 33, 18, 0.82), rgba(22, 14, 10, 0.94));
+  box-shadow:
+    inset 0 0 0 1px rgba(88, 57, 31, 0.5),
+    0 16px 34px rgba(0, 0, 0, 0.22);
 }
 
 .combat-timer__card strong {
   margin-top: 0;
-  font-size: 1.35rem;
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  line-height: 0.95;
+}
+
+.combat-timer__visual {
+  grid-area: visual;
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 6.2rem;
+  min-height: 6.15rem;
+}
+
+.combat-timer__hourglass {
+  position: relative;
+  width: 4.55rem;
+  height: 6.15rem;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.28));
+}
+
+.combat-timer__hourglass-cap,
+.combat-timer__hourglass-neck,
+.combat-timer__hourglass-sand {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.combat-timer__hourglass-cap {
+  width: 3.7rem;
+  height: 0.44rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(245, 220, 171, 0.78), rgba(130, 86, 42, 0.95));
+  box-shadow:
+    0 0 0 1px rgba(96, 60, 29, 0.88),
+    inset 0 1px 0 rgba(255, 235, 194, 0.35);
+}
+
+.combat-timer__hourglass-cap--top {
+  top: 0.25rem;
+}
+
+.combat-timer__hourglass-cap--bottom {
+  bottom: 0.25rem;
+}
+
+.combat-timer__hourglass-bulb {
+  position: absolute;
+  left: 50%;
+  width: 2.95rem;
+  height: 2.2rem;
+  border: 2px solid rgba(219, 178, 110, 0.72);
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 228, 172, 0.12), transparent 62%),
+    rgba(24, 16, 12, 0.5);
+  transform: translateX(-50%);
+}
+
+.combat-timer__hourglass-bulb--top {
+  top: 0.9rem;
+  clip-path: polygon(8% 6%, 92% 6%, 64% 100%, 36% 100%);
+}
+
+.combat-timer__hourglass-bulb--bottom {
+  bottom: 0.9rem;
+  clip-path: polygon(36% 0%, 64% 0%, 92% 94%, 8% 94%);
+}
+
+.combat-timer__hourglass-neck {
+  top: 50%;
+  width: 0.5rem;
+  height: 0.46rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(230, 194, 127, 0.95), rgba(131, 85, 44, 0.92));
+}
+
+.combat-timer__hourglass-sand {
+  background: linear-gradient(180deg, rgba(242, 205, 118, 0.96), rgba(191, 128, 54, 0.9));
+}
+
+.combat-timer__hourglass-sand--top {
+  top: 1.34rem;
+  width: 1.16rem;
+  height: 0.84rem;
+  clip-path: polygon(6% 0%, 94% 0%, 68% 100%, 32% 100%);
+  opacity: 0.95;
+}
+
+.combat-timer__hourglass-sand--stream {
+  top: calc(50% - 0.64rem);
+  width: 0.14rem;
+  height: 1.08rem;
+  border-radius: 999px;
+}
+
+.combat-timer__hourglass-sand--bottom {
+  bottom: 1.28rem;
+  width: 1.3rem;
+  height: 0.72rem;
+  border-radius: 50% 50% 44% 44%;
+  opacity: 0.95;
+}
+
+.combat-timer__toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .combat-timer__readout {
+  position: absolute;
+  inset: 0;
   display: grid;
-  align-content: center;
-  gap: 0.2rem;
+  place-items: center;
   min-width: 0;
-}
-
-.combat-timer__readout span {
-  font-size: 0.78rem;
+  text-align: center;
+  pointer-events: none;
 }
 
 .combat-timer__card .summary-card__actions {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   margin-top: 0;
-  gap: 0.3rem;
+  gap: 0.45rem;
+}
+
+.combat-timer__actions {
+  grid-area: actions;
+  display: grid !important;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  width: max-content;
+  height: 6.15rem;
+  gap: 0.2rem !important;
+  align-self: center;
+  justify-self: start;
 }
 
 .combat-timer__card .summary-button {
-  min-height: 1.8rem;
-  padding: 0.28rem 0.5rem;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  padding: 0.3rem 0.52rem;
   font-size: 0.78rem;
+  justify-self: start;
 }
 
 .combat-turn-panel {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.4rem;
   width: 100%;
+  margin-bottom: 0.8rem;
 }
 
 .combat-turn-panel__controls {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .combat-turn-panel__empty {
@@ -808,6 +957,10 @@ table {
 .summary-button--turn {
   border-color: rgba(240, 200, 121, 0.38);
   background: rgba(240, 200, 121, 0.16);
+}
+
+.combat-turn-panel__button {
+  min-height: 2.15rem;
 }
 
 .round-chip {
@@ -835,7 +988,7 @@ table {
   gap: 0.85rem;
   width: 100%;
   min-width: 0;
-  padding: 0.1rem 0.1rem 0.55rem;
+  padding: 0.1rem 0.1rem 0.35rem;
   max-height: calc(((9rem + 1.84rem) * var(--turn-token-scale, 1)) * 2 + 0.85rem);
   overflow: hidden;
 }
@@ -6298,14 +6451,30 @@ table {
     align-items: stretch;
   }
 
-  .combat-timer__card {
-    align-items: flex-start;
-    flex-direction: column;
+  .combat-overview-bar {
+    align-items: stretch;
   }
 
-  .combat-timer__header {
-    align-items: flex-start;
-    flex-direction: column;
+  .combat-overview-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .combat-timer {
+    width: 100%;
+  }
+
+  .combat-timer__card {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "toolbar"
+      "visual"
+      "actions";
+    justify-items: start;
+  }
+
+  .combat-timer__visual {
+    min-width: 0;
   }
 
   .bestiary-layout {
