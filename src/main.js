@@ -371,6 +371,16 @@ let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
 let activeTableColumnResize = null;
 let activeTableRollTimer = 0;
+const TOPBAR_NAV_ROWS = [
+  {
+    id: "game",
+    screenIds: ["combat-tracker", "initiative-board", "tables"]
+  },
+  {
+    id: "reference",
+    screenIds: ["bestiary", "items", "arcanum"]
+  }
+];
 resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
 const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
@@ -2582,9 +2592,7 @@ function render(focusState = null) {
             <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
           </div>
         </div>
-        <nav class="nav" aria-label="Pantallas principales">
-          ${screens.map(renderNavItem).join("")}
-        </nav>
+        ${renderTopbarNavigation()}
       </header>
       <main class="workspace">
         ${renderScreen()}
@@ -2622,17 +2630,40 @@ function render(focusState = null) {
     syncRolledTableRowIntoView();
   }
 
+  syncTopbarNavigationMetrics();
+
   saveCombatTrackerState();
 }
 
-function renderNavItem(screen) {
-  return screen.id === "session-vault" ? renderFileMenu() : renderScreenButton(screen);
+function renderTopbarNavigation() {
+  return `
+    <div class="topbar__nav-stack" aria-label="Pantallas principales">
+      ${TOPBAR_NAV_ROWS.map((row) => renderTopbarNavRow(row)).join("")}
+    </div>
+  `;
 }
 
-function renderScreenButton(screen) {
+function renderTopbarNavRow(row) {
+  const rowScreens = row.screenIds
+    .map((screenId) => screens.find((screen) => screen.id === screenId))
+    .filter(Boolean);
+  const rowLabel = row.id === "game" ? "Pantallas principales" : "Pantallas de consulta";
+  const extraItems = row.id === "game" ? renderFileMenu() : "";
+
+  return `
+    <div class="nav-row nav-row--${row.id}">
+      <nav class="nav nav--row" aria-label="${escapeHtml(rowLabel)}">
+        ${rowScreens.map((screen) => renderScreenButton(screen)).join("")}
+        ${extraItems}
+      </nav>
+    </div>
+  `;
+}
+
+function renderScreenButton(screen, extraClassName = "") {
   return `
     <button
-      class="nav__button ${screen.id === state.activeScreen ? "is-active" : ""}"
+      class="nav__button ${extraClassName} ${screen.id === state.activeScreen ? "is-active" : ""}"
       type="button"
       data-screen="${screen.id}"
       aria-pressed="${screen.id === state.activeScreen}"
@@ -2708,6 +2739,24 @@ function renderFileMenu() {
       />
     </div>
   `;
+}
+
+function syncTopbarNavigationMetrics() {
+  const navStack = app.querySelector(".topbar__nav-stack");
+  const combatButton = navStack?.querySelector(".nav-row--game .nav__button");
+  const navButtons = navStack ? [...navStack.querySelectorAll(".nav__button")] : [];
+
+  if (!navStack || !combatButton || navButtons.length === 0) {
+    return;
+  }
+
+  const combatButtonWidth = combatButton.getBoundingClientRect().width;
+  const maxButtonWidth = navButtons.reduce((maxWidth, button) => {
+    return Math.max(maxWidth, button.getBoundingClientRect().width);
+  }, 0);
+
+  navStack.style.setProperty("--nav-stagger", `${Math.max(0, combatButtonWidth / 4)}px`);
+  navStack.style.setProperty("--nav-button-width", `${Math.ceil(maxButtonWidth)}px`);
 }
 
 function getCampaignDisplayName() {

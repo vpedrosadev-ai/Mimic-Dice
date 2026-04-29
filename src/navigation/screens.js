@@ -58,15 +58,5 @@ export const screens = [
         <path d="M4 4h16v16H4V4Zm2 2v3h5V6H6Zm7 0v3h5V6h-5ZM6 11v3h5v-3H6Zm7 0v3h5v-3h-5ZM6 16v2h5v-2H6Zm7 0v2h5v-2h-5Z" />
       </svg>
     `
-  },
-  {
-    id: "session-vault",
-    label: "Session Vault",
-    shortLabel: "Sesion",
-    icon: `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 2 3 6v6c0 5 3.8 9.8 9 11 5.2-1.2 9-6 9-11V6l-9-4Zm0 3.1 6 2.7v4.1c0 3.7-2.5 7.3-6 8.4-3.5-1.1-6-4.7-6-8.4V7.8l6-2.7Zm-1 3.9h2v3h3v2h-3v3h-2v-3H8v-2h3V9Z" />
-      </svg>
-    `
   }
 ];
