@@ -19,6 +19,11 @@
 - Items con carga de CSV, mapa de imagenes, filtros por rareza/tipo/source y panel de detalle.
 - Arcanum con carga de `Spells.csv`, filtros por source/nivel/escuela/clase/casting time y detalle.
 - Pantalla de personajes con ficha amplia, progreso, stats, habilidades, inventario, avatar e iconos de clase.
+- Nueva pantalla `Tablas` con listado lateral, apertura multiple de tablas, paneles colapsables y edicion inline de nombre, columnas, filas y celdas.
+- `Tablas` arranca con 2 ejemplos semilla: `Tabla Estados` y `Tabla Magia Salvaje`.
+- `Tablas` permite importar libros Excel como tablas, exportar cada tabla a `.xlsx` y guardar tambien sus anchos de columna dentro de la campana.
+- `Tablas` ahora soporta carpetas expandibles en la barra lateral; si un Excel trae varias tablas detectadas, se agrupan automaticamente bajo una carpeta de importacion.
+- La importacion Excel usa heuristica para detectar bloques de celdas no vacias y deducir titulo de tabla y fila de cabeceras cuando existe una fila titulo encima.
 - Pantalla de personajes con skills de campana comunes para toda la campana, configuradas fuera de cada ficha.
 - Cada personaje ajusta nivel y XP por skill comun, con botones de progreso segun resultado.
 - Valores por defecto de skills comunes: exito `2`, fracaso `1`.
@@ -146,6 +151,7 @@
 - `items` -> objetos
 - `arcanum` -> conjuros
 - `initiative-board` -> personajes
+- `tables` -> tablas
 - `session-vault` -> placeholder
 
 ## Session Vault Clarification

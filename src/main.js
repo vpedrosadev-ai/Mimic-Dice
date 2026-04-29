@@ -1,7 +1,9 @@
 ﻿import { SOURCE_NAMES } from "./data/bestiarySources.js";
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
+import { initialTableDefinitions } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
+import * as XLSX from "xlsx";
 import appIconUrl from "../build-resources/icon.png";
 const IS_FILE_PROTOCOL_RUNTIME = typeof window !== "undefined"
   ? /^file:$/i.test(String(window.location?.protocol || ""))
@@ -22,6 +24,7 @@ const CHARACTERS_STORAGE_KEY = "mimic-dice:characters:v1";
 const CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY = "mimic-dice:character-skills:v1";
 const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
 const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
+const TABLES_STORAGE_KEY = "mimic-dice:tables:v1";
 const MANAGED_STORAGE_KEY_PREFIX = "mimic-dice:";
 const DESKTOP_STORAGE_RESET_VERSION_KEY = "mimic-dice:desktop-storage-reset:v1";
 const DESKTOP_BUILD_SIGNATURE_STORAGE_KEY = "mimic-dice:desktop-build-signature:v1";
@@ -366,12 +369,15 @@ let lastSavedCampaignSnapshot = "";
 let initialDataLoadQueued = false;
 let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
+let activeTableColumnResize = null;
+let activeTableRollTimer = 0;
 resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
 const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
 const initialCharacters = loadCharacters(initialCharacterSkillDefinitions);
 const initialEncounterInventory = loadEncounterInventory();
 const initialCombatTrackerState = loadCombatTrackerState();
+const initialTablesState = loadTablesState();
 let scheduledRenderTimer = 0;
 let scheduledRenderFocusState = null;
 let arcanumSpellLinkCache = {
@@ -472,6 +478,15 @@ const state = {
   showEncounterSearchSuggestions: false,
   combatEncounterPickerOpen: false,
   combatAddPickerMode: "",
+  tableFolders: initialTablesState.folders,
+  systemTableFolderExpanded: initialTablesState.systemFolderExpanded,
+  tables: initialTablesState.tables,
+  activeTableId: initialTablesState.activeTableId,
+  activeTableFolderId: initialTablesState.activeTableFolderId,
+  openTableIds: initialTablesState.openTableIds,
+  rollingTableId: "",
+  rollingTableRowId: "",
+  rolledTableRowId: "",
   activeCombatNameSearchId: "",
   activeCombatSourceId: ""
 };
@@ -480,7 +495,11 @@ app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("keydown", handleKeydown);
+app.addEventListener("pointerdown", handlePointerDown);
 document.addEventListener("keydown", handleGlobalKeydown);
+document.addEventListener("pointermove", handlePointerMove);
+document.addEventListener("pointerup", handlePointerUp);
+document.addEventListener("pointercancel", handlePointerUp);
 app.addEventListener("scroll", handleScroll, true);
 app.addEventListener("dragstart", handleDragStart);
 app.addEventListener("dragover", handleDragOver);
@@ -496,6 +515,11 @@ function handleClick(event) {
   const screenButton = event.target.closest("[data-screen]");
 
   if (screenButton) {
+    if (state.activeScreen === "tables" && screenButton.dataset.screen !== "tables") {
+      stopActiveTableRoll();
+      state.rolledTableRowId = "";
+    }
+
     state.activeScreen = screenButton.dataset.screen;
     state.fileMenuOpen = false;
     state.combatEncounterPickerOpen = false;
@@ -807,6 +831,139 @@ function handleClick(event) {
 
   if (action === "remove-character-image") {
     removeActiveCharacterImage();
+    render();
+    return;
+  }
+
+  if (action === "create-table") {
+    const tableId = createTable({
+      folderId: actionButton.dataset.tableFolderId
+    });
+    saveTablesState();
+    render({
+      focusSelector: tableId ? `[data-table-name="${tableId}"]` : null
+    });
+    return;
+  }
+
+  if (action === "create-table-folder") {
+    const folderId = createTableFolder();
+    saveTablesState();
+    render({
+      focusSelector: folderId ? `[data-table-folder-name="${folderId}"]` : null
+    });
+    return;
+  }
+
+  if (action === "toggle-table-folder") {
+    toggleTableFolder(actionButton.dataset.tableFolderId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "delete-table-folder") {
+    deleteTableFolder(actionButton.dataset.tableFolderId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "import-table-workbook") {
+    app.querySelector("[data-table-import-input]")?.click();
+    return;
+  }
+
+  if (action === "export-table") {
+    exportTableToExcel(actionButton.dataset.tableId);
+    return;
+  }
+
+  if (action === "roll-table") {
+    startTableRoll(actionButton.dataset.tableId);
+    return;
+  }
+
+  if (action === "select-table") {
+    selectTable(actionButton.dataset.tableId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "toggle-table-open") {
+    toggleTableOpen(actionButton.dataset.tableId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "toggle-table-panel-collapse") {
+    toggleTableCollapsed(actionButton.dataset.tableId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "open-all-tables") {
+    openAllTables();
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "close-all-tables") {
+    closeAllTables();
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "delete-table") {
+    deleteTable(actionButton.dataset.tableId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "add-table-column") {
+    addTableColumn(actionButton.dataset.tableId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "insert-table-column-after") {
+    insertTableColumnAfter(actionButton.dataset.tableId, actionButton.dataset.tableColumnId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "remove-table-column") {
+    removeTableColumn(actionButton.dataset.tableId, actionButton.dataset.tableColumnId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "add-table-row") {
+    addTableRow(actionButton.dataset.tableId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "insert-table-row-after") {
+    insertTableRowAfter(actionButton.dataset.tableId, actionButton.dataset.tableRowId);
+    saveTablesState();
+    render();
+    return;
+  }
+
+  if (action === "remove-table-row") {
+    removeTableRow(actionButton.dataset.tableId, actionButton.dataset.tableRowId);
+    saveTablesState();
     render();
     return;
   }
@@ -1527,6 +1684,52 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-table-name]")) {
+    updateTableName(target.dataset.tableName, target.value);
+    saveTablesState();
+    render({
+      focusSelector: `[data-table-name="${target.dataset.tableName}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-table-folder-name]")) {
+    updateTableFolderName(target.dataset.tableFolderName, target.value);
+    saveTablesState();
+    render({
+      focusSelector: `[data-table-folder-name="${target.dataset.tableFolderName}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-table-import-input]")) {
+    importTablesFromWorkbook(target.files?.[0] ?? null);
+    target.value = "";
+    return;
+  }
+
+  if (target.matches("[data-table-column-label][data-table-id][data-table-column-id]")) {
+    updateTableColumnLabel(target.dataset.tableId, target.dataset.tableColumnId, target.value);
+    saveTablesState();
+    render({
+      focusSelector: `[data-table-column-label="${target.dataset.tableColumnId}"][data-table-id="${target.dataset.tableId}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-table-cell][data-table-id][data-table-row-id][data-table-column-id]")) {
+    updateTableCell(target.dataset.tableId, target.dataset.tableRowId, target.dataset.tableColumnId, target.value);
+    saveTablesState();
+    return;
+  }
+
+  if (target.matches("[data-table-dimension][data-table-dimension-kind][data-table-id]")) {
+    updateTableDimension(target.dataset.tableId, target.dataset.tableDimensionKind, target.value);
+    saveTablesState();
+    render();
+    return;
+  }
+
   if (target.matches("[data-campaign-file-input]")) {
     loadCampaignFile(target.files?.[0] ?? null);
     target.value = "";
@@ -1623,6 +1826,40 @@ function handleInput(event) {
   if (target.matches("[data-campaign-save-name-input]")) {
     state.campaignSaveNameDialogValue = target.value;
     state.campaignSaveNameDialogError = "";
+    return;
+  }
+
+  if (target.matches("[data-table-name]")) {
+    updateTableName(target.dataset.tableName, target.value);
+    saveTablesState();
+    scheduleRender({
+      focusSelector: `[data-table-name="${target.dataset.tableName}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-table-folder-name]")) {
+    updateTableFolderName(target.dataset.tableFolderName, target.value);
+    saveTablesState();
+    scheduleRender({
+      focusSelector: `[data-table-folder-name="${target.dataset.tableFolderName}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-table-column-label][data-table-id][data-table-column-id]")) {
+    updateTableColumnLabel(target.dataset.tableId, target.dataset.tableColumnId, target.value);
+    saveTablesState();
+    return;
+  }
+
+  if (target.matches("[data-table-cell][data-table-id][data-table-row-id][data-table-column-id]")) {
+    updateTableCell(target.dataset.tableId, target.dataset.tableRowId, target.dataset.tableColumnId, target.value);
+    saveTablesState();
     return;
   }
 
@@ -2090,6 +2327,55 @@ function handleDragEnd() {
   state.draggedFolderId = "";
 }
 
+function handlePointerDown(event) {
+  const resizeHandle = event.target.closest("[data-table-resize-handle]");
+
+  if (!resizeHandle) {
+    return;
+  }
+
+  const tableId = cleanText(resizeHandle.dataset.tableId);
+  const columnId = cleanText(resizeHandle.dataset.tableColumnId);
+  const headerCell = resizeHandle.closest("th");
+  const startWidth = Math.max(72, Math.round(headerCell?.getBoundingClientRect().width || 0));
+
+  if (!tableId || !columnId || !startWidth) {
+    return;
+  }
+
+  activeTableColumnResize = {
+    pointerId: event.pointerId,
+    tableId,
+    columnId,
+    startX: event.clientX,
+    startWidth
+  };
+  document.body.classList.add("is-table-resizing");
+  event.preventDefault();
+}
+
+function handlePointerMove(event) {
+  if (!activeTableColumnResize || event.pointerId !== activeTableColumnResize.pointerId) {
+    return;
+  }
+
+  const nextWidth = Math.max(72, Math.round(activeTableColumnResize.startWidth + (event.clientX - activeTableColumnResize.startX)));
+  setTableColumnWidth(activeTableColumnResize.tableId, activeTableColumnResize.columnId, nextWidth);
+  applyTableColumnWidthPreview(activeTableColumnResize.tableId, activeTableColumnResize.columnId, nextWidth);
+  event.preventDefault();
+}
+
+function handlePointerUp(event) {
+  if (!activeTableColumnResize || (event.pointerId !== undefined && event.pointerId !== activeTableColumnResize.pointerId)) {
+    return;
+  }
+
+  activeTableColumnResize = null;
+  document.body.classList.remove("is-table-resizing");
+  saveTablesState();
+  render();
+}
+
 function getDropPlacement(event, element) {
   const rect = element.getBoundingClientRect();
   return event.clientY > rect.top + rect.height / 2 ? "after" : "before";
@@ -2332,6 +2618,10 @@ function render(focusState = null) {
     restoreArcanumListScroll();
   }
 
+  if (state.activeScreen === "tables") {
+    syncRolledTableRowIntoView();
+  }
+
   saveCombatTrackerState();
 }
 
@@ -2444,6 +2734,10 @@ function renderScreen() {
 
   if (state.activeScreen === "initiative-board") {
     return renderCharactersScreen();
+  }
+
+  if (state.activeScreen === "tables") {
+    return renderTablesScreen();
   }
 
   return renderPlaceholderScreen(
@@ -5271,6 +5565,493 @@ function renderCharactersScreen() {
       </div>
     </section>
   `;
+}
+
+function renderTablesScreen() {
+  reconcileTablesUiState();
+  const openTables = getOpenTables();
+  const selectedFolder = state.tableFolders.find((folder) => folder.id === state.activeTableFolderId) ?? null;
+
+  return `
+    <section class="panel panel--table tables-screen">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Referencia editable</p>
+          <h3>Tablas</h3>
+        </div>
+        <div class="section-meta">
+          <span>${state.tables.length} tablas</span>
+          <span>${openTables.length} abiertas</span>
+        </div>
+      </div>
+
+      <div class="characters-toolbar tables-screen__toolbar">
+        <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-table">
+          Nueva tabla
+        </button>
+        <button class="toolbar-button" type="button" data-action="import-table-workbook">
+          Importar Excel
+        </button>
+        <button class="toolbar-button" type="button" data-action="close-all-tables" ${openTables.length > 0 ? "" : "disabled"}>
+          Cerrar vistas
+        </button>
+      </div>
+
+      <div class="tables-layout">
+        <aside class="tables-sidebar panel panel--inner" aria-label="Tablas disponibles">
+          <div class="tables-sidebar__header">
+            <div>
+              <p class="eyebrow">Listado</p>
+              <h3>Biblioteca</h3>
+            </div>
+            <div class="encounter-list__actions tables-sidebar__actions">
+              <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-table-folder">
+                Nueva carpeta
+              </button>
+              ${
+                selectedFolder
+                  ? `
+                    <button
+                      class="toolbar-button toolbar-button--danger"
+                      type="button"
+                      data-action="delete-table-folder"
+                      data-table-folder-id="${escapeHtml(selectedFolder.id)}"
+                    >
+                      Eliminar carpeta
+                    </button>
+                  `
+                  : ""
+              }
+            </div>
+          </div>
+          <div class="tables-sidebar__list">
+            ${
+              state.tables.length > 0 || state.tableFolders.length > 0
+                ? renderTableFolderGroups()
+                : `<div class="empty-state empty-state--compact">No hay tablas todavia. Crea una nueva.</div>`
+            }
+          </div>
+        </aside>
+
+        <div class="tables-workspace">
+          ${
+            openTables.length > 0
+              ? openTables.map((table) => renderTablePanel(table)).join("")
+              : `
+                <div class="empty-state empty-state--panel tables-workspace__empty">
+                  <div>
+                    <p>Abre una tabla desde la izquierda para verla aqui.</p>
+                    <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-table">
+                      Crear primera tabla
+                    </button>
+                  </div>
+                </div>
+              `
+          }
+        </div>
+      </div>
+      <input
+        class="file-menu__file"
+        type="file"
+        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+        data-table-import-input
+      />
+    </section>
+  `;
+}
+
+function renderTableListItem(table) {
+  const isActive = table.id === state.activeTableId;
+  const isOpen = state.openTableIds.includes(table.id);
+
+  return `
+    <button
+      class="table-list-item ${isActive ? "is-active" : ""} ${isOpen ? "is-open" : ""}"
+      type="button"
+      data-action="select-table"
+      data-table-id="${escapeHtml(table.id)}"
+      aria-pressed="${isActive}"
+    >
+      <span class="table-list-item__copy">
+        <strong>${escapeHtml(table.name || "Tabla sin nombre")}</strong>
+        <small>${table.columns.length} columnas | ${table.rows.length} filas${isOpen ? " | abierta" : ""}</small>
+      </span>
+    </button>
+  `;
+}
+
+function renderTableFolderGroups() {
+  return getTableFolderGroups()
+    .map((folder) => renderTableFolderGroup(folder))
+    .join("");
+}
+
+function renderTableFolderGroup(folder) {
+  const folderTables = getTablesByFolder(folder.id);
+  const isActive = state.activeTableFolderId === folder.id;
+  const isSystemFolder = folder.id === "";
+  const selectedTableInFolder = state.tables.find((table) => table.id === state.activeTableId && (table.folderId ?? "") === folder.id) ?? null;
+
+  if (folderTables.length === 0 && isSystemFolder && state.tableFolders.length > 0) {
+    return "";
+  }
+
+  return `
+    <section class="encounter-folder ${isActive ? "is-active" : ""}">
+      <div class="encounter-folder__header">
+        <div class="encounter-folder__summary">
+          <button
+            class="encounter-folder__toggle"
+            type="button"
+            data-action="toggle-table-folder"
+            data-table-folder-id="${escapeHtml(folder.id)}"
+            aria-expanded="${folder.isExpanded}"
+          >
+            <span aria-hidden="true">${folder.isExpanded ? "v" : ">"}</span>
+            <small>${folderTables.length}</small>
+          </button>
+          ${
+            isSystemFolder
+              ? `<strong class="encounter-folder__static-name">${escapeHtml(folder.name)}</strong>`
+              : `
+                <input
+                  class="encounter-folder__name"
+                  type="text"
+                  value="${escapeHtml(folder.name)}"
+                  data-table-folder-name="${escapeHtml(folder.id)}"
+                  aria-label="Nombre de carpeta ${escapeHtml(folder.name)}"
+                />
+              `
+          }
+        </div>
+        <div class="tables-folder__actions">
+          <button
+            class="filter-clear"
+            type="button"
+            data-action="create-table"
+            ${folder.id ? `data-table-folder-id="${escapeHtml(folder.id)}"` : ""}
+          >
+            Nueva
+          </button>
+          <button
+            class="filter-clear encounter-folder__delete"
+            type="button"
+            data-action="delete-table"
+            data-table-id="${escapeHtml(selectedTableInFolder?.id ?? "")}"
+            aria-label="${selectedTableInFolder ? `Eliminar tabla ${escapeHtml(selectedTableInFolder.name)}` : `Selecciona una tabla de ${escapeHtml(folder.name)} para eliminarla`}"
+            ${selectedTableInFolder ? "" : "disabled"}
+          >
+            Eliminar
+          </button>
+        </div>
+      </div>
+      ${
+        folder.isExpanded
+          ? `
+            <div class="encounter-folder__items">
+              ${
+                folderTables.length > 0
+                  ? folderTables.map((table) => renderTableListItem(table)).join("")
+                  : `<div class="empty-state empty-state--compact">Esta carpeta esta vacia.</div>`
+              }
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderTablePanel(table) {
+  const isActive = table.id === state.activeTableId;
+  const columnCount = table.columns.length;
+  const rowCount = table.rows.length;
+  const panelTitle = getTablePanelTitle(table);
+  const isRolling = state.rollingTableId === table.id;
+
+  return `
+    <section class="panel panel--inner table-panel ${isActive ? "is-active" : ""} ${table.collapsed ? "is-collapsed" : ""}">
+      <button
+        class="table-panel__header"
+        type="button"
+        data-action="toggle-table-panel-collapse"
+        data-table-id="${escapeHtml(table.id)}"
+        aria-expanded="${table.collapsed ? "false" : "true"}"
+      >
+        <div>
+          <p class="eyebrow">Tabla editable</p>
+          <h3>${escapeHtml(panelTitle)}</h3>
+        </div>
+        <div class="section-meta">
+          <span>${columnCount} columnas</span>
+          <span>${rowCount} filas</span>
+          <span>${table.collapsed ? "Expandir" : "Encoger"}</span>
+        </div>
+      </button>
+
+      ${
+        table.collapsed
+          ? ""
+          : `
+            <div class="tables-toolbar">
+              <label class="toolbar-field tables-toolbar__name">
+                <span>Nombre</span>
+                <input
+                  class="filter-input"
+                  type="text"
+                  value="${escapeHtml(table.name)}"
+                  data-table-name="${escapeHtml(table.id)}"
+                  placeholder="Nueva tabla"
+                />
+              </label>
+              <div class="tables-toolbar__actions">
+                <button class="toolbar-button toolbar-button--accent tables-toolbar__roll" type="button" data-action="roll-table" data-table-id="${escapeHtml(table.id)}" ${rowCount > 0 ? "" : "disabled"}>
+                  <span class="button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <path d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm0 2a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H7Zm2.5 2.8a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Zm5 0a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Zm-5 5a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Zm5 0a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Z" />
+                    </svg>
+                  </span>
+                  ${isRolling ? "Rodando..." : "ROLL TABLA"}
+                </button>
+                <button class="toolbar-button toolbar-button--subtle" type="button" data-action="export-table" data-table-id="${escapeHtml(table.id)}">
+                  Exportar Excel
+                </button>
+                <button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="delete-table" data-table-id="${escapeHtml(table.id)}">
+                  Eliminar
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap tables-table-wrap" role="region" aria-label="${escapeHtml(table.name || "Tabla")}">
+              <table class="combat-table tables-data-table">
+                ${renderTableColGroup(table)}
+                <thead>
+                  <tr>
+                    <th class="tables-data-table__row-tools" title="Fila">#</th>
+                    ${table.columns.map((column, index) => renderTableColumnHeader(table.id, column, index, columnCount)).join("")}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    table.rows.length > 0
+                      ? table.rows.map((row, index) => renderTableRow(table, row, index)).join("")
+                      : `
+                        <tr>
+                          <td colspan="${columnCount + 1}">
+                            <div class="empty-state empty-state--compact">
+                              <p>Sin filas todavia.</p>
+                              <button class="toolbar-button toolbar-button--subtle tables-data-table__empty-add" type="button" data-action="insert-table-row-after" data-table-id="${escapeHtml(table.id)}" aria-label="Anadir primera fila" title="Anadir primera fila">+</button>
+                            </div>
+                          </td>
+                        </tr>
+                      `
+                  }
+                </tbody>
+              </table>
+            </div>
+          `
+      }
+    </section>
+  `;
+}
+
+function getTablePanelTitle(table) {
+  const folderName = getTableFolderNameById(table.folderId);
+  const tableName = cleanText(table?.name) || "Tabla sin nombre";
+  return folderName ? `${folderName} - ${tableName}` : tableName;
+}
+
+function syncRolledTableRowIntoView() {
+  const rowId = cleanText(state.rollingTableRowId || state.rolledTableRowId);
+  const tableId = cleanText(state.rollingTableId || state.activeTableId);
+
+  if (!rowId || !tableId) {
+    return;
+  }
+
+  const row = app.querySelector(`[data-table-row-id="${rowId}"][data-table-owner-id="${tableId}"]`);
+  const viewport = row?.closest(".tables-table-wrap");
+
+  if (!row || !viewport) {
+    return;
+  }
+
+  const rowRect = row.getBoundingClientRect();
+  const viewportRect = viewport.getBoundingClientRect();
+  const nextScrollTop = viewport.scrollTop + (rowRect.top - viewportRect.top) - (viewport.clientHeight / 2) + (rowRect.height / 2);
+
+  viewport.scrollTo({
+    top: Math.max(0, nextScrollTop),
+    behavior: state.rollingTableId ? "auto" : "smooth"
+  });
+}
+
+function renderTableColumnHeader(tableId, column, index, columnCount) {
+  const columnKind = getTableColumnKind(column, index);
+
+  return `
+    <th class="tables-data-table__header-cell tables-data-table__header-cell--${columnKind}">
+      <div class="tables-data-table__header">
+        <div class="tables-data-table__header-top">
+          <span class="tables-data-table__header-index">Col ${index + 1}</span>
+          <div class="tables-data-table__header-actions">
+            <button
+              class="toolbar-button toolbar-button--subtle-danger tables-data-table__remove-column"
+              type="button"
+              data-action="remove-table-column"
+              data-table-id="${escapeHtml(tableId)}"
+              data-table-column-id="${escapeHtml(column.id)}"
+              aria-label="Eliminar columna ${escapeHtml(column.label || `Columna ${index + 1}`)}"
+              title="Eliminar columna"
+              ${columnCount > 1 ? "" : "disabled"}
+            >
+              X
+            </button>
+            <button
+              class="toolbar-button toolbar-button--subtle tables-data-table__insert-column"
+              type="button"
+              data-action="insert-table-column-after"
+              data-table-id="${escapeHtml(tableId)}"
+              data-table-column-id="${escapeHtml(column.id)}"
+              aria-label="Anadir columna tras ${escapeHtml(column.label || `Columna ${index + 1}`)}"
+              title="Anadir columna"
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <input
+          class="filter-input tables-data-table__header-input tables-data-table__header-input--${columnKind}"
+          type="text"
+          value="${escapeHtml(column.label)}"
+          data-table-id="${escapeHtml(tableId)}"
+          data-table-column-id="${escapeHtml(column.id)}"
+          data-table-column-label="${escapeHtml(column.id)}"
+          placeholder="Columna ${index + 1}"
+        />
+      </div>
+      <span
+        class="tables-data-table__resize-handle"
+        data-table-resize-handle
+        data-table-id="${escapeHtml(tableId)}"
+        data-table-column-id="${escapeHtml(column.id)}"
+        title="Arrastra para cambiar ancho"
+        aria-hidden="true"
+      ></span>
+    </th>
+  `;
+}
+
+function renderTableRow(table, row, rowIndex) {
+  const isRollingRow = state.rollingTableId === table.id && state.rollingTableRowId === row.id;
+  const isRolledRow = state.rollingTableId !== table.id && state.rolledTableRowId === row.id;
+
+  return `
+    <tr class="tables-data-table__row ${isRollingRow ? "is-rolling" : ""} ${isRolledRow ? "is-rolled" : ""}" data-table-row-id="${escapeHtml(row.id)}" data-table-owner-id="${escapeHtml(table.id)}">
+      <td class="tables-data-table__row-tools">
+        <div class="tables-data-table__row-actions">
+          <strong>${rowIndex + 1}</strong>
+          <button
+            class="toolbar-button toolbar-button--subtle-danger tables-data-table__remove-row"
+            type="button"
+            data-action="remove-table-row"
+            data-table-id="${escapeHtml(table.id)}"
+            data-table-row-id="${escapeHtml(row.id)}"
+            aria-label="Eliminar fila ${rowIndex + 1}"
+            title="Eliminar fila"
+          >
+            X
+          </button>
+          <button
+            class="toolbar-button toolbar-button--subtle tables-data-table__insert-row"
+            type="button"
+            data-action="insert-table-row-after"
+            data-table-id="${escapeHtml(table.id)}"
+            data-table-row-id="${escapeHtml(row.id)}"
+            aria-label="Anadir fila tras fila ${rowIndex + 1}"
+            title="Anadir fila"
+          >
+            +
+          </button>
+        </div>
+      </td>
+      ${table.columns.map((column, columnIndex) => {
+        const cellValue = row.cells[column.id] ?? "";
+        const columnKind = getTableColumnKind(column, columnIndex);
+
+        return `
+          <td class="tables-data-table__cell tables-data-table__cell--${columnKind}">
+            <textarea
+              class="tables-data-table__cell-input tables-data-table__cell-input--${columnKind}"
+              rows="${getTableTextareaRows(table.columns.length, columnKind)}"
+              data-table-cell="${escapeHtml(column.id)}"
+              data-table-id="${escapeHtml(table.id)}"
+              data-table-row-id="${escapeHtml(row.id)}"
+              data-table-column-id="${escapeHtml(column.id)}"
+            >${escapeHtml(cellValue)}</textarea>
+          </td>
+        `;
+      }).join("")}
+    </tr>
+  `;
+}
+
+function renderTableColGroup(table) {
+  return `
+    <colgroup>
+      <col class="tables-data-table__col tables-data-table__col--row-tools" />
+      ${table.columns.map((column, index) => `
+        <col
+          class="tables-data-table__col tables-data-table__col--${getTableColumnKind(column, index)}"
+          data-table-id="${escapeHtml(table.id)}"
+          data-table-col-id="${escapeHtml(column.id)}"
+          ${column.width ? `style="width:${column.width}px"` : ""}
+        />
+      `).join("")}
+    </colgroup>
+  `;
+}
+
+function getTableColumnKind(column, index) {
+  const label = cleanText(column?.label).toLowerCase();
+
+  if (
+    index === 0
+    && (
+      label.includes("num")
+      || label.includes("numero")
+      || label === "#"
+      || label === "id"
+    )
+  ) {
+    return "number";
+  }
+
+  if (
+    index === 0
+    && (
+      label.includes("estado")
+      || label.includes("nombre")
+      || label.includes("tipo")
+      || label.includes("tag")
+    )
+  ) {
+    return "short";
+  }
+
+  return "wide";
+}
+
+function getTableTextareaRows(columnCount, columnKind) {
+  if (columnKind === "number") {
+    return 1;
+  }
+
+  if (columnKind === "short") {
+    return 2;
+  }
+
+  return columnCount <= 2 ? 2 : 3;
 }
 
 function renderCharacterListItem(character) {
@@ -11822,6 +12603,7 @@ function createBlankCampaignSavePayload(name = "CampaÃ±a sin nombre") {
       systemFolderExpanded: true,
       encounters: []
     },
+    tables: getDefaultTablesState(),
     combatTracker: {
       combatants: [],
       filters: { ...blankFilters },
@@ -12233,6 +13015,7 @@ function createCampaignSavePayload(options = {}) {
     },
     characters: getCharactersSaveData(),
     encounterInventory: getEncounterInventorySaveData(),
+    tables: getTablesSaveData(),
     combatTracker: getCombatTrackerSaveData({
       includeBattleTimer: true
     }),
@@ -12276,6 +13059,7 @@ function normalizeCampaignSave(value) {
     value.characters
   );
   const encounterInventory = normalizeStoredEncounterInventory(value.encounterInventory);
+  const tables = normalizeStoredTablesState(value.tables);
   const characters = normalizeStoredCharacters(value.characters, characterSkillDefinitions);
   const combatTracker = normalizeStoredCombatTrackerState(value.combatTracker);
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
@@ -12288,6 +13072,7 @@ function normalizeCampaignSave(value) {
     characterSkillDefinitions,
     characters,
     encounterInventory,
+    tables,
     combatTracker,
     battleTimer,
     activeScreen: normalizeStoredActiveScreen(ui.activeScreen),
@@ -12297,6 +13082,7 @@ function normalizeCampaignSave(value) {
 }
 
 function resetTransientCampaignUiState() {
+  stopActiveTableRoll();
   state.fileMenuOpen = false;
   closeCampaignSaveNameDialog();
   state.characterSkillConfigOpen = false;
@@ -12310,6 +13096,7 @@ function resetTransientCampaignUiState() {
   state.activeCombatSourceId = "";
   state.combatEncounterPickerOpen = false;
   state.combatAddPickerMode = "";
+  state.activeTableFolderId = "";
   state.activeEncounterRowId = "";
   state.activeEncounterSourceRowId = "";
   state.selectedEncounterIds = new Set();
@@ -12356,11 +13143,20 @@ function applyCampaignSave(campaign, fileResult = null) {
     state.encounters,
     state.encounterFolders
   );
+  state.tableFolders = campaign.tables.folders;
+  state.systemTableFolderExpanded = campaign.tables.systemFolderExpanded;
+  state.tables = campaign.tables.tables;
+  state.activeTableFolderId = campaign.tables.activeTableFolderId;
+  state.activeTableId = campaign.tables.activeTableId;
+  state.openTableIds = campaign.tables.openTableIds;
+  state.rolledTableRowId = "";
+  reconcileTablesUiState();
 
   saveCombatTrackerState();
   saveCharacterSkillDefinitions();
   saveCharacters();
   saveEncounterInventory();
+  saveTablesState();
 
   if (fileResult) {
     applyCampaignFileResult(fileResult);
@@ -13414,6 +14210,1047 @@ function getEncounterInventorySaveData() {
     systemFolderExpanded: state.systemEncounterFolderExpanded,
     encounters: state.encounters
   };
+}
+
+function loadTablesState() {
+  const defaultState = getDefaultTablesState();
+
+  if (typeof window === "undefined") {
+    return defaultState;
+  }
+
+  if (usesDesktopFileOnlyPersistence()) {
+    return defaultState;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(TABLES_STORAGE_KEY);
+    return rawValue ? normalizeStoredTablesState(JSON.parse(rawValue || "{}")) : defaultState;
+  } catch {
+    return defaultState;
+  }
+}
+
+function saveTablesState() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!usesDesktopFileOnlyPersistence()) {
+    try {
+      window.localStorage.setItem(TABLES_STORAGE_KEY, JSON.stringify(getTablesSaveData()));
+    } catch {
+      // Storage can be unavailable in private contexts; campaign files still work.
+    }
+  }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
+}
+
+function getDefaultTablesState() {
+  return normalizeStoredTablesState({
+    folders: [],
+    systemFolderExpanded: true,
+    tables: initialTableDefinitions,
+    activeTableFolderId: "",
+    activeTableId: "",
+    openTableIds: []
+  });
+}
+
+function getTablesSaveData() {
+  reconcileTablesUiState();
+
+  return {
+    folders: state.tableFolders,
+    systemFolderExpanded: state.systemTableFolderExpanded,
+    tables: state.tables.map((table, index) => normalizeStoredTable(table, index)).filter(Boolean),
+    activeTableFolderId: state.activeTableFolderId,
+    activeTableId: state.activeTableId,
+    openTableIds: state.openTableIds.filter((tableId) => state.tables.some((table) => table.id === tableId))
+  };
+}
+
+function normalizeStoredTablesState(value) {
+  const source = isPlainObject(value) ? value : {};
+  const hasExplicitTables = Array.isArray(value) || Array.isArray(source.tables);
+  const folders = Array.isArray(source.folders)
+    ? source.folders.map((folder) => normalizeStoredTableFolder(folder)).filter(Boolean)
+    : [];
+  const rawTables = Array.isArray(value)
+    ? value
+    : Array.isArray(source.tables)
+      ? source.tables
+      : initialTableDefinitions;
+  let tables = rawTables
+    .map((table, index) => normalizeStoredTable(table, index))
+    .filter(Boolean);
+
+  if (!hasExplicitTables && tables.length === 0) {
+    tables = initialTableDefinitions
+      .map((table, index) => normalizeStoredTable(table, index))
+      .filter(Boolean);
+  }
+
+  const tableIds = new Set(tables.map((table) => table.id));
+  const folderIds = new Set(folders.map((folder) => folder.id));
+  const firstTableId = tables[0]?.id ?? "";
+  const activeTableId = tableIds.has(cleanText(source.activeTableId)) ? cleanText(source.activeTableId) : firstTableId;
+  const activeTable = tables.find((table) => table.id === activeTableId) ?? null;
+  const activeTableFolderId = folderIds.has(cleanText(source.activeTableFolderId))
+    ? cleanText(source.activeTableFolderId)
+    : activeTable?.folderId ?? "";
+  const openTableIds = [...new Set(
+    (Array.isArray(source.openTableIds) ? source.openTableIds : [activeTableId])
+      .map((tableId) => cleanText(tableId))
+      .filter((tableId) => tableIds.has(tableId))
+  )];
+
+  if (openTableIds.length === 0 && activeTableId) {
+    openTableIds.push(activeTableId);
+  }
+
+  return {
+    folders,
+    systemFolderExpanded: source.systemFolderExpanded !== false,
+    tables,
+    activeTableFolderId,
+    activeTableId,
+    openTableIds
+  };
+}
+
+function normalizeStoredTableFolder(folder) {
+  if (!isPlainObject(folder)) {
+    return null;
+  }
+
+  return {
+    id: cleanText(folder.id) || createStableId("table-folder"),
+    name: cleanText(folder.name) || "Carpeta",
+    isExpanded: folder.isExpanded !== false
+  };
+}
+
+function normalizeStoredTable(value, index = 0) {
+  if (!isPlainObject(value)) {
+    if (Array.isArray(value)) {
+      return normalizeStoredTable({
+        name: `Tabla ${index + 1}`,
+        columns: value[0] ?? [],
+        rows: value.slice(1)
+      }, index);
+    }
+
+    return null;
+  }
+
+  const columns = normalizeStoredTableColumns(value.columns);
+
+  return {
+    id: cleanText(value.id) || createStableId("table"),
+    name: cleanText(value.name) || `Tabla ${index + 1}`,
+    folderId: cleanText(value.folderId),
+    columns,
+    rows: normalizeStoredTableRows(value.rows, columns),
+    collapsed: value.collapsed === true
+  };
+}
+
+function normalizeStoredTableColumns(value) {
+  const normalizedColumns = (Array.isArray(value) ? value : [])
+    .map((column, index) => normalizeStoredTableColumn(column, index))
+    .filter(Boolean);
+
+  return normalizedColumns.length > 0
+    ? normalizedColumns
+    : [normalizeStoredTableColumn({ label: "Columna 1" }, 0)].filter(Boolean);
+}
+
+function normalizeStoredTableColumn(value, index = 0) {
+  if (typeof value === "string") {
+    return {
+      id: createStableId("table-col"),
+      label: cleanText(value) || `Columna ${index + 1}`,
+      width: ""
+    };
+  }
+
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  return {
+    id: cleanText(value.id) || createStableId("table-col"),
+    label: cleanText(value.label) || `Columna ${index + 1}`,
+    width: normalizeStoredTableColumnWidth(value.width)
+  };
+}
+
+function normalizeStoredTableColumnWidth(value) {
+  const numericValue = Math.floor(toNumber(value));
+  return Number.isFinite(numericValue) && numericValue >= 72 ? numericValue : "";
+}
+
+function normalizeStoredTableRows(value, columns) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((row, index) => normalizeStoredTableRow(row, columns, index))
+    .filter(Boolean);
+}
+
+function normalizeStoredTableRow(value, columns, index = 0) {
+  if (!Array.isArray(value) && !isPlainObject(value)) {
+    return null;
+  }
+
+  const sourceCells = Array.isArray(value)
+    ? value
+    : Array.isArray(value.cells)
+      ? value.cells
+      : isPlainObject(value.cells)
+        ? value.cells
+        : {};
+  const cells = Object.fromEntries(columns.map((column, columnIndex) => {
+    const rawValue = Array.isArray(sourceCells)
+      ? sourceCells[columnIndex]
+      : sourceCells[column.id] ?? sourceCells[column.label];
+    return [column.id, cleanText(rawValue)];
+  }));
+
+  return {
+    id: cleanText(value.id) || createStableId("table-row"),
+    cells
+  };
+}
+
+function getActiveTable() {
+  return state.tables.find((table) => table.id === state.activeTableId) ?? null;
+}
+
+function getOpenTables() {
+  const tableMap = new Map(state.tables.map((table) => [table.id, table]));
+  return state.openTableIds.map((tableId) => tableMap.get(tableId)).filter(Boolean);
+}
+
+function getTableFolderGroups() {
+  return [
+    {
+      id: "",
+      name: "Sin carpeta",
+      isExpanded: state.systemTableFolderExpanded
+    },
+    ...state.tableFolders
+  ];
+}
+
+function getTablesByFolder(folderId = "") {
+  const normalizedFolderId = cleanText(folderId);
+  return state.tables.filter((table) => cleanText(table.folderId) === normalizedFolderId);
+}
+
+function getTableFolderNameById(folderId = "") {
+  const normalizedFolderId = cleanText(folderId);
+
+  if (!normalizedFolderId) {
+    return "";
+  }
+
+  return cleanText(state.tableFolders.find((folder) => folder.id === normalizedFolderId)?.name);
+}
+
+function reconcileTablesUiState() {
+  const tableIds = new Set(state.tables.map((table) => table.id));
+  const folderIds = new Set(state.tableFolders.map((folder) => folder.id));
+
+  if (state.tables.length === 0) {
+    state.activeTableId = "";
+    state.activeTableFolderId = "";
+    state.openTableIds = [];
+    return;
+  }
+
+  if (!tableIds.has(state.activeTableId)) {
+    state.activeTableId = state.tables[0].id;
+  }
+
+  if (!folderIds.has(state.activeTableFolderId) && state.activeTableFolderId !== "") {
+    state.activeTableFolderId = state.tables.find((table) => table.id === state.activeTableId)?.folderId ?? "";
+  }
+
+  state.openTableIds = [...new Set(state.openTableIds.map((tableId) => cleanText(tableId)).filter((tableId) => tableIds.has(tableId)))];
+}
+
+function createBlankTable(name = "", folderId = "") {
+  const columns = [
+    normalizeStoredTableColumn({ label: "Columna 1" }, 0),
+    normalizeStoredTableColumn({ label: "Columna 2" }, 1)
+  ].filter(Boolean);
+  const rows = [
+    normalizeStoredTableRow({ cells: ["", ""] }, columns, 0),
+    normalizeStoredTableRow({ cells: ["", ""] }, columns, 1)
+  ].filter(Boolean);
+
+  return normalizeStoredTable({
+    name: cleanText(name) || `Tabla ${state.tables.length + 1}`,
+    folderId: cleanText(folderId),
+    columns,
+    rows,
+    collapsed: false
+  }, state.tables.length);
+}
+
+function createTable(options = {}) {
+  const folderId = cleanText(options.folderId) || state.activeTableFolderId || "";
+  const table = createBlankTable("", folderId);
+  state.tables = [...state.tables, table];
+  state.activeTableId = table.id;
+  state.activeTableFolderId = table.folderId ?? "";
+  state.openTableIds = [...state.openTableIds, table.id];
+  reconcileTablesUiState();
+  return table.id;
+}
+
+function selectTable(tableId) {
+  const normalizedTableId = cleanText(tableId);
+  const table = state.tables.find((entry) => entry.id === normalizedTableId);
+
+  if (!table) {
+    return;
+  }
+
+  state.activeTableId = normalizedTableId;
+  state.activeTableFolderId = table.folderId ?? "";
+  state.openTableIds = [normalizedTableId, ...state.openTableIds.filter((id) => id !== normalizedTableId)];
+  state.tables = moveTableToFrontWithinFolder(state.tables, normalizedTableId);
+  expandTableFolder(table.folderId ?? "");
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? { ...table, collapsed: false }
+    : table);
+  reconcileTablesUiState();
+}
+
+function toggleTableOpen(tableId) {
+  const normalizedTableId = cleanText(tableId);
+
+  if (!state.tables.some((table) => table.id === normalizedTableId)) {
+    return;
+  }
+
+  state.activeTableId = normalizedTableId;
+  state.openTableIds = state.openTableIds.includes(normalizedTableId)
+    ? state.openTableIds.filter((id) => id !== normalizedTableId)
+    : [...state.openTableIds, normalizedTableId];
+  reconcileTablesUiState();
+}
+
+function toggleTableCollapsed(tableId) {
+  const normalizedTableId = cleanText(tableId);
+  state.activeTableId = normalizedTableId;
+  state.activeTableFolderId = state.tables.find((table) => table.id === normalizedTableId)?.folderId ?? "";
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? { ...table, collapsed: !table.collapsed }
+    : table);
+  reconcileTablesUiState();
+}
+
+function openAllTables() {
+  state.openTableIds = state.tables.map((table) => table.id);
+  reconcileTablesUiState();
+}
+
+function closeAllTables() {
+  state.openTableIds = [];
+}
+
+function stopActiveTableRoll() {
+  if (activeTableRollTimer) {
+    window.clearTimeout(activeTableRollTimer);
+    activeTableRollTimer = 0;
+  }
+
+  state.rollingTableId = "";
+  state.rollingTableRowId = "";
+}
+
+function startTableRoll(tableId) {
+  const normalizedTableId = cleanText(tableId);
+  const table = state.tables.find((entry) => entry.id === normalizedTableId);
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+
+  if (!table || rows.length === 0) {
+    return;
+  }
+
+  stopActiveTableRoll();
+  selectTable(normalizedTableId);
+
+  const startingIndex = Math.max(0, rows.findIndex((row) => row.id === state.rolledTableRowId));
+  const targetIndex = Math.floor(Math.random() * rows.length);
+  const totalSteps = Math.min(12, Math.max(8, rows.length + 4));
+  const targetOffset = (targetIndex - startingIndex + rows.length) % rows.length;
+  const baseOffset = (totalSteps - 1) % rows.length;
+  const extraLoops = Math.max(0, Math.ceil((baseOffset - targetOffset) / rows.length));
+  const finalStepOffset = targetOffset + (extraLoops * rows.length);
+  const effectiveTotalSteps = finalStepOffset + 1;
+  const rawDelays = Array.from({ length: Math.max(0, effectiveTotalSteps - 1) }, (_, step) => {
+    const progress = step / Math.max(1, effectiveTotalSteps - 2);
+    return 42 + ((progress ** 2) * 120);
+  });
+  const maxDurationMs = 1800;
+  const rawTotalDuration = rawDelays.reduce((sum, delay) => sum + delay, 0);
+  const durationScale = rawTotalDuration > maxDurationMs ? maxDurationMs / rawTotalDuration : 1;
+  const delays = rawDelays.map((delay) => Math.max(28, Math.round(delay * durationScale)));
+  let currentStep = 0;
+
+  const advanceRoll = () => {
+    const currentIndex = (startingIndex + currentStep) % rows.length;
+    const currentRow = rows[currentIndex];
+    const isFinalStep = currentStep >= effectiveTotalSteps - 1;
+
+    state.rollingTableId = normalizedTableId;
+    state.rollingTableRowId = currentRow.id;
+    state.rolledTableRowId = "";
+    render();
+
+    if (isFinalStep) {
+      state.rollingTableId = "";
+      state.rollingTableRowId = "";
+      state.rolledTableRowId = currentRow.id;
+      activeTableRollTimer = 0;
+      render();
+      return;
+    }
+
+    currentStep += 1;
+    const nextDelay = delays[Math.max(0, currentStep - 1)] ?? 40;
+    activeTableRollTimer = window.setTimeout(advanceRoll, nextDelay);
+  };
+
+  advanceRoll();
+}
+
+function createTableFolder() {
+  const folder = normalizeStoredTableFolder({
+    id: createStableId("table-folder"),
+    name: `Carpeta ${state.tableFolders.length + 1}`,
+    isExpanded: true
+  });
+
+  state.tableFolders = [...state.tableFolders, folder];
+  state.activeTableFolderId = folder.id;
+  return folder.id;
+}
+
+function toggleTableFolder(folderId) {
+  state.activeTableFolderId = cleanText(folderId);
+
+  if (!folderId) {
+    state.systemTableFolderExpanded = !state.systemTableFolderExpanded;
+    return;
+  }
+
+  state.tableFolders = state.tableFolders.map((folder) => folder.id === folderId
+    ? {
+      ...folder,
+      isExpanded: !folder.isExpanded
+    }
+    : folder);
+}
+
+function expandTableFolder(folderId) {
+  const normalizedFolderId = cleanText(folderId);
+
+  if (!normalizedFolderId) {
+    state.systemTableFolderExpanded = true;
+    return;
+  }
+
+  state.tableFolders = state.tableFolders.map((folder) => folder.id === normalizedFolderId
+    ? {
+      ...folder,
+      isExpanded: true
+    }
+    : folder);
+}
+
+function updateTableFolderName(folderId, name) {
+  state.tableFolders = state.tableFolders.map((folder) => folder.id === folderId
+    ? {
+      ...folder,
+      name
+    }
+    : folder);
+}
+
+function deleteTableFolder(folderId) {
+  state.tableFolders = state.tableFolders.filter((folder) => folder.id !== folderId);
+  state.tables = state.tables.map((table) => table.folderId === folderId
+    ? {
+      ...table,
+      folderId: ""
+    }
+    : table);
+
+  if (state.activeTableFolderId === folderId) {
+    state.activeTableFolderId = "";
+  }
+}
+
+function deleteTable(tableId) {
+  const normalizedTableId = cleanText(tableId);
+  const currentIndex = state.tables.findIndex((table) => table.id === normalizedTableId);
+
+  if (currentIndex < 0) {
+    return;
+  }
+
+  state.tables = state.tables.filter((table) => table.id !== normalizedTableId);
+  state.openTableIds = state.openTableIds.filter((id) => id !== normalizedTableId);
+  state.activeTableId = state.tables[currentIndex]?.id ?? state.tables[currentIndex - 1]?.id ?? state.tables[0]?.id ?? "";
+  state.activeTableFolderId = state.tables.find((table) => table.id === state.activeTableId)?.folderId ?? "";
+  reconcileTablesUiState();
+}
+
+function moveTableToFrontWithinFolder(tables, tableId) {
+  const targetTable = tables.find((table) => table.id === tableId);
+
+  if (!targetTable) {
+    return tables;
+  }
+
+  const sameFolderTables = tables.filter((table) => table.folderId === targetTable.folderId);
+  const otherTables = tables.filter((table) => table.folderId !== targetTable.folderId);
+  const reorderedSameFolderTables = [
+    targetTable,
+    ...sameFolderTables.filter((table) => table.id !== tableId)
+  ];
+  const result = [];
+  const folderBuckets = new Map();
+
+  otherTables.forEach((table) => {
+    const bucket = folderBuckets.get(table.folderId ?? "__root__") ?? [];
+    bucket.push(table);
+    folderBuckets.set(table.folderId ?? "__root__", bucket);
+  });
+
+  let inserted = false;
+  tables.forEach((table) => {
+    if (table.folderId === targetTable.folderId) {
+      if (!inserted) {
+        result.push(...reorderedSameFolderTables);
+        inserted = true;
+      }
+      return;
+    }
+
+    const key = table.folderId ?? "__root__";
+    const bucket = folderBuckets.get(key);
+
+    if (!bucket || bucket.length === 0) {
+      return;
+    }
+
+    result.push(bucket.shift());
+  });
+
+  return result.filter(Boolean);
+}
+
+function updateTableName(tableId, rawValue) {
+  const normalizedTableId = cleanText(tableId);
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? {
+      ...table,
+      name: rawValue
+    }
+    : table);
+}
+
+function updateTableColumnLabel(tableId, columnId, rawValue) {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedColumnId = cleanText(columnId);
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? {
+      ...table,
+      columns: table.columns.map((column) => column.id === normalizedColumnId
+        ? { ...column, label: rawValue }
+        : column)
+    }
+    : table);
+}
+
+function setTableColumnWidth(tableId, columnId, width) {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedColumnId = cleanText(columnId);
+  const safeWidth = Math.max(72, Math.floor(toNumber(width)) || 72);
+
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? {
+      ...table,
+      columns: table.columns.map((column) => column.id === normalizedColumnId
+        ? { ...column, width: safeWidth }
+        : column)
+    }
+    : table);
+}
+
+function applyTableColumnWidthPreview(tableId, columnId, width) {
+  const safeWidth = Math.max(72, Math.floor(toNumber(width)) || 72);
+  app.querySelectorAll(`[data-table-id="${tableId}"][data-table-col-id="${columnId}"]`).forEach((col) => {
+    col.style.width = `${safeWidth}px`;
+  });
+}
+
+function updateTableCell(tableId, rowId, columnId, rawValue) {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedRowId = cleanText(rowId);
+  const normalizedColumnId = cleanText(columnId);
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? {
+      ...table,
+      rows: table.rows.map((row) => row.id === normalizedRowId
+        ? {
+          ...row,
+          cells: {
+            ...row.cells,
+            [normalizedColumnId]: rawValue
+          }
+        }
+        : row)
+    }
+    : table);
+}
+
+function updateTableDimension(tableId, kind, rawValue) {
+  const value = Math.max(kind === "columns" ? 1 : 0, Math.floor(toNumber(rawValue)) || 0);
+
+  if (kind === "columns") {
+    setTableColumnCount(tableId, value);
+    return;
+  }
+
+  if (kind === "rows") {
+    setTableRowCount(tableId, value);
+  }
+}
+
+function addTableColumn(tableId) {
+  const table = state.tables.find((entry) => entry.id === cleanText(tableId));
+  setTableColumnCount(tableId, (table?.columns.length ?? 0) + 1);
+}
+
+function insertTableColumnAfter(tableId, afterColumnId = "") {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedAfterColumnId = cleanText(afterColumnId);
+
+  state.tables = state.tables.map((table) => {
+    if (table.id !== normalizedTableId) {
+      return table;
+    }
+
+    const currentColumns = [...table.columns];
+    const insertAt = normalizedAfterColumnId
+      ? Math.max(0, currentColumns.findIndex((column) => column.id === normalizedAfterColumnId) + 1)
+      : currentColumns.length;
+    const nextColumn = normalizeStoredTableColumn({
+      label: `Columna ${insertAt + 1}`
+    }, insertAt);
+    const nextColumns = [...currentColumns];
+    nextColumns.splice(insertAt, 0, nextColumn);
+
+    return {
+      ...table,
+      columns: nextColumns,
+      rows: table.rows.map((row) => ({
+        ...row,
+        cells: Object.fromEntries(nextColumns.map((column) => [
+          column.id,
+          column.id === nextColumn.id ? "" : row.cells[column.id] ?? ""
+        ]))
+      }))
+    };
+  });
+}
+
+function removeTableColumn(tableId, columnId = "") {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedColumnId = cleanText(columnId);
+
+  state.tables = state.tables.map((table) => {
+    if (table.id !== normalizedTableId || table.columns.length <= 1) {
+      return table;
+    }
+
+    const nextColumns = normalizedColumnId
+      ? table.columns.filter((column) => column.id !== normalizedColumnId)
+      : table.columns.slice(0, -1);
+
+    if (nextColumns.length === 0) {
+      return table;
+    }
+
+    return {
+      ...table,
+      columns: nextColumns,
+      rows: table.rows.map((row) => ({
+        ...row,
+        cells: Object.fromEntries(nextColumns.map((column) => [column.id, row.cells[column.id] ?? ""]))
+      }))
+    };
+  });
+}
+
+function setTableColumnCount(tableId, nextCount) {
+  const normalizedTableId = cleanText(tableId);
+  const safeCount = Math.max(1, Math.floor(toNumber(nextCount)) || 1);
+
+  state.tables = state.tables.map((table) => {
+    if (table.id !== normalizedTableId) {
+      return table;
+    }
+
+    let nextColumns = [...table.columns];
+
+    if (safeCount > nextColumns.length) {
+      while (nextColumns.length < safeCount) {
+        nextColumns.push(normalizeStoredTableColumn({ label: `Columna ${nextColumns.length + 1}` }, nextColumns.length));
+      }
+    } else if (safeCount < nextColumns.length) {
+      nextColumns = nextColumns.slice(0, safeCount);
+    }
+
+    return {
+      ...table,
+      columns: nextColumns,
+      rows: table.rows.map((row) => ({
+        ...row,
+        cells: Object.fromEntries(nextColumns.map((column) => [column.id, row.cells[column.id] ?? ""]))
+      }))
+    };
+  });
+}
+
+function addTableRow(tableId) {
+  const table = state.tables.find((entry) => entry.id === cleanText(tableId));
+  setTableRowCount(tableId, (table?.rows.length ?? 0) + 1);
+}
+
+function insertTableRowAfter(tableId, afterRowId = "") {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedAfterRowId = cleanText(afterRowId);
+
+  state.tables = state.tables.map((table) => {
+    if (table.id !== normalizedTableId) {
+      return table;
+    }
+
+    const nextRows = [...table.rows];
+    const insertAt = normalizedAfterRowId
+      ? Math.max(0, nextRows.findIndex((row) => row.id === normalizedAfterRowId) + 1)
+      : nextRows.length;
+    const nextRow = normalizeStoredTableRow({
+      cells: table.columns.map(() => "")
+    }, table.columns, insertAt);
+
+    nextRows.splice(insertAt, 0, nextRow);
+
+    return {
+      ...table,
+      rows: nextRows
+    };
+  });
+}
+
+function removeTableRow(tableId, rowId) {
+  const normalizedTableId = cleanText(tableId);
+  const normalizedRowId = cleanText(rowId);
+  state.tables = state.tables.map((table) => table.id === normalizedTableId
+    ? {
+      ...table,
+      rows: table.rows.filter((row) => row.id !== normalizedRowId)
+    }
+    : table);
+}
+
+function setTableRowCount(tableId, nextCount) {
+  const normalizedTableId = cleanText(tableId);
+  const safeCount = Math.max(0, Math.floor(toNumber(nextCount)) || 0);
+
+  state.tables = state.tables.map((table) => {
+    if (table.id !== normalizedTableId) {
+      return table;
+    }
+
+    let nextRows = [...table.rows];
+
+    if (safeCount > nextRows.length) {
+      while (nextRows.length < safeCount) {
+        nextRows.push(normalizeStoredTableRow({
+          cells: table.columns.map(() => "")
+        }, table.columns, nextRows.length));
+      }
+    } else if (safeCount < nextRows.length) {
+      nextRows = nextRows.slice(0, safeCount);
+    }
+
+    return {
+      ...table,
+      rows: nextRows
+    };
+  });
+}
+
+async function importTablesFromWorkbook(file) {
+  if (!file) {
+    return;
+  }
+
+  try {
+    const workbook = XLSX.read(await file.arrayBuffer(), {
+      type: "array"
+    });
+    const detectedTables = workbook.SheetNames.flatMap((sheetName, sheetIndex) =>
+      extractTablesFromWorkbookSheet(workbook.Sheets[sheetName], sheetName, sheetIndex)
+    );
+
+    if (detectedTables.length === 0) {
+      state.campaignMessage = "El Excel no trae hojas utiles para importar.";
+      render();
+      return;
+    }
+
+    const importFolderId = detectedTables.length > 1
+      ? createImportedTableFolder(getExcelImportBaseName(file.name))
+      : "";
+    const importedTables = detectedTables.map((table, index) => normalizeStoredTable({
+      ...table,
+      folderId: importFolderId
+    }, state.tables.length + index)).filter(Boolean);
+
+    state.tables = [...state.tables, ...importedTables];
+    state.activeScreen = "tables";
+    state.activeTableFolderId = importFolderId || importedTables[0]?.folderId || "";
+    state.activeTableId = importedTables[0].id;
+    state.openTableIds = [...new Set([...state.openTableIds, ...importedTables.map((table) => table.id)])];
+    expandTableFolder(importFolderId);
+    reconcileTablesUiState();
+    saveTablesState();
+    state.campaignMessage = importedTables.length === 1
+      ? `Excel importado: ${importedTables[0].name}.`
+      : `Excel importado: ${importedTables.length} tablas agrupadas en carpeta.`;
+    render();
+  } catch {
+    state.campaignMessage = "No se pudo importar el fichero Excel.";
+    render();
+  }
+}
+
+function extractTablesFromWorkbookSheet(sheet, sheetName, index = 0) {
+  if (!sheet) {
+    return [];
+  }
+
+  const rawGrid = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    raw: false,
+    blankrows: true
+  }).map((row) => Array.isArray(row) ? row.map((cell) => cleanText(cell)) : []);
+  const grid = normalizeWorkbookGrid(rawGrid);
+
+  if (grid.length === 0) {
+    return [];
+  }
+
+  const regions = detectWorkbookTableRegions(grid);
+
+  return regions
+    .map((region, regionIndex) => buildTableFromWorkbookRegion(region, grid, sheetName, index, regionIndex))
+    .filter(Boolean);
+}
+
+function normalizeWorkbookGrid(rawGrid) {
+  const maxColumns = Math.max(0, ...rawGrid.map((row) => row.length));
+
+  if (maxColumns === 0) {
+    return [];
+  }
+
+  const paddedGrid = rawGrid.map((row) => Array.from({ length: maxColumns }, (_, columnIndex) => cleanText(row[columnIndex])));
+  const firstNonEmptyRowIndex = paddedGrid.findIndex((row) => row.some(Boolean));
+  const lastNonEmptyRowIndex = [...paddedGrid].reverse().findIndex((row) => row.some(Boolean));
+
+  if (firstNonEmptyRowIndex < 0) {
+    return [];
+  }
+
+  const endIndex = paddedGrid.length - lastNonEmptyRowIndex;
+  return paddedGrid.slice(firstNonEmptyRowIndex, endIndex);
+}
+
+function detectWorkbookTableRegions(grid) {
+  const rowCount = grid.length;
+  const columnCount = Math.max(0, ...grid.map((row) => row.length));
+  const visited = new Set();
+  const regions = [];
+
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      if (!cleanText(grid[rowIndex]?.[columnIndex])) {
+        continue;
+      }
+
+      const key = `${rowIndex}:${columnIndex}`;
+
+      if (visited.has(key)) {
+        continue;
+      }
+
+      const queue = [[rowIndex, columnIndex]];
+      const cells = [];
+      visited.add(key);
+
+      while (queue.length > 0) {
+        const [currentRow, currentColumn] = queue.shift();
+        cells.push([currentRow, currentColumn]);
+
+        [
+          [currentRow - 1, currentColumn],
+          [currentRow + 1, currentColumn],
+          [currentRow, currentColumn - 1],
+          [currentRow, currentColumn + 1]
+        ].forEach(([nextRow, nextColumn]) => {
+          if (
+            nextRow < 0
+            || nextColumn < 0
+            || nextRow >= rowCount
+            || nextColumn >= columnCount
+            || !cleanText(grid[nextRow]?.[nextColumn])
+          ) {
+            return;
+          }
+
+          const nextKey = `${nextRow}:${nextColumn}`;
+
+          if (visited.has(nextKey)) {
+            return;
+          }
+
+          visited.add(nextKey);
+          queue.push([nextRow, nextColumn]);
+        });
+      }
+
+      const rows = cells.map(([cellRow]) => cellRow);
+      const columns = cells.map(([, cellColumn]) => cellColumn);
+      const region = {
+        minRow: Math.min(...rows),
+        maxRow: Math.max(...rows),
+        minColumn: Math.min(...columns),
+        maxColumn: Math.max(...columns),
+        nonEmptyCells: cells.length
+      };
+
+      if (region.nonEmptyCells >= 2) {
+        regions.push(region);
+      }
+    }
+  }
+
+  return regions.sort((left, right) => left.minRow - right.minRow || left.minColumn - right.minColumn);
+}
+
+function buildTableFromWorkbookRegion(region, grid, sheetName, sheetIndex = 0, regionIndex = 0) {
+  const regionGrid = grid
+    .slice(region.minRow, region.maxRow + 1)
+    .map((row) => row.slice(region.minColumn, region.maxColumn + 1));
+  const nonEmptyColumnIndexes = Array.from({ length: regionGrid[0]?.length ?? 0 }, (_, columnIndex) => columnIndex)
+    .filter((columnIndex) => regionGrid.some((row) => cleanText(row[columnIndex])));
+  const compactGrid = regionGrid.map((row) => nonEmptyColumnIndexes.map((columnIndex) => cleanText(row[columnIndex])));
+  const firstRow = compactGrid[0] ?? [];
+  const secondRow = compactGrid[1] ?? [];
+  const firstRowCount = firstRow.filter(Boolean).length;
+  const secondRowCount = secondRow.filter(Boolean).length;
+  const titleRowIndex = compactGrid.length >= 2 && firstRowCount === 1 && secondRowCount >= 2 ? 0 : -1;
+  const headerRowIndex = titleRowIndex === 0 ? 1 : 0;
+  const headerRow = compactGrid[headerRowIndex] ?? [];
+  const dataRows = compactGrid.slice(headerRowIndex + 1);
+  const hasBody = dataRows.some((row) => row.some(Boolean));
+  const columnCount = Math.max(1, headerRow.length, ...dataRows.map((row) => row.length));
+
+  if (columnCount === 1 && compactGrid.length === 1) {
+    return null;
+  }
+
+  const columns = Array.from({ length: columnCount }, (_, columnIndex) => normalizeStoredTableColumn({
+    label: headerRow[columnIndex] || `Columna ${columnIndex + 1}`
+  }, columnIndex)).filter(Boolean);
+  const rows = (hasBody ? dataRows : [])
+    .map((row, rowIndex) => normalizeStoredTableRow({
+      cells: Array.from({ length: columnCount }, (_, columnIndex) => row[columnIndex] ?? "")
+    }, columns, rowIndex))
+    .filter(Boolean);
+  const title = titleRowIndex === 0 ? firstRow.find(Boolean) ?? "" : "";
+  const fallbackName = cleanText(sheetName) || `Hoja ${sheetIndex + 1}`;
+  const regionSuffix = regionIndex > 0 ? ` ${regionIndex + 1}` : "";
+
+  return {
+    name: cleanText(title) || `${fallbackName}${regionSuffix}`,
+    columns,
+    rows,
+    collapsed: false
+  };
+}
+
+function createImportedTableFolder(baseName = "") {
+  const folder = normalizeStoredTableFolder({
+    id: createStableId("table-folder"),
+    name: cleanText(baseName) || `Importacion ${state.tableFolders.length + 1}`,
+    isExpanded: true
+  });
+
+  state.tableFolders = [...state.tableFolders, folder];
+  return folder.id;
+}
+
+function getExcelImportBaseName(fileName = "") {
+  return cleanText(fileName)
+    .replace(/\.(xlsx|xls)$/i, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+}
+
+function exportTableToExcel(tableId) {
+  const table = state.tables.find((entry) => entry.id === cleanText(tableId));
+
+  if (!table) {
+    return;
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    table.columns.map((column) => column.label),
+    ...table.rows.map((row) => table.columns.map((column) => row.cells[column.id] ?? ""))
+  ]);
+
+  worksheet["!cols"] = table.columns.map((column, index) => {
+    const widthPx = column.width || (getTableColumnKind(column, index) === "number" ? 88 : getTableColumnKind(column, index) === "short" ? 220 : 420);
+    return {
+      wpx: widthPx
+    };
+  });
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, getSafeExcelSheetName(table.name));
+  XLSX.writeFile(workbook, `${slugify(table.name) || "tabla"}.xlsx`);
+}
+
+function getSafeExcelSheetName(name) {
+  const safeName = cleanText(name).replace(/[\\/*?:\[\]]/g, " ").trim();
+  return (safeName || "Tabla").slice(0, 31);
 }
 
 function normalizeStoredEncounterFolder(folder) {

@@ -50,6 +50,16 @@ export const screens = [
     `
   },
   {
+    id: "tables",
+    label: "Tablas",
+    shortLabel: "Tablas",
+    icon: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 4h16v16H4V4Zm2 2v3h5V6H6Zm7 0v3h5V6h-5ZM6 11v3h5v-3H6Zm7 0v3h5v-3h-5ZM6 16v2h5v-2H6Zm7 0v2h5v-2h-5Z" />
+      </svg>
+    `
+  },
+  {
     id: "session-vault",
     label: "Session Vault",
     shortLabel: "Sesion",

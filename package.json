@@ -63,5 +63,8 @@
       "artifactName": "Mimic-Dice-portable-${version}-${arch}.exe",
       "useZip": true
     }
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
   }
 }

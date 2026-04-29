@@ -70,6 +70,7 @@ Fuente de verdad: `src/navigation/screens.js`.
 - `items`: compendio de objetos.
 - `arcanum`: compendio de conjuros.
 - `initiative-board`: pantalla de personajes.
+- `tables`: pantalla de tablas editables de referencia.
 - `session-vault`: placeholder visual por ahora. Nombre reservado para una posible pantalla futura de recursos de sesion o campana, pero aun sin alcance definido.
 
 ## Data And Persistence
@@ -86,8 +87,16 @@ Persistencia local web:
 
 - `mimic-dice:campaign-meta:v1`
 - `mimic-dice:characters:v1`
+- `mimic-dice:tables:v1`
 - `mimic-dice:encounter-inventory:v1`
 - `mimic-dice:combat-tracker:v1`
+
+Notas sobre `tables`:
+- Se guarda dentro del fichero de campana.
+- Puede importar hojas de Excel a tablas internas.
+- Puede exportar cada tabla a `.xlsx`.
+- Puede agrupar tablas en carpetas.
+- La importacion intenta detectar bloques tabulares, fila de cabeceras y posible titulo de tabla.
 
 Persistencia desktop:
 
@@ -111,6 +120,7 @@ Persistencia desktop:
 - Cada personaje solo guarda su progreso por skill comun: nivel derivado de XP y avance individual por skill.
 - Las skills comunes pueden definir XP por resultado. Caso especial actual: `Cocina` usa tres resultados distintos: fracaso `1`, intermedio `2`, exito `3`.
 - `src/data/combatTrackerData.js` guarda columnas del tracker y datos iniciales de ejemplo.
+- `src/data/tablesSeedData.js` guarda tablas iniciales de referencia para la pantalla `Tablas`.
 - `src/data/bestiarySources.js` centraliza nombres largos de fuentes.
 - `src/assets/characterClassIcons.js` resuelve iconos por clase de personaje.
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
