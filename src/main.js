@@ -39,6 +39,455 @@ const BESTIARY_VIRTUAL_OVERSCAN = 6;
 const BESTIARY_VIRTUAL_DEFAULT_VIEWPORT = 760;
 const ITEM_VIRTUAL_ROW_HEIGHT = 132;
 const ITEM_VIRTUAL_OVERSCAN = 8;
+const APP_LANGUAGE_ES = "es";
+const APP_LANGUAGE_EN = "en";
+const UI_STRINGS = {
+  es: {
+    menu_file: "Archivo",
+    menu_options: "Opciones",
+    options_close: "Cerrar",
+    options_enemy_hp_standard: "Vida standard de los enemigos",
+    options_enemy_hp_variable: "Rollear los dados de vida de los enemigos",
+    options_enemy_hp_standard_help: "Usa el valor base del bestiario, por ejemplo 13.",
+    options_enemy_hp_variable_help: "Lanza la formula entre parentesis, por ejemplo 3d8 o 3d8 + 6.",
+    options_language_title: "Idioma de la interfaz",
+    options_language_es: "Español",
+    options_language_en: "Inglés",
+    bestiary_eyebrow: "Repositorio de enemigos",
+    bestiary_title: "Catalogo sincronizado con CSV",
+    bestiary_visible: "{count} visibles",
+    bestiary_total: "{count} totales",
+    bestiary_filters_label: "Filtros del bestiario",
+    bestiary_search_label: "Buscar criatura",
+    bestiary_search_placeholder: "Escribe un nombre de criatura",
+    bestiary_clear_filters: "Limpiar filtros",
+    filter_clear_short: "Limpiar",
+    filter_button: "Filtro",
+    filter_type: "Tipo",
+    filter_environment: "Entorno",
+    filter_source: "Fuente",
+    source_short: "FUENTE",
+    cr_short: "CR",
+    combat_table_title: "Tabla de combate",
+    list_type: "Tipo",
+    list_environment: "Entorno",
+    list_no_environment: "Sin entorno",
+    list_price: "PRECIO",
+    list_weight: "PESO",
+    list_size: "Talla",
+    list_level: "NIVEL",
+    list_no_level: "Sin nivel",
+    list_school: "Escuela",
+    list_casting: "Lanzamiento",
+    list_range: "Alcance",
+    list_duration: "Duracion",
+    list_no_casting: "Sin tiempo",
+    list_no_range: "Sin alcance",
+    list_no_duration: "Sin duracion",
+    loading_csv: "Cargando CSV",
+    read_error: "Error de lectura",
+    active_csv: "CSV activo: {path}",
+    loading_bestiary: "Cargando Bestiary.csv...",
+    loading_items: "Cargando Items.csv...",
+    loading_arcanum: "Cargando Spells.csv...",
+    no_bestiary_results: "No hay criaturas que coincidan con los filtros actuales.",
+    no_item_results: "No hay items que coincidan con los filtros actuales.",
+    no_arcanum_results: "No hay hechizos que coincidan con los filtros actuales.",
+    bestiary_empty_detail: "Selecciona una criatura para ver la ficha completa.",
+    item_empty_detail: "Selecciona un item para ver la ficha completa.",
+    arcanum_empty_detail: "Selecciona un hechizo para ver la ficha completa.",
+    bestiary_selected_sheet: "Ficha seleccionada",
+    item_selected: "Item seleccionado",
+    spell_selected: "Conjuro seleccionado",
+    metric_speed: "Velocidad",
+    metric_senses: "Sentidos",
+    metric_languages: "Idiomas",
+    chip_environment: "Entorno",
+    chip_skills: "Skills",
+    chip_saving_throws: "Saving Throws",
+    chip_damage_vulnerabilities: "Damage Vulnerabilities",
+    chip_damage_resistances: "Damage Resistances",
+    chip_damage_immunities: "Damage Immunities",
+    chip_condition_immunities: "Condition Immunities",
+    section_traits: "Traits",
+    section_actions: "Actions",
+    section_bonus_actions: "Bonus Actions",
+    section_reactions: "Reactions",
+    section_legendary_actions: "Legendary Actions",
+    section_mythic_actions: "Mythic Actions",
+    section_lair_actions: "Lair Actions",
+    section_regional_effects: "Regional Effects",
+    items_eyebrow: "Tesoro sincronizado",
+    items_title: "Catalogo de items desde CSV",
+    items_filters_label: "Filtros de items",
+    items_search_label: "Buscar item",
+    items_search_placeholder: "Nombre, texto, propiedades, rareza...",
+    items_selected_type: "Tipo resumido",
+    items_selected_properties: "Propiedades",
+    items_selected_mastery: "Mastery",
+    items_description: "Description",
+    arcanum_eyebrow: "Grimorio sincronizado",
+    arcanum_title: "Catalogo de hechizos desde CSV",
+    arcanum_filters_label: "Filtros del arcanum",
+    arcanum_filter_level: "Nivel",
+    arcanum_filter_casting: "Velocidad Hechizo",
+    arcanum_filter_school: "Escuela",
+    arcanum_filter_class: "Clase",
+    arcanum_search_label: "Buscar hechizo",
+    arcanum_search_placeholder: "Nombre, texto, componentes, clases...",
+    arcanum_text: "Texto",
+    arcanum_classes: "Clases",
+    arcanum_subclasses: "Subclases",
+    arcanum_casting_time: "Casting Time",
+    arcanum_duration: "Duracion",
+    arcanum_range: "Alcance",
+    arcanum_components: "Componentes"
+  },
+  en: {
+    menu_file: "File",
+    menu_options: "Options",
+    options_close: "Close",
+    options_enemy_hp_standard: "Standard enemy hit points",
+    options_enemy_hp_variable: "Roll enemy hit dice",
+    options_enemy_hp_standard_help: "Use the fixed bestiary value, for example 13.",
+    options_enemy_hp_variable_help: "Roll the formula in parentheses, for example 3d8 or 3d8 + 6.",
+    options_language_title: "Interface language",
+    options_language_es: "Spanish",
+    options_language_en: "English",
+    bestiary_eyebrow: "Enemy repository",
+    bestiary_title: "CSV-synced catalog",
+    bestiary_visible: "{count} visible",
+    bestiary_total: "{count} total",
+    bestiary_filters_label: "Bestiary filters",
+    bestiary_search_label: "Search creature",
+    bestiary_search_placeholder: "Type a creature name",
+    bestiary_clear_filters: "Clear filters",
+    filter_clear_short: "Clear",
+    filter_button: "Filter",
+    filter_type: "Type",
+    filter_environment: "Environment",
+    filter_source: "Source",
+    source_short: "SOURCE",
+    cr_short: "CR",
+    combat_table_title: "Combat table",
+    list_type: "Type",
+    list_environment: "Environment",
+    list_no_environment: "No environment",
+    list_price: "PRICE",
+    list_weight: "WEIGHT",
+    list_size: "Size",
+    list_level: "LEVEL",
+    list_no_level: "No level",
+    list_school: "School",
+    list_casting: "Casting",
+    list_range: "Range",
+    list_duration: "Duration",
+    list_no_casting: "No casting time",
+    list_no_range: "No range",
+    list_no_duration: "No duration",
+    loading_csv: "Loading CSV",
+    read_error: "Read error",
+    active_csv: "Active CSV: {path}",
+    loading_bestiary: "Loading Bestiary.csv...",
+    loading_items: "Loading Items.csv...",
+    loading_arcanum: "Loading Spells.csv...",
+    no_bestiary_results: "No creatures match the current filters.",
+    no_item_results: "No items match the current filters.",
+    no_arcanum_results: "No spells match the current filters.",
+    bestiary_empty_detail: "Select a creature to view its full sheet.",
+    item_empty_detail: "Select an item to view its full sheet.",
+    arcanum_empty_detail: "Select a spell to view its full sheet.",
+    bestiary_selected_sheet: "Selected sheet",
+    item_selected: "Selected item",
+    spell_selected: "Selected spell",
+    metric_speed: "Speed",
+    metric_senses: "Senses",
+    metric_languages: "Languages",
+    chip_environment: "Environment",
+    chip_skills: "Skills",
+    chip_saving_throws: "Saving Throws",
+    chip_damage_vulnerabilities: "Damage Vulnerabilities",
+    chip_damage_resistances: "Damage Resistances",
+    chip_damage_immunities: "Damage Immunities",
+    chip_condition_immunities: "Condition Immunities",
+    section_traits: "Traits",
+    section_actions: "Actions",
+    section_bonus_actions: "Bonus Actions",
+    section_reactions: "Reactions",
+    section_legendary_actions: "Legendary Actions",
+    section_mythic_actions: "Mythic Actions",
+    section_lair_actions: "Lair Actions",
+    section_regional_effects: "Regional Effects",
+    items_eyebrow: "Synced treasure",
+    items_title: "CSV item catalog",
+    items_filters_label: "Item filters",
+    items_search_label: "Search item",
+    items_search_placeholder: "Name, text, properties, rarity...",
+    items_selected_type: "Summary type",
+    items_selected_properties: "Properties",
+    items_selected_mastery: "Mastery",
+    items_description: "Description",
+    arcanum_eyebrow: "Synced grimoire",
+    arcanum_title: "CSV spell catalog",
+    arcanum_filters_label: "Arcanum filters",
+    arcanum_filter_level: "Level",
+    arcanum_filter_casting: "Casting Speed",
+    arcanum_filter_school: "School",
+    arcanum_filter_class: "Class",
+    arcanum_search_label: "Search spell",
+    arcanum_search_placeholder: "Name, text, components, classes...",
+    arcanum_text: "Text",
+    arcanum_classes: "Classes",
+    arcanum_subclasses: "Subclasses",
+    arcanum_casting_time: "Casting Time",
+    arcanum_duration: "Duration",
+    arcanum_range: "Range",
+    arcanum_components: "Components"
+  }
+};
+const UI_TRANSLATION_EXCLUDED_SELECTOR = [
+  "[data-bestiary-list-root]",
+  "[data-item-list-root]",
+  "[data-arcanum-list-root]",
+  ".bestiary-row__title",
+  ".bestiary-row__fact-value",
+  ".bestiary-detail__source",
+  ".lead",
+  ".detail-chip p",
+  ".detail-section p",
+  ".bestiary-detail__block p"
+].join(", ");
+const UI_TEXT_TRANSLATIONS_EN = new Map([
+  ["Combate", "Combat"],
+  ["Bestiario", "Bestiary"],
+  ["Personajes", "Characters"],
+  ["Tablas", "Tables"],
+  ["Sin campaña", "No campaign"],
+  ["Nueva campaña", "New campaign"],
+  ["Guardar campaña", "Save campaign"],
+  ["Guardar campaña como", "Save campaign as"],
+  ["Cargar campaña", "Load campaign"],
+  ["Confirmar", "Confirm"],
+  ["Cancelar", "Cancel"],
+  ["Duplicar", "Duplicate"],
+  ["Eliminar", "Delete"],
+  ["Añadir", "Add"],
+  ["Añadir todos", "Add all"],
+  ["Añadir al combate", "Add to combat"],
+  ["Eliminar seleccionadas", "Delete selected"],
+  ["Eliminar enemigos", "Delete enemies"],
+  ["Cerrar vistas", "Close views"],
+  ["Nueva tabla", "New table"],
+  ["Nueva carpeta", "New folder"],
+  ["Abrir todas", "Open all"],
+  ["Cerrar todas", "Close all"],
+  ["Exportar Excel", "Export Excel"],
+  ["Cerrar", "Close"],
+  ["Rolando...", "Rolling..."],
+  ["ROLL TABLA", "ROLL TABLE"],
+  ["Tabla editable", "Editable table"],
+  ["Expandir", "Expand"],
+  ["Encoger", "Collapse"],
+  ["Cargando CSV", "Loading CSV"],
+  ["Error de lectura", "Read error"],
+  ["Buscar opción...", "Search option..."],
+  ["Escribe para filtrar", "Type to filter"],
+  ["Seleccionados", "Selected"],
+  ["Fuentes", "Sources"],
+  ["Cargando...", "Loading..."],
+  ["Abrir", "Open"],
+  ["Guardar", "Save"],
+  ["Guardar como", "Save as"],
+  ["Archivo", "File"],
+  ["Opciones", "Options"],
+  ["Tabla de combate", "Combat table"],
+  ["Filtro", "Filter"],
+  ["Limpiar", "Clear"],
+  ["Sintonizacion", "Attunement"],
+  ["Concentracion", "Concentration"],
+  ["Generar iniciativa", "Generate initiative"],
+  ["COMBATE!", "COMBAT!"],
+  ["FIN COMBATE", "END COMBAT"],
+  ["Limpiar filtros", "Clear filters"],
+  ["Contador", "Timer"],
+  ["Encuentro", "Encounter"],
+  ["Inic", "Init"],
+  ["Nombre", "Name"],
+  ["PEANA", "STAND"],
+  ["PG MAX", "MAX HP"],
+  ["PG act", "CUR HP"],
+  ["PG temp", "TEMP HP"],
+  ["Bando", "Side"],
+  ["ALIADO", "ALLY"],
+  ["NEUTRAL", "NEUTRAL"],
+  ["ENEMIGO", "ENEMY"],
+  ["Iniciar", "Start"],
+  ["Pausar", "Pause"],
+  ["Reiniciar", "Reset"],
+  ["Pasar turno", "Next turn"],
+  ["Nuevo personaje", "New character"],
+  ["Ficha rapida 5e", "Quick 5e sheet"],
+  ["Jugador", "Player"],
+  ["Clase", "Class"],
+  ["Subclase", "Subclass"],
+  ["Especie", "Species"],
+  ["Talla", "Size"],
+  ["Bonus iniciativa", "Initiative bonus"],
+  ["Bonus competencia", "Proficiency bonus"],
+  ["Percepcion Pasiva", "Passive Perception"],
+  ["Salvacion", "Save"],
+  ["Fuerza", "Strength"],
+  ["Destreza", "Dexterity"],
+  ["Constitucion", "Constitution"],
+  ["Inteligencia", "Intelligence"],
+  ["Sabiduria", "Wisdom"],
+  ["Carisma", "Charisma"],
+  ["Atletismo", "Athletics"],
+  ["Acrobacias", "Acrobatics"],
+  ["Juego de manos", "Sleight of Hand"],
+  ["Sigilo", "Stealth"],
+  ["Arcano", "Arcana"],
+  ["Historia", "History"],
+  ["Investigacion", "Investigation"],
+  ["Naturaleza", "Nature"],
+  ["Religion", "Religion"],
+  ["Trato animal", "Animal Handling"],
+  ["Perspicacia", "Insight"],
+  ["Medicina", "Medicine"],
+  ["Percepcion", "Perception"],
+  ["Supervivencia", "Survival"],
+  ["Engano", "Deception"],
+  ["Intimidacion", "Intimidation"],
+  ["Interpretacion", "Performance"],
+  ["Persuasion", "Persuasion"],
+  ["Aliados de campana", "Campaign allies"],
+  ["Resumen de grupo", "Party summary"],
+  ["Vista rapida", "Quick view"],
+  ["Personaje", "Character"],
+  ["PG max", "Max HP"],
+  ["Vel.", "Speed"],
+  ["Percep.", "Percep."],
+  ["Carga", "Load"],
+  ["Editor de encuentros", "Encounter editor"],
+  ["Encuentros guardados", "Saved encounters"],
+  ["Listas guardadas", "Saved lists"],
+  ["Nuevo encuentro", "New encounter"],
+  ["Nuevo", "New"],
+  ["Editor de encuentro", "Encounter editor"],
+  ["Nombre del encuentro", "Encounter name"],
+  ["Anadir criatura", "Add creature"],
+  ["Unidades", "Units"],
+  ["Sin fuente", "No source"],
+  ["Quitar", "Remove"],
+  ["Ver detalle", "View details"],
+  ["Ocultar detalle", "Hide details"],
+  ["Skills de campana", "Campaign skills"],
+  ["Inventario", "Inventory"],
+  ["Sintonizacion: si", "Attunement: yes"],
+  ["Sintonizacion: no", "Attunement: no"],
+  ["Sintonizacion: todos", "Attunement: all"],
+  ["Concentracion: si", "Concentration: yes"],
+  ["Concentracion: no", "Concentration: no"],
+  ["Concentracion: todos", "Concentration: all"]
+]);
+const UI_ATTRIBUTE_TRANSLATIONS_EN = new Map([
+  ["Danio en area", "Area damage"],
+  ["Daño en area", "Area damage"],
+  ["Buscar opcion...", "Search option..."],
+  ["Escribe para filtrar", "Type to filter"],
+  ["Ej. Las ruinas de Korrin", "Ex. The Ruins of Korrin"],
+  ["Ej. Emboscada en el bosque", "Ex. Forest ambush"],
+  ["Busca una criatura del bestiario", "Search for a bestiary creature"],
+  ["Nueva tabla", "New table"],
+  ["Columna 1", "Column 1"],
+  ["Columna 2", "Column 2"],
+  ["Filtrar por items con o sin sintonizacion", "Filter items by attunement requirement"],
+  ["Filtrar por hechizos con o sin concentracion", "Filter spells by concentration requirement"],
+  ["Caracteristicas y competencias", "Ability scores and proficiencies"],
+  ["Estadisticas del personaje", "Character stats"],
+  ["Lista de personajes", "Character list"],
+  ["Criaturas del encuentro", "Encounter creatures"],
+  ["Encuentros guardados", "Saved encounters"],
+  ["Combat tracker", "Combat tracker"]
+]);
+const UI_REGEX_TRANSLATIONS_EN = [
+  [/^CSV activo: (.+)$/u, "Active CSV: $1"],
+  [/^(\d+) visibles$/u, "$1 visible"],
+  [/^(\d+) totales$/u, "$1 total"],
+  [/^(\d+) fichas$/u, "$1 sheets"],
+  [/^(\d+) carpetas$/u, "$1 folders"],
+  [/^(\d+) encuentros$/u, "$1 encounters"],
+  [/^(\d+) filas$/u, "$1 rows"],
+  [/^(\d+) unidades$/u, "$1 units"],
+  [/^(\d+) aliados creados$/u, "$1 created allies"],
+  [/^(\d+) disponibles$/u, "$1 available"],
+  [/^(\d+) enemigos \| CR total (.+)$/u, "$1 enemies | Total CR $2"],
+  [/^CR total (.+)$/u, "Total CR $1"],
+  [/^Fichero de campaña activa:$/u, "Active campaign file:"],
+  [/^Eliminar carpeta (.+)$/u, "Delete folder $1"],
+  [/^Eliminar tabla (.+)$/u, "Delete table $1"],
+  [/^Selecciona una tabla de (.+) para eliminarla$/u, "Select a table from $1 to delete it"],
+  [/^Eliminar columna (.+)$/u, "Delete column $1"],
+  [/^Añadir columna tras (.+)$/u, "Add column after $1"],
+  [/^Eliminar fila (\d+)$/u, "Delete row $1"],
+  [/^Añadir fila tras fila (\d+)$/u, "Add row after row $1"],
+  [/^Añadir primera fila$/u, "Add first row"],
+  [/^Abrir filtro de (.+)$/u, "Open filter for $1"],
+  [/^Seleccionar (.+)$/u, "Select $1"],
+  [/^Abrir (.+) en bestiario$/u, "Open $1 in bestiary"],
+  [/^Abrir ficha de (.+)$/u, "Open sheet for $1"],
+  [/^Filtrar por fuente (.+)$/u, "Filter by source $1"],
+  [/^Filtrar por CR (.+)$/u, "Filter by CR $1"],
+  [/^Filtrar por nivel (.+)$/u, "Filter by level $1"],
+  [/^No hay encuentros guardados\.$/u, "No saved encounters."],
+  [/^No hay personajes creados\.$/u, "No characters created."],
+  [/^Carpeta vacia\.$/u, "Empty folder."],
+  [/^Esta carpeta esta vacia\.$/u, "This folder is empty."],
+  [/^Crea tu primer encuentro para guardar criaturas del bestiario\.$/u, "Create your first encounter to store bestiary creatures."],
+  [/^No hay ningun encuentro seleccionado\.$/u, "No encounter selected."],
+  [/^Crear encuentro$/u, "Create encounter"],
+  [/^Usa el buscador para anadir criaturas\. Cada seleccion crea una fila nueva con unidades 1 y CR\.$/u, "Use the search field to add creatures. Each selection creates a new row with 1 unit and CR."],
+  [/^Sugerencias para el encuentro$/u, "Encounter suggestions"],
+  [/^Fuentes posibles$/u, "Available sources"],
+  [/^No hay otras fuentes para esta criatura\.$/u, "No other sources exist for this creature."],
+  [/^Nombre de carpeta (.+)$/u, "Folder name $1"],
+  [/^Eliminar (.+) del encuentro$/u, "Remove $1 from encounter"],
+  [/^Unidades de (.+)$/u, "Units for $1"],
+  [/^Configura nivel y progreso de este personaje en las skills comunes\.$/u, "Set this character's level and progress in the shared skills."],
+  [/^Vista resumida de progreso y nivel actual\.$/u, "Compact view of current progress and level."],
+  [/^No hay skills comunes configuradas\.$/u, "No shared skills configured."],
+  [/^Rango maximo$/u, "Maximum rank"],
+  [/^Sin rango$/u, "No rank"],
+  [/^Nivel$/u, "Level"],
+  [/^XP nivel$/u, "Level XP"],
+  [/^Fracaso(?: (\d+))?$/u, (_, tier) => tier ? `Failure ${tier}` : "Failure"],
+  [/^Intermedio(?: (\d+))?$/u, (_, tier) => tier ? `Partial ${tier}` : "Partial"],
+  [/^Exito(?: (\d+))?$/u, (_, tier) => tier ? `Success ${tier}` : "Success"],
+  [/^No hay personajes\. Crea un aliado para usarlo en combate\.$/u, "No characters yet. Create an ally to use it in combat."],
+  [/^Crea un personaje aliado para editar su ficha rapida\.$/u, "Create an allied character to edit its quick sheet."],
+  [/^Ctrl o Cmd \+ clic para multiseleccionar$/u, "Ctrl or Cmd + click to multiselect"],
+  [/^Retrato de (.+)$/u, "Portrait of $1"],
+  [/^Retrato no disponible$/u, "Portrait unavailable"],
+  [/^Sin retrato vinculado$/u, "No linked portrait"],
+  [/^Cargar imagen$/u, "Upload image"],
+  [/^Ocultar inventario$/u, "Hide inventory"],
+  [/^Mostrar inventario$/u, "Show inventory"],
+  [/^(\d+) objetos$/u, "$1 items"],
+  [/^Busca un item del catalogo$/u, "Search for a catalog item"],
+  [/^Sugerencias de inventario$/u, "Inventory suggestions"],
+  [/^Quitar (.+)$/u, "Remove $1"],
+  [/^No hay objetos en inventario\.$/u, "No items in inventory."],
+  [/^Experiencia del nivel actual$/u, "Current level experience"],
+  [/^Progreso de (.+)$/u, "Progress for $1"],
+  [/^No hay entidades visibles para el turno\.$/u, "No visible entities for the turn."],
+  [/^Orden de iniciativa$/u, "Initiative order"]
+];
+const UI_TEXT_TRANSLATIONS_EN_NORMALIZED = new Map(
+  [...UI_TEXT_TRANSLATIONS_EN.entries()].map(([key, value]) => [normalizeTranslationKey(key), value])
+);
+const UI_ATTRIBUTE_TRANSLATIONS_EN_NORMALIZED = new Map(
+  [...UI_ATTRIBUTE_TRANSLATIONS_EN.entries()].map(([key, value]) => [normalizeTranslationKey(key), value])
+);
 const bestiaryRenderCache = {
   filteredEntries: new Map(),
   optionEntries: new Map(),
@@ -371,6 +820,9 @@ let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
 let activeTableColumnResize = null;
 let activeTableRollTimer = 0;
+let tableRollAudioContext = null;
+const ENEMY_HP_MODE_FIXED = "fixed";
+const ENEMY_HP_MODE_VARIABLE = "variable";
 const TOPBAR_NAV_ROWS = [
   {
     id: "game",
@@ -401,8 +853,10 @@ const state = {
   campaignName: initialCampaignMeta.name,
   campaignFileName: initialCampaignMeta.fileName,
   campaignFilePath: initialCampaignMeta.filePath,
+  appLanguage: normalizeStoredAppLanguage(initialCampaignMeta.language),
   campaignMessage: "",
   fileMenuOpen: false,
+  optionsMenuOpen: false,
   campaignSaveNameDialogOpen: false,
   campaignSaveNameDialogMode: "",
   campaignSaveNameDialogValue: "",
@@ -425,6 +879,7 @@ const state = {
   isCombatActive: initialCombatTrackerState.isCombatActive,
   activeTurnCombatantId: initialCombatTrackerState.activeTurnCombatantId,
   combatRound: initialCombatTrackerState.combatRound,
+  enemyHpMode: initialCombatTrackerState.enemyHpMode,
   battleTimer: {
     elapsedMs: 0,
     startedAt: 0,
@@ -496,6 +951,7 @@ const state = {
   openTableIds: initialTablesState.openTableIds,
   rollingTableId: "",
   rollingTableRowId: "",
+  rolledTableId: "",
   rolledTableRowId: "",
   activeCombatNameSearchId: "",
   activeCombatSourceId: ""
@@ -510,6 +966,7 @@ document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("pointermove", handlePointerMove);
 document.addEventListener("pointerup", handlePointerUp);
 document.addEventListener("pointercancel", handlePointerUp);
+window.addEventListener("resize", handleWindowResize);
 app.addEventListener("scroll", handleScroll, true);
 app.addEventListener("dragstart", handleDragStart);
 app.addEventListener("dragover", handleDragOver);
@@ -527,11 +984,13 @@ function handleClick(event) {
   if (screenButton) {
     if (state.activeScreen === "tables" && screenButton.dataset.screen !== "tables") {
       stopActiveTableRoll();
+      state.rolledTableId = "";
       state.rolledTableRowId = "";
     }
 
     state.activeScreen = screenButton.dataset.screen;
     state.fileMenuOpen = false;
+    state.optionsMenuOpen = false;
     state.combatEncounterPickerOpen = false;
     state.combatAddPickerMode = "";
     render();
@@ -552,6 +1011,7 @@ function handleClick(event) {
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
   const clickedFileMenu = event.target.closest("[data-file-menu]");
+  const clickedOptionsMenu = event.target.closest("[data-options-menu]");
   const clickedCharacterSkillConfig = event.target.closest("[data-character-skill-config-menu]");
 
   if (
@@ -573,6 +1033,19 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-character-skill-config"
   ) {
     state.characterSkillConfigOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.optionsMenuOpen &&
+    !clickedOptionsMenu &&
+    actionButton?.dataset.action !== "toggle-options-menu"
+  ) {
+    state.optionsMenuOpen = false;
 
     if (!actionButton) {
       render();
@@ -720,8 +1193,33 @@ function handleClick(event) {
 
   const { action } = actionButton.dataset;
 
+  if (state.optionsMenuOpen && clickedOptionsMenu && action !== "toggle-options-menu") {
+    state.optionsMenuOpen = false;
+  }
+
   if (action === "toggle-file-menu") {
+    state.optionsMenuOpen = false;
     state.fileMenuOpen = !state.fileMenuOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-options-menu") {
+    state.fileMenuOpen = false;
+    state.optionsMenuOpen = !state.optionsMenuOpen;
+    render();
+    return;
+  }
+
+  if (action === "close-options-menu") {
+    state.optionsMenuOpen = false;
+    render();
+    return;
+  }
+
+  if (action === "set-app-language") {
+    state.appLanguage = normalizeStoredAppLanguage(actionButton.dataset.appLanguage);
+    saveCampaignMeta();
     render();
     return;
   }
@@ -1764,6 +2262,13 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-enemy-hp-mode-switch]")) {
+    state.enemyHpMode = target.checked ? ENEMY_HP_MODE_VARIABLE : ENEMY_HP_MODE_FIXED;
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
   if (target.matches("[data-area-damage]")) {
     state.areaDamage = target.value;
     saveCombatTrackerState();
@@ -2104,9 +2609,18 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if (event.key === "Escape" && (state.fileMenuOpen || state.optionsMenuOpen)) {
+    event.preventDefault();
+    state.fileMenuOpen = false;
+    state.optionsMenuOpen = false;
+    render();
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     state.fileMenuOpen = false;
+    state.optionsMenuOpen = false;
     saveCampaignFile();
   }
 }
@@ -2200,7 +2714,7 @@ function handleScroll(event) {
     const viewportChanged = Math.abs(previousViewportHeight - state.bestiaryListViewportHeight) > 24;
 
     if (previousStartIndex !== nextStartIndex || viewportChanged) {
-      render();
+      updateBestiaryListViewport();
     }
 
     return;
@@ -2216,7 +2730,7 @@ function handleScroll(event) {
     const viewportChanged = Math.abs(previousViewportHeight - state.itemListViewportHeight) > 24;
 
     if (previousStartIndex !== nextStartIndex || viewportChanged) {
-      render();
+      updateItemListViewport();
     }
 
     return;
@@ -2232,9 +2746,16 @@ function handleScroll(event) {
     const viewportChanged = Math.abs(previousViewportHeight - state.arcanumListViewportHeight) > 24;
 
     if (previousStartIndex !== nextStartIndex || viewportChanged) {
-      render();
+      updateArcanumListViewport();
     }
   }
+}
+
+function handleWindowResize() {
+  syncCompendiumLayoutHeights();
+  updateBestiaryListViewport(true);
+  updateItemListViewport(true);
+  updateArcanumListViewport(true);
 }
 
 function handleDragStart(event) {
@@ -2581,6 +3102,10 @@ function render(focusState = null) {
   app.innerHTML = `
     <div class="shell">
       <div class="shell__backdrop"></div>
+      <div class="shell-menu-bar" aria-label="Menus principales">
+        ${renderFileMenu()}
+        ${renderOptionsMenu()}
+      </div>
       <header class="topbar">
         <div class="brand">
           <div class="brand__crest">
@@ -2598,6 +3123,7 @@ function render(focusState = null) {
         ${renderScreen()}
       </main>
       ${renderBootOverlay()}
+      ${renderOptionsDialog()}
       ${renderCampaignSaveNameDialog()}
     </div>
   `;
@@ -2630,6 +3156,8 @@ function render(focusState = null) {
     syncRolledTableRowIntoView();
   }
 
+  syncCompendiumLayoutHeights();
+  applyInterfaceTranslations(app);
   syncTopbarNavigationMetrics();
 
   saveCombatTrackerState();
@@ -2637,7 +3165,7 @@ function render(focusState = null) {
 
 function renderTopbarNavigation() {
   return `
-    <div class="topbar__nav-stack" aria-label="Pantallas principales">
+    <div class="topbar__nav-stack" aria-label="Barra principal">
       ${TOPBAR_NAV_ROWS.map((row) => renderTopbarNavRow(row)).join("")}
     </div>
   `;
@@ -2648,29 +3176,29 @@ function renderTopbarNavRow(row) {
     .map((screenId) => screens.find((screen) => screen.id === screenId))
     .filter(Boolean);
   const rowLabel = row.id === "game" ? "Pantallas principales" : "Pantallas de consulta";
-  const extraItems = row.id === "game" ? renderFileMenu() : "";
 
   return `
     <div class="nav-row nav-row--${row.id}">
       <nav class="nav nav--row" aria-label="${escapeHtml(rowLabel)}">
         ${rowScreens.map((screen) => renderScreenButton(screen)).join("")}
-        ${extraItems}
       </nav>
     </div>
   `;
 }
 
 function renderScreenButton(screen, extraClassName = "") {
+  const buttonLabel = state.appLanguage === APP_LANGUAGE_EN ? screen.label : screen.shortLabel;
+
   return `
     <button
       class="nav__button ${extraClassName} ${screen.id === state.activeScreen ? "is-active" : ""}"
       type="button"
       data-screen="${screen.id}"
       aria-pressed="${screen.id === state.activeScreen}"
-      title="${screen.label}"
+      title="${escapeHtml(screen.label)}"
     >
       <span class="nav__icon">${screen.icon}</span>
-      <span class="nav__label">${screen.shortLabel}</span>
+      <span class="nav__label">${escapeHtml(buttonLabel)}</span>
     </button>
   `;
 }
@@ -2693,7 +3221,7 @@ function renderFileMenu() {
             <path d="M4 4h7l2 2h7v14H4V4Zm2 4v10h12V8H6Z" />
           </svg>
         </span>
-        <span class="nav__label">Archivo</span>
+        <span class="nav__label">${escapeHtml(t("menu_file"))}</span>
       </button>
       ${
         state.fileMenuOpen
@@ -2741,10 +3269,104 @@ function renderFileMenu() {
   `;
 }
 
+function renderOptionsMenu() {
+  return `
+    <div class="file-menu options-menu" data-options-menu>
+      <button
+        class="nav__button file-menu__trigger options-menu__trigger ${state.optionsMenuOpen ? "is-active" : ""}"
+        type="button"
+        data-action="toggle-options-menu"
+        aria-expanded="${state.optionsMenuOpen}"
+        aria-haspopup="menu"
+      >
+        <span class="nav__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 7h14v2H5V7Zm3 4h11v2H8v-2Zm-3 4h14v2H5v-2Zm-2-4h3v2H3v-2Z" />
+          </svg>
+        </span>
+        <span class="nav__label">${escapeHtml(t("menu_options"))}</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderOptionsDialog() {
+  if (!state.optionsMenuOpen) {
+    return "";
+  }
+
+  const usesVariableHp = state.enemyHpMode === ENEMY_HP_MODE_VARIABLE;
+
+  return `
+    <div class="options-dialog" data-options-menu>
+      <button
+        class="options-dialog__backdrop"
+        type="button"
+        data-action="close-options-menu"
+        aria-label="Cerrar opciones"
+      ></button>
+      <section
+        class="options-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Opciones"
+      >
+        <div class="options-dialog__header">
+          <button
+            class="summary-button summary-button--ghost options-dialog__close"
+            type="button"
+            data-action="close-options-menu"
+          >
+            ${escapeHtml(t("options_close"))}
+          </button>
+        </div>
+        <div class="options-dialog__switch-card ${usesVariableHp ? "is-selected" : ""}">
+          <div class="options-dialog__switch-copy">
+            <strong>${escapeHtml(usesVariableHp ? t("options_enemy_hp_variable") : t("options_enemy_hp_standard"))}</strong>
+            <small>${escapeHtml(usesVariableHp ? t("options_enemy_hp_variable_help") : t("options_enemy_hp_standard_help"))}</small>
+          </div>
+          <label class="options-dialog__switch" aria-label="Alternar vida variable de enemigos">
+            <input
+              class="options-dialog__switch-input"
+              type="checkbox"
+              data-enemy-hp-mode-switch
+              ${usesVariableHp ? "checked" : ""}
+            />
+            <span class="options-dialog__switch-track">
+              <span class="options-dialog__switch-thumb"></span>
+            </span>
+          </label>
+        </div>
+        <div class="options-dialog__language-card">
+          <strong>${escapeHtml(t("options_language_title"))}</strong>
+          <div class="options-dialog__language-actions">
+            <button
+              class="summary-button ${state.appLanguage === APP_LANGUAGE_ES ? "" : "summary-button--ghost"}"
+              type="button"
+              data-action="set-app-language"
+              data-app-language="${APP_LANGUAGE_ES}"
+            >
+              ${escapeHtml(t("options_language_es"))}
+            </button>
+            <button
+              class="summary-button ${state.appLanguage === APP_LANGUAGE_EN ? "" : "summary-button--ghost"}"
+              type="button"
+              data-action="set-app-language"
+              data-app-language="${APP_LANGUAGE_EN}"
+            >
+              ${escapeHtml(t("options_language_en"))}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function syncTopbarNavigationMetrics() {
   const navStack = app.querySelector(".topbar__nav-stack");
-  const combatButton = navStack?.querySelector(".nav-row--game .nav__button");
-  const navButtons = navStack ? [...navStack.querySelectorAll(".nav__button")] : [];
+  const combatButton = navStack?.querySelector(".nav-row--game [data-screen]");
+  const navButtons = navStack ? [...navStack.querySelectorAll(".nav-row [data-screen]")] : [];
 
   if (!navStack || !combatButton || navButtons.length === 0) {
     return;
@@ -2761,6 +3383,116 @@ function syncTopbarNavigationMetrics() {
 
 function getCampaignDisplayName() {
   return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaÃ±a";
+}
+
+function normalizeStoredAppLanguage(value) {
+  return cleanText(value) === APP_LANGUAGE_EN ? APP_LANGUAGE_EN : APP_LANGUAGE_ES;
+}
+
+function t(key, replacements = {}) {
+  const language = normalizeStoredAppLanguage(state?.appLanguage);
+  const template = UI_STRINGS[language]?.[key] ?? UI_STRINGS[APP_LANGUAGE_ES]?.[key] ?? key;
+
+  return Object.entries(replacements).reduce((result, [replacementKey, replacementValue]) => {
+    return result.replaceAll(`{${replacementKey}}`, String(replacementValue));
+  }, template);
+}
+
+function normalizeTranslationKey(value) {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function translateUiString(value) {
+  let translatedValue = String(value);
+
+  if (UI_TEXT_TRANSLATIONS_EN.has(translatedValue)) {
+    return UI_TEXT_TRANSLATIONS_EN.get(translatedValue);
+  }
+
+  const normalizedKey = normalizeTranslationKey(translatedValue);
+
+  if (UI_TEXT_TRANSLATIONS_EN_NORMALIZED.has(normalizedKey)) {
+    return UI_TEXT_TRANSLATIONS_EN_NORMALIZED.get(normalizedKey);
+  }
+
+  for (const [pattern, replacement] of UI_REGEX_TRANSLATIONS_EN) {
+    if (pattern.test(translatedValue)) {
+      translatedValue = translatedValue.replace(pattern, replacement);
+    }
+  }
+
+  return translatedValue;
+}
+
+function shouldSkipUiTranslation(element) {
+  return Boolean(element?.closest?.(UI_TRANSLATION_EXCLUDED_SELECTOR));
+}
+
+function applyInterfaceTranslations(root = app) {
+  if (!root || normalizeStoredAppLanguage(state.appLanguage) !== APP_LANGUAGE_EN) {
+    return;
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let currentNode = walker.nextNode();
+
+  while (currentNode) {
+    const parentElement = currentNode.parentElement;
+
+    if (parentElement && !shouldSkipUiTranslation(parentElement)) {
+      const rawValue = currentNode.nodeValue ?? "";
+      const trimmedValue = rawValue.trim();
+
+      if (trimmedValue) {
+        const translatedValue = translateUiString(trimmedValue);
+
+        if (translatedValue !== trimmedValue) {
+          currentNode.nodeValue = rawValue.replace(trimmedValue, translatedValue);
+        }
+      }
+    }
+
+    currentNode = walker.nextNode();
+  }
+
+  root.querySelectorAll("*").forEach((element) => {
+    if (shouldSkipUiTranslation(element)) {
+      return;
+    }
+
+    ["placeholder", "title", "aria-label"].forEach((attributeName) => {
+      const attributeValue = element.getAttribute(attributeName);
+
+      if (!attributeValue) {
+        return;
+      }
+
+      let translatedValue =
+        UI_ATTRIBUTE_TRANSLATIONS_EN.get(attributeValue)
+        ?? UI_ATTRIBUTE_TRANSLATIONS_EN_NORMALIZED.get(normalizeTranslationKey(attributeValue))
+        ?? attributeValue;
+
+      for (const [pattern, replacement] of UI_REGEX_TRANSLATIONS_EN) {
+        if (pattern.test(translatedValue)) {
+          translatedValue = translatedValue.replace(pattern, replacement);
+        }
+      }
+
+      if (translatedValue !== attributeValue) {
+        element.setAttribute(attributeName, translatedValue);
+      }
+    });
+  });
+}
+
+function syncCompendiumLayoutHeights() {
+  app.querySelectorAll(".bestiary-layout").forEach((layout) => {
+    const layoutRect = layout.getBoundingClientRect();
+    const viewportHeight = Math.max(320, Math.floor(window.innerHeight - layoutRect.top - 24));
+    layout.style.setProperty("--compendium-viewport-height", `${viewportHeight}px`);
+  });
 }
 
 function renderScreen() {
@@ -2809,7 +3541,7 @@ function renderCombatTracker() {
     <section class="panel panel--table combat-tracker-panel">
       <div class="section-heading">
         <div>
-          <h3>Tabla de combate</h3>
+          <h3>${escapeHtml(t("combat_table_title"))}</h3>
         </div>
         <div class="section-heading__side">
           ${!state.combatTimerPanelOpen
@@ -3719,28 +4451,28 @@ function renderBestiary() {
     <section class="panel panel--table bestiary-showcase bestiary-showcase--hearth">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Repositorio de enemigos</p>
-          <h3>Catalogo sincronizado con CSV</h3>
+          <p class="eyebrow">${escapeHtml(t("bestiary_eyebrow"))}</p>
+          <h3>${escapeHtml(t("bestiary_title"))}</h3>
         </div>
         <div class="section-heading__side">
           <div class="section-meta">
             <span>${getBestiaryStatusLabel()}</span>
-            <span>${filteredEntries.length} visibles</span>
-            <span>${state.bestiary.length} totales</span>
+            <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
+            <span>${escapeHtml(t("bestiary_total", { count: state.bestiary.length }))}</span>
           </div>
         </div>
       </div>
 
-      <div class="bestiary-toolbar" aria-label="Filtros del bestiario">
+      <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderBestiaryQueryField()}
-          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-bestiary-filters">Limpiar filtros</button>
+          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-bestiary-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--filters">
-          ${renderBestiaryFilterDropdown("type", "Tipo")}
-          ${renderBestiaryFilterDropdown("environment", "Entorno")}
+          ${renderBestiaryFilterDropdown("type", t("filter_type"))}
+          ${renderBestiaryFilterDropdown("environment", t("filter_environment"))}
           ${renderBestiaryFilterDropdown("crBase", "CR")}
-          ${renderBestiaryFilterDropdown("source", "Fuente")}
+          ${renderBestiaryFilterDropdown("source", t("filter_source"))}
         </div>
       </div>
 
@@ -3757,25 +4489,25 @@ function renderItems() {
     <section class="panel panel--table">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Tesoro sincronizado</p>
-          <h3>Catalogo de items desde CSV</h3>
+          <p class="eyebrow">${escapeHtml(t("items_eyebrow"))}</p>
+          <h3>${escapeHtml(t("items_title"))}</h3>
         </div>
         <div class="section-meta">
           <span>${getItemStatusLabel()}</span>
-          <span>${filteredEntries.length} visibles</span>
-          <span>${state.items.length} totales</span>
+          <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
+          <span>${escapeHtml(t("bestiary_total", { count: state.items.length }))}</span>
         </div>
       </div>
 
-      <div class="bestiary-toolbar" aria-label="Filtros de items">
+      <div class="bestiary-toolbar" aria-label="${escapeHtml(t("items_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
-          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-item-filters">Limpiar filtros</button>
+          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-item-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--item-filters">
-          ${renderItemFilterDropdown("type", "Tipo")}
+          ${renderItemFilterDropdown("type", t("filter_type"))}
           ${renderItemFilterDropdown("rarity", "Rareza")}
-          ${renderItemFilterDropdown("source", "Fuente")}
+          ${renderItemFilterDropdown("source", t("filter_source"))}
           ${renderItemAttunementFilterButton()}
         </div>
       </div>
@@ -3793,27 +4525,27 @@ function renderArcanum() {
     <section class="panel panel--table">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Grimorio sincronizado</p>
-          <h3>Catalogo de hechizos desde CSV</h3>
+          <p class="eyebrow">${escapeHtml(t("arcanum_eyebrow"))}</p>
+          <h3>${escapeHtml(t("arcanum_title"))}</h3>
         </div>
         <div class="section-meta">
           <span>${getArcanumStatusLabel()}</span>
-          <span>${filteredEntries.length} visibles</span>
-          <span>${state.arcanum.length} totales</span>
+          <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
+          <span>${escapeHtml(t("bestiary_total", { count: state.arcanum.length }))}</span>
         </div>
       </div>
 
-      <div class="bestiary-toolbar" aria-label="Filtros del arcanum">
+      <div class="bestiary-toolbar" aria-label="${escapeHtml(t("arcanum_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
           ${renderArcanumConcentrationFilterButton()}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--filters">
-          ${renderArcanumFilterDropdown("level", "Nivel")}
-          ${renderArcanumFilterDropdown("castingTime", "Velocidad Hechizo")}
-          ${renderArcanumFilterDropdown("school", "Escuela")}
-          ${renderArcanumFilterDropdown("class", "Clase")}
-          ${renderArcanumFilterDropdown("source", "Fuente")}
+          ${renderArcanumFilterDropdown("level", t("arcanum_filter_level"))}
+          ${renderArcanumFilterDropdown("castingTime", t("arcanum_filter_casting"))}
+          ${renderArcanumFilterDropdown("school", t("arcanum_filter_school"))}
+          ${renderArcanumFilterDropdown("class", t("arcanum_filter_class"))}
+          ${renderArcanumFilterDropdown("source", t("filter_source"))}
         </div>
       </div>
 
@@ -3826,7 +4558,7 @@ function renderItemsContent(filteredEntries, selectedEntry) {
   if (state.itemStatus === "loading") {
     return `
       <div class="empty-state empty-state--panel">
-        Cargando Items.csv...
+        ${escapeHtml(t("loading_items"))}
       </div>
     `;
   }
@@ -3851,7 +4583,7 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
   if (state.arcanumStatus === "loading") {
     return `
       <div class="empty-state empty-state--panel">
-        Cargando Spells.csv...
+        ${escapeHtml(t("loading_arcanum"))}
       </div>
     `;
   }
@@ -3874,11 +4606,11 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
 
 function renderItemRow(entry, isSelected) {
   const attunementChip = entry.requiresAttunement
-    ? `<span class="pill item-row__attunement-pill">Sintonizacion</span>`
+    ? `<span class="pill item-row__attunement-pill">${escapeHtml(translateUiString("Sintonizacion"))}</span>`
     : "";
   const itemStats = [
-    entry.value ? `PRECIO: ${entry.valueLabel}` : "",
-    entry.weight ? `PESO: ${entry.weightLabel} | Talla: ${entry.sizeLabel}` : `Talla: ${entry.sizeLabel}`
+    entry.value ? `${t("list_price")}: ${entry.valueLabel}` : "",
+    entry.weight ? `${t("list_weight")}: ${entry.weightLabel} | ${t("list_size")}: ${entry.sizeLabel}` : `${t("list_size")}: ${entry.sizeLabel}`
   ].filter(Boolean).join(" | ");
   const rarityClass = getItemRarityClass(entry.rarityLabel);
   const typeSummary = getItemMostSpecificTypeLabel(entry.type);
@@ -3896,7 +4628,7 @@ function renderItemRow(entry, isSelected) {
         <div class="item-row__heading">
           <div class="item-row__title-stack">
             <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-            <span class="pill bestiary-row__source-pill">${escapeHtml(`FUENTE: ${entry.source || "?"}`)}</span>
+            <span class="pill bestiary-row__source-pill">${escapeHtml(`${t("source_short")}: ${entry.source || "?"}`)}</span>
           </div>
           <p class="item-row__type-summary">${escapeHtml(typeSummary)}</p>
         </div>
@@ -3918,7 +4650,7 @@ function renderItemList(filteredEntries, selectedId) {
   if (filteredEntries.length === 0) {
     return `
       <div class="empty-state empty-state--panel">
-        No hay items que coincidan con los filtros actuales.
+        ${escapeHtml(t("no_item_results"))}
       </div>
     `;
   }
@@ -3932,26 +4664,32 @@ function renderItemList(filteredEntries, selectedId) {
   return `
     <div
       class="bestiary-list__virtual"
-      style="padding-top: ${virtualWindow.topPadding}px; padding-bottom: ${virtualWindow.bottomPadding}px;"
+      style="height: ${virtualWindow.totalHeight}px;"
       data-item-virtual-start="${virtualWindow.startIndex}"
       data-item-virtual-end="${virtualWindow.endIndex}"
+      data-item-virtual-total="${filteredEntries.length}"
     >
-      ${listHtml}
+      <div
+        class="bestiary-list__virtual-window"
+        style="transform: translateY(${virtualWindow.topPadding}px);"
+      >
+        ${listHtml}
+      </div>
     </div>
   `;
 }
 
 function renderArcanumRow(entry, isSelected) {
   const detailItems = [
-    ["Escuela", entry.school || "-"],
-    ["Lanzamiento", entry.castingTime || "Sin tiempo"],
-    ["Alcance", entry.range || "Sin alcance"],
-    ["Duracion", entry.duration || "Sin duracion"]
+    [t("list_school"), entry.school || "-"],
+    [t("list_casting"), entry.castingTime || t("list_no_casting")],
+    [t("list_range"), entry.range || t("list_no_range")],
+    [t("list_duration"), entry.duration || t("list_no_duration")]
   ];
   const concentrationChip = entry.hasConcentration
     ? `
       <div class="arcanum-row__status">
-        <span class="pill arcanum-row__status-pill">Concentracion</span>
+        <span class="pill arcanum-row__status-pill">${escapeHtml(translateUiString("Concentracion"))}</span>
       </div>
     `
     : "";
@@ -3977,18 +4715,18 @@ function renderArcanumRow(entry, isSelected) {
                 data-arcanum-source-value="${escapeHtml(entry.source)}"
                 aria-label="Filtrar por fuente ${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")}"
               >
-                ${escapeHtml(`FUENTE: ${entry.source || "?"}`)}
+                ${escapeHtml(`${t("source_short")}: ${entry.source || "?"}`)}
               </button>
             </div>
             <button
               class="pill bestiary-row__filter-pill arcanum-row__level-pill"
-              type="button"
-              data-action="filter-arcanum-by-level"
-              data-arcanum-level-value="${escapeHtml(entry.level)}"
-              aria-label="Filtrar por nivel ${escapeHtml(entry.levelLabel || "Sin nivel")}"
-            >
-              ${escapeHtml(`NIVEL: ${entry.levelLabel || "Sin nivel"}`)}
-            </button>
+                type="button"
+                data-action="filter-arcanum-by-level"
+                data-arcanum-level-value="${escapeHtml(entry.level)}"
+                aria-label="Filtrar por nivel ${escapeHtml(entry.levelLabel || t("list_no_level"))}"
+              >
+                ${escapeHtml(`${t("list_level")}: ${entry.levelLabel || t("list_no_level")}`)}
+              </button>
           </div>
           <div class="arcanum-row__body">
             <div class="bestiary-row__facts">
@@ -4012,14 +4750,14 @@ function renderItemDetail(entry) {
   const kpis = renderItemKpis(entry);
   const detailBlocks = renderItemDetailBlocks(entry);
   const chips = [
-    renderDetailChip("Tipo resumido", entry.typeLine),
-    renderDetailChip("Propiedades", entry.properties),
-    renderDetailChip("Mastery", entry.mastery)
+    renderDetailChip(t("items_selected_type"), entry.typeLine),
+    renderDetailChip(t("items_selected_properties"), entry.properties),
+    renderDetailChip(t("items_selected_mastery"), entry.mastery)
   ].filter(Boolean).join("");
 
   return `
     <div class="bestiary-detail__header item-detail__header">
-      <p class="eyebrow">Item seleccionado</p>
+      <p class="eyebrow">${escapeHtml(t("item_selected"))}</p>
       <h3>${escapeHtml(entry.name)}</h3>
       <p class="bestiary-detail__source">${escapeHtml(getItemSourceDescription(entry))}</p>
     </div>
@@ -4033,7 +4771,7 @@ function renderItemDetail(entry) {
     ${chips ? `<div class="bestiary-resistances">${chips}</div>` : ""}
 
     <div class="bestiary-sections">
-      ${renderBestiarySection("Description", entry.text || "Sin descripcion disponible.", { linkSpells: true })}
+      ${renderBestiarySection(t("items_description"), entry.text || "Sin descripcion disponible.", { linkSpells: true })}
     </div>
   `;
 }
@@ -4041,7 +4779,7 @@ function renderItemDetail(entry) {
 function renderItemDetailEmpty() {
   return `
     <div class="empty-state empty-state--panel">
-      Selecciona un item para ver la ficha completa.
+      ${escapeHtml(t("item_empty_detail"))}
     </div>
   `;
 }
@@ -4065,33 +4803,33 @@ function renderItemDetailMedia(entry) {
 }
 
 function renderArcanumDetail(entry) {
-  const textSection = renderBestiarySection("Texto", entry.text || "Sin texto disponible.");
+  const textSection = renderBestiarySection(t("arcanum_text"), entry.text || "Sin texto disponible.");
   const extraSections = [
     { title: "At Higher Levels", content: entry.atHigherLevels }
   ].filter((section) => section.content);
 
   return `
     <div class="bestiary-detail__header arcanum-detail__header">
-      <p class="eyebrow">Conjuro seleccionado</p>
+      <p class="eyebrow">${escapeHtml(t("spell_selected"))}</p>
       <h3>${escapeHtml(entry.name)}</h3>
       <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
     </div>
 
     <div class="bestiary-detail__grid">
       <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Casting Time</span>
+        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_casting_time"))}</span>
         <p>${escapeHtml(entry.castingTime || "No indicado")}</p>
       </div>
       <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Duracion</span>
+        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_duration"))}</span>
         <p>${escapeHtml(entry.duration || "No indicada")}</p>
       </div>
       <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Alcance</span>
+        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_range"))}</span>
         <p>${escapeHtml(entry.range || "No indicado")}</p>
       </div>
       <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Componentes</span>
+        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_components"))}</span>
         <p>${escapeHtml(entry.components || "No indicados")}</p>
       </div>
     </div>
@@ -4099,8 +4837,8 @@ function renderArcanumDetail(entry) {
     <div class="bestiary-sections">
       ${textSection}
       <div class="bestiary-resistances">
-        ${renderDetailChip("Clases", entry.classes || entry.optionalClasses)}
-        ${renderDetailChip("Subclases", entry.subclasses)}
+        ${renderDetailChip(t("arcanum_classes"), entry.classes || entry.optionalClasses)}
+        ${renderDetailChip(t("arcanum_subclasses"), entry.subclasses)}
       </div>
       ${extraSections.map((section) => renderBestiarySection(section.title, section.content)).join("")}
     </div>
@@ -4110,7 +4848,7 @@ function renderArcanumDetail(entry) {
 function renderArcanumDetailEmpty() {
   return `
     <div class="empty-state empty-state--panel">
-      Selecciona un hechizo para ver su ficha completa.
+      ${escapeHtml(t("arcanum_empty_detail"))}
     </div>
   `;
 }
@@ -4119,7 +4857,7 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
   if (state.bestiaryStatus === "loading") {
     return `
       <div class="empty-state empty-state--panel">
-        Cargando Bestiary.csv...
+        ${escapeHtml(t("loading_bestiary"))}
       </div>
     `;
   }
@@ -4155,8 +4893,8 @@ function renderBestiaryRow(entry, isSelected) {
     `
     : "";
   const detailItems = [
-    ["Type", entry.type || "-"],
-    ["Environment", entry.environment || "Sin entorno"]
+    [t("list_type"), entry.type || "-"],
+    [t("list_environment"), entry.environment || t("list_no_environment")]
   ];
 
   return `
@@ -4179,7 +4917,7 @@ function renderBestiaryRow(entry, isSelected) {
               data-bestiary-source-value="${escapeHtml(entry.source)}"
               aria-label="Filtrar por fuente ${escapeHtml(entry.source)}"
             >
-              ${escapeHtml(`FUENTE: ${entry.source || "?"}`)}
+              ${escapeHtml(`${t("source_short")}: ${entry.source || "?"}`)}
             </button>
           </div>
           <div class="bestiary-row__facts">
@@ -4194,13 +4932,13 @@ function renderBestiaryRow(entry, isSelected) {
             <div class="bestiary-row__cr">
               <button
                 class="pill bestiary-row__filter-pill"
-                type="button"
-                data-action="filter-bestiary-by-cr"
-                data-bestiary-cr-value="${escapeHtml(entry.crBaseLabel || "")}"
-                aria-label="Filtrar por CR ${escapeHtml(entry.crBaseLabel || "Sin CR")}"
-              >
-                ${escapeHtml(`CR: ${entry.crBaseLabel || "Sin CR"}`)}
-              </button>
+              type="button"
+              data-action="filter-bestiary-by-cr"
+              data-bestiary-cr-value="${escapeHtml(entry.crBaseLabel || "")}"
+              aria-label="Filtrar por CR ${escapeHtml(entry.crBaseLabel || "Sin CR")}"
+            >
+              ${escapeHtml(`${t("cr_short")}: ${entry.crBaseLabel || "Sin CR"}`)}
+            </button>
             </div>
           </div>
         </div>
@@ -4214,7 +4952,7 @@ function renderBestiaryList(filteredEntries, selectedId) {
   if (filteredEntries.length === 0) {
     return `
       <div class="empty-state empty-state--panel">
-        No hay criaturas que coincidan con los filtros actuales.
+        ${escapeHtml(t("no_bestiary_results"))}
       </div>
     `;
   }
@@ -4228,11 +4966,17 @@ function renderBestiaryList(filteredEntries, selectedId) {
   return `
     <div
       class="bestiary-list__virtual"
-      style="padding-top: ${virtualWindow.topPadding}px; padding-bottom: ${virtualWindow.bottomPadding}px;"
+      style="height: ${virtualWindow.totalHeight}px;"
       data-bestiary-virtual-start="${virtualWindow.startIndex}"
       data-bestiary-virtual-end="${virtualWindow.endIndex}"
+      data-bestiary-virtual-total="${filteredEntries.length}"
     >
-      ${listHtml}
+      <div
+        class="bestiary-list__virtual-window"
+        style="transform: translateY(${virtualWindow.topPadding}px);"
+      >
+        ${listHtml}
+      </div>
     </div>
   `;
 }
@@ -4249,7 +4993,7 @@ function getBestiaryVirtualWindow(totalEntries) {
     startIndex,
     endIndex,
     topPadding: startIndex * BESTIARY_VIRTUAL_ROW_HEIGHT,
-    bottomPadding: Math.max(0, (totalEntries - endIndex) * BESTIARY_VIRTUAL_ROW_HEIGHT)
+    totalHeight: totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT
   };
 }
 
@@ -4270,6 +5014,32 @@ function restoreBestiaryListScroll() {
 
   state.bestiaryListViewportHeight = listRoot.clientHeight;
   listRoot.scrollTop = state.bestiaryListScrollTop;
+  updateBestiaryListViewport(true);
+}
+
+function updateBestiaryListViewport(force = false) {
+  const listRoot = app.querySelector("[data-bestiary-list-root]");
+
+  if (!listRoot) {
+    return;
+  }
+
+  const filteredEntries = getFilteredBestiary();
+  const selectedId = getSelectedBestiaryEntry(filteredEntries)?.id ?? "";
+  const nextWindow = filteredEntries.length > 0 ? getBestiaryVirtualWindow(filteredEntries.length) : null;
+  const currentVirtual = listRoot.querySelector(".bestiary-list__virtual");
+  const currentStart = currentVirtual?.dataset.bestiaryVirtualStart ?? "";
+  const currentEnd = currentVirtual?.dataset.bestiaryVirtualEnd ?? "";
+  const currentTotal = currentVirtual?.dataset.bestiaryVirtualTotal ?? "";
+  const nextStart = nextWindow ? String(nextWindow.startIndex) : "";
+  const nextEnd = nextWindow ? String(nextWindow.endIndex) : "";
+  const nextTotal = String(filteredEntries.length);
+
+  if (!force && currentStart === nextStart && currentEnd === nextEnd && currentTotal === nextTotal) {
+    return;
+  }
+
+  listRoot.innerHTML = renderBestiaryList(filteredEntries, selectedId);
 }
 
 function getCachedBestiaryRowHtml(entry, isSelected) {
@@ -4328,7 +5098,7 @@ function getItemVirtualWindow(totalEntries) {
     startIndex,
     endIndex,
     topPadding: startIndex * ITEM_VIRTUAL_ROW_HEIGHT,
-    bottomPadding: Math.max(0, (totalEntries - endIndex) * ITEM_VIRTUAL_ROW_HEIGHT)
+    totalHeight: totalEntries * ITEM_VIRTUAL_ROW_HEIGHT
   };
 }
 
@@ -4349,6 +5119,32 @@ function restoreItemListScroll() {
 
   state.itemListViewportHeight = listRoot.clientHeight;
   listRoot.scrollTop = state.itemListScrollTop;
+  updateItemListViewport(true);
+}
+
+function updateItemListViewport(force = false) {
+  const listRoot = app.querySelector("[data-item-list-root]");
+
+  if (!listRoot) {
+    return;
+  }
+
+  const filteredEntries = getFilteredItems();
+  const selectedId = getSelectedItemEntry(filteredEntries)?.id ?? "";
+  const nextWindow = filteredEntries.length > 0 ? getItemVirtualWindow(filteredEntries.length) : null;
+  const currentVirtual = listRoot.querySelector(".bestiary-list__virtual");
+  const currentStart = currentVirtual?.dataset.itemVirtualStart ?? "";
+  const currentEnd = currentVirtual?.dataset.itemVirtualEnd ?? "";
+  const currentTotal = currentVirtual?.dataset.itemVirtualTotal ?? "";
+  const nextStart = nextWindow ? String(nextWindow.startIndex) : "";
+  const nextEnd = nextWindow ? String(nextWindow.endIndex) : "";
+  const nextTotal = String(filteredEntries.length);
+
+  if (!force && currentStart === nextStart && currentEnd === nextEnd && currentTotal === nextTotal) {
+    return;
+  }
+
+  listRoot.innerHTML = renderItemList(filteredEntries, selectedId);
 }
 
 function updateItemSelectionUI(previousSelectedId, nextSelectedId) {
@@ -4373,7 +5169,7 @@ function renderArcanumList(filteredEntries, selectedId) {
   if (filteredEntries.length === 0) {
     return `
       <div class="empty-state empty-state--panel">
-        No hay hechizos que coincidan con los filtros actuales.
+        ${escapeHtml(t("no_arcanum_results"))}
       </div>
     `;
   }
@@ -4387,11 +5183,17 @@ function renderArcanumList(filteredEntries, selectedId) {
   return `
     <div
       class="bestiary-list__virtual"
-      style="padding-top: ${virtualWindow.topPadding}px; padding-bottom: ${virtualWindow.bottomPadding}px;"
+      style="height: ${virtualWindow.totalHeight}px;"
       data-arcanum-virtual-start="${virtualWindow.startIndex}"
       data-arcanum-virtual-end="${virtualWindow.endIndex}"
+      data-arcanum-virtual-total="${filteredEntries.length}"
     >
-      ${listHtml}
+      <div
+        class="bestiary-list__virtual-window"
+        style="transform: translateY(${virtualWindow.topPadding}px);"
+      >
+        ${listHtml}
+      </div>
     </div>
   `;
 }
@@ -4408,7 +5210,7 @@ function getArcanumVirtualWindow(totalEntries) {
     startIndex,
     endIndex,
     topPadding: startIndex * BESTIARY_VIRTUAL_ROW_HEIGHT,
-    bottomPadding: Math.max(0, (totalEntries - endIndex) * BESTIARY_VIRTUAL_ROW_HEIGHT)
+    totalHeight: totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT
   };
 }
 
@@ -4429,6 +5231,32 @@ function restoreArcanumListScroll() {
 
   state.arcanumListViewportHeight = listRoot.clientHeight;
   listRoot.scrollTop = state.arcanumListScrollTop;
+  updateArcanumListViewport(true);
+}
+
+function updateArcanumListViewport(force = false) {
+  const listRoot = app.querySelector("[data-arcanum-list-root]");
+
+  if (!listRoot) {
+    return;
+  }
+
+  const filteredEntries = getFilteredArcanum();
+  const selectedId = getSelectedArcanumEntry(filteredEntries)?.id ?? "";
+  const nextWindow = filteredEntries.length > 0 ? getArcanumVirtualWindow(filteredEntries.length) : null;
+  const currentVirtual = listRoot.querySelector(".bestiary-list__virtual");
+  const currentStart = currentVirtual?.dataset.arcanumVirtualStart ?? "";
+  const currentEnd = currentVirtual?.dataset.arcanumVirtualEnd ?? "";
+  const currentTotal = currentVirtual?.dataset.arcanumVirtualTotal ?? "";
+  const nextStart = nextWindow ? String(nextWindow.startIndex) : "";
+  const nextEnd = nextWindow ? String(nextWindow.endIndex) : "";
+  const nextTotal = String(filteredEntries.length);
+
+  if (!force && currentStart === nextStart && currentEnd === nextEnd && currentTotal === nextTotal) {
+    return;
+  }
+
+  listRoot.innerHTML = renderArcanumList(filteredEntries, selectedId);
 }
 
 function updateArcanumSelectionUI(previousSelectedId, nextSelectedId) {
@@ -4451,57 +5279,61 @@ function updateArcanumSelectionUI(previousSelectedId, nextSelectedId) {
 
 function renderBestiaryDetail(entry) {
   const sections = [
-    { title: "Traits", content: entry.traits },
-    { title: "Actions", content: entry.actions },
-    { title: "Bonus Actions", content: entry.bonusActions },
-    { title: "Reactions", content: entry.reactions },
-    { title: "Legendary Actions", content: entry.legendaryActions },
-    { title: "Mythic Actions", content: entry.mythicActions },
-    { title: "Lair Actions", content: entry.lairActions },
-    { title: "Regional Effects", content: entry.regionalEffects }
+    { title: t("section_traits"), content: entry.traits },
+    { title: t("section_actions"), content: entry.actions },
+    { title: t("section_bonus_actions"), content: entry.bonusActions },
+    { title: t("section_reactions"), content: entry.reactions },
+    { title: t("section_legendary_actions"), content: entry.legendaryActions },
+    { title: t("section_mythic_actions"), content: entry.mythicActions },
+    { title: t("section_lair_actions"), content: entry.lairActions },
+    { title: t("section_regional_effects"), content: entry.regionalEffects }
   ].filter((section) => section.content);
+  const metrics = [
+    renderBestiaryMetric("HP", entry.hp || "-"),
+    renderBestiaryMetric("CA", entry.ac || "-"),
+    renderBestiaryMetric(t("metric_speed"), entry.speed || "-"),
+    renderBestiaryMetric("CR", entry.crLabel)
+  ].join("");
+  const abilities = statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("");
 
   return `
     <div class="bestiary-detail__header">
-      <p class="eyebrow">Ficha seleccionada</p>
+      <p class="eyebrow">${escapeHtml(t("bestiary_selected_sheet"))}</p>
       <h3>${escapeHtml(entry.name)}</h3>
       <p class="bestiary-detail__source">${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")}</p>
       <p class="lead">${escapeHtml(entry.typeLine)}</p>
     </div>
 
-    <div class="bestiary-detail__top">
-      <div class="bestiary-detail__top-stats">
-        ${renderBestiaryMetric("HP", entry.hp || "-")}
-        ${renderBestiaryMetric("CA", entry.ac || "-")}
-        ${renderBestiaryMetric("Velocidad", entry.speed || "-")}
-        ${renderBestiaryMetric("CR", entry.crLabel)}
+    <div class="bestiary-detail__hero">
+      <div class="bestiary-detail__abilities bestiary-detail__abilities--hero">
+        ${abilities}
       </div>
       ${renderBestiaryDetailMedia(entry)}
     </div>
 
-    <div class="bestiary-detail__abilities">
-      ${statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("")}
+    <div class="bestiary-detail__top-stats bestiary-detail__top-stats--metrics">
+      ${metrics}
     </div>
 
     <div class="bestiary-detail__grid">
       <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Sentidos</span>
+        <span class="bestiary-detail__label">${escapeHtml(t("metric_senses"))}</span>
         <p>${escapeHtml(entry.senses || "No indicado")}</p>
       </div>
       <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">Idiomas</span>
+        <span class="bestiary-detail__label">${escapeHtml(t("metric_languages"))}</span>
         <p>${escapeHtml(entry.languages || "No indicado")}</p>
       </div>
     </div>
 
     <div class="bestiary-resistances">
-      ${renderDetailChip("Entorno", entry.environment)}
-      ${renderDetailChip("Skills", entry.skills)}
-      ${renderDetailChip("Saving Throws", entry.savingThrows)}
-      ${renderDetailChip("Damage Vulnerabilities", entry.damageVulnerabilities)}
-      ${renderDetailChip("Damage Resistances", entry.damageResistances)}
-      ${renderDetailChip("Damage Immunities", entry.damageImmunities)}
-      ${renderDetailChip("Condition Immunities", entry.conditionImmunities)}
+      ${renderDetailChip(t("chip_environment"), entry.environment)}
+      ${renderDetailChip(t("chip_skills"), entry.skills)}
+      ${renderDetailChip(t("chip_saving_throws"), entry.savingThrows)}
+      ${renderDetailChip(t("chip_damage_vulnerabilities"), entry.damageVulnerabilities)}
+      ${renderDetailChip(t("chip_damage_resistances"), entry.damageResistances)}
+      ${renderDetailChip(t("chip_damage_immunities"), entry.damageImmunities)}
+      ${renderDetailChip(t("chip_condition_immunities"), entry.conditionImmunities)}
     </div>
 
     <div class="bestiary-sections">
@@ -4513,7 +5345,7 @@ function renderBestiaryDetail(entry) {
 function renderBestiaryDetailEmpty() {
   return `
     <div class="empty-state empty-state--panel">
-      Selecciona una criatura para ver la ficha completa.
+      ${escapeHtml(t("bestiary_empty_detail"))}
     </div>
   `;
 }
@@ -4813,7 +5645,7 @@ function renderHeaderCell(column) {
             data-filter-key="${column.key}"
             aria-label="Abrir filtro de ${column.label}"
           >
-            <span>Filtro</span>
+            <span>${escapeHtml(t("filter_button"))}</span>
           </button>
           ${
             state.activeFilterKey === column.key
@@ -4836,7 +5668,7 @@ function renderHeaderCell(column) {
                     data-action="clear-filter"
                     data-filter-key="${column.key}"
                   >
-                    Limpiar
+                    ${escapeHtml(t("filter_clear_short"))}
                   </button>
                 </div>
               `
@@ -5912,7 +6744,7 @@ function getTablePanelTitle(table) {
 
 function syncRolledTableRowIntoView() {
   const rowId = cleanText(state.rollingTableRowId || state.rolledTableRowId);
-  const tableId = cleanText(state.rollingTableId || state.activeTableId);
+  const tableId = cleanText(state.rollingTableId || state.rolledTableId || state.activeTableId);
 
   if (!rowId || !tableId) {
     return;
@@ -5993,7 +6825,7 @@ function renderTableColumnHeader(tableId, column, index, columnCount) {
 
 function renderTableRow(table, row, rowIndex) {
   const isRollingRow = state.rollingTableId === table.id && state.rollingTableRowId === row.id;
-  const isRolledRow = state.rollingTableId !== table.id && state.rolledTableRowId === row.id;
+  const isRolledRow = state.rolledTableId === table.id && state.rolledTableRowId === row.id;
 
   return `
     <tr class="tables-data-table__row ${isRollingRow ? "is-rolling" : ""} ${isRolledRow ? "is-rolled" : ""}" data-table-row-id="${escapeHtml(row.id)}" data-table-owner-id="${escapeHtml(table.id)}">
@@ -9588,6 +10420,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
     name: row.name,
     source: row.source,
     tokenUrl: "",
+    hp: row.hp,
     hpValue: getEncounterRowHpValue(row, bestiaryEntry) || 1,
     acValue: getEncounterRowAcValue(row, bestiaryEntry) || "",
     abilities: parseStats(""),
@@ -9639,7 +10472,7 @@ function formatStandNumber(value) {
 }
 
 function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options = {}) {
-  const pgMax = entry.hpValue || parseLeadingNumber(entry.hp) || 1;
+  const pgMax = getEnemyHitPointValue(entry);
   const ca = entry.acValue || parseLeadingNumber(entry.ac) || "";
   const combatant = {
     id: existingCombatant.id,
@@ -10779,7 +11612,7 @@ function renderBestiaryFilterDropdown(key, label) {
                   data-bestiary-filter-key="${key}"
                   ${selectedValues.length === 0 ? "disabled" : ""}
                 >
-                  Limpiar
+                  ${escapeHtml(t("filter_clear_short"))}
                 </button>
               </div>
               ${renderBestiarySelectedFilterChips(key)}
@@ -10819,13 +11652,13 @@ function renderBestiaryQueryField() {
 
   return `
     <div class="toolbar-field toolbar-field--search bestiary-query" data-bestiary-query-menu>
-      <span>Buscar criatura</span>
+      <span>${escapeHtml(t("bestiary_search_label"))}</span>
       <div class="bestiary-filter__controls">
         <input
           class="filter-input filter-input--wide"
           type="search"
           value="${escapeHtml(state.bestiaryFilters.query)}"
-          placeholder="Escribe un nombre de criatura"
+          placeholder="${escapeHtml(t("bestiary_search_placeholder"))}"
           data-bestiary-query
         />
         ${renderBestiarySortButton("name", "Ordenar por nombre")}
@@ -10947,7 +11780,7 @@ function renderItemFilterDropdown(key, label) {
                   data-item-filter-key="${key}"
                   ${selectedValues.length === 0 ? "disabled" : ""}
                 >
-                  Limpiar
+                  ${escapeHtml(t("filter_clear_short"))}
                 </button>
               </div>
               ${renderItemSelectedFilterChips(key)}
@@ -11045,13 +11878,13 @@ function renderItemQueryField() {
 
   return `
     <div class="toolbar-field toolbar-field--search bestiary-query" data-item-query-menu>
-      <span>Buscar item</span>
+      <span>${escapeHtml(t("items_search_label"))}</span>
       <div class="bestiary-filter__controls">
         <input
           class="filter-input filter-input--wide"
           type="search"
           value="${escapeHtml(state.itemFilters.query)}"
-          placeholder="Nombre, texto, propiedades, rareza..."
+          placeholder="${escapeHtml(t("arcanum_search_placeholder"))}"
           data-item-query
         />
         ${renderItemSortButton("name", "Ordenar por nombre")}
@@ -11192,7 +12025,7 @@ function renderArcanumFilterDropdown(key, label) {
                   data-arcanum-filter-key="${key}"
                   ${selectedValues.length === 0 ? "disabled" : ""}
                 >
-                  Limpiar
+                  ${escapeHtml(t("filter_clear_short"))}
                 </button>
               </div>
               ${renderArcanumSelectedFilterChips(key)}
@@ -11232,17 +12065,17 @@ function renderArcanumQueryField() {
 
   return `
     <div class="toolbar-field toolbar-field--search bestiary-query" data-arcanum-query-menu>
-      <span>Buscar hechizo</span>
+      <span>${escapeHtml(t("arcanum_search_label"))}</span>
       <div class="bestiary-filter__controls arcanum-query__controls">
         <input
           class="filter-input filter-input--wide"
           type="search"
           value="${escapeHtml(state.arcanumFilters.query)}"
-          placeholder="Nombre, texto, componentes, clases..."
+          placeholder="${escapeHtml(t("items_search_placeholder"))}"
           data-arcanum-query
         />
         ${renderArcanumSortButton("name", "Ordenar por nombre")}
-        <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-arcanum-filters">Limpiar filtros</button>
+        <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-arcanum-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
       </div>
       ${
         state.showArcanumQuerySuggestions && suggestions.length > 0
@@ -11655,37 +12488,37 @@ function hasArcanumConstraintsBesides(excludedKey) {
 
 function getBestiaryStatusLabel() {
   if (state.bestiaryStatus === "loading") {
-    return "Cargando CSV";
+    return t("loading_csv");
   }
 
   if (state.bestiaryStatus === "error") {
-    return "Error de lectura";
+    return t("read_error");
   }
 
-  return `CSV activo: ${BESTIARY_CSV_PATH}`;
+  return t("active_csv", { path: BESTIARY_CSV_PATH });
 }
 function getItemStatusLabel() {
   if (state.itemStatus === "loading") {
-    return "Cargando CSV";
+    return t("loading_csv");
   }
 
   if (state.itemStatus === "error") {
-    return "Error de lectura";
+    return t("read_error");
   }
 
-  return `CSV activo: ${ITEMS_CSV_PATH}`;
+  return t("active_csv", { path: ITEMS_CSV_PATH });
 }
 
 function getArcanumStatusLabel() {
   if (state.arcanumStatus === "loading") {
-    return "Cargando CSV";
+    return t("loading_csv");
   }
 
   if (state.arcanumStatus === "error") {
-    return "Error de lectura";
+    return t("read_error");
   }
 
-  return `CSV activo: ${SPELLS_CSV_PATH}`;
+  return t("active_csv", { path: SPELLS_CSV_PATH });
 }
 
 function cleanText(value) {
@@ -12076,6 +12909,56 @@ function slugify(value) {
 function parseLeadingNumber(value) {
   const match = String(value).match(/-?\d+/);
   return match ? Number(match[0]) : 0;
+}
+
+function parseHitPointDiceFormula(value) {
+  const text = cleanText(value);
+  const formulaMatch = text.match(/\((\d+)\s*d\s*(\d+)(?:\s*([+-])\s*(\d+))?\)/i);
+
+  if (!formulaMatch) {
+    return null;
+  }
+
+  const diceCount = Number(formulaMatch[1]);
+  const diceSides = Number(formulaMatch[2]);
+  const modifier = formulaMatch[4]
+    ? (formulaMatch[3] === "-" ? -1 : 1) * Number(formulaMatch[4])
+    : 0;
+
+  if (!Number.isFinite(diceCount) || !Number.isFinite(diceSides) || diceCount < 1 || diceSides < 1) {
+    return null;
+  }
+
+  return {
+    diceCount,
+    diceSides,
+    modifier
+  };
+}
+
+function rollHitPointDiceFormula(formula) {
+  if (!formula) {
+    return 0;
+  }
+
+  let total = formula.modifier;
+
+  for (let index = 0; index < formula.diceCount; index += 1) {
+    total += 1 + Math.floor(Math.random() * formula.diceSides);
+  }
+
+  return total;
+}
+
+function getEnemyHitPointValue(entry) {
+  const fixedValue = Math.max(1, toNumber(entry?.hpValue) || parseLeadingNumber(entry?.hp) || 1);
+
+  if (state.enemyHpMode !== ENEMY_HP_MODE_VARIABLE) {
+    return fixedValue;
+  }
+
+  const rolledValue = rollHitPointDiceFormula(parseHitPointDiceFormula(entry?.hp));
+  return Math.max(1, rolledValue || fixedValue);
 }
 
 function parseItemWeight(value) {
@@ -12665,6 +13548,7 @@ function createBlankCampaignSavePayload(name = "CampaÃ±a sin nombre") {
       isCombatActive: false,
       activeTurnCombatantId: "",
       combatRound: 1,
+      enemyHpMode: ENEMY_HP_MODE_FIXED,
       battleTimer: {
         elapsedMs: 0,
         isRunning: false
@@ -13133,6 +14017,7 @@ function normalizeCampaignSave(value) {
 function resetTransientCampaignUiState() {
   stopActiveTableRoll();
   state.fileMenuOpen = false;
+  state.optionsMenuOpen = false;
   closeCampaignSaveNameDialog();
   state.characterSkillConfigOpen = false;
   state.characterSkillsExpanded = false;
@@ -13176,6 +14061,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.isCombatActive = campaign.combatTracker.isCombatActive;
   state.activeTurnCombatantId = campaign.combatTracker.activeTurnCombatantId;
   state.combatRound = campaign.combatTracker.combatRound;
+  state.enemyHpMode = campaign.combatTracker.enemyHpMode;
   state.battleTimer = campaign.battleTimer;
   state.characterSkillDefinitions = campaign.characterSkillDefinitions;
   state.characters = campaign.characters;
@@ -13367,11 +14253,11 @@ function getFileNameFromPath(filePath) {
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "", fileName: "", filePath: "" };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES };
   }
 
   if (usesDesktopFileOnlyPersistence()) {
-    return { name: "", fileName: "", filePath: "" };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES };
   }
 
   try {
@@ -13382,10 +14268,11 @@ function loadCampaignMeta() {
     return {
       name: fileName ? cleanText(parsedValue.name) || getCampaignNameFromFileName(fileName) : "",
       fileName,
-      filePath
+      filePath,
+      language: normalizeStoredAppLanguage(parsedValue.language)
     };
   } catch {
-    return { name: "", fileName: "", filePath: "" };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES };
   }
 }
 
@@ -13399,7 +14286,8 @@ function saveCampaignMeta() {
       window.localStorage.setItem(CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
         name: cleanText(state.campaignName),
         fileName: cleanText(state.campaignFileName),
-        filePath: cleanText(state.campaignFilePath)
+        filePath: cleanText(state.campaignFilePath),
+        language: normalizeStoredAppLanguage(state.appLanguage)
       }));
     } catch {
       // Storage can be unavailable in private contexts; campaign files still work.
@@ -13978,7 +14866,8 @@ function normalizeStoredCombatTrackerState(value, defaultState = getDefaultComba
     areaDamage: cleanText(value.areaDamage),
     isCombatActive: value.isCombatActive === true,
     activeTurnCombatantId: normalizeStoredActiveTurnCombatantId(value.activeTurnCombatantId, combatants),
-    combatRound: normalizeStoredCombatRound(value.combatRound)
+    combatRound: normalizeStoredCombatRound(value.combatRound),
+    enemyHpMode: normalizeStoredEnemyHpMode(value.enemyHpMode)
   };
 }
 
@@ -14010,7 +14899,8 @@ function getCombatTrackerSaveData(options = {}) {
     areaDamage: state.areaDamage,
     isCombatActive: state.isCombatActive,
     activeTurnCombatantId: state.activeTurnCombatantId,
-    combatRound: state.combatRound
+    combatRound: state.combatRound,
+    enemyHpMode: state.enemyHpMode
   };
 
   if (options.includeBattleTimer) {
@@ -14036,12 +14926,17 @@ function getDefaultCombatTrackerState() {
     areaDamage: "",
     isCombatActive: false,
     activeTurnCombatantId: "",
-    combatRound: 1
+    combatRound: 1,
+    enemyHpMode: ENEMY_HP_MODE_FIXED
   };
 }
 
 function getDefaultCombatSort() {
   return { key: "numPeana", direction: "asc" };
+}
+
+function normalizeStoredEnemyHpMode(value) {
+  return cleanText(value) === ENEMY_HP_MODE_VARIABLE ? ENEMY_HP_MODE_VARIABLE : ENEMY_HP_MODE_FIXED;
 }
 
 function normalizeStoredCombatant(combatant) {
@@ -14519,6 +15414,8 @@ function reconcileTablesUiState() {
     state.activeTableId = "";
     state.activeTableFolderId = "";
     state.openTableIds = [];
+    state.rolledTableId = "";
+    state.rolledTableRowId = "";
     return;
   }
 
@@ -14528,6 +15425,11 @@ function reconcileTablesUiState() {
 
   if (!folderIds.has(state.activeTableFolderId) && state.activeTableFolderId !== "") {
     state.activeTableFolderId = state.tables.find((table) => table.id === state.activeTableId)?.folderId ?? "";
+  }
+
+  if (!tableIds.has(state.rolledTableId)) {
+    state.rolledTableId = "";
+    state.rolledTableRowId = "";
   }
 
   state.openTableIds = [...new Set(state.openTableIds.map((tableId) => cleanText(tableId)).filter((tableId) => tableIds.has(tableId)))];
@@ -14625,6 +15527,100 @@ function stopActiveTableRoll() {
   state.rollingTableRowId = "";
 }
 
+function getTableRollAudioContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+
+  if (!AudioContextConstructor) {
+    return null;
+  }
+
+  if (!tableRollAudioContext) {
+    tableRollAudioContext = new AudioContextConstructor();
+  }
+
+  if (tableRollAudioContext.state === "suspended") {
+    tableRollAudioContext.resume().catch(() => {});
+  }
+
+  return tableRollAudioContext;
+}
+
+function playTableRollTone({
+  frequency,
+  durationMs,
+  type = "triangle",
+  volume = 0.028,
+  attackMs = 6,
+  frequencyEnd = frequency
+}) {
+  const audioContext = getTableRollAudioContext();
+
+  if (!audioContext) {
+    return;
+  }
+
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  const startTime = audioContext.currentTime + 0.005;
+  const endTime = startTime + (durationMs / 1000);
+  const attackTime = Math.min(endTime, startTime + (attackMs / 1000));
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(Math.max(60, frequency), startTime);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(60, frequencyEnd), endTime);
+
+  gainNode.gain.setValueAtTime(0.0001, startTime);
+  gainNode.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), attackTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, endTime);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  oscillator.start(startTime);
+  oscillator.stop(endTime + 0.02);
+
+  oscillator.addEventListener("ended", () => {
+    oscillator.disconnect();
+    gainNode.disconnect();
+  }, { once: true });
+}
+
+function playTableRollSoundStep(stepIndex, totalSteps, isFinalStep) {
+  const progress = totalSteps <= 1 ? 1 : stepIndex / Math.max(1, totalSteps - 1);
+
+  if (isFinalStep) {
+    playTableRollTone({
+      frequency: 740,
+      frequencyEnd: 620,
+      durationMs: 220,
+      type: "triangle",
+      volume: 0.045,
+      attackMs: 8
+    });
+    playTableRollTone({
+      frequency: 1110,
+      frequencyEnd: 880,
+      durationMs: 180,
+      type: "sine",
+      volume: 0.018,
+      attackMs: 10
+    });
+    return;
+  }
+
+  playTableRollTone({
+    frequency: 980 + ((1 - progress) * 240),
+    frequencyEnd: 640 + ((1 - progress) * 90),
+    durationMs: 56,
+    type: progress > 0.72 ? "triangle" : "square",
+    volume: 0.02 + ((1 - progress) * 0.008),
+    attackMs: 4
+  });
+}
+
 function startTableRoll(tableId) {
   const normalizedTableId = cleanText(tableId);
   const table = state.tables.find((entry) => entry.id === normalizedTableId);
@@ -14637,7 +15633,9 @@ function startTableRoll(tableId) {
   stopActiveTableRoll();
   selectTable(normalizedTableId);
 
-  const startingIndex = Math.max(0, rows.findIndex((row) => row.id === state.rolledTableRowId));
+  const startingIndex = state.rolledTableId === normalizedTableId
+    ? Math.max(0, rows.findIndex((row) => row.id === state.rolledTableRowId))
+    : 0;
   const targetIndex = Math.floor(Math.random() * rows.length);
   const totalSteps = Math.min(12, Math.max(8, rows.length + 4));
   const targetOffset = (targetIndex - startingIndex + rows.length) % rows.length;
@@ -14649,11 +15647,13 @@ function startTableRoll(tableId) {
     const progress = step / Math.max(1, effectiveTotalSteps - 2);
     return 42 + ((progress ** 2) * 120);
   });
-  const maxDurationMs = 1800;
+  const maxDurationMs = 2000;
   const rawTotalDuration = rawDelays.reduce((sum, delay) => sum + delay, 0);
   const durationScale = rawTotalDuration > maxDurationMs ? maxDurationMs / rawTotalDuration : 1;
   const delays = rawDelays.map((delay) => Math.max(28, Math.round(delay * durationScale)));
   let currentStep = 0;
+  state.rolledTableId = "";
+  state.rolledTableRowId = "";
 
   const advanceRoll = () => {
     const currentIndex = (startingIndex + currentStep) % rows.length;
@@ -14662,12 +15662,13 @@ function startTableRoll(tableId) {
 
     state.rollingTableId = normalizedTableId;
     state.rollingTableRowId = currentRow.id;
-    state.rolledTableRowId = "";
+    playTableRollSoundStep(currentStep, effectiveTotalSteps, isFinalStep);
     render();
 
     if (isFinalStep) {
       state.rollingTableId = "";
       state.rollingTableRowId = "";
+      state.rolledTableId = normalizedTableId;
       state.rolledTableRowId = currentRow.id;
       activeTableRollTimer = 0;
       render();
