@@ -3489,9 +3489,46 @@ function applyInterfaceTranslations(root = app) {
 
 function syncCompendiumLayoutHeights() {
   app.querySelectorAll(".bestiary-layout").forEach((layout) => {
-    const layoutRect = layout.getBoundingClientRect();
-    const viewportHeight = Math.max(320, Math.floor(window.innerHeight - layoutRect.top - 24));
+    const panel = layout.closest(".compendium-panel");
+    let chromeHeight = 0;
+    let panelPaddingBlock = 0;
+
+    if (panel) {
+      Array.from(panel.children).forEach((child) => {
+        if (child !== layout) {
+          chromeHeight += child.getBoundingClientRect().height;
+        }
+      });
+
+      const panelStyles = window.getComputedStyle(panel);
+      panelPaddingBlock =
+        (Number.parseFloat(panelStyles.paddingTop) || 0)
+        + (Number.parseFloat(panelStyles.paddingBottom) || 0);
+    }
+
+    const basePanelHeight = Math.max(1040, Math.floor(window.innerHeight * 1.5));
+    const viewportHeight = Math.max(
+      560,
+      basePanelHeight - Math.ceil(chromeHeight) - Math.ceil(panelPaddingBlock) - 8
+    );
+
+    layout.style.height = `${viewportHeight}px`;
+    layout.style.minHeight = `${viewportHeight}px`;
     layout.style.setProperty("--compendium-viewport-height", `${viewportHeight}px`);
+
+    layout.querySelectorAll(".bestiary-list, .bestiary-detail").forEach((element) => {
+      element.style.height = `${viewportHeight}px`;
+      element.style.maxHeight = `${viewportHeight}px`;
+    });
+
+    if (panel) {
+      panel.style.height = `${basePanelHeight}px`;
+      panel.style.minHeight = `${basePanelHeight}px`;
+      panel.style.overflow = "hidden";
+      panel.style.setProperty("--compendium-panel-height", `${basePanelHeight}px`);
+      panel.style.setProperty("--compendium-viewport-height", `${viewportHeight}px`);
+      panel.style.setProperty("--compendium-chrome-height", `${Math.ceil(chromeHeight)}px`);
+    }
   });
 }
 
@@ -4448,7 +4485,7 @@ function renderBestiary() {
   return `
     ${renderEncounterInventorySection()}
 
-    <section class="panel panel--table bestiary-showcase bestiary-showcase--hearth">
+    <section class="panel panel--table compendium-panel bestiary-showcase bestiary-showcase--hearth">
       <div class="section-heading">
         <div>
           <p class="eyebrow">${escapeHtml(t("bestiary_eyebrow"))}</p>
@@ -4486,7 +4523,7 @@ function renderItems() {
   const selectedEntry = getSelectedItemEntry(filteredEntries);
 
   return `
-    <section class="panel panel--table">
+    <section class="panel panel--table compendium-panel">
       <div class="section-heading">
         <div>
           <p class="eyebrow">${escapeHtml(t("items_eyebrow"))}</p>
@@ -4522,7 +4559,7 @@ function renderArcanum() {
   const selectedEntry = getSelectedArcanumEntry(filteredEntries);
 
   return `
-    <section class="panel panel--table">
+    <section class="panel panel--table compendium-panel">
       <div class="section-heading">
         <div>
           <p class="eyebrow">${escapeHtml(t("arcanum_eyebrow"))}</p>
@@ -5304,15 +5341,15 @@ function renderBestiaryDetail(entry) {
       <p class="lead">${escapeHtml(entry.typeLine)}</p>
     </div>
 
-    <div class="bestiary-detail__hero">
-      <div class="bestiary-detail__abilities bestiary-detail__abilities--hero">
-        ${abilities}
+    <div class="bestiary-detail__summary">
+      <div class="bestiary-detail__summary-stats">
+        ${metrics}
       </div>
       ${renderBestiaryDetailMedia(entry)}
     </div>
 
-    <div class="bestiary-detail__top-stats bestiary-detail__top-stats--metrics">
-      ${metrics}
+    <div class="bestiary-detail__abilities bestiary-detail__abilities--summary">
+      ${abilities}
     </div>
 
     <div class="bestiary-detail__grid">

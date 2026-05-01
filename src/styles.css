@@ -1433,6 +1433,18 @@ table {
   padding: 1.5rem;
 }
 
+.compendium-panel {
+  --compendium-panel-height: calc(150vh - 8rem);
+  --compendium-viewport-height: calc(150vh - 24rem);
+  --compendium-chrome-height: 15rem;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-items: stretch;
+  height: var(--compendium-panel-height);
+  min-height: var(--compendium-panel-height);
+  padding: 1.5rem 1.5rem 0.2rem;
+}
+
 .section-heading {
   display: flex;
   align-items: flex-start;
@@ -6100,12 +6112,13 @@ body.is-table-resizing * {
 }
 
 .bestiary-layout {
-  --compendium-viewport-height: calc(100vh - 16rem);
+  --compendium-viewport-height: calc(150vh - 24rem);
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
-  gap: 0.9rem;
+  gap: 0.75rem;
   align-items: stretch;
-  min-height: 0;
+  align-self: stretch;
+  min-height: var(--compendium-viewport-height);
 }
 
 .bestiary-showcase {
@@ -6123,7 +6136,7 @@ body.is-table-resizing * {
   overscroll-behavior: contain;
   padding-top: 0.25rem;
   padding-right: 0.2rem;
-  padding-bottom: 0.35rem;
+  padding-bottom: 0.1rem;
   scrollbar-gutter: stable;
 }
 
@@ -6575,6 +6588,26 @@ body.is-table-resizing * {
 
 .bestiary-detail > * {
   min-width: 0;
+}
+
+.bestiary-detail__summary {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 18.5rem);
+  gap: 1rem;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.bestiary-detail__summary-stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  align-self: stretch;
+  min-width: 0;
+  min-height: 100%;
+  height: 100%;
 }
 
 .bestiary-detail__hero {
@@ -7307,16 +7340,69 @@ body.is-table-resizing * {
   gap: 1rem;
 }
 
+[data-bestiary-detail-root] {
+  --bestiary-summary-media-width: 18.5rem;
+  --bestiary-summary-media-height: calc(var(--bestiary-summary-media-width) * 1.2);
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary {
+  grid-template-columns: minmax(0, 1fr) var(--bestiary-summary-media-width);
+  min-height: var(--bestiary-summary-media-height);
+  height: var(--bestiary-summary-media-height);
+}
+
 [data-bestiary-detail-root] .bestiary-detail__hero {
   grid-template-columns: minmax(0, 1fr) minmax(16rem, 18.5rem);
 }
 
 [data-bestiary-detail-root] .bestiary-detail__media {
   justify-items: end;
+  height: var(--bestiary-summary-media-height);
 }
 
 [data-bestiary-detail-root] .bestiary-portrait {
-  width: min(100%, 18.5rem);
+  width: min(100%, var(--bestiary-summary-media-width));
+  height: var(--bestiary-summary-media-height);
+}
+
+[data-bestiary-detail-root] .bestiary-portrait__image,
+[data-bestiary-detail-root] .bestiary-portrait--empty {
+  height: 100%;
+  aspect-ratio: 5 / 6;
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary-stats {
+  height: var(--bestiary-summary-media-height);
+  min-height: var(--bestiary-summary-media-height);
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary-stats .bestiary-metric-card {
+  min-height: 0;
+  height: 100%;
+  padding: 0.88rem 1rem;
+  border-radius: 24px;
+  align-content: center;
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary-stats .bestiary-metric-card span {
+  margin-bottom: 0.38rem;
+  font-size: 0.84rem;
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary-stats .bestiary-metric-card strong {
+  font-size: clamp(1.4rem, 1.08rem + 0.72vw, 1.82rem);
+  line-height: 1.12;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary-stats .bestiary-metric-card--sm strong {
+  font-size: clamp(1.16rem, 0.98rem + 0.54vw, 1.46rem);
+}
+
+[data-bestiary-detail-root] .bestiary-detail__summary-stats .bestiary-metric-card--xs strong {
+  font-size: clamp(0.98rem, 0.86rem + 0.4vw, 1.22rem);
 }
 
 [data-bestiary-detail-root] .bestiary-detail__abilities--hero {
@@ -7324,6 +7410,12 @@ body.is-table-resizing * {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-rows: 1fr;
   align-self: stretch;
+}
+
+[data-bestiary-detail-root] .bestiary-detail__abilities--summary {
+  margin-top: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
 }
 
 .bestiary-showcase--hearth {
@@ -7451,15 +7543,33 @@ body.is-table-resizing * {
 }
 
 @container (max-width: 40rem) {
+  [data-bestiary-detail-root] .bestiary-detail__summary,
   [data-bestiary-detail-root] .bestiary-detail__hero,
   [data-bestiary-detail-root] .bestiary-detail__top {
     grid-template-columns: 1fr;
   }
 
+  [data-bestiary-detail-root] .bestiary-detail__summary {
+    min-height: auto;
+    height: auto;
+  }
+
+  [data-bestiary-detail-root] .bestiary-detail__summary-stats,
   [data-bestiary-detail-root] .bestiary-detail__abilities--hero,
   [data-bestiary-detail-root] .bestiary-detail__top-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
+  }
+
+  [data-bestiary-detail-root] .bestiary-detail__summary-stats,
+  [data-bestiary-detail-root] .bestiary-detail__media,
+  [data-bestiary-detail-root] .bestiary-portrait {
+    min-height: auto;
+    height: auto;
+  }
+
+  [data-bestiary-detail-root] .bestiary-detail__abilities--summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   [data-bestiary-detail-root] .bestiary-detail__media {
@@ -7551,6 +7661,12 @@ body.is-table-resizing * {
 
   .bestiary-layout {
     grid-template-columns: 1fr;
+  }
+
+  .compendium-panel {
+    height: auto;
+    min-height: calc(var(--compendium-viewport-height) + var(--compendium-chrome-height));
+    padding: 1.5rem 1.5rem 0.35rem;
   }
 
   .characters-layout {
@@ -7647,7 +7763,8 @@ body.is-table-resizing * {
   }
 
   .bestiary-list {
-    max-height: min(72vh, 42rem);
+    height: var(--compendium-viewport-height);
+    max-height: var(--compendium-viewport-height);
   }
 
   .encounter-inventory__panel,
@@ -7691,8 +7808,10 @@ body.is-table-resizing * {
 
   .bestiary-detail {
     position: static;
-    max-height: none;
-    overflow: visible;
+    height: var(--compendium-viewport-height);
+    max-height: var(--compendium-viewport-height);
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .bestiary-detail__top {
@@ -7730,6 +7849,10 @@ body.is-table-resizing * {
   .panel--placeholder {
     padding: 1rem;
     border-radius: 22px;
+  }
+
+  .compendium-panel {
+    padding: 1rem 1rem 0.3rem;
   }
 
   .summary-grid {
