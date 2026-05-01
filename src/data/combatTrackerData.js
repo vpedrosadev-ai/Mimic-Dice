@@ -8,7 +8,7 @@ export const columns = [
   { key: "pgTemp", label: "PG temp", type: "number", width: "10rem" },
   { key: "necrotic", label: "Necrotic", type: "number", width: "12rem" },
   { key: "crExp", label: "CR", type: "text", width: "14rem" },
-  { key: "tag", label: "Bando", type: "tag", width: "12rem" }
+  { key: "estados", label: "ESTADOS", type: "status", width: "16rem" }
 ];
 
 export const initialCombatants = [];

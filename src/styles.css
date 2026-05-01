@@ -2856,6 +2856,7 @@ table {
 
 .combat-name-cell {
   position: relative;
+  overflow: visible;
 }
 
 .combat-name-cell__main {
@@ -3428,6 +3429,14 @@ table {
   transition: transform 160ms ease, border-color 160ms ease, filter 160ms ease;
 }
 
+.tag-cycle-button--compact {
+  width: fit-content;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
 .tag-cycle-button:hover,
 .tag-cycle-button:focus-visible {
   transform: translateY(-1px);
@@ -3447,6 +3456,155 @@ table {
 .tag-cycle-button--enemigo {
   border-color: rgba(184, 60, 74, 0.46);
   background: rgba(184, 60, 74, 0.26);
+}
+
+.combat-inline-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.combat-inline-menu > summary {
+  list-style: none;
+}
+
+.combat-inline-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.combat-inline-menu__popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 14;
+  display: grid;
+  gap: 0.35rem;
+  width: min(14rem, 52vw);
+  padding: 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: rgba(25, 20, 31, 0.98);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+}
+
+.combat-inline-menu__popover--status {
+  width: min(24rem, 72vw);
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.combat-inline-menu__option {
+  display: grid;
+  gap: 0.18rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.combat-inline-menu__option:hover,
+.combat-inline-menu__option:focus-visible,
+.combat-inline-menu__option.is-active {
+  border-color: rgba(240, 200, 121, 0.32);
+  background: rgba(240, 200, 121, 0.08);
+}
+
+.combat-inline-menu__option span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.combat-inline-menu__empty {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.combat-status-cell {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.combat-status-cell__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 1.8rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px dashed rgba(240, 200, 121, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.combat-status-cell__chips {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.combat-status-cell__empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.combat-status-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.combat-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid rgba(94, 183, 166, 0.24);
+  border-radius: 999px;
+  background: rgba(94, 183, 166, 0.12);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.combat-status-chip:hover,
+.combat-status-chip:focus-visible {
+  border-color: rgba(94, 183, 166, 0.46);
+  background: rgba(94, 183, 166, 0.18);
+}
+
+.combat-status-chip__tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 16;
+  width: min(22rem, 60vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: rgba(25, 20, 31, 0.98);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.15rem);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.combat-status-chip-wrap:hover .combat-status-chip__tooltip,
+.combat-status-chip-wrap:focus-within .combat-status-chip__tooltip {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .mini-action {

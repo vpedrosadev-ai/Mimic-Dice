@@ -998,6 +998,21 @@ function handleClick(event) {
 
   if (action === "cycle-combat-tag") {
     cycleCombatantTag(actionButton.dataset.combatantId);
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
+  if (action === "set-combat-tag") {
+    setCombatantTag(actionButton.dataset.combatantId, actionButton.dataset.combatTag);
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-status") {
+    toggleCombatantStatus(actionButton.dataset.combatantId, actionButton.dataset.combatStatus);
+    saveCombatTrackerState();
     render();
     return;
   }
@@ -4851,7 +4866,7 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
 }
 
 function renderDataCell(combatant, column, isDead) {
-  const value = combatant[column.key] ?? "";
+  const value = getCombatantColumnValue(combatant, column.key);
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inputMode = column.type === "number" ? "numeric" : "text";
   const inlineValues = getInlineAdjustment(combatant.id);
@@ -4884,6 +4899,7 @@ function renderDataCell(combatant, column, isDead) {
     const suggestions = getCombatNameSuggestions(combatant);
     const sourceChip = renderCombatantSourceChip(combatant);
     const token = renderCombatantNameToken(combatant);
+    const tagChip = renderCombatantTagChip(combatant);
 
     return `
       <td>
@@ -4900,9 +4916,10 @@ function renderDataCell(combatant, column, isDead) {
             />
             ${token}
           </div>
-          ${isDead || sourceChip ? `
+          ${isDead || sourceChip || tagChip ? `
             <div class="name-cell__chips">
               ${isDead ? `<span class="death-badge">Muerto</span>` : ""}
+              ${tagChip}
               ${sourceChip}
             </div>
           ` : ""}
@@ -4916,6 +4933,14 @@ function renderDataCell(combatant, column, isDead) {
               : ""
           }
         </div>
+      </td>
+    `;
+  }
+
+  if (column.key === "estados") {
+    return `
+      <td>
+        ${renderCombatStatusCell(combatant)}
       </td>
     `;
   }
@@ -5059,24 +5084,6 @@ function renderDataCell(combatant, column, isDead) {
     `;
   }
 
-  if (column.key === "tag") {
-    const tagValue = combatTagOptions.includes(value) ? value : "NEUTRAL";
-
-    return `
-      <td>
-        <button
-          class="tag-cycle-button tag-cycle-button--${tagValue.toLowerCase()}"
-          type="button"
-          data-action="cycle-combat-tag"
-          data-combatant-id="${escapeHtml(combatant.id)}"
-          aria-label="Cambiar bando de ${escapeHtml(combatant.nombre || combatant.id)}. Actual: ${escapeHtml(tagValue)}"
-        >
-          <span>${escapeHtml(tagValue)}</span>
-        </button>
-      </td>
-    `;
-  }
-
   if (column.key === "necrotic") {
     return `
       <td>
@@ -5166,6 +5173,159 @@ function getLinkedCharacterForCombatant(combatant) {
   }
 
   return state.characters.find((character) => character.id === characterId) ?? null;
+}
+
+function getCombatantColumnValue(combatant, key) {
+  if (key === "pgMax") {
+    return combatant.pgMax ?? "";
+  }
+
+  if (key === "estados") {
+    return getCombatantStatusNames(combatant).join(", ");
+  }
+
+  return combatant[key] ?? "";
+}
+
+function renderCombatantTagChip(combatant) {
+  const tagValue = combatTagOptions.includes(combatant.tag) ? combatant.tag : "NEUTRAL";
+
+  return `
+    <details class="combat-inline-menu combat-inline-menu--tag">
+      <summary
+        class="tag-cycle-button tag-cycle-button--${tagValue.toLowerCase()} tag-cycle-button--compact"
+        aria-label="Cambiar bando de ${escapeHtml(combatant.nombre || combatant.id)}. Actual: ${escapeHtml(tagValue)}"
+      >
+        <span>${escapeHtml(tagValue)}</span>
+      </summary>
+      <div class="combat-inline-menu__popover">
+        ${combatTagOptions.map((tagOption) => `
+          <button
+            class="combat-inline-menu__option ${tagOption === tagValue ? "is-active" : ""}"
+            type="button"
+            data-action="set-combat-tag"
+            data-combatant-id="${escapeHtml(combatant.id)}"
+            data-combat-tag="${escapeHtml(tagOption)}"
+          >
+            ${escapeHtml(tagOption)}
+          </button>
+        `).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function renderCombatStatusCell(combatant) {
+  const statusNames = getCombatantStatusNames(combatant);
+  const statusEntries = getCombatStatusReferenceEntries();
+
+  return `
+    <div class="combat-status-cell">
+      <details class="combat-inline-menu combat-inline-menu--status">
+        <summary class="combat-status-cell__add">
+          + Estado
+        </summary>
+        <div class="combat-inline-menu__popover combat-inline-menu__popover--status">
+          ${
+            statusEntries.length > 0
+              ? statusEntries.map((entry) => `
+                <button
+                  class="combat-inline-menu__option ${statusNames.includes(entry.name) ? "is-active" : ""}"
+                  type="button"
+                  data-action="toggle-combat-status"
+                  data-combatant-id="${escapeHtml(combatant.id)}"
+                  data-combat-status="${escapeHtml(entry.name)}"
+                >
+                  <strong>${escapeHtml(entry.name)}</strong>
+                  ${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : ""}
+                </button>
+              `).join("")
+              : `<div class="combat-inline-menu__empty">No hay tabla de estados disponible.</div>`
+          }
+        </div>
+      </details>
+      <div class="combat-status-cell__chips">
+        ${
+          statusNames.length > 0
+            ? statusNames.map((statusName) => renderCombatStatusChip(combatant.id, statusName)).join("")
+            : `<span class="combat-status-cell__empty">Sin estados</span>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderCombatStatusChip(combatantId, statusName) {
+  const description = getCombatStatusDescription(statusName);
+
+  return `
+    <div class="combat-status-chip-wrap">
+      <button
+        class="combat-status-chip"
+        type="button"
+        data-action="toggle-combat-status"
+        data-combatant-id="${escapeHtml(combatantId)}"
+        data-combat-status="${escapeHtml(statusName)}"
+        aria-label="Quitar estado ${escapeHtml(statusName)}"
+      >
+        ${escapeHtml(statusName)}
+      </button>
+      ${
+        description
+          ? `<div class="combat-status-chip__tooltip">${escapeHtml(description)}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function getCombatStatusNames(combatant) {
+  const rawStatuses = splitList(combatant.condiciones ?? "", /[,;|]/);
+  return [...new Set(rawStatuses.map((value) => cleanText(value)).filter(Boolean))];
+}
+
+function getCombatStatusDescription(statusName) {
+  const normalizedName = normalizeTranslationKey(cleanText(statusName).toLowerCase());
+  return getCombatStatusReferenceEntries()
+    .find((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizedName)
+    ?.description ?? "";
+}
+
+function getCombatStatusReferenceEntries() {
+  const statusTable = getCombatStatusReferenceTable();
+
+  if (!statusTable) {
+    return [];
+  }
+
+  const [nameColumn, descriptionColumn] = statusTable.columns;
+
+  if (!nameColumn || !descriptionColumn) {
+    return [];
+  }
+
+  return statusTable.rows
+    .map((row) => {
+      const name = cleanText(row.cells?.[nameColumn.id]);
+      const description = cleanText(row.cells?.[descriptionColumn.id]);
+
+      if (!name) {
+        return null;
+      }
+
+      return { name, description };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }));
+}
+
+function getCombatStatusReferenceTable() {
+  return state.tables.find((table) => {
+    const tableName = cleanText(table.name).toLowerCase();
+    const firstColumnLabel = cleanText(table.columns?.[0]?.label).toLowerCase();
+
+    return tableName.includes("estado") || firstColumnLabel.includes("estado");
+  }) ?? null;
 }
 
 function renderCombatNameSuggestion(combatantId, entry) {
@@ -8099,7 +8259,7 @@ function matchesFilters(combatant) {
 
     const value = column.key === "pgMax"
       ? `${combatant.pgMax} ${getEffectivePgMax(combatant)}`
-      : combatant[column.key] ?? "";
+      : getCombatantColumnValue(combatant, column.key);
 
     return String(value).toLowerCase().includes(filterValue);
   });
@@ -8232,8 +8392,8 @@ function compareCombatants(left, right) {
 
   const column = columns.find((item) => item.key === state.sort.key);
   const multiplier = state.sort.direction === "asc" ? 1 : -1;
-  const leftValue = left[state.sort.key];
-  const rightValue = right[state.sort.key];
+  const leftValue = getCombatantColumnValue(left, state.sort.key);
+  const rightValue = getCombatantColumnValue(right, state.sort.key);
 
   if (state.sort.key === "tag") {
     return (getCombatantSideSortRank(left) - getCombatantSideSortRank(right)) * multiplier
@@ -10181,11 +10341,11 @@ function addBlankCombatant() {
     ...state.combatants,
     {
       id,
-      side: "enemies",
+      side: "neutral",
       source: "",
       ubicacion: "",
       iniactiva: "",
-      nombre: "Nueva entidad enemiga",
+      nombre: "Nueva entidad neutral",
       numPeana: formatStandNumber(getNextEnemyStandNumber()),
       pgMax: "",
       pgAct: "",
@@ -10199,7 +10359,7 @@ function addBlankCombatant() {
       vision: "",
       lenguas: "",
       crExp: "",
-      tag: "ENEMIGO",
+      tag: "NEUTRAL",
       initiativeRoll: null,
       initiativeNat20: false
     }
@@ -10349,6 +10509,43 @@ function cycleCombatantTag(combatantId) {
       ...combatant,
       tag: nextTag
     }, "tag");
+  });
+}
+
+function setCombatantTag(combatantId, tag) {
+  const normalizedTag = combatTagOptions.includes(cleanText(tag)) ? cleanText(tag) : "NEUTRAL";
+
+  state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
+    ? normalizeCombatant({
+      ...combatant,
+      tag: normalizedTag
+    }, "tag")
+    : combatant);
+}
+
+function toggleCombatantStatus(combatantId, statusName) {
+  const normalizedStatus = cleanText(statusName);
+
+  if (!normalizedStatus) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== combatantId) {
+      return combatant;
+    }
+
+    const currentStatuses = getCombatantStatusNames(combatant);
+    const normalizedStatuses = currentStatuses.map((entry) => normalizeTranslationKey(entry.toLowerCase()));
+    const targetKey = normalizeTranslationKey(normalizedStatus.toLowerCase());
+    const nextStatuses = normalizedStatuses.includes(targetKey)
+      ? currentStatuses.filter((entry) => normalizeTranslationKey(entry.toLowerCase()) !== targetKey)
+      : [...currentStatuses, normalizedStatus];
+
+    return normalizeCombatant({
+      ...combatant,
+      condiciones: nextStatuses.join(", ")
+    });
   });
 }
 
