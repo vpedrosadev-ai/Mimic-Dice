@@ -14,6 +14,14 @@ import {
   normalizeSpellEntry,
   parseSpellLevel
 } from "./data/compendiumEntries.js";
+import {
+  CONTENT_TRANSLATION_MODE_GLOSSARY,
+  CONTENT_TRANSLATION_MODE_ORIGINAL,
+  CONTENT_TRANSLATION_MODE_SIDECAR,
+  detectCsvContentLanguage,
+  getContentTranslationModeLabel,
+  translateCompendiumRows
+} from "./data/contentTranslation.js";
 import { initialTableDefinitions } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
@@ -52,7 +60,6 @@ import appIconUrl from "../build-resources/icon.png";
 import {
   APP_LANGUAGE_EN,
   APP_LANGUAGE_ES,
-  BESTIARY_CSV_PATH,
   BESTIARY_IMAGES_PATH,
   BESTIARY_RENDER_DEBOUNCE_MS,
   BESTIARY_VIRTUAL_DEFAULT_VIEWPORT,
@@ -66,6 +73,11 @@ import {
   CHARACTERS_STORAGE_KEY,
   COMBAT_TRACKER_SORT_DEFAULT_VERSION,
   COMBAT_TRACKER_STORAGE_KEY,
+  CONTENT_LANGUAGE_EN,
+  CONTENT_LANGUAGE_ES,
+  DEFAULT_BESTIARY_CSV_RELATIVE_PATH,
+  DEFAULT_ITEMS_CSV_RELATIVE_PATH,
+  DEFAULT_SPELLS_CSV_RELATIVE_PATH,
   DESKTOP_ASSET_BASE_URL,
   DESKTOP_BUILD_SIGNATURE_STORAGE_KEY,
   DESKTOP_STORAGE_RESET_VERSION,
@@ -75,10 +87,8 @@ import {
   IS_FILE_PROTOCOL_RUNTIME,
   ITEM_VIRTUAL_OVERSCAN,
   ITEM_VIRTUAL_ROW_HEIGHT,
-  ITEMS_CSV_PATH,
   ITEMS_IMAGES_PATH,
   MANAGED_STORAGE_KEY_PREFIX,
-  SPELLS_CSV_PATH,
   TABLES_STORAGE_KEY
 } from "./config/appConstants.js";
 import {
@@ -182,6 +192,18 @@ const arcanumFilterLabels = {
   class: "clases",
   castingTime: "velocidades"
 };
+const defaultRepositoryCsvPaths = {
+  bestiary: DEFAULT_BESTIARY_CSV_RELATIVE_PATH,
+  items: DEFAULT_ITEMS_CSV_RELATIVE_PATH,
+  arcanum: DEFAULT_SPELLS_CSV_RELATIVE_PATH
+};
+const defaultDataCsvFiles = Object.values(defaultRepositoryCsvPaths);
+const blankContentSourceMeta = {
+  detectedLanguage: CONTENT_LANGUAGE_EN,
+  translationMode: CONTENT_TRANSLATION_MODE_ORIGINAL,
+  sidecarPath: "",
+  message: ""
+};
 
 const app = document.querySelector("#app");
 let battleTimerInterval = null;
@@ -215,6 +237,14 @@ const state = {
   campaignFileName: initialCampaignMeta.fileName,
   campaignFilePath: initialCampaignMeta.filePath,
   appLanguage: normalizeStoredAppLanguage(initialCampaignMeta.language),
+  contentLanguage: normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage),
+  repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(initialCampaignMeta.repositoryCsvPaths),
+  dataCsvFiles: [...defaultDataCsvFiles],
+  contentSourceMeta: {
+    bestiary: { ...blankContentSourceMeta },
+    items: { ...blankContentSourceMeta },
+    arcanum: { ...blankContentSourceMeta }
+  },
   campaignMessage: "",
   fileMenuOpen: false,
   optionsMenuOpen: false,
@@ -614,6 +644,13 @@ function handleClick(event) {
     state.appLanguage = normalizeStoredAppLanguage(actionButton.dataset.appLanguage);
     saveCampaignMeta();
     render();
+    return;
+  }
+
+  if (action === "set-content-language") {
+    state.contentLanguage = normalizeStoredContentLanguage(actionButton.dataset.contentLanguage);
+    saveCampaignMeta();
+    reloadCompendiumContent();
     return;
   }
 
@@ -1496,6 +1533,11 @@ function handleClick(event) {
 function handleChange(event) {
   const target = event.target;
 
+  if (target.matches("[data-repository-csv]")) {
+    updateRepositoryCsvPath(target.dataset.repositoryCsv, target.value);
+    return;
+  }
+
   if (target.matches("[data-character-overview-field][data-character-overview-id]")) {
     updateCharacterFieldForId(
       target.dataset.characterOverviewId,
@@ -2362,6 +2404,7 @@ function queueInitialDataLoad() {
 
   schedule(() => {
     schedule(() => {
+      loadDataCsvFileOptions();
       loadBestiary();
       window.setTimeout(() => {
         loadItems();
@@ -2751,6 +2794,28 @@ function renderOptionsDialog() {
             </button>
           </div>
         </div>
+        <div class="options-dialog__language-card">
+          <strong>${escapeHtml(t("options_content_language_title"))}</strong>
+          <small>${escapeHtml(t("options_content_language_help"))}</small>
+          <div class="options-dialog__language-actions">
+            <button
+              class="summary-button ${state.contentLanguage === CONTENT_LANGUAGE_ES ? "" : "summary-button--ghost"}"
+              type="button"
+              data-action="set-content-language"
+              data-content-language="${CONTENT_LANGUAGE_ES}"
+            >
+              ${escapeHtml(t("options_content_language_es"))}
+            </button>
+            <button
+              class="summary-button ${state.contentLanguage === CONTENT_LANGUAGE_EN ? "" : "summary-button--ghost"}"
+              type="button"
+              data-action="set-content-language"
+              data-content-language="${CONTENT_LANGUAGE_EN}"
+            >
+              ${escapeHtml(t("options_content_language_en"))}
+            </button>
+          </div>
+        </div>
       </section>
     </div>
   `;
@@ -2780,6 +2845,19 @@ function getCampaignDisplayName() {
 
 function normalizeStoredAppLanguage(value) {
   return cleanText(value) === APP_LANGUAGE_EN ? APP_LANGUAGE_EN : APP_LANGUAGE_ES;
+}
+
+function normalizeStoredContentLanguage(value) {
+  return cleanText(value) === CONTENT_LANGUAGE_EN ? CONTENT_LANGUAGE_EN : CONTENT_LANGUAGE_ES;
+}
+
+function normalizeStoredRepositoryCsvPaths(value) {
+  const source = isPlainObject(value) ? value : {};
+  return {
+    bestiary: normalizeDataCsvRelativePath(source.bestiary) || defaultRepositoryCsvPaths.bestiary,
+    items: normalizeDataCsvRelativePath(source.items) || defaultRepositoryCsvPaths.items,
+    arcanum: normalizeDataCsvRelativePath(source.arcanum) || defaultRepositoryCsvPaths.arcanum
+  };
 }
 
 function t(key, replacements = {}) {
@@ -3841,6 +3919,7 @@ function renderBestiary() {
         </div>
         <div class="section-heading__side">
           <div class="section-meta">
+            ${renderRepositoryCsvPicker("bestiary")}
             <span>${getBestiaryStatusLabel()}</span>
             <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
             <span>${escapeHtml(t("bestiary_total", { count: state.bestiary.length }))}</span>
@@ -3878,6 +3957,7 @@ function renderItems() {
           <h3>${escapeHtml(t("items_title"))}</h3>
         </div>
         <div class="section-meta">
+          ${renderRepositoryCsvPicker("items")}
           <span>${getItemStatusLabel()}</span>
           <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
           <span>${escapeHtml(t("bestiary_total", { count: state.items.length }))}</span>
@@ -3914,6 +3994,7 @@ function renderArcanum() {
           <h3>${escapeHtml(t("arcanum_title"))}</h3>
         </div>
         <div class="section-meta">
+          ${renderRepositoryCsvPicker("arcanum")}
           <span>${getArcanumStatusLabel()}</span>
           <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
           <span>${escapeHtml(t("bestiary_total", { count: state.arcanum.length }))}</span>
@@ -3937,6 +4018,34 @@ function renderArcanum() {
       ${renderArcanumContent(filteredEntries, selectedEntry)}
     </section>
   `;
+}
+
+function renderRepositoryCsvPicker(repositoryKey) {
+  const selectedPath = state.repositoryCsvPaths[repositoryKey] ?? defaultRepositoryCsvPaths[repositoryKey] ?? "";
+  const options = getRepositoryCsvOptions(selectedPath);
+
+  return `
+    <label class="repository-csv-picker">
+      <span>${escapeHtml(t("csv_loader_label"))}</span>
+      <select data-repository-csv="${escapeHtml(repositoryKey)}" aria-label="${escapeHtml(t("csv_loader_label"))}">
+        ${options.map((relativePath) => `
+          <option value="${escapeHtml(relativePath)}" ${relativePath === selectedPath ? "selected" : ""}>
+            ${escapeHtml(getFileNameFromPath(relativePath))}
+          </option>
+        `).join("")}
+      </select>
+    </label>
+  `;
+}
+
+function getRepositoryCsvOptions(selectedPath) {
+  return [...new Set([
+    selectedPath,
+    ...state.dataCsvFiles,
+    ...defaultDataCsvFiles
+  ].filter(Boolean))]
+    .filter((relativePath) => /\.csv$/i.test(relativePath) && !/\.es\.csv$/i.test(relativePath))
+    .sort((left, right) => getFileNameFromPath(left).localeCompare(getFileNameFromPath(right), "es", { sensitivity: "base" }));
 }
 
 function renderItemsContent(filteredEntries, selectedEntry) {
@@ -9791,6 +9900,150 @@ function mapSideToTag(side) {
   return "NEUTRAL";
 }
 
+async function loadDataCsvFileOptions() {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.listAssetFiles !== "function") {
+    state.dataCsvFiles = [...defaultDataCsvFiles];
+    render();
+    return;
+  }
+
+  try {
+    const files = await desktopApi.listAssetFiles("data", ".csv");
+    state.dataCsvFiles = [...new Set([...defaultDataCsvFiles, ...files.map(normalizeDataCsvRelativePath)])]
+      .filter(Boolean)
+      .filter((relativePath) => !/\.es\.csv$/i.test(relativePath))
+      .sort((left, right) => getFileNameFromPath(left).localeCompare(getFileNameFromPath(right), "es", { sensitivity: "base" }));
+    render();
+  } catch {
+    state.dataCsvFiles = [...defaultDataCsvFiles];
+  }
+}
+
+function getRepositoryCsvPath(repositoryKey) {
+  return normalizeDataCsvRelativePath(state.repositoryCsvPaths[repositoryKey])
+    || defaultRepositoryCsvPaths[repositoryKey]
+    || "";
+}
+
+function updateRepositoryCsvPath(repositoryKey, relativePath) {
+  if (!defaultRepositoryCsvPaths[repositoryKey]) {
+    return;
+  }
+
+  state.repositoryCsvPaths = {
+    ...state.repositoryCsvPaths,
+    [repositoryKey]: normalizeDataCsvRelativePath(relativePath) || defaultRepositoryCsvPaths[repositoryKey]
+  };
+  saveCampaignMeta();
+
+  if (repositoryKey === "bestiary") {
+    resetBestiaryVirtualScroll();
+    state.bestiarySelectedId = "";
+    loadBestiary();
+    return;
+  }
+
+  if (repositoryKey === "items") {
+    resetItemVirtualScroll();
+    state.itemSelectedId = "";
+    loadItems();
+    return;
+  }
+
+  if (repositoryKey === "arcanum") {
+    resetArcanumVirtualScroll();
+    state.arcanumSelectedId = "";
+    loadArcanum();
+  }
+}
+
+function reloadCompendiumContent() {
+  resetBestiaryVirtualScroll();
+  resetItemVirtualScroll();
+  resetArcanumVirtualScroll();
+  resetBestiaryRenderCache();
+  loadBestiary();
+  window.setTimeout(() => loadItems(), 80);
+  window.setTimeout(() => loadArcanum(), 160);
+}
+
+async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
+  const baseRows = parseCsv(csvText);
+  const detectedLanguage = detectCsvContentLanguage(baseRows, kind);
+  const targetLanguage = normalizeStoredContentLanguage(state.contentLanguage);
+
+  if (targetLanguage !== CONTENT_LANGUAGE_ES || detectedLanguage === CONTENT_LANGUAGE_ES) {
+    return {
+      rows: baseRows,
+      meta: {
+        detectedLanguage,
+        translationMode: CONTENT_TRANSLATION_MODE_ORIGINAL,
+        sidecarPath: "",
+        message: ""
+      }
+    };
+  }
+
+  const sidecarPath = getLocalizedCsvRelativePath(relativePath, CONTENT_LANGUAGE_ES);
+
+  try {
+    const sidecarText = await loadTextAsset(getDataAssetUrl(sidecarPath), sidecarPath);
+    return {
+      rows: parseCsv(sidecarText),
+      meta: {
+        detectedLanguage,
+        translationMode: CONTENT_TRANSLATION_MODE_SIDECAR,
+        sidecarPath,
+        message: ""
+      }
+    };
+  } catch {
+    return {
+      rows: translateCompendiumRows(baseRows, kind, targetLanguage),
+      meta: {
+        detectedLanguage,
+        translationMode: CONTENT_TRANSLATION_MODE_GLOSSARY,
+        sidecarPath: "",
+        message: "Spanish sidecar CSV not found; local glossary applied."
+      }
+    };
+  }
+}
+
+function getLocalizedCsvRelativePath(relativePath, language) {
+  const normalizedPath = normalizeDataCsvRelativePath(relativePath);
+  return normalizedPath.replace(/\.csv$/i, `.${language}.csv`);
+}
+
+function getDataAssetUrl(relativePath) {
+  const normalizedPath = normalizeDataCsvRelativePath(relativePath);
+
+  if (!normalizedPath) {
+    return "";
+  }
+
+  return DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/${normalizedPath}` : normalizedPath;
+}
+
+function normalizeDataCsvRelativePath(value) {
+  const normalizedPath = cleanText(value)
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "")
+    .replace(/^\/+/, "");
+
+  if (!normalizedPath) {
+    return "";
+  }
+
+  const withDataPrefix = normalizedPath.toLowerCase().startsWith("data/")
+    ? normalizedPath
+    : `data/${normalizedPath}`;
+
+  return /\.csv$/i.test(withDataPrefix) ? withDataPrefix : "";
+}
+
 async function loadBestiary() {
   state.bestiaryStatus = "loading";
   state.bestiaryMessage = "";
@@ -9798,13 +10051,15 @@ async function loadBestiary() {
   render();
 
   try {
+    const csvRelativePath = getRepositoryCsvPath("bestiary");
     const [text, imageMap] = await Promise.all([
-      loadTextAsset(BESTIARY_CSV_PATH, "data/Bestiary.csv"),
+      loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath),
       loadBestiaryImages()
     ]);
-    const rows = parseCsv(text);
+    const { rows, meta } = await getLocalizedCompendiumRows("bestiary", text, csvRelativePath);
 
     state.bestiaryImageMap = imageMap;
+    state.contentSourceMeta.bestiary = meta;
     state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index, imageMap, {
       isPackagedDesktopApp: isPackagedDesktopApp()
     }));
@@ -9815,12 +10070,13 @@ async function loadBestiary() {
     state.bestiarySelectedId = state.bestiary[0]?.id ?? "";
     render();
   } catch (error) {
+    const csvRelativePath = getRepositoryCsvPath("bestiary");
     state.bestiaryStatus = "error";
-    state.bestiaryMessage = error instanceof Error ? error.message : `No se pudo cargar ${BESTIARY_CSV_PATH}.`;
+    state.bestiaryMessage = error instanceof Error ? error.message : `No se pudo cargar ${csvRelativePath}.`;
     state.bestiaryDebugInfo = await resolveAssetLoadDebugInfo(error, {
       label: "Bestiario",
-      assetUrl: BESTIARY_CSV_PATH,
-      desktopRelativePath: "data/Bestiary.csv",
+      assetUrl: getDataAssetUrl(csvRelativePath),
+      desktopRelativePath: csvRelativePath,
       loaderMode: "desktopApi.readAssetText -> fetch"
     });
     render();
@@ -9834,13 +10090,15 @@ async function loadItems() {
   render();
 
   try {
+    const csvRelativePath = getRepositoryCsvPath("items");
     const [text, imageMap] = await Promise.all([
-      loadTextAsset(ITEMS_CSV_PATH, "data/Items.csv"),
+      loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath),
       loadItemImages()
     ]);
-    const rows = parseCsv(text);
+    const { rows, meta } = await getLocalizedCompendiumRows("items", text, csvRelativePath);
 
     state.itemImageMap = imageMap;
+    state.contentSourceMeta.items = meta;
     state.items = rows.map((row, index) => normalizeItemEntry(row, index, imageMap));
     resetItemVirtualScroll();
     state.itemStatus = "ready";
@@ -9848,12 +10106,13 @@ async function loadItems() {
     state.itemSelectedId = state.items[0]?.id ?? "";
     render();
   } catch (error) {
+    const csvRelativePath = getRepositoryCsvPath("items");
     state.itemStatus = "error";
-    state.itemMessage = error instanceof Error ? error.message : `No se pudo cargar ${ITEMS_CSV_PATH}.`;
+    state.itemMessage = error instanceof Error ? error.message : `No se pudo cargar ${csvRelativePath}.`;
     state.itemDebugInfo = await resolveAssetLoadDebugInfo(error, {
       label: "Items",
-      assetUrl: ITEMS_CSV_PATH,
-      desktopRelativePath: "data/Items.csv",
+      assetUrl: getDataAssetUrl(csvRelativePath),
+      desktopRelativePath: csvRelativePath,
       loaderMode: "desktopApi.readAssetText -> fetch"
     });
     render();
@@ -9867,9 +10126,11 @@ async function loadArcanum() {
   render();
 
   try {
-    const text = await loadTextAsset(SPELLS_CSV_PATH, "data/Spells.csv");
-    const rows = parseCsv(text);
+    const csvRelativePath = getRepositoryCsvPath("arcanum");
+    const text = await loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath);
+    const { rows, meta } = await getLocalizedCompendiumRows("arcanum", text, csvRelativePath);
 
+    state.contentSourceMeta.arcanum = meta;
     state.arcanum = rows.map((row, index) => normalizeSpellEntry(row, index));
     resetBestiaryRenderCache();
     state.arcanumStatus = "ready";
@@ -9877,12 +10138,13 @@ async function loadArcanum() {
     state.arcanumSelectedId = state.arcanum[0]?.id ?? "";
     render();
   } catch (error) {
+    const csvRelativePath = getRepositoryCsvPath("arcanum");
     state.arcanumStatus = "error";
-    state.arcanumMessage = error instanceof Error ? error.message : `No se pudo cargar ${SPELLS_CSV_PATH}.`;
+    state.arcanumMessage = error instanceof Error ? error.message : `No se pudo cargar ${csvRelativePath}.`;
     state.arcanumDebugInfo = await resolveAssetLoadDebugInfo(error, {
       label: "Arcanum",
-      assetUrl: SPELLS_CSV_PATH,
-      desktopRelativePath: "data/Spells.csv",
+      assetUrl: getDataAssetUrl(csvRelativePath),
+      desktopRelativePath: csvRelativePath,
       loaderMode: "desktopApi.readAssetText -> fetch"
     });
     render();
@@ -10797,7 +11059,7 @@ function getBestiaryStatusLabel() {
     return t("read_error");
   }
 
-  return t("active_csv", { path: BESTIARY_CSV_PATH });
+  return t("active_csv", { path: getRepositoryStatusPath("bestiary") });
 }
 function getItemStatusLabel() {
   if (state.itemStatus === "loading") {
@@ -10808,7 +11070,7 @@ function getItemStatusLabel() {
     return t("read_error");
   }
 
-  return t("active_csv", { path: ITEMS_CSV_PATH });
+  return t("active_csv", { path: getRepositoryStatusPath("items") });
 }
 
 function getArcanumStatusLabel() {
@@ -10820,7 +11082,15 @@ function getArcanumStatusLabel() {
     return t("read_error");
   }
 
-  return t("active_csv", { path: SPELLS_CSV_PATH });
+  return t("active_csv", { path: getRepositoryStatusPath("arcanum") });
+}
+
+function getRepositoryStatusPath(repositoryKey) {
+  const relativePath = getRepositoryCsvPath(repositoryKey);
+  const meta = state.contentSourceMeta[repositoryKey] ?? blankContentSourceMeta;
+  const modeLabel = getContentTranslationModeLabel(meta.translationMode, state.contentLanguage);
+
+  return `${relativePath} · ${modeLabel}`;
 }
 
 function getEnemyHitPointValue(entry) {
@@ -11779,7 +12049,9 @@ function createCampaignSavePayload(options = {}) {
     ui: {
       activeScreen: state.activeScreen,
       activeEncounterId: state.activeEncounterId,
-      activeEncounterFolderId: state.activeEncounterFolderId
+      activeEncounterFolderId: state.activeEncounterFolderId,
+      contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
+      repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
     }
   };
 }
@@ -11834,7 +12106,9 @@ function normalizeCampaignSave(value) {
     battleTimer,
     activeScreen: normalizeStoredActiveScreen(ui.activeScreen),
     activeEncounterId: cleanText(ui.activeEncounterId),
-    activeEncounterFolderId: cleanText(ui.activeEncounterFolderId)
+    activeEncounterFolderId: cleanText(ui.activeEncounterFolderId),
+    contentLanguage: normalizeStoredContentLanguage(ui.contentLanguage),
+    repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths)
   };
 }
 
@@ -11874,6 +12148,8 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.campaignFileName = cleanText(fileResult?.fileName) || state.campaignFileName;
   state.campaignFilePath = cleanText(fileResult?.filePath) || state.campaignFilePath;
   state.activeScreen = campaign.activeScreen;
+  state.contentLanguage = campaign.contentLanguage;
+  state.repositoryCsvPaths = campaign.repositoryCsvPaths;
   resetTransientCampaignUiState();
   state.combatants = campaign.combatTracker.combatants;
   state.filters = campaign.combatTracker.filters;
@@ -11916,6 +12192,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   saveCharacters();
   saveEncounterInventory();
   saveTablesState();
+  reloadCompendiumContent();
 
   if (fileResult) {
     applyCampaignFileResult(fileResult);
@@ -12077,11 +12354,11 @@ function getFileNameFromPath(filePath) {
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   if (usesDesktopFileOnlyPersistence()) {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   try {
@@ -12093,10 +12370,12 @@ function loadCampaignMeta() {
       name: fileName ? cleanText(parsedValue.name) || getCampaignNameFromFileName(fileName) : "",
       fileName,
       filePath,
-      language: normalizeStoredAppLanguage(parsedValue.language)
+      language: normalizeStoredAppLanguage(parsedValue.language),
+      contentLanguage: normalizeStoredContentLanguage(parsedValue.contentLanguage),
+      repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(parsedValue.repositoryCsvPaths)
     };
   } catch {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 }
 
@@ -12111,7 +12390,9 @@ function saveCampaignMeta() {
         name: cleanText(state.campaignName),
         fileName: cleanText(state.campaignFileName),
         filePath: cleanText(state.campaignFilePath),
-        language: normalizeStoredAppLanguage(state.appLanguage)
+        language: normalizeStoredAppLanguage(state.appLanguage),
+        contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
+        repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
       }));
     } catch {
       // Storage can be unavailable in private contexts; campaign files still work.

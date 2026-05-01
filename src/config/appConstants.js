@@ -34,4 +34,9 @@ export const ITEM_VIRTUAL_ROW_HEIGHT = 132;
 export const ITEM_VIRTUAL_OVERSCAN = 8;
 export const APP_LANGUAGE_ES = "es";
 export const APP_LANGUAGE_EN = "en";
+export const CONTENT_LANGUAGE_ES = "es";
+export const CONTENT_LANGUAGE_EN = "en";
+export const DEFAULT_BESTIARY_CSV_RELATIVE_PATH = "data/Bestiary.csv";
+export const DEFAULT_ITEMS_CSV_RELATIVE_PATH = "data/Items.csv";
+export const DEFAULT_SPELLS_CSV_RELATIVE_PATH = "data/Spells.csv";
 

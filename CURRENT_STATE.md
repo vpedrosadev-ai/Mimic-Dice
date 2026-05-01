@@ -19,6 +19,9 @@
 - Items con carga de CSV, mapa de imagenes, filtros por rareza/tipo/source y panel de detalle.
 - Arcanum con carga de `Spells.csv`, filtros por source/nivel/escuela/clase/casting time y detalle.
 - Refactor estructural inicial: `src/main.js` ya importa constantes puras desde `src/config/appConstants.js`, textos desde `src/data/uiText.js`, normalizacion de compendios desde `src/data/compendiumEntries.js`, datos estaticos desde `src/data/gameConstants.js`, grupos de items desde `src/data/itemTypeGroups.js`, layout compartido desde `src/shared/compendiumLayout.js`, parseo CSV desde `src/shared/csv.js`, calculo de listas virtuales desde `src/shared/virtualList.js`, helpers puros desde `src/shared/text.js`, `src/shared/numberUtils.js` y `src/shared/dndRules.js`, y render puro de compendios desde `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js`.
+- Opciones ahora separa idioma de interfaz e idioma de contenido CSV. Bestiario, Items y Arcanum pueden recargarse en EN/ES de contenido.
+- Cada repositorio de compendio muestra un selector de CSV antes de la chip `CSV activo`; en desktop lista `.csv` disponibles en `data/`.
+- Traduccion de contenido CSV: si el CSV esta en ingles y el usuario pide ES, se intenta primero `Nombre.es.csv`; si no existe, se aplica glosario local EN->ES para campos/frases comunes.
 - Pantalla de personajes con ficha amplia, progreso, stats, habilidades, inventario, avatar e iconos de clase.
 - Nueva pantalla `Tablas` con listado lateral, apertura multiple de tablas, paneles colapsables y edicion inline de nombre, columnas, filas y celdas.
 - `Tablas` arranca con 2 ejemplos semilla: `Tabla Estados` y `Tabla Magia Salvaje`.
@@ -137,7 +140,8 @@
 ## Practical Next Steps
 
 1. Seguir extraccion incremental desde `src/main.js` hacia `src/screens/<screen-id>/`, continuando con toolbars/filtros de compendios porque ficha seleccionada y listas ya estan fuera.
-2. Cuando una tarea toque solo texto, constantes, rutas, storage, tipos de items o layout comun de compendios, editar primero los modulos extraidos y evitar abrir todo `src/main.js`.
+2. Si se quiere traduccion completa de los textos largos de reglas, generar/curar sidecars `.es.csv` por dataset; el glosario local no debe considerarse traduccion completa.
+3. Cuando una tarea toque solo texto, constantes, rutas, storage, tipos de items o layout comun de compendios, editar primero los modulos extraidos y evitar abrir todo `src/main.js`.
 3. Decidir alcance de `Session Vault`: placeholder temporal o siguiente modulo real.
 4. Definir smoke checklist minima para no depender solo de inspeccion manual.
 5. Mantener `public/data/` y scripts de cache como fuente canonica para compendios.

@@ -43,6 +43,7 @@ Notas:
 - `src/config/appConstants.js`: constantes de runtime, rutas de assets, claves de storage, versionado desktop y tamanos de virtualizacion.
 - `src/data/uiText.js`: textos de interfaz ES/EN y tablas de traduccion.
 - `src/data/compendiumEntries.js`: normalizacion de filas CSV, claves, fuentes, rarezas, tamanos, imagenes y metadatos de Bestiario/Items/Arcanum.
+- `src/data/contentTranslation.js`: deteccion de idioma de CSV y traduccion local EN->ES por glosario. Prioriza sidecar completo `Nombre.es.csv` si existe en `data/`.
 - `src/data/gameConstants.js`: datos estaticos de reglas internas: atributos, progresion de personaje/skills, monedas, XP por CR, tags de combate y filas de navegacion superior.
 - `src/data/itemTypeGroups.js`: jerarquia y deteccion de tipos agregados de items.
 - `src/shared/compendiumLayout.js`: sincronizacion de alturas compartida por Bestiario, Items y Arcanum.
@@ -150,6 +151,9 @@ Persistencia desktop:
 - `src/shared/virtualList.js` centraliza el calculo de `startIndex`, `endIndex`, padding y alto total de listas virtualizadas.
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
 - `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js` son la primera extraccion real de render de pantalla; reciben dependencias desde `src/main.js` para no acoplarse directamente al `state` global.
+- Idioma de contenido CSV es independiente del idioma de interfaz. El cambio de contenido recarga Bestiario/Items/Arcanum. Para traduccion completa de CSV nuevos, convencion optima: colocar junto al CSV base un sidecar con mismo esquema y sufijo `.es.csv`, por ejemplo `BestiaryExtra.csv` + `BestiaryExtra.es.csv`.
+- Si el CSV detectado esta en ingles y no hay sidecar `.es.csv`, la app aplica `src/data/contentTranslation.js` como fallback de glosario. Es util para campos estructurados y frases comunes, pero no sustituye una traduccion humana/modelo para textos largos arbitrarios.
+- En desktop, `electron/preload.js` expone `listAssetFiles("data", ".csv")` para poblar selectores de CSV del directorio `data/`. En web/dev sin listado de carpeta, se muestran al menos los CSV canonicos.
 
 ## High-Noise Paths To Ignore By Default
 
@@ -171,6 +175,7 @@ Leer solo bajo demanda:
 - Si tarea es desktop save/load, abrir primero `electron/main.js` y `electron/preload.js`.
 - Si tarea es compendio, abrir primero `src/data/compendiumEntries.js` para normalizacion/datos, `src/shared/compendiumLayout.js` para altura/layout comun y solo despues el bloque relevante de `src/main.js`.
 - Si tarea es render de compendio, abrir primero `src/screens/compendiums/detailRender.js` o `src/screens/compendiums/listRender.js`.
+- Si tarea es idioma de contenido CSV o traducciones, abrir primero `src/data/contentTranslation.js` y luego la carga de compendios en `src/main.js`.
 - Si tarea es parseo CSV o rendimiento de listas virtuales, abrir `src/shared/csv.js` o `src/shared/virtualList.js`.
 - Si tarea es helpers de texto, numeros, CR, stats, pesos o dados, abrir `src/shared/text.js`, `src/shared/numberUtils.js` o `src/shared/dndRules.js`.
 - Si tarea es texto UI o traduccion, abrir `src/data/uiText.js`.

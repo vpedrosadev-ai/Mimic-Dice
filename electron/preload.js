@@ -116,6 +116,32 @@ async function readDesktopAssetText(relativePath) {
   return fs.promises.readFile(resolvedPath, "utf8");
 }
 
+async function listDesktopAssetFiles(relativeDirectory = "data", extension = ".csv") {
+  const assetDirectory = getDesktopAssetDirectory() || path.join(process.cwd(), "public");
+
+  if (!assetDirectory) {
+    return [];
+  }
+
+  const normalizedRelativeDirectory = String(relativeDirectory || "data").replace(/^[\\/]+/, "");
+  const resolvedDirectory = path.resolve(assetDirectory, normalizedRelativeDirectory);
+  const normalizedAssetDirectory = `${path.resolve(assetDirectory)}${path.sep}`;
+
+  if (resolvedDirectory !== path.resolve(assetDirectory) && !resolvedDirectory.startsWith(normalizedAssetDirectory)) {
+    throw new Error("Asset directory outside allowed root");
+  }
+
+  const entries = await fs.promises.readdir(resolvedDirectory, { withFileTypes: true });
+  const normalizedExtension = String(extension || "").toLowerCase();
+
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((fileName) => !normalizedExtension || fileName.toLowerCase().endsWith(normalizedExtension))
+    .map((fileName) => `${normalizedRelativeDirectory.replace(/\\/g, "/").replace(/\/+$/, "")}/${fileName}`)
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+}
+
 contextBridge.exposeInMainWorld("mimicDice", {
   platform: process.platform,
   isPackaged: !Boolean(process.env.VITE_DEV_SERVER_URL),
@@ -125,6 +151,7 @@ contextBridge.exposeInMainWorld("mimicDice", {
   hasExternalAssetDirectory: Boolean(getDesktopAssetDirectory()),
   getDesktopDebugInfo: () => getDesktopDebugInfo(),
   readAssetText: (relativePath) => readDesktopAssetText(relativePath),
+  listAssetFiles: (relativeDirectory, extension) => listDesktopAssetFiles(relativeDirectory, extension),
   saveCampaign: (payload, fileName, filePath = "") => ipcRenderer.invoke("campaign:save", { payload, fileName, filePath }),
   saveCampaignAs: (payload, fileName, options = {}) => ipcRenderer.invoke("campaign:save-as", {
     payload,

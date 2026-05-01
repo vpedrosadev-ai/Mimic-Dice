@@ -7,10 +7,13 @@
 - Cambios hechos tambien: `src/main.js` conserva el estado global, handlers, render y persistencia, pero ahora importa datos/configuracion compartida. Esto reduce el contexto que agentes futuros necesitan abrir para tareas de texto, constantes, filtros de items, normalizacion de compendios, helpers de reglas o layout de compendios.
 - Tamano tras esta tanda: `src/main.js` queda en unas 14.277 lineas. Sigue siendo grande; el siguiente corte de alto impacto debe mover toolbars/filtros de compendios a `src/screens/`.
 - Cambios hechos despues: se extrajo render puro de compendios a `src/screens/compendiums/detailRender.js` para fichas seleccionadas y `src/screens/compendiums/listRender.js` para filas/listas virtualizadas. Ambos reciben dependencias desde `main.js` y no leen `state` directamente.
+- Cambios hechos despues: se agrego idioma de contenido CSV independiente del idioma de interfaz. `Opciones` permite EN/ES para contenido, y Bestiario/Items/Arcanum recargan sus CSV al cambiarlo.
+- Cambios hechos despues: cada repositorio de compendio tiene selector de CSV antes de la chip `CSV activo`. En desktop se listan `.csv` desde `data/` usando `window.mimicDice.listAssetFiles`; en web queda fallback a los CSV canonicos.
+- Contrato de traduccion: la app intenta cargar sidecar `Nombre.es.csv` si el CSV base esta en ingles y el contenido pedido es ES. Si no existe sidecar, aplica glosario local en `src/data/contentTranslation.js`. Esto es fallback, no traduccion completa de prosa larga arbitraria.
 - Documentacion actualizada: `PROJECT_CONTEXT.md`, `CURRENT_STATE.md`, `SESSION_HANDOFF.md` y `src/screens/README.md` reflejan la nueva estructura y el orden de lectura recomendado.
 - Verificacion corrida: `npm run build` OK tras la extraccion.
 - Riesgos activos: no hay suite automatica formal; `npm run build` valida bundle, pero conviene hacer smoke manual de Bestiario, Items, Arcanum, pantalla de personajes, tablas y guardado desktop si se empaqueta.
-- Siguiente paso recomendado: extraer toolbar/filtros de Bestiario/Items/Arcanum a `src/screens/compendiums/filterRender.js`, dejando en `src/main.js` estado, seleccion, handlers y llamadas de orquestacion.
+- Siguiente paso recomendado: extraer toolbar/filtros de Bestiario/Items/Arcanum a `src/screens/compendiums/filterRender.js`, dejando en `src/main.js` estado, seleccion, handlers y llamadas de orquestacion. Para mejorar calidad de ES, crear sidecars `.es.csv` reales para datasets principales o ampliar `contentTranslation.js` por dominios.
 
 ## Handoff anterior
 

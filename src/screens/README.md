@@ -8,6 +8,7 @@ Antes de crear una pantalla nueva o extraer una existente, revisar estos modulos
 src/config/appConstants.js      runtime, rutas, storage y constantes de virtualizacion
 src/data/uiText.js              textos ES/EN y traducciones
 src/data/compendiumEntries.js   normalizacion CSV, fuentes, rarezas, tamanos e imagenes de compendios
+src/data/contentTranslation.js  idioma de contenido CSV, sidecars .es.csv y glosario EN->ES
 src/data/gameConstants.js       progresiones, monedas, XP, tags y datos de personaje/combate
 src/data/itemTypeGroups.js      jerarquia de filtros por tipo de item
 src/shared/compendiumLayout.js  altura comun de listas y detalles de compendios
