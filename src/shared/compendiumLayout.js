@@ -27,8 +27,13 @@ export function syncCompendiumLayoutHeights(root = document) {
     layout.style.minHeight = `${viewportHeight}px`;
     layout.style.setProperty("--compendium-viewport-height", `${viewportHeight}px`);
 
-    layout.querySelectorAll(".bestiary-list, .bestiary-detail").forEach((element) => {
+    layout.querySelectorAll(".bestiary-list").forEach((element) => {
       element.style.height = `${viewportHeight}px`;
+      element.style.maxHeight = `${viewportHeight}px`;
+    });
+
+    layout.querySelectorAll(".bestiary-detail").forEach((element) => {
+      element.style.height = "auto";
       element.style.maxHeight = `${viewportHeight}px`;
     });
 
