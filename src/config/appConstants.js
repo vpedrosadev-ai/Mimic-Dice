@@ -18,6 +18,7 @@ export const CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY = "mimic-dice:character-ski
 export const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
 export const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
 export const TABLES_STORAGE_KEY = "mimic-dice:tables:v1";
+export const DIARY_STORAGE_KEY = "mimic-dice:diary:v1";
 export const MANAGED_STORAGE_KEY_PREFIX = "mimic-dice:";
 export const DESKTOP_STORAGE_RESET_VERSION_KEY = "mimic-dice:desktop-storage-reset:v1";
 export const DESKTOP_BUILD_SIGNATURE_STORAGE_KEY = "mimic-dice:desktop-build-signature:v1";

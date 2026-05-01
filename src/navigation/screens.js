@@ -41,7 +41,7 @@ export const screens = [
   },
   {
     id: "initiative-board",
-    label: "Personajes",
+    label: "Characters",
     shortLabel: "Personajes",
     icon: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -50,8 +50,18 @@ export const screens = [
     `
   },
   {
+    id: "diary",
+    label: "Diary",
+    shortLabel: "Diario",
+    icon: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 3h9.5L20 7.5V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v15h12V8h-3.5A1.5 1.5 0 0 1 13 6.5V5H6Zm9 .4V6h.6L15 5.4ZM8 10h8v1.6H8V10Zm0 3.2h8v1.6H8v-1.6Zm0 3.2h5.2V18H8v-1.6Z" />
+      </svg>
+    `
+  },
+  {
     id: "tables",
-    label: "Tablas",
+    label: "Tables",
     shortLabel: "Tablas",
     icon: `
       <svg viewBox="0 0 24 24" aria-hidden="true">

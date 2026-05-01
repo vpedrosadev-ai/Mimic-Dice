@@ -87,6 +87,7 @@ Fuente de verdad: `src/navigation/screens.js`.
 - `arcanum`: compendio de conjuros.
 - `initiative-board`: pantalla de personajes.
 - `tables`: pantalla de tablas editables de referencia.
+- `diary`: diario de campana con notas enriquecidas e imagenes pegadas desde portapapeles.
 - `session-vault`: placeholder visual por ahora. Nombre reservado para una posible pantalla futura de recursos de sesion o campana, pero aun sin alcance definido.
 
 ## Data And Persistence
@@ -109,6 +110,7 @@ Persistencia local web:
 - `mimic-dice:tables:v1`
 - `mimic-dice:encounter-inventory:v1`
 - `mimic-dice:combat-tracker:v1`
+- `mimic-dice:diary:v1`
 
 Notas sobre `tables`:
 - Se guarda dentro del fichero de campana.
@@ -116,6 +118,11 @@ Notas sobre `tables`:
 - Puede exportar cada tabla a `.xlsx`.
 - Puede agrupar tablas en carpetas.
 - La importacion intenta detectar bloques tabulares, fila de cabeceras y posible titulo de tabla.
+
+Notas sobre `diary`:
+- Cada nota guarda HTML enriquecido, por lo que el fichero de campana puede incluir contenido formateado e imagenes pegadas como `data:` URL.
+- Cada nota tiene fecha real con dia o rango y fecha de Harptos con dia o rango.
+- El calendario de Harptos usa ano por defecto `1492` y contempla meses y festividades principales del calendario mostrado.
 
 Persistencia desktop:
 

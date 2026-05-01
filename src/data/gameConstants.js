@@ -150,7 +150,7 @@ export const ENEMY_HP_MODE_VARIABLE = "variable";
 export const TOPBAR_NAV_ROWS = [
   {
     id: "game",
-    screenIds: ["combat-tracker", "initiative-board", "tables"]
+    screenIds: ["combat-tracker", "initiative-board", "diary", "tables"]
   },
   {
     id: "reference",

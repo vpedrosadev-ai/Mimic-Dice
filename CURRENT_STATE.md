@@ -26,6 +26,7 @@
 - La carga ES de compendios ahora remapea cabeceras traducidas, soporta tambien sidecars con separador `;` y mezcla filas localizadas sobre CSV base; si el sidecar es incompatible, cae a glosario local en vez de dejar entradas vacias.
 - Pantalla de personajes con ficha amplia, progreso, stats, habilidades, inventario, avatar e iconos de clase.
 - Nueva pantalla `Tablas` con listado lateral, apertura multiple de tablas, paneles colapsables y edicion inline de nombre, columnas, filas y celdas.
+- Nueva pantalla `Diario` con notas de campana, editor rico, pegado de imagenes desde portapapeles y doble fecha por nota: calendario real y calendario de Harptos.
 - `Tablas` arranca con 2 ejemplos semilla: `Tabla Estados` y `Tabla Magia Salvaje`.
 - `Tablas` permite importar libros Excel como tablas, exportar cada tabla a `.xlsx` y guardar tambien sus anchos de columna dentro de la campana.
 - `Tablas` ahora soporta carpetas expandibles en la barra lateral; si un Excel trae varias tablas detectadas, se agrupan automaticamente bajo una carpeta de importacion.
@@ -111,6 +112,7 @@
 - Configuracion global de skills muestra color por skill en fondo de cada fila y nuevas skills reciben color nuevo automatico.
 - Tarjetas de skills en ficha arrancan resumidas por defecto y un unico boton en cabecera despliega u oculta el detalle de todas.
 - Shell Electron con guardar, guardar como, cargar y autosave de campanas.
+- `Diario` se guarda dentro del fichero de campana y tambien en persistencia local web cuando aplica.
 - `Session Vault` aun no tiene implementacion real; renderiza placeholder.
 
 ## Repo Signals
