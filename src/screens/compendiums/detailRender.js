@@ -3,29 +3,27 @@ import { statKeys } from "../../data/gameConstants.js";
 import { formatModifier, getAbilityModifier } from "../../shared/dndRules.js";
 import { cleanText, escapeHtml } from "../../shared/text.js";
 
-export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, getItemSourceDescription }) {
+export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, getItemSourceDescription, isItemTypeTokenFilterActive }) {
   function renderItemDetail(entry) {
     const media = renderItemDetailMedia(entry);
     const kpis = renderItemKpis(entry);
-    const detailBlocks = renderItemDetailBlocks(entry);
     const chips = [
-      renderDetailChip(t("items_selected_type"), entry.typeLine),
       renderDetailChip(t("items_selected_properties"), entry.properties),
       renderDetailChip(t("items_selected_mastery"), entry.mastery)
     ].filter(Boolean).join("");
+    const typePill = renderItemTypePills(entry.type);
 
     return `
       <div class="bestiary-detail__header item-detail__header">
         <p class="eyebrow">${escapeHtml(t("item_selected"))}</p>
         <h3>${escapeHtml(entry.name)}</h3>
         <p class="bestiary-detail__source">${escapeHtml(getItemSourceDescription(entry))}</p>
+        ${typePill}
       </div>
 
       ${media ? `<div class="bestiary-detail__top">${media}</div>` : ""}
 
       ${kpis ? `<div class="bestiary-kpis">${kpis}</div>` : ""}
-
-      ${detailBlocks ? `<div class="bestiary-detail__grid">${detailBlocks}</div>` : ""}
 
       ${chips ? `<div class="bestiary-resistances">${chips}</div>` : ""}
 
@@ -329,34 +327,76 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
     `;
   }
 
-  function renderItemDetailBlocks(entry) {
-    return [
-      renderItemDetailBlock("Fuente", entry.sourceLabel),
-      renderItemDetailBlock("Rareza", entry.rarity && entry.rarity !== "none" ? entry.rarityLabel : ""),
-      renderItemDetailBlock("Tipo", entry.type),
-      renderItemDetailBlock("Attunement", entry.attunement),
-      renderItemDetailBlock("Damage", entry.damage),
-      renderItemDetailBlock("Properties", entry.properties),
-      renderItemDetailBlock("Mastery", entry.mastery),
-      renderItemDetailBlock("Valor y peso", [
-        entry.value ? entry.valueLabel : "",
-        entry.weight ? entry.weightLabel : "",
-        `Talla ${entry.sizeLabel}`
-      ].filter(Boolean).join(" | "))
-    ].filter(Boolean).join("");
-  }
+  function renderItemTypePills(typeValue) {
+    const typeTokens = splitItemTypeTokens(typeValue);
 
-  function renderItemDetailBlock(label, value) {
-    if (!value) {
+    if (typeTokens.length === 0) {
       return "";
     }
 
     return `
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(label)}</span>
-        <p>${escapeHtml(value)}</p>
+      <div class="item-detail__meta">
+        ${typeTokens.map((token) => `
+          <button
+            class="pill item-detail__type-pill ${isItemTypeTokenFilterActive?.(token) ? "is-active" : ""}"
+            type="button"
+            data-action="filter-item-by-type-token"
+            data-item-type-token="${escapeHtml(token)}"
+            aria-pressed="${isItemTypeTokenFilterActive?.(token) ? "true" : "false"}"
+            title="Filtrar items por ${escapeHtml(token)}"
+          >
+            ${escapeHtml(token)}
+          </button>
+        `).join("")}
       </div>
     `;
+  }
+
+  function splitItemTypeTokens(value) {
+    const rawValue = cleanText(value);
+
+    if (!rawValue) {
+      return [];
+    }
+
+    const tokens = [];
+    let currentToken = "";
+    let parenthesisDepth = 0;
+
+    for (const char of rawValue) {
+      if (char === "(") {
+        parenthesisDepth += 1;
+        currentToken += char;
+        continue;
+      }
+
+      if (char === ")") {
+        parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+        currentToken += char;
+        continue;
+      }
+
+      if ((char === "," || char === "|") && parenthesisDepth === 0) {
+        const nextToken = cleanText(currentToken);
+
+        if (nextToken) {
+          tokens.push(nextToken);
+        }
+
+        currentToken = "";
+        continue;
+      }
+
+      currentToken += char;
+    }
+
+    const lastToken = cleanText(currentToken);
+
+    if (lastToken) {
+      tokens.push(lastToken);
+    }
+
+    return [...new Set(tokens)];
   }
 
   return {

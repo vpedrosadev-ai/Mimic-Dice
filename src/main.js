@@ -20,6 +20,8 @@ import {
   CONTENT_TRANSLATION_MODE_SIDECAR,
   detectCsvContentLanguage,
   getContentTranslationModeLabel,
+  isCompendiumTranslationSidecarUsable,
+  mergeCompendiumTranslationRows,
   translateCompendiumRows
 } from "./data/contentTranslation.js";
 import { initialTableDefinitions } from "./data/tablesSeedData.js";
@@ -169,6 +171,8 @@ const blankItemFilterSearch = {
   rarity: "",
   type: ""
 };
+const ITEM_TYPE_TOKEN_FILTER_PREFIX = "__item-type-token__:";
+
 const blankArcanumFilters = {
   query: "",
   source: [],
@@ -362,7 +366,8 @@ const {
 } = createCompendiumDetailRenderers({
   t,
   getArcanumSpellLinkData,
-  getItemSourceDescription
+  getItemSourceDescription,
+  isItemTypeTokenFilterActive
 });
 const {
   renderArcanumList,
@@ -1394,6 +1399,14 @@ function handleClick(event) {
     render({
       focusSelector: `[data-character-inventory-name="${actionButton.dataset.characterInventoryRowId}"]`
     });
+    return;
+  }
+
+  if (action === "filter-item-by-type-token") {
+    resetItemVirtualScroll();
+    state.activeScreen = "items";
+    toggleExclusiveItemFilterValue("type", getItemTypeFilterValueFromToken(actionButton.dataset.itemTypeToken ?? ""));
+    render();
     return;
   }
 
@@ -8634,6 +8647,12 @@ function toggleItemFilterValue(key, value, checked) {
   updateItemFilter(key, nextValues);
 }
 
+function toggleExclusiveItemFilterValue(key, value) {
+  const currentValues = Array.isArray(state.itemFilters[key]) ? state.itemFilters[key] : [];
+  const nextValues = currentValues.length === 1 && currentValues[0] === value ? [] : [value];
+  updateItemFilter(key, nextValues);
+}
+
 function toggleExclusiveArcanumFilterValue(key, value) {
   const currentValues = Array.isArray(state.arcanumFilters[key]) ? state.arcanumFilters[key] : [];
   const nextValues = currentValues.length === 1 && currentValues[0] === value ? [] : [value];
@@ -9990,8 +10009,14 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
 
   try {
     const sidecarText = await loadTextAsset(getDataAssetUrl(sidecarPath), sidecarPath);
+    const sidecarRows = parseCsv(sidecarText);
+
+    if (!isCompendiumTranslationSidecarUsable(baseRows, sidecarRows, kind)) {
+      throw new Error("Spanish sidecar CSV is incompatible with base CSV.");
+    }
+
     return {
-      rows: parseCsv(sidecarText),
+      rows: mergeCompendiumTranslationRows(baseRows, sidecarRows, kind),
       meta: {
         detectedLanguage,
         translationMode: CONTENT_TRANSLATION_MODE_SIDECAR,
@@ -10006,7 +10031,7 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
         detectedLanguage,
         translationMode: CONTENT_TRANSLATION_MODE_GLOSSARY,
         sidecarPath: "",
-        message: "Spanish sidecar CSV not found; local glossary applied."
+        message: "Spanish sidecar CSV missing or incompatible; local glossary applied."
       }
     };
   }
@@ -11165,6 +11190,10 @@ function compareItemFilterValues(key, left, right) {
 
 function getItemFilterDisplayValue(key, value) {
   if (key === "type") {
+    if (isItemTypeTokenFilterValue(value)) {
+      return decodeItemTypeTokenFilterValue(value);
+    }
+
     const group = ITEM_TYPE_GROUPS.find((item) => item.value === value);
 
     if (group) {
@@ -11209,6 +11238,35 @@ function formatItemTypeFilterDisplay(value) {
   }
 
   return type;
+}
+
+function getItemTypeFilterValueFromToken(token) {
+  const normalizedToken = cleanText(token);
+
+  if (!normalizedToken) {
+    return "";
+  }
+
+  const group = ITEM_TYPE_GROUPS.find((item) => item.label.localeCompare(normalizedToken, "es", { sensitivity: "base" }) === 0);
+
+  if (group) {
+    return group.value;
+  }
+
+  return `${ITEM_TYPE_TOKEN_FILTER_PREFIX}${normalizedToken}`;
+}
+
+function isItemTypeTokenFilterActive(token) {
+  const filterValue = getItemTypeFilterValueFromToken(token);
+  return Boolean(filterValue) && (state.itemFilters.type ?? []).includes(filterValue);
+}
+
+function isItemTypeTokenFilterValue(value) {
+  return cleanText(value).startsWith(ITEM_TYPE_TOKEN_FILTER_PREFIX);
+}
+
+function decodeItemTypeTokenFilterValue(value) {
+  return cleanText(value).replace(ITEM_TYPE_TOKEN_FILTER_PREFIX, "");
 }
 
 function getItemTypeFilterValues(type) {
@@ -11306,6 +11364,11 @@ function normalizeItemTypeFilterSelection(values) {
 }
 
 function matchesItemTypeFilter(entry, value) {
+  if (isItemTypeTokenFilterValue(value)) {
+    const token = decodeItemTypeTokenFilterValue(value).toLowerCase();
+    return splitItemTypeFilterTokens(entry.type).some((part) => part.toLowerCase() === token);
+  }
+
   const group = ITEM_TYPE_GROUPS.find((item) => item.value === value);
 
   if (group) {
@@ -11313,6 +11376,53 @@ function matchesItemTypeFilter(entry, value) {
   }
 
   return entry.type === value;
+}
+
+function splitItemTypeFilterTokens(value) {
+  const rawValue = cleanText(value);
+
+  if (!rawValue) {
+    return [];
+  }
+
+  const tokens = [];
+  let currentToken = "";
+  let parenthesisDepth = 0;
+
+  for (const char of rawValue) {
+    if (char === "(") {
+      parenthesisDepth += 1;
+      currentToken += char;
+      continue;
+    }
+
+    if (char === ")") {
+      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+      currentToken += char;
+      continue;
+    }
+
+    if ((char === "," || char === "|") && parenthesisDepth === 0) {
+      const nextToken = cleanText(currentToken);
+
+      if (nextToken) {
+        tokens.push(nextToken);
+      }
+
+      currentToken = "";
+      continue;
+    }
+
+    currentToken += char;
+  }
+
+  const lastToken = cleanText(currentToken);
+
+  if (lastToken) {
+    tokens.push(lastToken);
+  }
+
+  return [...new Set(tokens)];
 }
 
 function getItemTypeGroupIndex(value) {

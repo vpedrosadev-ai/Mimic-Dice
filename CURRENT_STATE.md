@@ -22,6 +22,8 @@
 - Opciones ahora separa idioma de interfaz e idioma de contenido CSV. Bestiario, Items y Arcanum pueden recargarse en EN/ES de contenido.
 - Cada repositorio de compendio muestra un selector de CSV antes de la chip `CSV activo`; en desktop lista `.csv` disponibles en `data/`.
 - Traduccion de contenido CSV: si el CSV esta en ingles y el usuario pide ES, se intenta primero `Nombre.es.csv`; si no existe, se aplica glosario local EN->ES para campos/frases comunes.
+- CSV canonicos del proyecto ya tienen sidecars por defecto `Bestiary.es.csv`, `Items.es.csv` y `Spells.es.csv` dentro de `public/data/`.
+- La carga ES de compendios ahora remapea cabeceras traducidas, soporta tambien sidecars con separador `;` y mezcla filas localizadas sobre CSV base; si el sidecar es incompatible, cae a glosario local en vez de dejar entradas vacias.
 - Pantalla de personajes con ficha amplia, progreso, stats, habilidades, inventario, avatar e iconos de clase.
 - Nueva pantalla `Tablas` con listado lateral, apertura multiple de tablas, paneles colapsables y edicion inline de nombre, columnas, filas y celdas.
 - `Tablas` arranca con 2 ejemplos semilla: `Tabla Estados` y `Tabla Magia Salvaje`.

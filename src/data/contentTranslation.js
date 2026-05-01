@@ -1,4 +1,4 @@
-import { cleanText } from "../shared/text.js";
+import { cleanText, slugify } from "../shared/text.js";
 
 export const CONTENT_TRANSLATION_MODE_ORIGINAL = "original";
 export const CONTENT_TRANSLATION_MODE_SIDECAR = "sidecar";
@@ -230,6 +230,7 @@ const TERM_TRANSLATIONS = [
 
 const FIELD_TRANSLATION_BY_KIND = {
   bestiary: [
+    "Name",
     "Size",
     "Type",
     "Alignment",
@@ -255,6 +256,7 @@ const FIELD_TRANSLATION_BY_KIND = {
     "Environment"
   ],
   items: [
+    "Name",
     "Rarity",
     "Type",
     "Attunement",
@@ -266,6 +268,7 @@ const FIELD_TRANSLATION_BY_KIND = {
     "Text"
   ],
   arcanum: [
+    "Name",
     "Level",
     "Casting Time",
     "Duration",
@@ -284,6 +287,81 @@ const DETECTION_FIELDS_BY_KIND = {
   bestiary: ["Type", "Alignment", "AC", "Speed", "Senses", "Languages", "Traits", "Actions", "Environment"],
   items: ["Rarity", "Type", "Attunement", "Properties", "Text"],
   arcanum: ["Level", "Casting Time", "Duration", "School", "Range", "Text", "At Higher Levels"]
+};
+
+const REQUIRED_FIELDS_BY_KIND = {
+  bestiary: ["Name", "Type", "AC"],
+  items: ["Name", "Type", "Rarity"],
+  arcanum: ["Name", "Level", "School"]
+};
+
+const HEADER_ALIASES_BY_KIND = {
+  bestiary: {
+    Name: ["Name", "Nombre"],
+    Source: ["Source", "Fuente"],
+    Page: ["Page", "Pagina", "Página"],
+    Size: ["Size", "Tamano", "Tamaño"],
+    Type: ["Type", "Tipo"],
+    Alignment: ["Alignment", "Alineamiento"],
+    AC: ["AC", "CA"],
+    HP: ["HP", "PG", "Puntos de golpe"],
+    Speed: ["Speed", "Velocidad"],
+    Strength: ["Strength", "Fuerza"],
+    Dexterity: ["Dexterity", "Destreza"],
+    Constitution: ["Constitution", "Constitucion", "Constitución"],
+    Intelligence: ["Intelligence", "Inteligencia"],
+    Wisdom: ["Wisdom", "Sabiduria", "Sabiduría"],
+    Charisma: ["Charisma", "Carisma"],
+    "Saving Throws": ["Saving Throws", "Salvaciones", "Tiradas de salvacion", "Tiradas de salvación"],
+    Skills: ["Skills", "Habilidades"],
+    "Damage Vulnerabilities": ["Damage Vulnerabilities", "Vulnerabilidades al dano", "Vulnerabilidades al daño"],
+    "Damage Resistances": ["Damage Resistances", "Resistencias al dano", "Resistencias al daño"],
+    "Damage Immunities": ["Damage Immunities", "Inmunidades al dano", "Inmunidades al daño"],
+    "Condition Immunities": ["Condition Immunities", "Inmunidades a condiciones"],
+    Senses: ["Senses", "Sentidos"],
+    Languages: ["Languages", "Idiomas"],
+    CR: ["CR", "VD", "Desafio", "Desafío"],
+    Traits: ["Traits", "Rasgos"],
+    Actions: ["Actions", "Acciones"],
+    "Bonus Actions": ["Bonus Actions", "Acciones adicionales"],
+    Reactions: ["Reactions", "Reacciones"],
+    "Legendary Actions": ["Legendary Actions", "Acciones legendarias"],
+    "Mythic Actions": ["Mythic Actions", "Acciones miticas", "Acciones míticas"],
+    "Lair Actions": ["Lair Actions", "Acciones de guarida"],
+    "Regional Effects": ["Regional Effects", "Efectos regionales"],
+    Environment: ["Environment", "Entorno", "Ambiente"],
+    Treasure: ["Treasure", "Tesoro"]
+  },
+  items: {
+    Name: ["Name", "Nombre"],
+    Source: ["Source", "Fuente"],
+    Page: ["Page", "Pagina", "Página"],
+    Rarity: ["Rarity", "Rareza"],
+    Type: ["Type", "Tipo"],
+    Attunement: ["Attunement", "Sintonia", "Sintonia", "Sintonización", "Sintonizacion"],
+    Damage: ["Damage", "Dano", "Daño"],
+    Properties: ["Properties", "Propiedades"],
+    Mastery: ["Mastery", "Maestria", "Maestría"],
+    Weight: ["Weight", "Peso"],
+    Value: ["Value", "Valor"],
+    Text: ["Text", "Texto", "Descripcion", "Descripción"]
+  },
+  arcanum: {
+    Name: ["Name", "Nombre"],
+    Source: ["Source", "Fuente"],
+    Page: ["Page", "Pagina", "Página"],
+    Level: ["Level", "Nivel"],
+    School: ["School", "Escuela"],
+    "Casting Time": ["Casting Time", "Tiempo de lanzamiento", "Tiempo de casteo"],
+    Duration: ["Duration", "Duracion", "Duración"],
+    Range: ["Range", "Alcance"],
+    Components: ["Components", "Componentes"],
+    Classes: ["Classes", "Clases"],
+    "Optional/Variant Classes": ["Optional/Variant Classes", "Clases opcionales", "Clases variantes", "Clases opcionales/variantes"],
+    Subclasses: ["Subclasses", "Subclases"],
+    Text: ["Text", "Texto", "Descripcion", "Descripción"],
+    "At Higher Levels": ["At Higher Levels", "A Higher Levels", "A niveles superiores"]
+  }
 };
 
 export function detectCsvContentLanguage(rows, kind) {
@@ -321,6 +399,59 @@ export function translateCompendiumRows(rows, kind, targetLanguage) {
 
     return nextRow;
   });
+}
+
+export function normalizeLocalizedCompendiumRows(rows, kind) {
+  const headerAliases = HEADER_ALIASES_BY_KIND[kind] ?? {};
+  const aliasToCanonical = new Map();
+
+  Object.entries(headerAliases).forEach(([canonicalHeader, aliases]) => {
+    aliases.forEach((alias) => {
+      aliasToCanonical.set(normalizeHeaderAlias(alias), canonicalHeader);
+    });
+  });
+
+  return rows.map((row) => {
+    const nextRow = {};
+
+    Object.entries(row ?? {}).forEach(([header, value]) => {
+      const canonicalHeader = aliasToCanonical.get(normalizeHeaderAlias(header)) ?? header;
+      nextRow[canonicalHeader] = value;
+    });
+
+    return nextRow;
+  });
+}
+
+export function mergeCompendiumTranslationRows(baseRows, localizedRows, kind) {
+  const normalizedLocalizedRows = normalizeLocalizedCompendiumRows(localizedRows, kind);
+
+  return baseRows.map((baseRow, index) => mergeLocalizedRow(baseRow, normalizedLocalizedRows[index]));
+}
+
+export function isCompendiumTranslationSidecarUsable(baseRows, localizedRows, kind) {
+  if (!Array.isArray(localizedRows) || localizedRows.length === 0) {
+    return false;
+  }
+
+  if (!Array.isArray(baseRows) || baseRows.length === 0) {
+    return localizedRows.length > 0;
+  }
+
+  if (localizedRows.length < Math.max(1, Math.floor(baseRows.length * 0.5))) {
+    return false;
+  }
+
+  const normalizedLocalizedRows = normalizeLocalizedCompendiumRows(localizedRows, kind);
+  const requiredFields = REQUIRED_FIELDS_BY_KIND[kind] ?? ["Name"];
+  const sampleRows = normalizedLocalizedRows.slice(0, Math.min(12, normalizedLocalizedRows.length));
+
+  if (sampleRows.length === 0) {
+    return false;
+  }
+
+  const rowsWithRequiredContent = sampleRows.filter((row) => requiredFields.some((field) => cleanText(row?.[field]).length > 0));
+  return rowsWithRequiredContent.length >= Math.max(1, Math.ceil(sampleRows.length * 0.4));
 }
 
 export function translateDndTextToSpanish(value) {
@@ -376,4 +507,26 @@ function getTranslationPattern(source) {
   const startsWithWord = /^\w/.test(source);
   const endsWithWord = /\w$/.test(source);
   return new RegExp(`${startsWithWord ? "\\b" : ""}${escapedSource}${endsWithWord ? "\\b" : ""}`, "gi");
+}
+
+function normalizeHeaderAlias(value) {
+  return slugify(value).replace(/-/g, "");
+}
+
+function mergeLocalizedRow(baseRow, localizedRow = {}) {
+  const nextRow = { ...(baseRow ?? {}) };
+
+  Object.entries(localizedRow ?? {}).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+
+    if (typeof value === "string" && cleanText(value) === "") {
+      return;
+    }
+
+    nextRow[key] = value;
+  });
+
+  return nextRow;
 }

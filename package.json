@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "translate:default-csvs": "node scripts/generate-default-translation-sidecars.mjs",
     "cache:bestiary-images": "powershell -ExecutionPolicy Bypass -File scripts/cache-bestiary-images.ps1",
     "cache:item-images": "powershell -ExecutionPolicy Bypass -File scripts/cache-item-images.ps1",
     "electron": "electron .",

@@ -94,10 +94,13 @@ Fuente de verdad: `src/navigation/screens.js`.
 Datos estaticos cargados en runtime:
 
 - `public/data/Bestiary.csv`
+- `public/data/Bestiary.es.csv`
 - `public/data/BestiaryImages.json`
 - `public/data/Items.csv`
+- `public/data/Items.es.csv`
 - `public/data/ItemsImages.json`
 - `public/data/Spells.csv`
+- `public/data/Spells.es.csv`
 
 Persistencia local web:
 
@@ -152,7 +155,9 @@ Persistencia desktop:
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
 - `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js` son la primera extraccion real de render de pantalla; reciben dependencias desde `src/main.js` para no acoplarse directamente al `state` global.
 - Idioma de contenido CSV es independiente del idioma de interfaz. El cambio de contenido recarga Bestiario/Items/Arcanum. Para traduccion completa de CSV nuevos, convencion optima: colocar junto al CSV base un sidecar con mismo esquema y sufijo `.es.csv`, por ejemplo `BestiaryExtra.csv` + `BestiaryExtra.es.csv`.
+- Los CSV canonicos del proyecto ya tienen sidecars por defecto `*.es.csv` generados con las mismas cabeceras inglesas para no romper normalizacion en runtime.
 - Si el CSV detectado esta en ingles y no hay sidecar `.es.csv`, la app aplica `src/data/contentTranslation.js` como fallback de glosario. Es util para campos estructurados y frases comunes, pero no sustituye una traduccion humana/modelo para textos largos arbitrarios.
+- Si un sidecar `.es.csv` llega con cabeceras traducidas, columnas parciales o separador `;`, runtime intenta remapearlo y mezclarlo sobre el CSV base; si sigue siendo incompatible, cae a glosario local sin dejar compendios vacios.
 - En desktop, `electron/preload.js` expone `listAssetFiles("data", ".csv")` para poblar selectores de CSV del directorio `data/`. En web/dev sin listado de carpeta, se muestran al menos los CSV canonicos.
 
 ## High-Noise Paths To Ignore By Default

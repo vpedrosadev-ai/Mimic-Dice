@@ -6386,6 +6386,38 @@ body.is-table-resizing * {
   margin-bottom: 0.45rem;
 }
 
+.item-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.item-detail__type-pill {
+  min-height: 1.7rem;
+  padding: 0.2rem 0.72rem;
+  border: 1px solid rgba(240, 200, 121, 0.22);
+  background: rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.item-detail__type-pill:hover,
+.item-detail__type-pill:focus-visible {
+  border-color: rgba(240, 200, 121, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.item-detail__type-pill.is-active {
+  border-color: rgba(104, 191, 176, 0.72);
+  background: rgba(104, 191, 176, 0.12);
+}
+
 .arcanum-row__level-pill {
   margin-left: auto;
   min-height: 1.55rem;
