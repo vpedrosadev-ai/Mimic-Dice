@@ -1,10 +1,51 @@
-import { SOURCE_NAMES } from "./data/bestiarySources.js";
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
+import {
+  compareSpellCastingSpeed,
+  formatSpellLevel,
+  getBestiaryInitials,
+  getBestiarySourceFullName,
+  getItemRarityClass,
+  getItemRarityRank,
+  getItemSizeLabelFromWeight,
+  getSourceFullName,
+  inferItemSizeLabel,
+  normalizeBestiaryEntry,
+  normalizeItemEntry,
+  normalizeSpellEntry,
+  parseSpellLevel
+} from "./data/compendiumEntries.js";
 import { initialTableDefinitions } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
 import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
 import { parseCsv } from "./shared/csv.js";
+import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
+import { createCompendiumListRenderers } from "./screens/compendiums/listRender.js";
+import {
+  extractCrBaseLabel,
+  formatCombatCrDisplay,
+  formatCrNumber,
+  formatModifier,
+  formatStatsFromObject,
+  formatStatsWithModifiers,
+  getAbilityModifier,
+  parseCrValue,
+  parseHitPointDiceFormula,
+  parseItemWeight,
+  parseStats,
+  rollHitPointDiceFormula
+} from "./shared/dndRules.js";
+import { isPlainObject, normalizeNumberInput, randomD20, toNumber } from "./shared/numberUtils.js";
+import {
+  cleanText,
+  escapeHtml,
+  escapeRegExp,
+  parseLeadingNumber,
+  shortenLabel,
+  slugify,
+  splitList,
+  uniqueSortedStrings
+} from "./shared/text.js";
 import { getVirtualStartIndex, getVirtualWindow } from "./shared/virtualList.js";
 import * as XLSX from "xlsx";
 import appIconUrl from "../build-resources/icon.png";
@@ -276,6 +317,38 @@ const state = {
   activeCombatNameSearchId: "",
   activeCombatSourceId: ""
 };
+
+const {
+  renderArcanumDetail,
+  renderArcanumDetailEmpty,
+  renderBestiaryAbility,
+  renderBestiaryDetail,
+  renderBestiaryDetailEmpty,
+  renderBestiaryMetric,
+  renderBestiarySection,
+  renderDetailChip,
+  renderItemDetail,
+  renderItemDetailEmpty
+} = createCompendiumDetailRenderers({
+  t,
+  getArcanumSpellLinkData,
+  getItemSourceDescription
+});
+const {
+  renderArcanumList,
+  renderBestiaryList,
+  renderBestiaryRow,
+  renderItemList
+} = createCompendiumListRenderers({
+  t,
+  translateUiString,
+  getArcanumVirtualWindow,
+  getBestiaryVirtualWindow,
+  getCachedBestiaryRowHtml,
+  getItemMostSpecificTypeLabel,
+  getItemRarityClass,
+  getItemVirtualWindow
+});
 
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
@@ -3916,255 +3989,6 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
   `;
 }
 
-function renderItemRow(entry, isSelected) {
-  const attunementChip = entry.requiresAttunement
-    ? `<span class="pill item-row__attunement-pill">${escapeHtml(translateUiString("Sintonizacion"))}</span>`
-    : "";
-  const itemStats = [
-    entry.value ? `${t("list_price")}: ${entry.valueLabel}` : "",
-    entry.weight ? `${t("list_weight")}: ${entry.weightLabel} | ${t("list_size")}: ${entry.sizeLabel}` : `${t("list_size")}: ${entry.sizeLabel}`
-  ].filter(Boolean).join(" | ");
-  const rarityClass = getItemRarityClass(entry.rarityLabel);
-  const typeSummary = getItemMostSpecificTypeLabel(entry.type);
-
-  return `
-    <button
-      class="bestiary-row ${isSelected ? "is-selected" : ""}"
-      type="button"
-      role="listitem"
-      data-action="select-item-entry"
-      data-entry-id="${entry.id}"
-      data-item-row-id="${entry.id}"
-    >
-      <div class="bestiary-row__main item-row__main">
-        <div class="item-row__heading">
-          <div class="item-row__title-stack">
-            <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-            <span class="pill bestiary-row__source-pill">${escapeHtml(`${t("source_short")}: ${entry.source || "?"}`)}</span>
-          </div>
-          <p class="item-row__type-summary">${escapeHtml(typeSummary)}</p>
-        </div>
-        <div class="bestiary-row__chips">
-          <span class="pill item-row__rarity-pill ${rarityClass}">${escapeHtml(entry.rarityLabel)}</span>
-        </div>
-      </div>
-      ${itemStats || attunementChip ? `
-        <div class="bestiary-row__stats item-row__stats">
-          ${itemStats ? `<span>${escapeHtml(itemStats)}</span>` : "<span></span>"}
-          ${attunementChip}
-        </div>
-      ` : ""}
-    </button>
-  `;
-}
-
-function renderItemList(filteredEntries, selectedId) {
-  if (filteredEntries.length === 0) {
-    return `
-      <div class="empty-state empty-state--panel">
-        ${escapeHtml(t("no_item_results"))}
-      </div>
-    `;
-  }
-
-  const virtualWindow = getItemVirtualWindow(filteredEntries.length);
-  const visibleEntries = filteredEntries.slice(virtualWindow.startIndex, virtualWindow.endIndex);
-  const listHtml = visibleEntries
-    .map((entry) => renderItemRow(entry, entry.id === selectedId))
-    .join("");
-
-  return `
-    <div
-      class="bestiary-list__virtual"
-      style="height: ${virtualWindow.totalHeight}px;"
-      data-item-virtual-start="${virtualWindow.startIndex}"
-      data-item-virtual-end="${virtualWindow.endIndex}"
-      data-item-virtual-total="${filteredEntries.length}"
-    >
-      <div
-        class="bestiary-list__virtual-window"
-        style="transform: translateY(${virtualWindow.topPadding}px);"
-      >
-        ${listHtml}
-      </div>
-    </div>
-  `;
-}
-
-function renderArcanumRow(entry, isSelected) {
-  const detailItems = [
-    [t("list_school"), entry.school || "-"],
-    [t("list_casting"), entry.castingTime || t("list_no_casting")],
-    [t("list_range"), entry.range || t("list_no_range")],
-    [t("list_duration"), entry.duration || t("list_no_duration")]
-  ];
-  const concentrationChip = entry.hasConcentration
-    ? `
-      <div class="arcanum-row__status">
-        <span class="pill arcanum-row__status-pill">${escapeHtml(translateUiString("Concentracion"))}</span>
-      </div>
-    `
-    : "";
-
-  return `
-    <div
-      class="bestiary-row ${isSelected ? "is-selected" : ""}"
-      role="listitem"
-      tabindex="0"
-      data-action="select-arcanum-entry"
-      data-entry-id="${entry.id}"
-      data-arcanum-row-id="${entry.id}"
-    >
-      <div class="bestiary-row__layout">
-        <div class="bestiary-row__content">
-          <div class="bestiary-row__header">
-            <div class="arcanum-row__title-stack">
-              <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-              <button
-                class="pill bestiary-row__source-pill bestiary-row__filter-pill"
-                type="button"
-                data-action="filter-arcanum-by-source"
-                data-arcanum-source-value="${escapeHtml(entry.source)}"
-                aria-label="Filtrar por fuente ${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")}"
-              >
-                ${escapeHtml(`${t("source_short")}: ${entry.source || "?"}`)}
-              </button>
-            </div>
-            <button
-              class="pill bestiary-row__filter-pill arcanum-row__level-pill"
-                type="button"
-                data-action="filter-arcanum-by-level"
-                data-arcanum-level-value="${escapeHtml(entry.level)}"
-                aria-label="Filtrar por nivel ${escapeHtml(entry.levelLabel || t("list_no_level"))}"
-              >
-                ${escapeHtml(`${t("list_level")}: ${entry.levelLabel || t("list_no_level")}`)}
-              </button>
-          </div>
-          <div class="arcanum-row__body">
-            <div class="bestiary-row__facts">
-              ${detailItems.map(([label, value]) => `
-                <p class="bestiary-row__fact">
-                  <span class="bestiary-row__fact-label">${escapeHtml(label)}:</span>
-                  <span class="bestiary-row__fact-value">${escapeHtml(value)}</span>
-                </p>
-              `).join("")}
-            </div>
-            ${concentrationChip}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderItemDetail(entry) {
-  const media = renderItemDetailMedia(entry);
-  const kpis = renderItemKpis(entry);
-  const detailBlocks = renderItemDetailBlocks(entry);
-  const chips = [
-    renderDetailChip(t("items_selected_type"), entry.typeLine),
-    renderDetailChip(t("items_selected_properties"), entry.properties),
-    renderDetailChip(t("items_selected_mastery"), entry.mastery)
-  ].filter(Boolean).join("");
-
-  return `
-    <div class="bestiary-detail__header item-detail__header">
-      <p class="eyebrow">${escapeHtml(t("item_selected"))}</p>
-      <h3>${escapeHtml(entry.name)}</h3>
-      <p class="bestiary-detail__source">${escapeHtml(getItemSourceDescription(entry))}</p>
-    </div>
-
-    ${media ? `<div class="bestiary-detail__top">${media}</div>` : ""}
-
-    ${kpis ? `<div class="bestiary-kpis">${kpis}</div>` : ""}
-
-    ${detailBlocks ? `<div class="bestiary-detail__grid">${detailBlocks}</div>` : ""}
-
-    ${chips ? `<div class="bestiary-resistances">${chips}</div>` : ""}
-
-    <div class="bestiary-sections">
-      ${renderBestiarySection(t("items_description"), entry.text || "Sin descripcion disponible.", { linkSpells: true })}
-    </div>
-  `;
-}
-
-function renderItemDetailEmpty() {
-  return `
-    <div class="empty-state empty-state--panel">
-      ${escapeHtml(t("item_empty_detail"))}
-    </div>
-  `;
-}
-
-function renderItemDetailMedia(entry) {
-  if (entry.imageUrl) {
-    return `
-      <figure class="bestiary-portrait bestiary-portrait--item-image">
-          <img
-            class="bestiary-portrait__image bestiary-portrait__image--contain"
-            src="${escapeHtml(entry.imageUrl)}"
-            alt="Ilustracion de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
-            loading="lazy"
-          />
-          <figcaption class="bestiary-portrait__caption">${escapeHtml(entry.sourceLabel)}</figcaption>
-      </figure>
-    `;
-  }
-
-  return "";
-}
-
-function renderArcanumDetail(entry) {
-  const textSection = renderBestiarySection(t("arcanum_text"), entry.text || "Sin texto disponible.");
-  const extraSections = [
-    { title: "At Higher Levels", content: entry.atHigherLevels }
-  ].filter((section) => section.content);
-
-  return `
-    <div class="bestiary-detail__header arcanum-detail__header">
-      <p class="eyebrow">${escapeHtml(t("spell_selected"))}</p>
-      <h3>${escapeHtml(entry.name)}</h3>
-      <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
-    </div>
-
-    <div class="bestiary-detail__grid">
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_casting_time"))}</span>
-        <p>${escapeHtml(entry.castingTime || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_duration"))}</span>
-        <p>${escapeHtml(entry.duration || "No indicada")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_range"))}</span>
-        <p>${escapeHtml(entry.range || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(t("arcanum_components"))}</span>
-        <p>${escapeHtml(entry.components || "No indicados")}</p>
-      </div>
-    </div>
-
-    <div class="bestiary-sections">
-      ${textSection}
-      <div class="bestiary-resistances">
-        ${renderDetailChip(t("arcanum_classes"), entry.classes || entry.optionalClasses)}
-        ${renderDetailChip(t("arcanum_subclasses"), entry.subclasses)}
-      </div>
-      ${extraSections.map((section) => renderBestiarySection(section.title, section.content)).join("")}
-    </div>
-  `;
-}
-
-function renderArcanumDetailEmpty() {
-  return `
-    <div class="empty-state empty-state--panel">
-      ${escapeHtml(t("arcanum_empty_detail"))}
-    </div>
-  `;
-}
-
 function renderBestiaryContent(filteredEntries, selectedEntry) {
   if (state.bestiaryStatus === "loading") {
     return `
@@ -4186,109 +4010,6 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
       <aside class="bestiary-detail panel panel--inner" data-bestiary-detail-root>
         ${selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty()}
       </aside>
-    </div>
-  `;
-}
-
-function renderBestiaryRow(entry, isSelected) {
-  const tokenBadge = entry.tokenUrl
-    ? `
-      <div class="bestiary-row__token" aria-hidden="true">
-        <img
-          class="bestiary-row__token-image"
-          src="${escapeHtml(entry.tokenUrl)}"
-          alt=""
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
-    `
-    : "";
-  const detailItems = [
-    [t("list_type"), entry.type || "-"],
-    [t("list_environment"), entry.environment || t("list_no_environment")]
-  ];
-
-  return `
-    <div
-      class="bestiary-row ${isSelected ? "is-selected" : ""}"
-      role="listitem"
-      tabindex="0"
-      data-action="select-bestiary-entry"
-      data-entry-id="${entry.id}"
-      data-bestiary-row-id="${entry.id}"
-    >
-      <div class="bestiary-row__layout">
-        <div class="bestiary-row__content">
-          <div class="bestiary-row__header">
-            <p class="bestiary-row__title">${escapeHtml(entry.name)}</p>
-            <button
-              class="pill bestiary-row__source-pill bestiary-row__filter-pill"
-              type="button"
-              data-action="filter-bestiary-by-source"
-              data-bestiary-source-value="${escapeHtml(entry.source)}"
-              aria-label="Filtrar por fuente ${escapeHtml(entry.source)}"
-            >
-              ${escapeHtml(`${t("source_short")}: ${entry.source || "?"}`)}
-            </button>
-          </div>
-          <div class="bestiary-row__facts">
-            ${detailItems.map(([label, value]) => `
-              <p class="bestiary-row__fact">
-                <span class="bestiary-row__fact-label">${escapeHtml(label)}:</span>
-                <span class="bestiary-row__fact-value">${escapeHtml(value)}</span>
-              </p>
-            `).join("")}
-          </div>
-          <div class="bestiary-row__footer">
-            <div class="bestiary-row__cr">
-              <button
-                class="pill bestiary-row__filter-pill"
-              type="button"
-              data-action="filter-bestiary-by-cr"
-              data-bestiary-cr-value="${escapeHtml(entry.crBaseLabel || "")}"
-              aria-label="Filtrar por CR ${escapeHtml(entry.crBaseLabel || "Sin CR")}"
-            >
-              ${escapeHtml(`${t("cr_short")}: ${entry.crBaseLabel || "Sin CR"}`)}
-            </button>
-            </div>
-          </div>
-        </div>
-        ${tokenBadge ? `<div class="bestiary-row__token-wrap">${tokenBadge}</div>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-function renderBestiaryList(filteredEntries, selectedId) {
-  if (filteredEntries.length === 0) {
-    return `
-      <div class="empty-state empty-state--panel">
-        ${escapeHtml(t("no_bestiary_results"))}
-      </div>
-    `;
-  }
-
-  const virtualWindow = getBestiaryVirtualWindow(filteredEntries.length);
-  const visibleEntries = filteredEntries.slice(virtualWindow.startIndex, virtualWindow.endIndex);
-  const listHtml = visibleEntries
-    .map((entry) => getCachedBestiaryRowHtml(entry, entry.id === selectedId))
-    .join("");
-
-  return `
-    <div
-      class="bestiary-list__virtual"
-      style="height: ${virtualWindow.totalHeight}px;"
-      data-bestiary-virtual-start="${virtualWindow.startIndex}"
-      data-bestiary-virtual-end="${virtualWindow.endIndex}"
-      data-bestiary-virtual-total="${filteredEntries.length}"
-    >
-      <div
-        class="bestiary-list__virtual-window"
-        style="transform: translateY(${virtualWindow.topPadding}px);"
-      >
-        ${listHtml}
-      </div>
     </div>
   `;
 }
@@ -4465,39 +4186,6 @@ function updateItemSelectionUI(previousSelectedId, nextSelectedId) {
   detailRoot.innerHTML = selectedEntry ? renderItemDetail(selectedEntry) : renderItemDetailEmpty();
 }
 
-function renderArcanumList(filteredEntries, selectedId) {
-  if (filteredEntries.length === 0) {
-    return `
-      <div class="empty-state empty-state--panel">
-        ${escapeHtml(t("no_arcanum_results"))}
-      </div>
-    `;
-  }
-
-  const virtualWindow = getArcanumVirtualWindow(filteredEntries.length);
-  const visibleEntries = filteredEntries.slice(virtualWindow.startIndex, virtualWindow.endIndex);
-  const listHtml = visibleEntries
-    .map((entry) => renderArcanumRow(entry, entry.id === selectedId))
-    .join("");
-
-  return `
-    <div
-      class="bestiary-list__virtual"
-      style="height: ${virtualWindow.totalHeight}px;"
-      data-arcanum-virtual-start="${virtualWindow.startIndex}"
-      data-arcanum-virtual-end="${virtualWindow.endIndex}"
-      data-arcanum-virtual-total="${filteredEntries.length}"
-    >
-      <div
-        class="bestiary-list__virtual-window"
-        style="transform: translateY(${virtualWindow.topPadding}px);"
-      >
-        ${listHtml}
-      </div>
-    </div>
-  `;
-}
-
 function getArcanumVirtualWindow(totalEntries) {
   return getVirtualWindow({
     totalEntries,
@@ -4569,79 +4257,6 @@ function updateArcanumSelectionUI(previousSelectedId, nextSelectedId) {
   const filteredEntries = getFilteredArcanum();
   const selectedEntry = getSelectedArcanumEntry(filteredEntries);
   detailRoot.innerHTML = selectedEntry ? renderArcanumDetail(selectedEntry) : renderArcanumDetailEmpty();
-}
-
-function renderBestiaryDetail(entry) {
-  const sections = [
-    { title: t("section_traits"), content: entry.traits },
-    { title: t("section_actions"), content: entry.actions },
-    { title: t("section_bonus_actions"), content: entry.bonusActions },
-    { title: t("section_reactions"), content: entry.reactions },
-    { title: t("section_legendary_actions"), content: entry.legendaryActions },
-    { title: t("section_mythic_actions"), content: entry.mythicActions },
-    { title: t("section_lair_actions"), content: entry.lairActions },
-    { title: t("section_regional_effects"), content: entry.regionalEffects }
-  ].filter((section) => section.content);
-  const metrics = [
-    renderBestiaryMetric("HP", entry.hp || "-"),
-    renderBestiaryMetric("CA", entry.ac || "-"),
-    renderBestiaryMetric(t("metric_speed"), entry.speed || "-"),
-    renderBestiaryMetric("CR", entry.crLabel)
-  ].join("");
-  const abilities = statKeys.map((ability) => renderBestiaryAbility(entry, ability)).join("");
-
-  return `
-    <div class="bestiary-detail__header">
-      <p class="eyebrow">${escapeHtml(t("bestiary_selected_sheet"))}</p>
-      <h3>${escapeHtml(entry.name)}</h3>
-      <p class="bestiary-detail__source">${escapeHtml(entry.sourceFullName || entry.source || "Sin fuente")}</p>
-      <p class="lead">${escapeHtml(entry.typeLine)}</p>
-    </div>
-
-    <div class="bestiary-detail__summary">
-      <div class="bestiary-detail__summary-stats">
-        ${metrics}
-      </div>
-      ${renderBestiaryDetailMedia(entry)}
-    </div>
-
-    <div class="bestiary-detail__abilities bestiary-detail__abilities--summary">
-      ${abilities}
-    </div>
-
-    <div class="bestiary-detail__grid">
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(t("metric_senses"))}</span>
-        <p>${escapeHtml(entry.senses || "No indicado")}</p>
-      </div>
-      <div class="bestiary-detail__block">
-        <span class="bestiary-detail__label">${escapeHtml(t("metric_languages"))}</span>
-        <p>${escapeHtml(entry.languages || "No indicado")}</p>
-      </div>
-    </div>
-
-    <div class="bestiary-resistances">
-      ${renderDetailChip(t("chip_environment"), entry.environment)}
-      ${renderDetailChip(t("chip_skills"), entry.skills)}
-      ${renderDetailChip(t("chip_saving_throws"), entry.savingThrows)}
-      ${renderDetailChip(t("chip_damage_vulnerabilities"), entry.damageVulnerabilities)}
-      ${renderDetailChip(t("chip_damage_resistances"), entry.damageResistances)}
-      ${renderDetailChip(t("chip_damage_immunities"), entry.damageImmunities)}
-      ${renderDetailChip(t("chip_condition_immunities"), entry.conditionImmunities)}
-    </div>
-
-    <div class="bestiary-sections">
-      ${sections.map((section) => renderBestiarySection(section.title, section.content, { linkSpells: true })).join("")}
-    </div>
-  `;
-}
-
-function renderBestiaryDetailEmpty() {
-  return `
-    <div class="empty-state empty-state--panel">
-      ${escapeHtml(t("bestiary_empty_detail"))}
-    </div>
-  `;
 }
 
 function renderAssetLoadErrorState(message, debugInfo) {
@@ -4745,127 +4360,6 @@ function formatAssetLoadDebugLines(debugInfo) {
   return lines;
 }
 
-function renderBestiaryDetailMedia(entry) {
-  const mediaUrl = entry.imageUrl || entry.tokenUrl;
-
-  if (mediaUrl) {
-    return `
-      <div class="bestiary-detail__media">
-        <figure class="bestiary-portrait">
-          <img
-            class="bestiary-portrait__image"
-            src="${escapeHtml(mediaUrl)}"
-            alt="Ilustracion de ${escapeHtml(entry.name)} (${escapeHtml(entry.sourceLabel)})"
-            loading="lazy"
-          />
-        </figure>
-      </div>
-    `;
-  }
-
-  return `
-    <div class="bestiary-detail__media">
-      <div class="bestiary-portrait bestiary-portrait--empty" aria-label="Ilustracion no disponible">
-        <div class="bestiary-portrait__placeholder">${escapeHtml(getBestiaryInitials(entry.name))}</div>
-        <p class="bestiary-portrait__hint">Sin ilustracion vinculada</p>
-      </div>
-    </div>
-  `;
-}
-
-function renderBestiaryAbility(entry, ability) {
-  const score = entry.abilities[ability] ?? 10;
-  const modifier = formatModifier(getAbilityModifier(score));
-
-  return `
-    <article class="ability-card">
-      <span>${ability}</span>
-      <strong>${score}</strong>
-      <small>${modifier}</small>
-    </article>
-  `;
-}
-
-function renderBestiaryMetric(label, value) {
-  const metricValue = String(value ?? "");
-  const sizeClass = getBestiaryMetricSizeClass(metricValue);
-
-  return `
-    <article class="bestiary-metric-card ${sizeClass}">
-      <span>${escapeHtml(label)}</span>
-      <strong title="${escapeHtml(metricValue)}">${escapeHtml(metricValue)}</strong>
-    </article>
-  `;
-}
-
-function getBestiaryMetricSizeClass(value) {
-  const length = cleanText(value).length;
-
-  if (length >= 28) {
-    return "bestiary-metric-card--xs";
-  }
-
-  if (length >= 20) {
-    return "bestiary-metric-card--sm";
-  }
-
-  return "";
-}
-
-function renderDetailChip(label, value) {
-  if (!value) {
-    return "";
-  }
-
-  return `
-    <article class="detail-chip">
-      <span>${label}</span>
-      <p>${escapeHtml(value)}</p>
-    </article>
-  `;
-}
-
-function renderBestiarySection(title, content, options = {}) {
-  const bodyHtml = options.linkSpells
-    ? renderTextWithSpellLinks(content)
-    : escapeHtml(content).replaceAll("\n", "<br />");
-
-  return `
-    <section class="detail-section">
-      <h4>${title}</h4>
-      <p>${bodyHtml}</p>
-    </section>
-  `;
-}
-
-function renderTextWithSpellLinks(content) {
-  const text = cleanText(content);
-  const spellLinkData = getArcanumSpellLinkData();
-
-  if (!text || !spellLinkData.pattern) {
-    return escapeHtml(content).replaceAll("\n", "<br />");
-  }
-
-  const chunks = [];
-  let lastIndex = 0;
-  spellLinkData.pattern.lastIndex = 0;
-
-  for (const match of text.matchAll(spellLinkData.pattern)) {
-    const [fullMatch, prefix, spellName] = match;
-    const matchIndex = match.index ?? 0;
-    const spellStartIndex = matchIndex + prefix.length;
-    const canonicalName = spellLinkData.namesByLower.get(spellName.toLowerCase()) ?? spellName;
-
-    chunks.push(escapeHtml(text.slice(lastIndex, spellStartIndex)));
-    chunks.push(`<button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(canonicalName)}">${escapeHtml(spellName)}</button>`);
-    lastIndex = matchIndex + fullMatch.length;
-  }
-
-  chunks.push(escapeHtml(text.slice(lastIndex)));
-
-  return chunks.join("").replaceAll("\n", "<br />");
-}
-
 function getArcanumSpellLinkData() {
   const signature = getArcanumSpellLinkSignature();
 
@@ -4891,10 +4385,6 @@ function getArcanumSpellLinkData() {
 
 function getArcanumSpellLinkSignature() {
   return `${state.arcanum.length}:${state.arcanum.map((entry) => entry.id).join("|")}`;
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function renderSummaryCard(item) {
@@ -10277,44 +9767,6 @@ function getNormalizedValue(column, rawValue, normalize) {
   return rawValue;
 }
 
-function normalizeNumberInput(value) {
-  if (value === "") {
-    return "";
-  }
-
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : 0;
-}
-
-function formatStatsWithModifiers(stats) {
-  return formatStatsFromObject(parseStats(stats));
-}
-
-function parseStats(stats) {
-  const values = Object.fromEntries(statKeys.map((ability) => [ability, 10]));
-  const matches = String(stats).matchAll(/\b(STR|DEX|CON|INT|WIS|CHA)\s+(-?\d+)\b/gi);
-
-  for (const match of matches) {
-    values[match[1].toUpperCase()] = Number(match[2]);
-  }
-
-  return values;
-}
-
-function formatStatsFromObject(values) {
-  return statKeys
-    .map((ability) => `${ability} ${values[ability]} (${formatModifier(getAbilityModifier(values[ability]))})`)
-    .join(" ");
-}
-
-function getAbilityModifier(score) {
-  return Math.floor((Number(score) - 10) / 2);
-}
-
-function formatModifier(modifier) {
-  return modifier >= 0 ? `+${modifier}` : `${modifier}`;
-}
-
 function mapTagToSide(tag) {
   if (tag === "ALIADO") {
     return "allies";
@@ -10353,7 +9805,9 @@ async function loadBestiary() {
     const rows = parseCsv(text);
 
     state.bestiaryImageMap = imageMap;
-    state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index, imageMap));
+    state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index, imageMap, {
+      isPackagedDesktopApp: isPackagedDesktopApp()
+    }));
     hydrateBestiaryStaticOptions();
     resetBestiaryRenderCache();
     state.bestiaryStatus = "ready";
@@ -10443,199 +9897,6 @@ async function loadItemImages() {
   return loadJsonAsset(ITEMS_IMAGES_PATH, "data/ItemsImages.json");
 }
 
-function normalizeBestiaryEntry(row, index, imageMap = {}) {
-  const name = cleanText(row.Name);
-  const source = cleanText(row.Source);
-  const sourceFullName = getBestiarySourceFullName(source);
-  const page = cleanText(row.Page);
-  const size = cleanText(row.Size);
-  const type = cleanText(row.Type);
-  const alignment = cleanText(row.Alignment);
-  const ac = cleanText(row.AC);
-  const hp = cleanText(row.HP);
-  const speed = cleanText(row.Speed);
-  const senses = cleanText(row.Senses);
-  const languages = cleanText(row.Languages);
-  const cr = cleanText(row.CR);
-  const environment = cleanText(row.Environment);
-  const savingThrows = cleanText(row["Saving Throws"]);
-  const skills = cleanText(row.Skills);
-  const damageVulnerabilities = cleanText(row["Damage Vulnerabilities"]);
-  const damageResistances = cleanText(row["Damage Resistances"]);
-  const damageImmunities = cleanText(row["Damage Immunities"]);
-  const conditionImmunities = cleanText(row["Condition Immunities"]);
-  const traits = cleanText(row.Traits);
-  const actions = cleanText(row.Actions);
-  const bonusActions = cleanText(row["Bonus Actions"]);
-  const reactions = cleanText(row.Reactions);
-  const legendaryActions = cleanText(row["Legendary Actions"]);
-  const mythicActions = cleanText(row["Mythic Actions"]);
-  const lairActions = cleanText(row["Lair Actions"]);
-  const regionalEffects = cleanText(row["Regional Effects"]);
-  const treasure = cleanText(row.Treasure);
-  const abilities = {
-    STR: toNumber(row.Strength),
-    DEX: toNumber(row.Dexterity),
-    CON: toNumber(row.Constitution),
-    INT: toNumber(row.Intelligence),
-    WIS: toNumber(row.Wisdom),
-    CHA: toNumber(row.Charisma)
-  };
-  const environmentTokens = splitList(environment);
-  const typeLine = [size, type, alignment].filter(Boolean).join(" | ");
-  const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
-  const crLabel = cr || "Sin CR";
-  const crBaseLabel = extractCrBaseLabel(cr);
-  const compositeKey = buildBestiaryCompositeKey(name, source);
-  const searchText = [
-    name,
-    source,
-    type,
-    alignment,
-    senses,
-    languages,
-    cr,
-    crBaseLabel,
-    environment,
-    traits,
-    actions,
-    bonusActions,
-    reactions,
-    legendaryActions,
-    mythicActions,
-    lairActions,
-    regionalEffects
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  return {
-    id: compositeKey || `bestiary-${index + 1}`,
-    compositeKey,
-    name,
-    nameLower: name.toLowerCase(),
-    source,
-    sourceFullName,
-    page,
-    size,
-    type,
-    alignment,
-    ac,
-    hp,
-    speed,
-    abilities,
-    savingThrows,
-    skills,
-    damageVulnerabilities,
-    damageResistances,
-    damageImmunities,
-    conditionImmunities,
-    senses,
-    languages,
-    cr,
-    traits,
-    actions,
-    bonusActions,
-    reactions,
-    legendaryActions,
-    mythicActions,
-    lairActions,
-    regionalEffects,
-    environment,
-    treasure,
-    environmentTokens,
-    typeLine: typeLine || "Ficha sin clasificacion",
-    sourceLabel,
-    crLabel,
-    crBaseLabel,
-    imageUrl: resolveBestiaryImageAsset(name, source, imageMap, "imageUrl"),
-    tokenUrl: resolveBestiaryImageAsset(name, source, imageMap, "tokenUrl"),
-    crValue: parseCrValue(cr),
-    crBaseValue: parseCrValue(crBaseLabel),
-    acValue: parseLeadingNumber(ac),
-    hpValue: parseLeadingNumber(hp),
-    environmentShort: environmentTokens.slice(0, 2).join(", "),
-    searchText
-  };
-}
-
-function normalizeItemEntry(row, index, imageMap = {}) {
-  const name = cleanText(row.Name);
-  const source = cleanText(row.Source);
-  const page = cleanText(row.Page);
-  const rarity = cleanText(row.Rarity);
-  const type = cleanText(row.Type);
-  const attunement = cleanText(row.Attunement);
-  const damage = cleanText(row.Damage);
-  const properties = cleanText(row.Properties);
-  const mastery = cleanText(row.Mastery);
-  const weight = cleanText(row.Weight);
-  const value = cleanText(row.Value);
-  const text = cleanText(row.Text);
-  const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
-  const rarityLabel = formatItemRarity(rarity);
-  const requiresAttunement = Boolean(attunement);
-  const typeLine = [type, requiresAttunement ? "Requiere attunement" : ""].filter(Boolean).join(" | ");
-  const compositeKey = buildItemCompositeKey(name, source);
-  const valueNumber = parseItemValue(value);
-  const weightNumber = parseItemWeight(weight);
-  const sizeLabel = getItemSizeLabel(weightNumber, name, type);
-  const imageUrl = resolveItemImageAsset(name, source, imageMap);
-  const searchText = [
-    name,
-    source,
-    rarity,
-    type,
-    attunement,
-    damage,
-    properties,
-    mastery,
-    weight,
-    sizeLabel,
-    value,
-    text
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  return {
-    id: compositeKey || `item-${index + 1}`,
-    compositeKey,
-    name,
-    nameLower: name.toLowerCase(),
-    source,
-    page,
-    rarity,
-    rarityLabel,
-    rarityShort: shortenLabel(rarityLabel, 14),
-    rarityRank: getItemRarityRank(rarity),
-    rarityGlyph: getItemRarityGlyph(rarity),
-    type,
-    typeLine: typeLine || "Item sin clasificacion",
-    attunement,
-    requiresAttunement,
-    attunementShort: requiresAttunement ? "Requiere" : "No requiere",
-    damage,
-    properties,
-    mastery,
-    weight,
-    weightNumber,
-    weightLabel: weight || "Peso N/D",
-    weightShort: shortenLabel(weight || "N/D", 10),
-    sizeLabel,
-    value,
-    valueNumber,
-    valueLabel: value || "Valor N/D",
-    valueShort: shortenLabel(value || "N/D", 12),
-    sourceLabel,
-    text,
-    imageUrl,
-    hasImage: Boolean(imageUrl),
-    propertiesShort: shortenLabel(properties, 36),
-    searchText
-  };
-}
-
 function getItemEntryByName(name) {
   const normalizedName = cleanText(name).toLowerCase();
 
@@ -10644,141 +9905,6 @@ function getItemEntryByName(name) {
   }
 
   return state.items.find((entry) => entry.nameLower === normalizedName) ?? null;
-}
-
-function getItemSizeLabel(weightNumber, name = "", type = "") {
-  if (Number.isFinite(weightNumber) && weightNumber > 0) {
-    return getItemSizeLabelFromWeight(weightNumber);
-  }
-
-  return inferItemSizeLabel([type, name].filter(Boolean).join(" "));
-}
-
-function getItemSizeLabelFromWeight(weightNumber) {
-  let currentSize = itemSizeThresholds[0].label;
-
-  for (const threshold of itemSizeThresholds) {
-    if (weightNumber >= threshold.minWeight) {
-      currentSize = threshold.label;
-    }
-  }
-
-  return currentSize;
-}
-
-function inferItemSizeLabel(value) {
-  const normalizedValue = cleanText(value).toLowerCase();
-
-  if (!normalizedValue) {
-    return "S";
-  }
-
-  if (/(vehicle|ship|wagon|cart|cannon|ballista|mythallar|catapult|boat|war machine)/.test(normalizedValue)) {
-    return "XXL";
-  }
-
-  if (/(armor|shield|chest|crate|barrel|cauldron|apparatus|carpet|broom|saddle)/.test(normalizedValue)) {
-    return "L";
-  }
-
-  if (/(sword|axe|hammer|mace|spear|staff|bow|crossbow|halberd|glaive|trident|lance|maul|flail|weapon|tool)/.test(normalizedValue)) {
-    return "M";
-  }
-
-  if (/(book|scroll|wand|rod|lantern|mask|helm|helmet|boots|gloves|gauntlets|cloak|cape|bag|pouch|quiver|orb|idol|figurine|instrument|torch|potion|vial)/.test(normalizedValue)) {
-    return "S";
-  }
-
-  if (/(ring|amulet|necklace|brooch|bracelet|earring|coin|gem|jewel|key|token|needle|badge|stone|pearl|card|charm)/.test(normalizedValue)) {
-    return "XS";
-  }
-
-  return "S";
-}
-
-function normalizeSpellEntry(row, index) {
-  const name = cleanText(row.Name);
-  const source = cleanText(row.Source);
-  const page = cleanText(row.Page);
-  const level = cleanText(row.Level);
-  const school = cleanText(row.School);
-  const castingTime = cleanText(row["Casting Time"]);
-  const duration = cleanText(row.Duration);
-  const range = cleanText(row.Range);
-  const components = cleanText(row.Components);
-  const classes = cleanText(row.Classes);
-  const optionalClasses = cleanText(row["Optional/Variant Classes"]);
-  const subclasses = cleanText(row.Subclasses);
-  const text = cleanText(row.Text);
-  const atHigherLevels = cleanText(row["At Higher Levels"]);
-  const classTokens = uniqueSortedStrings([
-    ...splitList(classes),
-    ...splitList(optionalClasses)
-  ]);
-  const classFilterTokens = uniqueSortedStrings(classTokens.map(getArcanumParentheticalBase));
-  const levelValue = parseSpellLevel(level);
-  const levelLabel = formatSpellLevel(level);
-  const levelShort = formatSpellLevelShort(level);
-  const schoolFilterValue = getArcanumParentheticalBase(school);
-  const castingSpeed = getSpellCastingSpeed(castingTime);
-  const sourceFullName = getSourceFullName(source);
-  const sourceLabel = page ? `${sourceFullName} p.${page}` : sourceFullName || "Sin fuente";
-  const schoolLine = [levelLabel, school].filter(Boolean).join(" | ");
-  const compositeKey = buildArcanumCompositeKey(name, source, level);
-  const searchText = [
-    name,
-    source,
-    sourceFullName,
-    level,
-    school,
-    castingTime,
-    duration,
-    range,
-    components,
-    classes,
-    optionalClasses,
-    subclasses,
-    text,
-    atHigherLevels
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  return {
-    id: compositeKey || `arcanum-${index + 1}`,
-    compositeKey,
-    name,
-    nameLower: name.toLowerCase(),
-    source,
-    sourceFullName,
-    page,
-    level,
-    levelValue,
-    levelLabel,
-    levelShort,
-    school,
-    schoolFilterValue,
-    schoolLine: schoolLine || "Hechizo sin clasificacion",
-    castingTime,
-    castingSpeed,
-    duration,
-    range,
-    components,
-    classes,
-    optionalClasses,
-    subclasses,
-    text,
-    atHigherLevels,
-    classTokens,
-    classFilterTokens,
-    sourceLabel,
-    castingTimeShort: shortenLabel(castingTime, 18),
-    rangeShort: shortenLabel(range, 18),
-    durationShort: shortenLabel(duration, 18),
-    hasConcentration: hasConcentrationDuration(duration),
-    tagSummary: [components, classTokens[0], school].filter(Boolean).join(" | "),
-    searchText
-  };
 }
 
 function renderBestiaryFilterDropdown(key, label) {
@@ -11024,59 +10150,6 @@ function renderItemFilterDropdown(key, label) {
           `
           : ""
       }
-    </div>
-  `;
-}
-
-function renderItemKpis(entry) {
-  return [
-    renderItemKpi("Rareza", entry.rarity && entry.rarity !== "none" ? entry.rarityShort : ""),
-    renderItemKpi("Valor", entry.value ? entry.valueShort : ""),
-    renderItemKpi("Peso", entry.weight ? entry.weightShort : ""),
-    renderItemKpi("Talla", entry.sizeLabel),
-    renderItemKpi("Attunement", entry.attunement ? entry.attunementShort : "")
-  ].filter(Boolean).join("");
-}
-
-function renderItemKpi(label, value) {
-  if (!value) {
-    return "";
-  }
-
-  return `
-    <article class="summary-card summary-card--compact">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-    </article>
-  `;
-}
-
-function renderItemDetailBlocks(entry) {
-  return [
-    renderItemDetailBlock("Fuente", entry.sourceLabel),
-    renderItemDetailBlock("Rareza", entry.rarity && entry.rarity !== "none" ? entry.rarityLabel : ""),
-    renderItemDetailBlock("Tipo", entry.type),
-    renderItemDetailBlock("Attunement", entry.attunement),
-    renderItemDetailBlock("Damage", entry.damage),
-    renderItemDetailBlock("Properties", entry.properties),
-    renderItemDetailBlock("Mastery", entry.mastery),
-    renderItemDetailBlock("Valor y peso", [
-      entry.value ? entry.valueLabel : "",
-      entry.weight ? entry.weightLabel : "",
-      `Talla ${entry.sizeLabel}`
-    ].filter(Boolean).join(" | "))
-  ].filter(Boolean).join("");
-}
-
-function renderItemDetailBlock(label, value) {
-  if (!value) {
-    return "";
-  }
-
-  return `
-    <div class="bestiary-detail__block">
-      <span class="bestiary-detail__label">${escapeHtml(label)}</span>
-      <p>${escapeHtml(value)}</p>
     </div>
   `;
 }
@@ -11750,435 +10823,6 @@ function getArcanumStatusLabel() {
   return t("active_csv", { path: SPELLS_CSV_PATH });
 }
 
-function cleanText(value) {
-  return String(value ?? "")
-    .replaceAll("\r\n", "\n")
-    .replaceAll("\r", "\n")
-    .trim();
-}
-
-function buildBestiaryCompositeKey(name, source) {
-  const normalizedName = slugify(name);
-  const normalizedSource = slugify(source);
-
-  if (!normalizedName && !normalizedSource) {
-    return "";
-  }
-
-  return `bestiary-${normalizedName || "unknown"}--${normalizedSource || "unknown"}`;
-}
-
-function buildItemCompositeKey(name, source) {
-  const normalizedName = slugify(name);
-  const normalizedSource = slugify(source);
-
-  if (!normalizedName && !normalizedSource) {
-    return "";
-  }
-
-  return `item-${normalizedName || "unknown"}--${normalizedSource || "unknown"}`;
-}
-
-function buildArcanumCompositeKey(name, source, level) {
-  const normalizedName = slugify(name);
-  const normalizedSource = slugify(source);
-  const normalizedLevel = slugify(level);
-
-  if (!normalizedName && !normalizedSource && !normalizedLevel) {
-    return "";
-  }
-
-  return `arcanum-${normalizedName || "unknown"}--${normalizedSource || "unknown"}--${normalizedLevel || "unknown"}`;
-}
-
-function parseSpellLevel(level) {
-  const normalizedLevel = cleanText(level).toLowerCase();
-
-  if (!normalizedLevel) {
-    return 99;
-  }
-
-  if (normalizedLevel.includes("cantrip")) {
-    return 0;
-  }
-
-  const match = normalizedLevel.match(/\d+/);
-  return match ? Number(match[0]) : 99;
-}
-
-function formatSpellLevel(level) {
-  const normalizedLevel = cleanText(level);
-
-  if (!normalizedLevel) {
-    return "Nivel no indicado";
-  }
-
-  if (normalizedLevel.toLowerCase().includes("cantrip")) {
-    return "Cantrip";
-  }
-
-  return normalizedLevel;
-}
-
-function formatSpellLevelShort(level) {
-  const value = parseSpellLevel(level);
-
-  if (value === 0) {
-    return "Cantrip";
-  }
-
-  if (value === 99) {
-    return "N/D";
-  }
-
-  return `${value}`;
-}
-
-function getSpellCastingSpeed(castingTime) {
-  const normalizedCastingTime = cleanText(castingTime).toLowerCase();
-
-  if (normalizedCastingTime.includes("bonus")) {
-    return "Bonus";
-  }
-
-  if (normalizedCastingTime.includes("reaction")) {
-    return "Reaction";
-  }
-
-  if (normalizedCastingTime.includes("action")) {
-    return "Action";
-  }
-
-  return "";
-}
-
-function compareSpellCastingSpeed(left, right) {
-  const order = {
-    Action: 1,
-    Bonus: 2,
-    Reaction: 3
-  };
-
-  return (order[left] ?? 99) - (order[right] ?? 99)
-    || left.localeCompare(right, "es", { sensitivity: "base" });
-}
-
-function getArcanumParentheticalBase(value) {
-  return cleanText(value)
-    .replace(/\s*\([^)]*\)\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function hasConcentrationDuration(duration) {
-  return slugify(duration).split("-").includes("concentration")
-    || slugify(duration).split("-").includes("concentracion");
-}
-
-function resolveItemImageAsset(name, source, imageMap) {
-  const compositeVariants = [
-    `${cleanText(name)}||${cleanText(source)}`,
-    `${cleanText(name)}|${cleanText(source)}`,
-    buildItemCompositeKey(name, source),
-    `${slugify(name)}--${slugify(source)}`
-  ]
-    .map((key) => key.toLowerCase())
-    .filter(Boolean);
-
-  const nameVariants = [cleanText(name), slugify(name)]
-    .map((key) => key.toLowerCase())
-    .filter(Boolean);
-
-  for (const key of compositeVariants) {
-    const match = findImageMapValue(imageMap, key);
-
-    if (match) {
-      return match;
-    }
-  }
-
-  for (const key of nameVariants) {
-    const match = findImageMapValue(imageMap, key);
-
-    if (match) {
-      return match;
-    }
-  }
-
-  return "";
-}
-
-function resolveRuntimeAssetUrl(assetUrl) {
-  const normalizedAssetUrl = cleanText(assetUrl).trim();
-
-  if (!normalizedAssetUrl) {
-    return "";
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:/i.test(normalizedAssetUrl)) {
-    return normalizedAssetUrl;
-  }
-
-  if (DESKTOP_ASSET_BASE_URL) {
-    try {
-      return new URL(normalizedAssetUrl.replace(/^\.?\//, ""), `${DESKTOP_ASSET_BASE_URL}/`).toString();
-    } catch {
-      return `${DESKTOP_ASSET_BASE_URL}/${normalizedAssetUrl.replace(/^\.?\//, "")}`;
-    }
-  }
-
-  return normalizedAssetUrl;
-}
-
-function findImageMapValue(imageMap, key) {
-  const entry = imageMap?.[key];
-
-  if (typeof entry === "string") {
-    return resolveRuntimeAssetUrl(entry);
-  }
-
-  if (isPlainObject(entry) && typeof entry.imageUrl === "string") {
-    return resolveRuntimeAssetUrl(entry.imageUrl);
-  }
-
-  return "";
-}
-
-function formatItemRarity(rarity) {
-  const normalized = cleanText(rarity);
-
-  if (!normalized) {
-    return "Sin rareza";
-  }
-
-  return normalized
-    .split(/\s+/)
-    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
-    .join(" ");
-}
-
-function getItemRarityRank(rarity) {
-  const normalized = cleanText(rarity).toLowerCase();
-  const rarityOrder = {
-    "none": 0,
-    "common": 1,
-    "uncommon": 2,
-    "rare": 3,
-    "very rare": 4,
-    "legendary": 5,
-    "artifact": 6,
-    "unknown": 7,
-    "unknown (magic)": 8,
-    "varies": 9,
-    "sin rareza": 10
-  };
-
-  return rarityOrder[normalized] ?? 99;
-}
-
-function getItemRarityGlyph(rarity) {
-  const normalized = cleanText(rarity).toLowerCase();
-
-  if (!normalized || normalized === "none") {
-    return "IT";
-  }
-
-  return normalized
-    .split(/[^a-z0-9]+/i)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((token) => token.charAt(0).toUpperCase())
-    .join("") || "IT";
-}
-
-function getItemRarityClass(rarity) {
-  const normalized = slugify(rarity);
-
-  if (!normalized) {
-    return "item-row__rarity-pill--unknown";
-  }
-
-  return `item-row__rarity-pill--${normalized}`;
-}
-
-function parseItemValue(value) {
-  const normalized = cleanText(value).toLowerCase().replaceAll(",", "");
-
-  if (!normalized) {
-    return 0;
-  }
-
-  const match = normalized.match(/(\d+(?:\.\d+)?)/);
-
-  if (!match) {
-    return 0;
-  }
-
-  const amount = Number(match[1]);
-
-  if (normalized.includes("pp")) {
-    return amount * 10;
-  }
-
-  if (normalized.includes("sp")) {
-    return amount / 10;
-  }
-
-  if (normalized.includes("cp")) {
-    return amount / 100;
-  }
-
-  return amount;
-}
-
-function shortenLabel(value, maxLength = 20) {
-  const text = cleanText(value);
-
-  if (!text) {
-    return "-";
-  }
-
-  if (text.length <= maxLength) {
-    return text;
-  }
-
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
-}
-
-function getSourceFullName(source) {
-  const normalizedSource = cleanText(source);
-  return SOURCE_NAMES[normalizedSource] ?? normalizedSource;
-}
-
-function getBestiarySourceFullName(source) {
-  return getSourceFullName(source);
-}
-
-function resolveBestiaryImageAsset(name, source, imageMap, assetKey) {
-  const compositeVariants = [
-    `${cleanText(name)}||${cleanText(source)}`,
-    `${cleanText(name)}|${cleanText(source)}`,
-    buildBestiaryCompositeKey(name, source),
-    `${slugify(name)}--${slugify(source)}`
-  ]
-    .map((key) => key.toLowerCase())
-    .filter(Boolean);
-
-  const nameVariants = [cleanText(name), slugify(name)]
-    .map((key) => key.toLowerCase())
-    .filter(Boolean);
-
-  for (const key of [...compositeVariants, ...nameVariants]) {
-    const imageValue = imageMap[key];
-
-    if (typeof imageValue === "string" && imageValue.trim()) {
-      const resolvedValue = resolveRuntimeAssetUrl(assetKey === "imageUrl" ? imageValue.trim() : "");
-      return shouldUseBestiaryAssetInCurrentRuntime(resolvedValue) ? resolvedValue : "";
-    }
-
-    if (isPlainObject(imageValue) && typeof imageValue[assetKey] === "string" && imageValue[assetKey].trim()) {
-      const resolvedValue = resolveRuntimeAssetUrl(imageValue[assetKey].trim());
-      return shouldUseBestiaryAssetInCurrentRuntime(resolvedValue) ? resolvedValue : "";
-    }
-  }
-
-  return "";
-}
-
-function shouldUseBestiaryAssetInCurrentRuntime(assetUrl) {
-  const normalizedAssetUrl = cleanText(assetUrl).trim();
-
-  if (!normalizedAssetUrl) {
-    return false;
-  }
-
-  if (!isPackagedDesktopApp()) {
-    return true;
-  }
-
-  if (/^file:/i.test(normalizedAssetUrl)) {
-    return true;
-  }
-
-  return !/^\.?\/?images\/bestiary\//i.test(normalizedAssetUrl);
-}
-
-function getBestiaryInitials(name) {
-  const initials = cleanText(name)
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((token) => token[0]?.toUpperCase() ?? "")
-    .join("");
-
-  return initials || "??";
-}
-
-function splitList(value) {
-  return cleanText(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function uniqueSortedStrings(values) {
-  return [...new Set(values.filter(Boolean))]
-    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
-}
-
-function slugify(value) {
-  return cleanText(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function parseLeadingNumber(value) {
-  const match = String(value).match(/-?\d+/);
-  return match ? Number(match[0]) : 0;
-}
-
-function parseHitPointDiceFormula(value) {
-  const text = cleanText(value);
-  const formulaMatch = text.match(/\((\d+)\s*d\s*(\d+)(?:\s*([+-])\s*(\d+))?\)/i);
-
-  if (!formulaMatch) {
-    return null;
-  }
-
-  const diceCount = Number(formulaMatch[1]);
-  const diceSides = Number(formulaMatch[2]);
-  const modifier = formulaMatch[4]
-    ? (formulaMatch[3] === "-" ? -1 : 1) * Number(formulaMatch[4])
-    : 0;
-
-  if (!Number.isFinite(diceCount) || !Number.isFinite(diceSides) || diceCount < 1 || diceSides < 1) {
-    return null;
-  }
-
-  return {
-    diceCount,
-    diceSides,
-    modifier
-  };
-}
-
-function rollHitPointDiceFormula(formula) {
-  if (!formula) {
-    return 0;
-  }
-
-  let total = formula.modifier;
-
-  for (let index = 0; index < formula.diceCount; index += 1) {
-    total += 1 + Math.floor(Math.random() * formula.diceSides);
-  }
-
-  return total;
-}
-
 function getEnemyHitPointValue(entry) {
   const fixedValue = Math.max(1, toNumber(entry?.hpValue) || parseLeadingNumber(entry?.hp) || 1);
 
@@ -12188,55 +10832,6 @@ function getEnemyHitPointValue(entry) {
 
   const rolledValue = rollHitPointDiceFormula(parseHitPointDiceFormula(entry?.hp));
   return Math.max(1, rolledValue || fixedValue);
-}
-
-function parseItemWeight(value) {
-  const text = cleanText(value);
-
-  if (!text) {
-    return 0;
-  }
-
-  const fractionMatch = text.match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)/);
-
-  if (fractionMatch) {
-    return Number(fractionMatch[1].replace(",", ".")) / Number(fractionMatch[2].replace(",", "."));
-  }
-
-  const numberMatch = text.match(/\d[\d.,]*/);
-
-  if (!numberMatch) {
-    return 0;
-  }
-
-  let normalized = numberMatch[0].replace(/(?<=\d)[.,](?=\d{3}(?:[.,]|$))/g, "");
-  normalized = normalized.replace(",", ".");
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function parseCrValue(value) {
-  const match = String(value).match(/^\s*(\d+)\s*\/\s*(\d+)|^\s*(\d+(?:\.\d+)?)/);
-
-  if (!match) {
-    return 0;
-  }
-
-  if (match[1] && match[2]) {
-    return Number(match[1]) / Number(match[2]);
-  }
-
-  return Number(match[3]);
-}
-
-function extractCrBaseLabel(value) {
-  const cleanValue = cleanText(value);
-
-  if (!cleanValue) {
-    return "";
-  }
-
-  return cleanValue.split("(")[0].trim();
 }
 
 function getBestiaryFilterInputValue(target) {
@@ -15594,46 +14189,6 @@ function createStableId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function formatCrNumber(value) {
-  const numericValue = toNumber(value);
-
-  if (Number.isInteger(numericValue)) {
-    return String(numericValue);
-  }
-
-  return String(Number(numericValue.toFixed(3)));
-}
-
-function formatCombatCrDisplay(value) {
-  const cleanValue = cleanText(value).replace(/^CR\s*/i, "").trim();
-
-  if (!cleanValue) {
-    return "";
-  }
-
-  const fractionMatch = cleanValue.match(/^(\d+)\s*\/\s*(\d+)/);
-
-  if (fractionMatch && Number(fractionMatch[2]) <= 8) {
-    return `${fractionMatch[1]}/${fractionMatch[2]}`;
-  }
-
-  const numberMatch = cleanValue.match(/^(\d+(?:\.\d+)?)/);
-  return numberMatch ? numberMatch[1] : "";
-}
-
-function toNumber(value) {
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : 0;
-}
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function randomD20() {
-  return Math.floor(Math.random() * 20) + 1;
-}
-
 function startBattleTimer() {
   if (state.battleTimer.isRunning) {
     return;
@@ -15717,14 +14272,6 @@ function stopBattleTimerInterval() {
 
   window.clearInterval(battleTimerInterval);
   battleTimerInterval = null;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 

@@ -18,7 +18,7 @@
 - Bestiario con carga de CSV, mapa de imagenes, filtros, busqueda y virtualizacion de lista.
 - Items con carga de CSV, mapa de imagenes, filtros por rareza/tipo/source y panel de detalle.
 - Arcanum con carga de `Spells.csv`, filtros por source/nivel/escuela/clase/casting time y detalle.
-- Refactor estructural inicial: `src/main.js` ya importa constantes puras desde `src/config/appConstants.js`, textos desde `src/data/uiText.js`, datos estaticos desde `src/data/gameConstants.js`, grupos de items desde `src/data/itemTypeGroups.js`, layout compartido desde `src/shared/compendiumLayout.js`, parseo CSV desde `src/shared/csv.js` y calculo de listas virtuales desde `src/shared/virtualList.js`.
+- Refactor estructural inicial: `src/main.js` ya importa constantes puras desde `src/config/appConstants.js`, textos desde `src/data/uiText.js`, normalizacion de compendios desde `src/data/compendiumEntries.js`, datos estaticos desde `src/data/gameConstants.js`, grupos de items desde `src/data/itemTypeGroups.js`, layout compartido desde `src/shared/compendiumLayout.js`, parseo CSV desde `src/shared/csv.js`, calculo de listas virtuales desde `src/shared/virtualList.js`, helpers puros desde `src/shared/text.js`, `src/shared/numberUtils.js` y `src/shared/dndRules.js`, y render puro de compendios desde `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js`.
 - Pantalla de personajes con ficha amplia, progreso, stats, habilidades, inventario, avatar e iconos de clase.
 - Nueva pantalla `Tablas` con listado lateral, apertura multiple de tablas, paneles colapsables y edicion inline de nombre, columnas, filas y celdas.
 - `Tablas` arranca con 2 ejemplos semilla: `Tabla Estados` y `Tabla Magia Salvaje`.
@@ -127,7 +127,7 @@
 
 ## Current Technical Constraints
 
-- `src/main.js` sigue concentrando la mayoria de la logica de frontend y aun es el archivo mas conflictivo, pero ya se redujo mediante extraccion de constantes/configuracion/textos/layout compartido.
+- `src/main.js` sigue concentrando la mayoria de la logica de frontend y aun es el archivo mas conflictivo, pero ya se redujo mediante extraccion de constantes/configuracion/textos/layout compartido, helpers puros, normalizacion de compendios y render puro de fichas/listas de compendios. Tras esta tanda queda aprox. en 14.277 lineas.
 - No se detecto carpeta `tests/` ni scripts de test en `package.json`.
 - Verificacion minima actual parece ser `npm run build`.
 - La build desktop portable tarda varios minutos porque el paquete actual supera 1 GB.
@@ -136,7 +136,7 @@
 
 ## Practical Next Steps
 
-1. Seguir extraccion incremental desde `src/main.js` hacia `src/screens/<screen-id>/`, empezando por compendios porque ya comparten patrones de lista virtual/filtros/detalle.
+1. Seguir extraccion incremental desde `src/main.js` hacia `src/screens/<screen-id>/`, continuando con toolbars/filtros de compendios porque ficha seleccionada y listas ya estan fuera.
 2. Cuando una tarea toque solo texto, constantes, rutas, storage, tipos de items o layout comun de compendios, editar primero los modulos extraidos y evitar abrir todo `src/main.js`.
 3. Decidir alcance de `Session Vault`: placeholder temporal o siguiente modulo real.
 4. Definir smoke checklist minima para no depender solo de inspeccion manual.

@@ -42,11 +42,17 @@ Notas:
 - `src/styles.css`: estilos globales.
 - `src/config/appConstants.js`: constantes de runtime, rutas de assets, claves de storage, versionado desktop y tamanos de virtualizacion.
 - `src/data/uiText.js`: textos de interfaz ES/EN y tablas de traduccion.
+- `src/data/compendiumEntries.js`: normalizacion de filas CSV, claves, fuentes, rarezas, tamanos, imagenes y metadatos de Bestiario/Items/Arcanum.
 - `src/data/gameConstants.js`: datos estaticos de reglas internas: atributos, progresion de personaje/skills, monedas, XP por CR, tags de combate y filas de navegacion superior.
 - `src/data/itemTypeGroups.js`: jerarquia y deteccion de tipos agregados de items.
 - `src/shared/compendiumLayout.js`: sincronizacion de alturas compartida por Bestiario, Items y Arcanum.
 - `src/shared/csv.js`: parser CSV compartido por Bestiario, Items y Arcanum.
+- `src/shared/dndRules.js`: helpers de reglas y formato D&D: stats, modificadores, CR, pesos y dados de PG.
+- `src/shared/numberUtils.js`: normalizacion numerica y checks de objeto plano.
+- `src/shared/text.js`: limpieza de texto, escape HTML, slug, listas y helpers de etiquetas.
 - `src/shared/virtualList.js`: calculo generico de ventana visible para listas virtualizadas.
+- `src/screens/compendiums/detailRender.js`: render puro de fichas seleccionadas de Bestiario, Items y Arcanum.
+- `src/screens/compendiums/listRender.js`: render puro de filas y listas virtualizadas de Bestiario, Items y Arcanum.
 - `electron/main.js`: shell de escritorio, dialogos y guardado/carga de campanas.
 - `electron/preload.js`: API segura expuesta al frontend.
 - `electron/assets/`: recursos del shell desktop, incluido icono runtime de app.
@@ -118,7 +124,7 @@ Persistencia desktop:
 ## Architecture Notes
 
 - `src/main.js` sigue siendo el archivo de orquestacion principal y aun concentra bastante logica de pantallas, pero ya se empezo a descargar de tablas puras y configuracion transversal.
-- Extraccion hecha el 2026-05-01: `src/config/appConstants.js`, `src/data/uiText.js`, `src/data/gameConstants.js`, `src/data/itemTypeGroups.js` y `src/shared/compendiumLayout.js`.
+- Extraccion hecha el 2026-05-01: `src/config/appConstants.js`, `src/data/uiText.js`, `src/data/gameConstants.js`, `src/data/itemTypeGroups.js`, `src/data/compendiumEntries.js`, `src/shared/compendiumLayout.js`, `src/shared/csv.js`, `src/shared/virtualList.js`, `src/shared/text.js`, `src/shared/numberUtils.js` y `src/shared/dndRules.js`.
 - `state` global vive en `src/main.js` y concentra UI, compendios, personajes, encuentros y combate.
 - Cada cambio de UX suele implicar tocar handlers, estado y `render()` en mismo archivo.
 - Para cambios de texto, rutas, storage keys, constantes de reglas, jerarquia de items o alturas de compendios, abrir primero los modulos extraidos antes de tocar `src/main.js`.
@@ -134,13 +140,16 @@ Persistencia desktop:
 - `src/data/tablesSeedData.js` guarda tablas iniciales de referencia para la pantalla `Tablas`.
 - `src/data/bestiarySources.js` centraliza nombres largos de fuentes.
 - `src/data/uiText.js` centraliza textos de interfaz y traducciones ES/EN.
+- `src/data/compendiumEntries.js` centraliza normalizacion de criaturas, items y conjuros desde CSV; tambien contiene helpers de source, rareza, tamanos, spell level e imagenes.
 - `src/data/gameConstants.js` centraliza progresiones, monedas, XP por CR y constantes de combate/personaje.
 - `src/data/itemTypeGroups.js` centraliza grupos derivados para filtros de items.
 - `src/assets/characterClassIcons.js` resuelve iconos por clase de personaje.
 - `src/shared/compendiumLayout.js` centraliza la sincronizacion de altura de listas y paneles de detalle de Bestiario/Items/Arcanum.
 - `src/shared/csv.js` centraliza `parseCsv()` para cargas de compendios.
+- `src/shared/text.js`, `src/shared/numberUtils.js` y `src/shared/dndRules.js` centralizan helpers puros que antes estaban dispersos al final de `src/main.js`.
 - `src/shared/virtualList.js` centraliza el calculo de `startIndex`, `endIndex`, padding y alto total de listas virtualizadas.
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
+- `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js` son la primera extraccion real de render de pantalla; reciben dependencias desde `src/main.js` para no acoplarse directamente al `state` global.
 
 ## High-Noise Paths To Ignore By Default
 
@@ -160,8 +169,10 @@ Leer solo bajo demanda:
 
 - Si tarea es de navegacion o alta de pantalla, abrir primero `src/navigation/screens.js`.
 - Si tarea es desktop save/load, abrir primero `electron/main.js` y `electron/preload.js`.
-- Si tarea es compendio, abrir primero `src/shared/compendiumLayout.js` para altura/layout comun; despues el bloque relevante de `src/main.js` y dataset asociado.
+- Si tarea es compendio, abrir primero `src/data/compendiumEntries.js` para normalizacion/datos, `src/shared/compendiumLayout.js` para altura/layout comun y solo despues el bloque relevante de `src/main.js`.
+- Si tarea es render de compendio, abrir primero `src/screens/compendiums/detailRender.js` o `src/screens/compendiums/listRender.js`.
 - Si tarea es parseo CSV o rendimiento de listas virtuales, abrir `src/shared/csv.js` o `src/shared/virtualList.js`.
+- Si tarea es helpers de texto, numeros, CR, stats, pesos o dados, abrir `src/shared/text.js`, `src/shared/numberUtils.js` o `src/shared/dndRules.js`.
 - Si tarea es texto UI o traduccion, abrir `src/data/uiText.js`.
 - Si tarea es constantes globales, rutas o storage, abrir `src/config/appConstants.js`.
 - Si tarea es filtros de items por tipo, abrir `src/data/itemTypeGroups.js`.
