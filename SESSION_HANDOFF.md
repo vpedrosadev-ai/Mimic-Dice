@@ -1,5 +1,17 @@
 # Session Handoff
 
+- Fecha: 2026-05-01
+- Objetivo de sesion actual: reducir consumo de contexto y mejorar mantenibilidad del frontend sin romper comportamiento.
+- Cambios hechos en esta sesion: extraccion de constantes puras desde `src/main.js` hacia modulos pequenos: `src/config/appConstants.js` para rutas, storage y flags runtime; `src/data/uiText.js` para textos y traducciones; `src/data/gameConstants.js` para progresiones, monedas, XP por CR, tags y navegacion superior; `src/data/itemTypeGroups.js` para jerarquia de tipos de items; `src/shared/compendiumLayout.js` para la sincronizacion de alturas de Bestiario/Items/Arcanum; `src/shared/csv.js` para `parseCsv()`; `src/shared/virtualList.js` para ventanas de listas virtualizadas.
+- Fix aplicado tras la extraccion: `DESKTOP_ASSET_BASE_URL` vuelve a importarse en `src/main.js`, corrigiendo el error `DESKTOP_ASSET_BASE_URL is not defined` al cargar inventarios/compendios. Tambien se regenero `src/data/uiText.js` en UTF-8 valido y se comprobaron caracteres `Ñ`, tildes y ausencia de `�`.
+- Cambios hechos tambien: `src/main.js` conserva el estado global, handlers, render y persistencia, pero ahora importa datos/configuracion compartida. Esto reduce el contexto que agentes futuros necesitan abrir para tareas de texto, constantes, filtros de items o layout de compendios.
+- Documentacion actualizada: `PROJECT_CONTEXT.md`, `CURRENT_STATE.md`, `SESSION_HANDOFF.md` y `src/screens/README.md` reflejan la nueva estructura y el orden de lectura recomendado.
+- Verificacion corrida: `npm run build` OK tras la extraccion.
+- Riesgos activos: no hay suite automatica formal; `npm run build` valida bundle, pero conviene hacer smoke manual de Bestiario, Items, Arcanum, pantalla de personajes, tablas y guardado desktop si se empaqueta.
+- Siguiente paso recomendado: extraer un compendio completo a `src/screens/<screen-id>/` empezando por helpers de lista virtual/filtros/detalle, dejando `src/main.js` como orquestador de estado y eventos.
+
+## Handoff anterior
+
 - Fecha: 2026-04-24
 - Objetivo de sesion: estabilizar la ejecutable desktop en arranque, persistencia local y sistema de guardado.
 - Cambios hechos: reset fuerte de `localStorage` para la app empaquetada usando `DESKTOP_STORAGE_RESET_VERSION = 2026-04-24-c` y barrido de todas las claves `mimic-dice:*`; splash estatico inmediato en `index.html`; overlay de carga de arranque mientras cargan compendios; `campaign:save` y `campaign:save-as` ya usan y devuelven ruta completa; renderer guarda `campaignFilePath` para que `Guardar`, autosave y guardado al cerrar reutilicen archivo real; `Guardar como` ya respeta carpeta elegida; `Nueva campana` limpia storage y memoria antes de abrir `Guardar como`; `normalizeStoredCombatTrackerState()` purga la vieja semilla placeholder del combat tracker si reaparece por storage/campana antigua; cierre desktop ahora conoce si hay cambios sin guardar y evita esperar el handshake de guardado cuando no hace falta; portable mantiene `compression: store` y `portable.useZip: true`; `combatTrackerData.js` queda sin placeholders y tabla empieza vacia.

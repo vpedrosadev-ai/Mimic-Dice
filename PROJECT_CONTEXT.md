@@ -38,8 +38,15 @@ Notas:
 ## Entry Points
 
 - `index.html`: entrada web.
-- `src/main.js`: orquestacion principal de estado, eventos, render, carga de datos y persistencia.
+- `src/main.js`: orquestacion principal de estado, eventos, render, carga de datos y persistencia. Sigue siendo grande, pero ya no debe ser el primer destino para cambios de constantes o texto UI.
 - `src/styles.css`: estilos globales.
+- `src/config/appConstants.js`: constantes de runtime, rutas de assets, claves de storage, versionado desktop y tamanos de virtualizacion.
+- `src/data/uiText.js`: textos de interfaz ES/EN y tablas de traduccion.
+- `src/data/gameConstants.js`: datos estaticos de reglas internas: atributos, progresion de personaje/skills, monedas, XP por CR, tags de combate y filas de navegacion superior.
+- `src/data/itemTypeGroups.js`: jerarquia y deteccion de tipos agregados de items.
+- `src/shared/compendiumLayout.js`: sincronizacion de alturas compartida por Bestiario, Items y Arcanum.
+- `src/shared/csv.js`: parser CSV compartido por Bestiario, Items y Arcanum.
+- `src/shared/virtualList.js`: calculo generico de ventana visible para listas virtualizadas.
 - `electron/main.js`: shell de escritorio, dialogos y guardado/carga de campanas.
 - `electron/preload.js`: API segura expuesta al frontend.
 - `electron/assets/`: recursos del shell desktop, incluido icono runtime de app.
@@ -48,9 +55,11 @@ Notas:
 ## Directory Map
 
 - `src/`: app frontend.
+- `src/config/`: configuracion pura de runtime y constantes transversales.
 - `src/data/`: datos pequenos y configuracion compartida.
 - `src/navigation/`: definicion de pantallas visibles en navegacion.
 - `src/screens/`: reservado para extraer pantallas desde `src/main.js` de forma incremental.
+- `src/shared/`: utilidades compartidas entre pantallas que no pertenecen a un dataset concreto.
 - `src/assets/`: iconos y recursos importados por Vite.
 - `public/data/`: CSV/JSON canonicos de bestiario, items y conjuros.
 - `public/images/`: cache grande de imagenes para bestiario e items.
@@ -108,9 +117,11 @@ Persistencia desktop:
 
 ## Architecture Notes
 
-- `src/main.js` es archivo monolitico grande, aprox. 9.4k lineas.
+- `src/main.js` sigue siendo el archivo de orquestacion principal y aun concentra bastante logica de pantallas, pero ya se empezo a descargar de tablas puras y configuracion transversal.
+- Extraccion hecha el 2026-05-01: `src/config/appConstants.js`, `src/data/uiText.js`, `src/data/gameConstants.js`, `src/data/itemTypeGroups.js` y `src/shared/compendiumLayout.js`.
 - `state` global vive en `src/main.js` y concentra UI, compendios, personajes, encuentros y combate.
 - Cada cambio de UX suele implicar tocar handlers, estado y `render()` en mismo archivo.
+- Para cambios de texto, rutas, storage keys, constantes de reglas, jerarquia de items o alturas de compendios, abrir primero los modulos extraidos antes de tocar `src/main.js`.
 - La build desktop usa Electron + Electron Builder y ahora prioriza salida `portable` de Windows para pruebas en otros equipos.
 - El icono desktop vive en `electron/assets/icon.png` para runtime y en `build-resources/icon.ico` para empaquetado Windows.
 - El flujo de distribucion mas simple para terceros sin entorno local es descargar el artefacto portable desde GitHub Actions.
@@ -122,7 +133,13 @@ Persistencia desktop:
 - `src/data/combatTrackerData.js` guarda columnas del tracker y datos iniciales de ejemplo.
 - `src/data/tablesSeedData.js` guarda tablas iniciales de referencia para la pantalla `Tablas`.
 - `src/data/bestiarySources.js` centraliza nombres largos de fuentes.
+- `src/data/uiText.js` centraliza textos de interfaz y traducciones ES/EN.
+- `src/data/gameConstants.js` centraliza progresiones, monedas, XP por CR y constantes de combate/personaje.
+- `src/data/itemTypeGroups.js` centraliza grupos derivados para filtros de items.
 - `src/assets/characterClassIcons.js` resuelve iconos por clase de personaje.
+- `src/shared/compendiumLayout.js` centraliza la sincronizacion de altura de listas y paneles de detalle de Bestiario/Items/Arcanum.
+- `src/shared/csv.js` centraliza `parseCsv()` para cargas de compendios.
+- `src/shared/virtualList.js` centraliza el calculo de `startIndex`, `endIndex`, padding y alto total de listas virtualizadas.
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
 
 ## High-Noise Paths To Ignore By Default
@@ -143,7 +160,12 @@ Leer solo bajo demanda:
 
 - Si tarea es de navegacion o alta de pantalla, abrir primero `src/navigation/screens.js`.
 - Si tarea es desktop save/load, abrir primero `electron/main.js` y `electron/preload.js`.
-- Si tarea es compendio, abrir solo bloque relevante de `src/main.js` y dataset asociado.
+- Si tarea es compendio, abrir primero `src/shared/compendiumLayout.js` para altura/layout comun; despues el bloque relevante de `src/main.js` y dataset asociado.
+- Si tarea es parseo CSV o rendimiento de listas virtuales, abrir `src/shared/csv.js` o `src/shared/virtualList.js`.
+- Si tarea es texto UI o traduccion, abrir `src/data/uiText.js`.
+- Si tarea es constantes globales, rutas o storage, abrir `src/config/appConstants.js`.
+- Si tarea es filtros de items por tipo, abrir `src/data/itemTypeGroups.js`.
+- Si tarea es progresion de personaje/skill, monedas, XP por CR o tags de combate, abrir `src/data/gameConstants.js`.
 - Si tarea es modularizacion, mover logica compartida a `src/data/` o futuro `src/shared/` antes de partir pantalla.
 - No escanear `public/images/` para tareas de UI normal.
 - Mantener `PROJECT_CONTEXT.md` estable: actualizarlo solo si cambia arquitectura, flujo canonico, comandos, prioridades globales o significado de una pantalla.

@@ -1,487 +1,72 @@
-﻿import { SOURCE_NAMES } from "./data/bestiarySources.js";
+import { SOURCE_NAMES } from "./data/bestiarySources.js";
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { initialTableDefinitions } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
+import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
+import { parseCsv } from "./shared/csv.js";
+import { getVirtualStartIndex, getVirtualWindow } from "./shared/virtualList.js";
 import * as XLSX from "xlsx";
 import appIconUrl from "../build-resources/icon.png";
-const IS_FILE_PROTOCOL_RUNTIME = typeof window !== "undefined"
-  ? /^file:$/i.test(String(window.location?.protocol || ""))
-  : false;
-const HAS_DESKTOP_EXTERNAL_ASSETS = typeof window !== "undefined"
-  ? Boolean(window.mimicDice?.hasExternalAssetDirectory)
-  : false;
-const DESKTOP_ASSET_BASE_URL = typeof window !== "undefined"
-  ? String(window.mimicDice?.assetBaseUrl || (IS_FILE_PROTOCOL_RUNTIME ? "mimic-assets://local" : "")).replace(/\/+$/, "")
-  : "";
-const BESTIARY_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Bestiary.csv` : "data/Bestiary.csv";
-const BESTIARY_IMAGES_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/BestiaryImages.json` : "data/BestiaryImages.json";
-const ITEMS_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Items.csv` : "data/Items.csv";
-const ITEMS_IMAGES_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/ItemsImages.json` : "data/ItemsImages.json";
-const SPELLS_CSV_PATH = DESKTOP_ASSET_BASE_URL ? `${DESKTOP_ASSET_BASE_URL}/data/Spells.csv` : "data/Spells.csv";
-const CAMPAIGN_META_STORAGE_KEY = "mimic-dice:campaign-meta:v1";
-const CHARACTERS_STORAGE_KEY = "mimic-dice:characters:v1";
-const CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY = "mimic-dice:character-skills:v1";
-const ENCOUNTER_INVENTORY_STORAGE_KEY = "mimic-dice:encounter-inventory:v1";
-const COMBAT_TRACKER_STORAGE_KEY = "mimic-dice:combat-tracker:v1";
-const TABLES_STORAGE_KEY = "mimic-dice:tables:v1";
-const MANAGED_STORAGE_KEY_PREFIX = "mimic-dice:";
-const DESKTOP_STORAGE_RESET_VERSION_KEY = "mimic-dice:desktop-storage-reset:v1";
-const DESKTOP_BUILD_SIGNATURE_STORAGE_KEY = "mimic-dice:desktop-build-signature:v1";
-const DESKTOP_STORAGE_RESET_VERSION = "2026-04-24-d";
-const CAMPAIGN_FILE_SCHEMA = "mimic-dice:campaign";
-const CAMPAIGN_FILE_VERSION = 1;
-const CAMPAIGN_AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
-const COMBAT_TRACKER_SORT_DEFAULT_VERSION = 2;
-const BESTIARY_RENDER_DEBOUNCE_MS = 160;
-const BESTIARY_VIRTUAL_ROW_HEIGHT = 158;
-const BESTIARY_VIRTUAL_OVERSCAN = 6;
-const BESTIARY_VIRTUAL_DEFAULT_VIEWPORT = 760;
-const ITEM_VIRTUAL_ROW_HEIGHT = 132;
-const ITEM_VIRTUAL_OVERSCAN = 8;
-const APP_LANGUAGE_ES = "es";
-const APP_LANGUAGE_EN = "en";
-const UI_STRINGS = {
-  es: {
-    menu_file: "Archivo",
-    menu_options: "Opciones",
-    options_close: "Cerrar",
-    options_enemy_hp_standard: "Vida standard de los enemigos",
-    options_enemy_hp_variable: "Rollear los dados de vida de los enemigos",
-    options_enemy_hp_standard_help: "Usa el valor base del bestiario, por ejemplo 13.",
-    options_enemy_hp_variable_help: "Lanza la formula entre parentesis, por ejemplo 3d8 o 3d8 + 6.",
-    options_language_title: "Idioma de la interfaz",
-    options_language_es: "Español",
-    options_language_en: "Inglés",
-    bestiary_eyebrow: "Repositorio de enemigos",
-    bestiary_title: "Catalogo sincronizado con CSV",
-    bestiary_visible: "{count} visibles",
-    bestiary_total: "{count} totales",
-    bestiary_filters_label: "Filtros del bestiario",
-    bestiary_search_label: "Buscar criatura",
-    bestiary_search_placeholder: "Escribe un nombre de criatura",
-    bestiary_clear_filters: "Limpiar filtros",
-    filter_clear_short: "Limpiar",
-    filter_button: "Filtro",
-    filter_type: "Tipo",
-    filter_environment: "Entorno",
-    filter_source: "Fuente",
-    source_short: "FUENTE",
-    cr_short: "CR",
-    combat_table_title: "Tabla de combate",
-    list_type: "Tipo",
-    list_environment: "Entorno",
-    list_no_environment: "Sin entorno",
-    list_price: "PRECIO",
-    list_weight: "PESO",
-    list_size: "Talla",
-    list_level: "NIVEL",
-    list_no_level: "Sin nivel",
-    list_school: "Escuela",
-    list_casting: "Lanzamiento",
-    list_range: "Alcance",
-    list_duration: "Duracion",
-    list_no_casting: "Sin tiempo",
-    list_no_range: "Sin alcance",
-    list_no_duration: "Sin duracion",
-    loading_csv: "Cargando CSV",
-    read_error: "Error de lectura",
-    active_csv: "CSV activo: {path}",
-    loading_bestiary: "Cargando Bestiary.csv...",
-    loading_items: "Cargando Items.csv...",
-    loading_arcanum: "Cargando Spells.csv...",
-    no_bestiary_results: "No hay criaturas que coincidan con los filtros actuales.",
-    no_item_results: "No hay items que coincidan con los filtros actuales.",
-    no_arcanum_results: "No hay hechizos que coincidan con los filtros actuales.",
-    bestiary_empty_detail: "Selecciona una criatura para ver la ficha completa.",
-    item_empty_detail: "Selecciona un item para ver la ficha completa.",
-    arcanum_empty_detail: "Selecciona un hechizo para ver la ficha completa.",
-    bestiary_selected_sheet: "Ficha seleccionada",
-    item_selected: "Item seleccionado",
-    spell_selected: "Conjuro seleccionado",
-    metric_speed: "Velocidad",
-    metric_senses: "Sentidos",
-    metric_languages: "Idiomas",
-    chip_environment: "Entorno",
-    chip_skills: "Skills",
-    chip_saving_throws: "Saving Throws",
-    chip_damage_vulnerabilities: "Damage Vulnerabilities",
-    chip_damage_resistances: "Damage Resistances",
-    chip_damage_immunities: "Damage Immunities",
-    chip_condition_immunities: "Condition Immunities",
-    section_traits: "Traits",
-    section_actions: "Actions",
-    section_bonus_actions: "Bonus Actions",
-    section_reactions: "Reactions",
-    section_legendary_actions: "Legendary Actions",
-    section_mythic_actions: "Mythic Actions",
-    section_lair_actions: "Lair Actions",
-    section_regional_effects: "Regional Effects",
-    items_eyebrow: "Tesoro sincronizado",
-    items_title: "Catalogo de items desde CSV",
-    items_filters_label: "Filtros de items",
-    items_search_label: "Buscar item",
-    items_search_placeholder: "Nombre, texto, propiedades, rareza...",
-    items_selected_type: "Tipo resumido",
-    items_selected_properties: "Propiedades",
-    items_selected_mastery: "Mastery",
-    items_description: "Description",
-    arcanum_eyebrow: "Grimorio sincronizado",
-    arcanum_title: "Catalogo de hechizos desde CSV",
-    arcanum_filters_label: "Filtros del arcanum",
-    arcanum_filter_level: "Nivel",
-    arcanum_filter_casting: "Velocidad Hechizo",
-    arcanum_filter_school: "Escuela",
-    arcanum_filter_class: "Clase",
-    arcanum_search_label: "Buscar hechizo",
-    arcanum_search_placeholder: "Nombre, texto, componentes, clases...",
-    arcanum_text: "Texto",
-    arcanum_classes: "Clases",
-    arcanum_subclasses: "Subclases",
-    arcanum_casting_time: "Casting Time",
-    arcanum_duration: "Duracion",
-    arcanum_range: "Alcance",
-    arcanum_components: "Componentes"
-  },
-  en: {
-    menu_file: "File",
-    menu_options: "Options",
-    options_close: "Close",
-    options_enemy_hp_standard: "Standard enemy hit points",
-    options_enemy_hp_variable: "Roll enemy hit dice",
-    options_enemy_hp_standard_help: "Use the fixed bestiary value, for example 13.",
-    options_enemy_hp_variable_help: "Roll the formula in parentheses, for example 3d8 or 3d8 + 6.",
-    options_language_title: "Interface language",
-    options_language_es: "Spanish",
-    options_language_en: "English",
-    bestiary_eyebrow: "Enemy repository",
-    bestiary_title: "CSV-synced catalog",
-    bestiary_visible: "{count} visible",
-    bestiary_total: "{count} total",
-    bestiary_filters_label: "Bestiary filters",
-    bestiary_search_label: "Search creature",
-    bestiary_search_placeholder: "Type a creature name",
-    bestiary_clear_filters: "Clear filters",
-    filter_clear_short: "Clear",
-    filter_button: "Filter",
-    filter_type: "Type",
-    filter_environment: "Environment",
-    filter_source: "Source",
-    source_short: "SOURCE",
-    cr_short: "CR",
-    combat_table_title: "Combat table",
-    list_type: "Type",
-    list_environment: "Environment",
-    list_no_environment: "No environment",
-    list_price: "PRICE",
-    list_weight: "WEIGHT",
-    list_size: "Size",
-    list_level: "LEVEL",
-    list_no_level: "No level",
-    list_school: "School",
-    list_casting: "Casting",
-    list_range: "Range",
-    list_duration: "Duration",
-    list_no_casting: "No casting time",
-    list_no_range: "No range",
-    list_no_duration: "No duration",
-    loading_csv: "Loading CSV",
-    read_error: "Read error",
-    active_csv: "Active CSV: {path}",
-    loading_bestiary: "Loading Bestiary.csv...",
-    loading_items: "Loading Items.csv...",
-    loading_arcanum: "Loading Spells.csv...",
-    no_bestiary_results: "No creatures match the current filters.",
-    no_item_results: "No items match the current filters.",
-    no_arcanum_results: "No spells match the current filters.",
-    bestiary_empty_detail: "Select a creature to view its full sheet.",
-    item_empty_detail: "Select an item to view its full sheet.",
-    arcanum_empty_detail: "Select a spell to view its full sheet.",
-    bestiary_selected_sheet: "Selected sheet",
-    item_selected: "Selected item",
-    spell_selected: "Selected spell",
-    metric_speed: "Speed",
-    metric_senses: "Senses",
-    metric_languages: "Languages",
-    chip_environment: "Environment",
-    chip_skills: "Skills",
-    chip_saving_throws: "Saving Throws",
-    chip_damage_vulnerabilities: "Damage Vulnerabilities",
-    chip_damage_resistances: "Damage Resistances",
-    chip_damage_immunities: "Damage Immunities",
-    chip_condition_immunities: "Condition Immunities",
-    section_traits: "Traits",
-    section_actions: "Actions",
-    section_bonus_actions: "Bonus Actions",
-    section_reactions: "Reactions",
-    section_legendary_actions: "Legendary Actions",
-    section_mythic_actions: "Mythic Actions",
-    section_lair_actions: "Lair Actions",
-    section_regional_effects: "Regional Effects",
-    items_eyebrow: "Synced treasure",
-    items_title: "CSV item catalog",
-    items_filters_label: "Item filters",
-    items_search_label: "Search item",
-    items_search_placeholder: "Name, text, properties, rarity...",
-    items_selected_type: "Summary type",
-    items_selected_properties: "Properties",
-    items_selected_mastery: "Mastery",
-    items_description: "Description",
-    arcanum_eyebrow: "Synced grimoire",
-    arcanum_title: "CSV spell catalog",
-    arcanum_filters_label: "Arcanum filters",
-    arcanum_filter_level: "Level",
-    arcanum_filter_casting: "Casting Speed",
-    arcanum_filter_school: "School",
-    arcanum_filter_class: "Class",
-    arcanum_search_label: "Search spell",
-    arcanum_search_placeholder: "Name, text, components, classes...",
-    arcanum_text: "Text",
-    arcanum_classes: "Classes",
-    arcanum_subclasses: "Subclasses",
-    arcanum_casting_time: "Casting Time",
-    arcanum_duration: "Duration",
-    arcanum_range: "Range",
-    arcanum_components: "Components"
-  }
-};
-const UI_TRANSLATION_EXCLUDED_SELECTOR = [
-  "[data-bestiary-list-root]",
-  "[data-item-list-root]",
-  "[data-arcanum-list-root]",
-  ".bestiary-row__title",
-  ".bestiary-row__fact-value",
-  ".bestiary-detail__source",
-  ".lead",
-  ".detail-chip p",
-  ".detail-section p",
-  ".bestiary-detail__block p"
-].join(", ");
-const UI_TEXT_TRANSLATIONS_EN = new Map([
-  ["Combate", "Combat"],
-  ["Bestiario", "Bestiary"],
-  ["Personajes", "Characters"],
-  ["Tablas", "Tables"],
-  ["Sin campaña", "No campaign"],
-  ["Nueva campaña", "New campaign"],
-  ["Guardar campaña", "Save campaign"],
-  ["Guardar campaña como", "Save campaign as"],
-  ["Cargar campaña", "Load campaign"],
-  ["Confirmar", "Confirm"],
-  ["Cancelar", "Cancel"],
-  ["Duplicar", "Duplicate"],
-  ["Eliminar", "Delete"],
-  ["Añadir", "Add"],
-  ["Añadir todos", "Add all"],
-  ["Añadir al combate", "Add to combat"],
-  ["Eliminar seleccionadas", "Delete selected"],
-  ["Eliminar enemigos", "Delete enemies"],
-  ["Cerrar vistas", "Close views"],
-  ["Nueva tabla", "New table"],
-  ["Nueva carpeta", "New folder"],
-  ["Abrir todas", "Open all"],
-  ["Cerrar todas", "Close all"],
-  ["Exportar Excel", "Export Excel"],
-  ["Cerrar", "Close"],
-  ["Rolando...", "Rolling..."],
-  ["ROLL TABLA", "ROLL TABLE"],
-  ["Tabla editable", "Editable table"],
-  ["Expandir", "Expand"],
-  ["Encoger", "Collapse"],
-  ["Cargando CSV", "Loading CSV"],
-  ["Error de lectura", "Read error"],
-  ["Buscar opción...", "Search option..."],
-  ["Escribe para filtrar", "Type to filter"],
-  ["Seleccionados", "Selected"],
-  ["Fuentes", "Sources"],
-  ["Cargando...", "Loading..."],
-  ["Abrir", "Open"],
-  ["Guardar", "Save"],
-  ["Guardar como", "Save as"],
-  ["Archivo", "File"],
-  ["Opciones", "Options"],
-  ["Tabla de combate", "Combat table"],
-  ["Filtro", "Filter"],
-  ["Limpiar", "Clear"],
-  ["Sintonizacion", "Attunement"],
-  ["Concentracion", "Concentration"],
-  ["Generar iniciativa", "Generate initiative"],
-  ["COMBATE!", "COMBAT!"],
-  ["FIN COMBATE", "END COMBAT"],
-  ["Limpiar filtros", "Clear filters"],
-  ["Contador", "Timer"],
-  ["Encuentro", "Encounter"],
-  ["Inic", "Init"],
-  ["Nombre", "Name"],
-  ["PEANA", "STAND"],
-  ["PG MAX", "MAX HP"],
-  ["PG act", "CUR HP"],
-  ["PG temp", "TEMP HP"],
-  ["Bando", "Side"],
-  ["ALIADO", "ALLY"],
-  ["NEUTRAL", "NEUTRAL"],
-  ["ENEMIGO", "ENEMY"],
-  ["Iniciar", "Start"],
-  ["Pausar", "Pause"],
-  ["Reiniciar", "Reset"],
-  ["Pasar turno", "Next turn"],
-  ["Nuevo personaje", "New character"],
-  ["Ficha rapida 5e", "Quick 5e sheet"],
-  ["Jugador", "Player"],
-  ["Clase", "Class"],
-  ["Subclase", "Subclass"],
-  ["Especie", "Species"],
-  ["Talla", "Size"],
-  ["Bonus iniciativa", "Initiative bonus"],
-  ["Bonus competencia", "Proficiency bonus"],
-  ["Percepcion Pasiva", "Passive Perception"],
-  ["Salvacion", "Save"],
-  ["Fuerza", "Strength"],
-  ["Destreza", "Dexterity"],
-  ["Constitucion", "Constitution"],
-  ["Inteligencia", "Intelligence"],
-  ["Sabiduria", "Wisdom"],
-  ["Carisma", "Charisma"],
-  ["Atletismo", "Athletics"],
-  ["Acrobacias", "Acrobatics"],
-  ["Juego de manos", "Sleight of Hand"],
-  ["Sigilo", "Stealth"],
-  ["Arcano", "Arcana"],
-  ["Historia", "History"],
-  ["Investigacion", "Investigation"],
-  ["Naturaleza", "Nature"],
-  ["Religion", "Religion"],
-  ["Trato animal", "Animal Handling"],
-  ["Perspicacia", "Insight"],
-  ["Medicina", "Medicine"],
-  ["Percepcion", "Perception"],
-  ["Supervivencia", "Survival"],
-  ["Engano", "Deception"],
-  ["Intimidacion", "Intimidation"],
-  ["Interpretacion", "Performance"],
-  ["Persuasion", "Persuasion"],
-  ["Aliados de campana", "Campaign allies"],
-  ["Resumen de grupo", "Party summary"],
-  ["Vista rapida", "Quick view"],
-  ["Personaje", "Character"],
-  ["PG max", "Max HP"],
-  ["Vel.", "Speed"],
-  ["Percep.", "Percep."],
-  ["Carga", "Load"],
-  ["Editor de encuentros", "Encounter editor"],
-  ["Encuentros guardados", "Saved encounters"],
-  ["Listas guardadas", "Saved lists"],
-  ["Nuevo encuentro", "New encounter"],
-  ["Nuevo", "New"],
-  ["Editor de encuentro", "Encounter editor"],
-  ["Nombre del encuentro", "Encounter name"],
-  ["Anadir criatura", "Add creature"],
-  ["Unidades", "Units"],
-  ["Sin fuente", "No source"],
-  ["Quitar", "Remove"],
-  ["Ver detalle", "View details"],
-  ["Ocultar detalle", "Hide details"],
-  ["Skills de campana", "Campaign skills"],
-  ["Inventario", "Inventory"],
-  ["Sintonizacion: si", "Attunement: yes"],
-  ["Sintonizacion: no", "Attunement: no"],
-  ["Sintonizacion: todos", "Attunement: all"],
-  ["Concentracion: si", "Concentration: yes"],
-  ["Concentracion: no", "Concentration: no"],
-  ["Concentracion: todos", "Concentration: all"]
-]);
-const UI_ATTRIBUTE_TRANSLATIONS_EN = new Map([
-  ["Danio en area", "Area damage"],
-  ["Daño en area", "Area damage"],
-  ["Buscar opcion...", "Search option..."],
-  ["Escribe para filtrar", "Type to filter"],
-  ["Ej. Las ruinas de Korrin", "Ex. The Ruins of Korrin"],
-  ["Ej. Emboscada en el bosque", "Ex. Forest ambush"],
-  ["Busca una criatura del bestiario", "Search for a bestiary creature"],
-  ["Nueva tabla", "New table"],
-  ["Columna 1", "Column 1"],
-  ["Columna 2", "Column 2"],
-  ["Filtrar por items con o sin sintonizacion", "Filter items by attunement requirement"],
-  ["Filtrar por hechizos con o sin concentracion", "Filter spells by concentration requirement"],
-  ["Caracteristicas y competencias", "Ability scores and proficiencies"],
-  ["Estadisticas del personaje", "Character stats"],
-  ["Lista de personajes", "Character list"],
-  ["Criaturas del encuentro", "Encounter creatures"],
-  ["Encuentros guardados", "Saved encounters"],
-  ["Combat tracker", "Combat tracker"]
-]);
-const UI_REGEX_TRANSLATIONS_EN = [
-  [/^CSV activo: (.+)$/u, "Active CSV: $1"],
-  [/^(\d+) visibles$/u, "$1 visible"],
-  [/^(\d+) totales$/u, "$1 total"],
-  [/^(\d+) fichas$/u, "$1 sheets"],
-  [/^(\d+) carpetas$/u, "$1 folders"],
-  [/^(\d+) encuentros$/u, "$1 encounters"],
-  [/^(\d+) filas$/u, "$1 rows"],
-  [/^(\d+) unidades$/u, "$1 units"],
-  [/^(\d+) aliados creados$/u, "$1 created allies"],
-  [/^(\d+) disponibles$/u, "$1 available"],
-  [/^(\d+) enemigos \| CR total (.+)$/u, "$1 enemies | Total CR $2"],
-  [/^CR total (.+)$/u, "Total CR $1"],
-  [/^Fichero de campaña activa:$/u, "Active campaign file:"],
-  [/^Eliminar carpeta (.+)$/u, "Delete folder $1"],
-  [/^Eliminar tabla (.+)$/u, "Delete table $1"],
-  [/^Selecciona una tabla de (.+) para eliminarla$/u, "Select a table from $1 to delete it"],
-  [/^Eliminar columna (.+)$/u, "Delete column $1"],
-  [/^Añadir columna tras (.+)$/u, "Add column after $1"],
-  [/^Eliminar fila (\d+)$/u, "Delete row $1"],
-  [/^Añadir fila tras fila (\d+)$/u, "Add row after row $1"],
-  [/^Añadir primera fila$/u, "Add first row"],
-  [/^Abrir filtro de (.+)$/u, "Open filter for $1"],
-  [/^Seleccionar (.+)$/u, "Select $1"],
-  [/^Abrir (.+) en bestiario$/u, "Open $1 in bestiary"],
-  [/^Abrir ficha de (.+)$/u, "Open sheet for $1"],
-  [/^Filtrar por fuente (.+)$/u, "Filter by source $1"],
-  [/^Filtrar por CR (.+)$/u, "Filter by CR $1"],
-  [/^Filtrar por nivel (.+)$/u, "Filter by level $1"],
-  [/^No hay encuentros guardados\.$/u, "No saved encounters."],
-  [/^No hay personajes creados\.$/u, "No characters created."],
-  [/^Carpeta vacia\.$/u, "Empty folder."],
-  [/^Esta carpeta esta vacia\.$/u, "This folder is empty."],
-  [/^Crea tu primer encuentro para guardar criaturas del bestiario\.$/u, "Create your first encounter to store bestiary creatures."],
-  [/^No hay ningun encuentro seleccionado\.$/u, "No encounter selected."],
-  [/^Crear encuentro$/u, "Create encounter"],
-  [/^Usa el buscador para anadir criaturas\. Cada seleccion crea una fila nueva con unidades 1 y CR\.$/u, "Use the search field to add creatures. Each selection creates a new row with 1 unit and CR."],
-  [/^Sugerencias para el encuentro$/u, "Encounter suggestions"],
-  [/^Fuentes posibles$/u, "Available sources"],
-  [/^No hay otras fuentes para esta criatura\.$/u, "No other sources exist for this creature."],
-  [/^Nombre de carpeta (.+)$/u, "Folder name $1"],
-  [/^Eliminar (.+) del encuentro$/u, "Remove $1 from encounter"],
-  [/^Unidades de (.+)$/u, "Units for $1"],
-  [/^Configura nivel y progreso de este personaje en las skills comunes\.$/u, "Set this character's level and progress in the shared skills."],
-  [/^Vista resumida de progreso y nivel actual\.$/u, "Compact view of current progress and level."],
-  [/^No hay skills comunes configuradas\.$/u, "No shared skills configured."],
-  [/^Rango maximo$/u, "Maximum rank"],
-  [/^Sin rango$/u, "No rank"],
-  [/^Nivel$/u, "Level"],
-  [/^XP nivel$/u, "Level XP"],
-  [/^Fracaso(?: (\d+))?$/u, (_, tier) => tier ? `Failure ${tier}` : "Failure"],
-  [/^Intermedio(?: (\d+))?$/u, (_, tier) => tier ? `Partial ${tier}` : "Partial"],
-  [/^Exito(?: (\d+))?$/u, (_, tier) => tier ? `Success ${tier}` : "Success"],
-  [/^No hay personajes\. Crea un aliado para usarlo en combate\.$/u, "No characters yet. Create an ally to use it in combat."],
-  [/^Crea un personaje aliado para editar su ficha rapida\.$/u, "Create an allied character to edit its quick sheet."],
-  [/^Ctrl o Cmd \+ clic para multiseleccionar$/u, "Ctrl or Cmd + click to multiselect"],
-  [/^Retrato de (.+)$/u, "Portrait of $1"],
-  [/^Retrato no disponible$/u, "Portrait unavailable"],
-  [/^Sin retrato vinculado$/u, "No linked portrait"],
-  [/^Cargar imagen$/u, "Upload image"],
-  [/^Ocultar inventario$/u, "Hide inventory"],
-  [/^Mostrar inventario$/u, "Show inventory"],
-  [/^(\d+) objetos$/u, "$1 items"],
-  [/^Busca un item del catalogo$/u, "Search for a catalog item"],
-  [/^Sugerencias de inventario$/u, "Inventory suggestions"],
-  [/^Quitar (.+)$/u, "Remove $1"],
-  [/^No hay objetos en inventario\.$/u, "No items in inventory."],
-  [/^Experiencia del nivel actual$/u, "Current level experience"],
-  [/^Progreso de (.+)$/u, "Progress for $1"],
-  [/^No hay entidades visibles para el turno\.$/u, "No visible entities for the turn."],
-  [/^Orden de iniciativa$/u, "Initiative order"]
-];
+import {
+  APP_LANGUAGE_EN,
+  APP_LANGUAGE_ES,
+  BESTIARY_CSV_PATH,
+  BESTIARY_IMAGES_PATH,
+  BESTIARY_RENDER_DEBOUNCE_MS,
+  BESTIARY_VIRTUAL_DEFAULT_VIEWPORT,
+  BESTIARY_VIRTUAL_OVERSCAN,
+  BESTIARY_VIRTUAL_ROW_HEIGHT,
+  CAMPAIGN_AUTOSAVE_INTERVAL_MS,
+  CAMPAIGN_FILE_SCHEMA,
+  CAMPAIGN_FILE_VERSION,
+  CAMPAIGN_META_STORAGE_KEY,
+  CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY,
+  CHARACTERS_STORAGE_KEY,
+  COMBAT_TRACKER_SORT_DEFAULT_VERSION,
+  COMBAT_TRACKER_STORAGE_KEY,
+  DESKTOP_ASSET_BASE_URL,
+  DESKTOP_BUILD_SIGNATURE_STORAGE_KEY,
+  DESKTOP_STORAGE_RESET_VERSION,
+  DESKTOP_STORAGE_RESET_VERSION_KEY,
+  ENCOUNTER_INVENTORY_STORAGE_KEY,
+  HAS_DESKTOP_EXTERNAL_ASSETS,
+  IS_FILE_PROTOCOL_RUNTIME,
+  ITEM_VIRTUAL_OVERSCAN,
+  ITEM_VIRTUAL_ROW_HEIGHT,
+  ITEMS_CSV_PATH,
+  ITEMS_IMAGES_PATH,
+  MANAGED_STORAGE_KEY_PREFIX,
+  SPELLS_CSV_PATH,
+  TABLES_STORAGE_KEY
+} from "./config/appConstants.js";
+import {
+  UI_ATTRIBUTE_TRANSLATIONS_EN,
+  UI_REGEX_TRANSLATIONS_EN,
+  UI_STRINGS,
+  UI_TEXT_TRANSLATIONS_EN,
+  UI_TRANSLATION_EXCLUDED_SELECTOR
+} from "./data/uiText.js";
+import { ITEM_TYPE_GROUP_CHILDREN, ITEM_TYPE_GROUPS } from "./data/itemTypeGroups.js";
+import {
+  ENEMY_HP_MODE_FIXED,
+  ENEMY_HP_MODE_VARIABLE,
+  LEGACY_COMBAT_PLACEHOLDER_NAMES,
+  TOPBAR_NAV_ROWS,
+  challengeRatingExperienceByCr,
+  characterAbilityKeys,
+  characterCurrencyRows,
+  characterLevelProgression,
+  characterSkillColorPalette,
+  characterSkillLevelProgression,
+  characterStatBlocks,
+  combatTagOptions,
+  defaultCharacterSkillTemplates,
+  experienceFormatter,
+  itemSizeThresholds,
+  statKeys
+} from "./data/gameConstants.js";
+
 const UI_TEXT_TRANSLATIONS_EN_NORMALIZED = new Map(
   [...UI_TEXT_TRANSLATIONS_EN.entries()].map(([key, value]) => [normalizeTranslationKey(key), value])
 );
@@ -533,113 +118,6 @@ const blankItemFilterSearch = {
   rarity: "",
   type: ""
 };
-const ITEM_TYPE_GROUPS = [
-  {
-    value: "__item-type-weapon__",
-    label: "Weapon",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().includes("weapon")
-  },
-  {
-    value: "__item-type-melee-weapon__",
-    label: "Melee weapon",
-    level: 1,
-    matches: (type) => cleanText(type).toLowerCase().includes("melee weapon")
-  },
-  {
-    value: "__item-type-ranged-weapon__",
-    label: "Ranged weapon",
-    level: 1,
-    matches: (type) => cleanText(type).toLowerCase().includes("ranged weapon")
-  },
-  {
-    value: "__item-type-simple-weapon__",
-    label: "Simple weapon",
-    level: 2,
-    matches: (type) => cleanText(type).toLowerCase().includes("simple weapon")
-  },
-  {
-    value: "__item-type-martial-weapon__",
-    label: "Martial weapon",
-    level: 2,
-    matches: (type) => cleanText(type).toLowerCase().includes("martial weapon")
-  },
-  {
-    value: "__item-type-armor__",
-    label: "Armor",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().includes("armor")
-  },
-  {
-    value: "__item-type-heavy-armor__",
-    label: "Heavy armor",
-    level: 1,
-    matches: (type) => cleanText(type).toLowerCase().includes("heavy armor")
-  },
-  {
-    value: "__item-type-light-armor__",
-    label: "Light armor",
-    level: 1,
-    matches: (type) => cleanText(type).toLowerCase().includes("light armor")
-  },
-  {
-    value: "__item-type-medium-armor__",
-    label: "Medium armor",
-    level: 1,
-    matches: (type) => cleanText(type).toLowerCase().includes("medium armor")
-  },
-  {
-    value: "__item-type-ammunition__",
-    label: "Ammunition",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().includes("ammunition")
-  },
-  {
-    value: "__item-type-shield__",
-    label: "Shield",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().includes("shield")
-  },
-  {
-    value: "__item-type-adventuring-gear__",
-    label: "Adventuring gear",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().startsWith("adventuring gear")
-  },
-  {
-    value: "__item-type-vehicle__",
-    label: "Vehicle",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().includes("vehicle")
-  },
-  {
-    value: "__item-type-instrument__",
-    label: "Instrument",
-    level: 0,
-    matches: (type) => cleanText(type).toLowerCase().includes("instrument")
-  }
-];
-const ITEM_TYPE_GROUP_CHILDREN = {
-  "__item-type-weapon__": [
-    "__item-type-melee-weapon__",
-    "__item-type-ranged-weapon__",
-    "__item-type-simple-weapon__",
-    "__item-type-martial-weapon__"
-  ],
-  "__item-type-melee-weapon__": [
-    "__item-type-simple-weapon__",
-    "__item-type-martial-weapon__"
-  ],
-  "__item-type-ranged-weapon__": [
-    "__item-type-simple-weapon__",
-    "__item-type-martial-weapon__"
-  ],
-  "__item-type-armor__": [
-    "__item-type-heavy-armor__",
-    "__item-type-light-armor__",
-    "__item-type-medium-armor__"
-  ]
-};
 const blankArcanumFilters = {
   query: "",
   source: [],
@@ -665,152 +143,6 @@ const arcanumFilterLabels = {
 };
 
 const app = document.querySelector("#app");
-const statKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-const characterAbilityKeys = ["str", "dex", "con", "int", "wis", "cha"];
-const characterStatBlocks = {
-  str: { label: "Fuerza", skills: [{ id: "athletics", label: "Atletismo" }] },
-  dex: { label: "Destreza", skills: [
-    { id: "acrobatics", label: "Acrobacias" },
-    { id: "sleightOfHand", label: "Juego de manos" },
-    { id: "stealth", label: "Sigilo" }
-  ] },
-  con: { label: "Constitucion", skills: [] },
-  int: { label: "Inteligencia", skills: [
-    { id: "arcana", label: "Arcano" },
-    { id: "history", label: "Historia" },
-    { id: "investigation", label: "Investigacion" },
-    { id: "nature", label: "Naturaleza" },
-    { id: "religion", label: "Religion" }
-  ] },
-  wis: { label: "Sabiduria", skills: [
-    { id: "animalHandling", label: "Trato animal" },
-    { id: "insight", label: "Perspicacia" },
-    { id: "medicine", label: "Medicina" },
-    { id: "perception", label: "Percepcion" },
-    { id: "survival", label: "Supervivencia" }
-  ] },
-  cha: { label: "Carisma", skills: [
-    { id: "deception", label: "Engano" },
-    { id: "intimidation", label: "Intimidacion" },
-    { id: "performance", label: "Interpretacion" },
-    { id: "persuasion", label: "Persuasion" }
-  ] }
-};
-const characterLevelProgression = [
-  { level: 1, experiencePoints: 0, proficiencyBonus: 2 },
-  { level: 2, experiencePoints: 300, proficiencyBonus: 2 },
-  { level: 3, experiencePoints: 900, proficiencyBonus: 2 },
-  { level: 4, experiencePoints: 2700, proficiencyBonus: 2 },
-  { level: 5, experiencePoints: 6500, proficiencyBonus: 3 },
-  { level: 6, experiencePoints: 14000, proficiencyBonus: 3 },
-  { level: 7, experiencePoints: 23000, proficiencyBonus: 3 },
-  { level: 8, experiencePoints: 34000, proficiencyBonus: 3 },
-  { level: 9, experiencePoints: 48000, proficiencyBonus: 4 },
-  { level: 10, experiencePoints: 64000, proficiencyBonus: 4 },
-  { level: 11, experiencePoints: 85000, proficiencyBonus: 4 },
-  { level: 12, experiencePoints: 100000, proficiencyBonus: 4 },
-  { level: 13, experiencePoints: 120000, proficiencyBonus: 5 },
-  { level: 14, experiencePoints: 140000, proficiencyBonus: 5 },
-  { level: 15, experiencePoints: 165000, proficiencyBonus: 5 },
-  { level: 16, experiencePoints: 195000, proficiencyBonus: 5 },
-  { level: 17, experiencePoints: 225000, proficiencyBonus: 6 },
-  { level: 18, experiencePoints: 265000, proficiencyBonus: 6 },
-  { level: 19, experiencePoints: 305000, proficiencyBonus: 6 },
-  { level: 20, experiencePoints: 355000, proficiencyBonus: 6 }
-];
-const characterSkillLevelProgression = [
-  { level: 1, label: "Suertudo", bonus: 1, experiencePoints: 4 },
-  { level: 2, label: "Novato", bonus: 2, experiencePoints: 6 },
-  { level: 3, label: "Junior", bonus: 3, experiencePoints: 8 },
-  { level: 4, label: "Instructor", bonus: 4, experiencePoints: 10 },
-  { level: 5, label: "Senior", bonus: 5, experiencePoints: 12 },
-  { level: 6, label: "Experto", bonus: 6, experiencePoints: 14 },
-  { level: 7, label: "Veterano", bonus: 7, experiencePoints: 16 },
-  { level: 8, label: "Honorable", bonus: 8, experiencePoints: 18 },
-  { level: 9, label: "Elite", bonus: 9, experiencePoints: 20 },
-  { level: 10, label: "Leyenda", bonus: 10, experiencePoints: 25 }
-];
-const characterSkillColorPalette = [
-  "#d88d5a",
-  "#5d9cec",
-  "#78b96d",
-  "#f0c879",
-  "#b987f2",
-  "#e06d78",
-  "#49b8c8",
-  "#c7a45b",
-  "#7dd18c",
-  "#d97fd0",
-  "#6bb0ff",
-  "#ff9f6e"
-];
-const defaultCharacterSkillTemplates = [
-  { id: "skill-despiece", name: "Despiece", color: "#d88d5a", successGains: [2], intermediateGains: [], failureGains: [1] },
-  { id: "skill-pesca", name: "Pesca", color: "#5d9cec", successGains: [2], intermediateGains: [], failureGains: [1] },
-  { id: "skill-forrajeo", name: "Forrajeo", color: "#78b96d", successGains: [2], intermediateGains: [], failureGains: [1] },
-  { id: "skill-cocina", name: "Cocina", color: "#f0c879", successGains: [3], intermediateGains: [2], failureGains: [1] },
-  { id: "skill-cerraduras", name: "Cerraduras", color: "#b987f2", successGains: [2], intermediateGains: [], failureGains: [1] },
-  { id: "skill-trampas-puertas-secretas", name: "Trampas y puertas secretas", color: "#e06d78", successGains: [3], intermediateGains: [], failureGains: [0] }
-];
-const itemSizeThresholds = [
-  { label: "XS", minWeight: 0 },
-  { label: "S", minWeight: 1 },
-  { label: "M", minWeight: 5 },
-  { label: "L", minWeight: 15 },
-  { label: "XL", minWeight: 30 },
-  { label: "XXL", minWeight: 60 }
-];
-const characterCurrencyRows = [
-  { name: "COBRE", shortLabel: "CO", icon: "copper" },
-  { name: "PLATA", shortLabel: "PL", icon: "silver" },
-  { name: "ORO", shortLabel: "OR", icon: "gold" },
-  { name: "ELECTRO", shortLabel: "EL", icon: "electrum" },
-  { name: "PLATINO", shortLabel: "PT", icon: "platinum" }
-];
-const challengeRatingExperienceByCr = {
-  "0": 10,
-  "1/8": 25,
-  "1/4": 50,
-  "1/2": 100,
-  "1": 200,
-  "2": 450,
-  "3": 700,
-  "4": 1100,
-  "5": 1800,
-  "6": 2300,
-  "7": 2900,
-  "8": 3900,
-  "9": 5000,
-  "10": 5900,
-  "11": 7200,
-  "12": 8400,
-  "13": 10000,
-  "14": 11500,
-  "15": 13000,
-  "16": 15000,
-  "17": 18000,
-  "18": 20000,
-  "19": 22000,
-  "20": 25000,
-  "21": 33000,
-  "22": 41000,
-  "23": 50000,
-  "24": 62000,
-  "25": 75000,
-  "26": 90000,
-  "27": 105000,
-  "28": 120000,
-  "29": 135000,
-  "30": 155000
-};
-const experienceFormatter = new Intl.NumberFormat("es-ES");
-const combatTagOptions = ["ALIADO", "NEUTRAL", "ENEMIGO"];
-const LEGACY_COMBAT_PLACEHOLDER_NAMES = new Set([
-  "seraphina vale",
-  "thoren ashbrand",
-  "ghoul packleader",
-  "cult adept"
-]);
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
 let campaignSaveInProgress = null;
@@ -821,18 +153,6 @@ let lastDesktopCampaignDirtyValue = null;
 let activeTableColumnResize = null;
 let activeTableRollTimer = 0;
 let tableRollAudioContext = null;
-const ENEMY_HP_MODE_FIXED = "fixed";
-const ENEMY_HP_MODE_VARIABLE = "variable";
-const TOPBAR_NAV_ROWS = [
-  {
-    id: "game",
-    screenIds: ["combat-tracker", "initiative-board", "tables"]
-  },
-  {
-    id: "reference",
-    screenIds: ["bestiary", "items", "arcanum"]
-  }
-];
 resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
 const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
@@ -3243,17 +2563,17 @@ function renderFileMenu() {
                   : ""
               }
               <button class="file-menu__item" type="button" role="menuitem" data-action="new-campaign">
-                Nueva campaÃ±a
+                Nueva campaña
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="save-campaign-file">
-                Guardar campaÃ±a
+                Guardar campaña
                 <span>Ctrl+S</span>
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="save-campaign-file-as">
-                Guardar campaÃ±a como
+                Guardar campaña como
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="choose-campaign-file">
-                Cargar campaÃ±a
+                Cargar campaña
               </button>
             </div>
           `
@@ -3382,7 +2702,7 @@ function syncTopbarNavigationMetrics() {
 }
 
 function getCampaignDisplayName() {
-  return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaÃ±a";
+  return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaña";
 }
 
 function normalizeStoredAppLanguage(value) {
@@ -3484,51 +2804,6 @@ function applyInterfaceTranslations(root = app) {
         element.setAttribute(attributeName, translatedValue);
       }
     });
-  });
-}
-
-function syncCompendiumLayoutHeights() {
-  app.querySelectorAll(".bestiary-layout").forEach((layout) => {
-    const panel = layout.closest(".compendium-panel");
-    let chromeHeight = 0;
-    let panelPaddingBlock = 0;
-
-    if (panel) {
-      Array.from(panel.children).forEach((child) => {
-        if (child !== layout) {
-          chromeHeight += child.getBoundingClientRect().height;
-        }
-      });
-
-      const panelStyles = window.getComputedStyle(panel);
-      panelPaddingBlock =
-        (Number.parseFloat(panelStyles.paddingTop) || 0)
-        + (Number.parseFloat(panelStyles.paddingBottom) || 0);
-    }
-
-    const basePanelHeight = Math.max(1040, Math.floor(window.innerHeight * 1.5));
-    const viewportHeight = Math.max(
-      560,
-      basePanelHeight - Math.ceil(chromeHeight) - Math.ceil(panelPaddingBlock) - 8
-    );
-
-    layout.style.height = `${viewportHeight}px`;
-    layout.style.minHeight = `${viewportHeight}px`;
-    layout.style.setProperty("--compendium-viewport-height", `${viewportHeight}px`);
-
-    layout.querySelectorAll(".bestiary-list, .bestiary-detail").forEach((element) => {
-      element.style.height = `${viewportHeight}px`;
-      element.style.maxHeight = `${viewportHeight}px`;
-    });
-
-    if (panel) {
-      panel.style.height = `${basePanelHeight}px`;
-      panel.style.minHeight = `${basePanelHeight}px`;
-      panel.style.overflow = "hidden";
-      panel.style.setProperty("--compendium-panel-height", `${basePanelHeight}px`);
-      panel.style.setProperty("--compendium-viewport-height", `${viewportHeight}px`);
-      panel.style.setProperty("--compendium-chrome-height", `${Math.ceil(chromeHeight)}px`);
-    }
   });
 }
 
@@ -5019,23 +4294,17 @@ function renderBestiaryList(filteredEntries, selectedId) {
 }
 
 function getBestiaryVirtualWindow(totalEntries) {
-  const viewportHeight = state.bestiaryListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT;
-  const maxScrollTop = Math.max(0, totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT - viewportHeight);
-  const scrollTop = Math.min(state.bestiaryListScrollTop, maxScrollTop);
-  const startIndex = getBestiaryVirtualStartIndex(scrollTop);
-  const visibleCount = Math.ceil(viewportHeight / BESTIARY_VIRTUAL_ROW_HEIGHT) + BESTIARY_VIRTUAL_OVERSCAN * 2;
-  const endIndex = Math.min(totalEntries, startIndex + visibleCount);
-
-  return {
-    startIndex,
-    endIndex,
-    topPadding: startIndex * BESTIARY_VIRTUAL_ROW_HEIGHT,
-    totalHeight: totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT
-  };
+  return getVirtualWindow({
+    totalEntries,
+    viewportHeight: state.bestiaryListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT,
+    scrollTop: state.bestiaryListScrollTop,
+    rowHeight: BESTIARY_VIRTUAL_ROW_HEIGHT,
+    overscan: BESTIARY_VIRTUAL_OVERSCAN
+  });
 }
 
 function getBestiaryVirtualStartIndex(scrollTop) {
-  return Math.max(0, Math.floor(scrollTop / BESTIARY_VIRTUAL_ROW_HEIGHT) - BESTIARY_VIRTUAL_OVERSCAN);
+  return getVirtualStartIndex(scrollTop, BESTIARY_VIRTUAL_ROW_HEIGHT, BESTIARY_VIRTUAL_OVERSCAN);
 }
 
 function resetBestiaryVirtualScroll() {
@@ -5124,23 +4393,17 @@ function updateBestiarySelectionUI(previousSelectedId, nextSelectedId) {
 }
 
 function getItemVirtualWindow(totalEntries) {
-  const viewportHeight = state.itemListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT;
-  const maxScrollTop = Math.max(0, totalEntries * ITEM_VIRTUAL_ROW_HEIGHT - viewportHeight);
-  const scrollTop = Math.min(state.itemListScrollTop, maxScrollTop);
-  const startIndex = getItemVirtualStartIndex(scrollTop);
-  const visibleCount = Math.ceil(viewportHeight / ITEM_VIRTUAL_ROW_HEIGHT) + ITEM_VIRTUAL_OVERSCAN * 2;
-  const endIndex = Math.min(totalEntries, startIndex + visibleCount);
-
-  return {
-    startIndex,
-    endIndex,
-    topPadding: startIndex * ITEM_VIRTUAL_ROW_HEIGHT,
-    totalHeight: totalEntries * ITEM_VIRTUAL_ROW_HEIGHT
-  };
+  return getVirtualWindow({
+    totalEntries,
+    viewportHeight: state.itemListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT,
+    scrollTop: state.itemListScrollTop,
+    rowHeight: ITEM_VIRTUAL_ROW_HEIGHT,
+    overscan: ITEM_VIRTUAL_OVERSCAN
+  });
 }
 
 function getItemVirtualStartIndex(scrollTop) {
-  return Math.max(0, Math.floor(scrollTop / ITEM_VIRTUAL_ROW_HEIGHT) - ITEM_VIRTUAL_OVERSCAN);
+  return getVirtualStartIndex(scrollTop, ITEM_VIRTUAL_ROW_HEIGHT, ITEM_VIRTUAL_OVERSCAN);
 }
 
 function resetItemVirtualScroll() {
@@ -5236,23 +4499,17 @@ function renderArcanumList(filteredEntries, selectedId) {
 }
 
 function getArcanumVirtualWindow(totalEntries) {
-  const viewportHeight = state.arcanumListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT;
-  const maxScrollTop = Math.max(0, totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT - viewportHeight);
-  const scrollTop = Math.min(state.arcanumListScrollTop, maxScrollTop);
-  const startIndex = getArcanumVirtualStartIndex(scrollTop);
-  const visibleCount = Math.ceil(viewportHeight / BESTIARY_VIRTUAL_ROW_HEIGHT) + BESTIARY_VIRTUAL_OVERSCAN * 2;
-  const endIndex = Math.min(totalEntries, startIndex + visibleCount);
-
-  return {
-    startIndex,
-    endIndex,
-    topPadding: startIndex * BESTIARY_VIRTUAL_ROW_HEIGHT,
-    totalHeight: totalEntries * BESTIARY_VIRTUAL_ROW_HEIGHT
-  };
+  return getVirtualWindow({
+    totalEntries,
+    viewportHeight: state.arcanumListViewportHeight || BESTIARY_VIRTUAL_DEFAULT_VIEWPORT,
+    scrollTop: state.arcanumListScrollTop,
+    rowHeight: BESTIARY_VIRTUAL_ROW_HEIGHT,
+    overscan: BESTIARY_VIRTUAL_OVERSCAN
+  });
 }
 
 function getArcanumVirtualStartIndex(scrollTop) {
-  return Math.max(0, Math.floor(scrollTop / BESTIARY_VIRTUAL_ROW_HEIGHT) - BESTIARY_VIRTUAL_OVERSCAN);
+  return getVirtualStartIndex(scrollTop, BESTIARY_VIRTUAL_ROW_HEIGHT, BESTIARY_VIRTUAL_OVERSCAN);
 }
 
 function resetArcanumVirtualScroll() {
@@ -7641,8 +6898,8 @@ function renderCharacterSkillProgressBar(skillDefinition, skillProgress, progres
     ? "Rango maximo"
     : `${progress.levelExperiencePoints} / ${progress.requiredExperiencePoints} XP`);
   const rankLabel = progress.level > 0
-    ? `Nv ${progress.level} Â· ${progress.label}`
-    : "Nv 0 Â· Sin rango";
+    ? `Nv ${progress.level} · ${progress.label}`
+    : "Nv 0 · Sin rango";
 
   return `
     <div class="character-skill-progress" style="${fillStyle}" aria-label="Progreso de ${escapeHtml(skillDefinition.name || "skill")}">
@@ -11186,71 +10443,6 @@ async function loadItemImages() {
   return loadJsonAsset(ITEMS_IMAGES_PATH, "data/ItemsImages.json");
 }
 
-function parseCsv(csvText) {
-  const rows = [];
-  const currentRow = [];
-  let currentField = "";
-  let insideQuotes = false;
-
-  for (let index = 0; index < csvText.length; index += 1) {
-    const char = csvText[index];
-    const nextChar = csvText[index + 1];
-
-    if (char === "\"") {
-      if (insideQuotes && nextChar === "\"") {
-        currentField += "\"";
-        index += 1;
-      } else {
-        insideQuotes = !insideQuotes;
-      }
-
-      continue;
-    }
-
-    if (char === "," && !insideQuotes) {
-      currentRow.push(currentField);
-      currentField = "";
-      continue;
-    }
-
-    if ((char === "\n" || char === "\r") && !insideQuotes) {
-      if (char === "\r" && nextChar === "\n") {
-        index += 1;
-      }
-
-      currentRow.push(currentField);
-
-      if (currentRow.some((value) => value !== "")) {
-        rows.push([...currentRow]);
-      }
-
-      currentRow.length = 0;
-      currentField = "";
-      continue;
-    }
-
-    currentField += char;
-  }
-
-  currentRow.push(currentField);
-
-  if (currentRow.some((value) => value !== "")) {
-    rows.push([...currentRow]);
-  }
-
-  const [headers = [], ...dataRows] = rows;
-
-  return dataRows.map((values) => {
-    const record = {};
-
-    headers.forEach((header, index) => {
-      record[header] = values[index] ?? "";
-    });
-
-    return record;
-  });
-}
-
 function normalizeBestiaryEntry(row, index, imageMap = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
@@ -13457,7 +12649,7 @@ async function saveCampaignFile(options = {}) {
     saveCampaignMeta();
     render();
   } catch {
-    state.campaignMessage = "No se pudo guardar la campaÃ±a.";
+    state.campaignMessage = "No se pudo guardar la campaña.";
     render();
   }
 }
@@ -13497,7 +12689,7 @@ async function saveCampaignFileAs(options = {}) {
     saveCampaignMeta();
     render();
   } catch {
-    state.campaignMessage = "No se pudo guardar la campaÃ±a.";
+    state.campaignMessage = "No se pudo guardar la campaña.";
     render();
   }
 }
@@ -13509,11 +12701,11 @@ async function createNewCampaign() {
     clearPersistedCampaignState();
     clearActiveCampaignFileSelection();
     resetCampaignStateFromPayload(blankPayload);
-    state.campaignName = cleanText(blankPayload.campaign?.name) || "CampaÃ±a sin nombre";
-    state.campaignMessage = "Nueva campaÃ±a sin guardar.";
+    state.campaignName = cleanText(blankPayload.campaign?.name) || "Campaña sin nombre";
+    state.campaignMessage = "Nueva campaña sin guardar.";
     render();
   } catch {
-    state.campaignMessage = "No se pudo crear la campaÃ±a.";
+    state.campaignMessage = "No se pudo crear la campaña.";
     render();
   }
 }
@@ -13551,17 +12743,17 @@ function getCampaignNameFromFileName(fileName) {
     .replace(/\.json$/i, "")
     .replace(/-/g, " ")
     .trim()
-    || "CampaÃ±a";
+    || "Campaña";
 }
 
-function createBlankCampaignSavePayload(name = "CampaÃ±a sin nombre") {
+function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
   return {
     schema: CAMPAIGN_FILE_SCHEMA,
     version: CAMPAIGN_FILE_VERSION,
     app: "Mimic Dice",
     savedAt: new Date().toISOString(),
     campaign: {
-      name: cleanText(name) || "CampaÃ±a sin nombre"
+      name: cleanText(name) || "Campaña sin nombre"
     },
     characterSkills: {
       definitions: getDefaultCharacterSkillDefinitions()
@@ -13748,10 +12940,10 @@ async function loadDesktopCampaignFile(loadCampaign) {
     const campaign = normalizeCampaignSave(result?.payload);
 
     applyCampaignSave(campaign, result);
-    state.campaignMessage = `CampaÃ±a cargada: ${campaign.name}`;
+    state.campaignMessage = `Campaña cargada: ${campaign.name}`;
     render();
   } catch {
-    state.campaignMessage = "No se pudo cargar el archivo de campaÃ±a.";
+    state.campaignMessage = "No se pudo cargar el archivo de campaña.";
     render();
   }
 }
@@ -13771,10 +12963,10 @@ async function loadCampaignFile(file) {
       name: campaign.name,
       payload: parsedValue
     });
-    state.campaignMessage = `CampaÃ±a cargada: ${campaign.name}`;
+    state.campaignMessage = `Campaña cargada: ${campaign.name}`;
     render();
   } catch {
-    state.campaignMessage = "No se pudo cargar el archivo de campaÃ±a.";
+    state.campaignMessage = "No se pudo cargar el archivo de campaña.";
     render();
   }
 }
@@ -13969,7 +13161,7 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
 }
 
 function createCampaignSavePayload(options = {}) {
-  const name = cleanText(state.campaignName) || "CampaÃ±a sin nombre";
+  const name = cleanText(state.campaignName) || "Campaña sin nombre";
   const savedAt = options.savedAt ?? new Date().toISOString();
 
   return {
@@ -14035,7 +13227,7 @@ function normalizeCampaignSave(value) {
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
   const ui = isPlainObject(value.ui) ? value.ui : {};
   const campaign = isPlainObject(value.campaign) ? value.campaign : {};
-  const name = cleanText(campaign.name) || cleanText(value.name) || "CampaÃ±a sin nombre";
+  const name = cleanText(campaign.name) || cleanText(value.name) || "Campaña sin nombre";
 
   return {
     name,
@@ -16534,4 +15726,5 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }
+
 
