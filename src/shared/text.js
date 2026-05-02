@@ -31,9 +31,9 @@ export function shortenLabel(value, maxLength = 20) {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
 }
 
-export function splitList(value) {
+export function splitList(value, separator = ",") {
   return cleanText(value)
-    .split(",")
+    .split(separator)
     .map((item) => item.trim())
     .filter(Boolean);
 }

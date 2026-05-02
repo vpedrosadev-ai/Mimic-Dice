@@ -991,8 +991,12 @@ function handleClick(event) {
   }
 
   if (action === "add-blank-combatant") {
-    addBlankCombatant();
-    render();
+    const combatantId = addBlankCombatant();
+    state.filters = { ...blankFilters };
+    state.activeFilterKey = "";
+    render({
+      focusSelector: `[data-edit-id="${combatantId}"][data-edit-key="nombre"]`
+    });
     return;
   }
 
@@ -3225,7 +3229,15 @@ function applyInterfaceTranslations(root = app) {
 
 function renderScreen() {
   if (state.activeScreen === "combat-tracker") {
-    return renderCombatTracker();
+    try {
+      return renderCombatTracker();
+    } catch (error) {
+      console.error("Combat Tracker render failed", error);
+      return renderScreenErrorPanel(
+        "Combat Tracker",
+        error instanceof Error ? error.message : "Error desconocido al renderizar combate."
+      );
+    }
   }
 
   if (state.activeScreen === "bestiary") {
@@ -3259,10 +3271,21 @@ function renderScreen() {
   );
 }
 
+function renderScreenErrorPanel(title, message) {
+  return `
+    <section class="panel">
+      <div class="empty-state">
+        <strong>${escapeHtml(title)}</strong>
+        <p>${escapeHtml(message || "Se produjo un error al renderizar esta pantalla.")}</p>
+      </div>
+    </section>
+  `;
+}
+
 function renderCombatTracker() {
-  const visibleCombatants = getVisibleCombatants();
-  const turnOrder = getCombatTurnOrder(visibleCombatants);
-  const turnParticipants = getCombatTurnParticipants(turnOrder);
+  const visibleCombatants = Array.isArray(getVisibleCombatants()) ? getVisibleCombatants() : [];
+  const turnOrder = Array.isArray(getCombatTurnOrder(visibleCombatants)) ? getCombatTurnOrder(visibleCombatants) : [];
+  const turnParticipants = Array.isArray(getCombatTurnParticipants(turnOrder)) ? getCombatTurnParticipants(turnOrder) : [];
   const activeTurnCombatantId = state.isCombatActive ? getActiveTurnCombatantId(turnParticipants) : "";
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
@@ -3583,8 +3606,10 @@ function focusCombatantRow(combatantId) {
 }
 
 function renderCombatEncounterPicker() {
-  const hasEncounters = state.encounters.length > 0;
-  const hasCharacters = state.characters.length > 0;
+  const encounters = Array.isArray(state.encounters) ? state.encounters : [];
+  const characters = Array.isArray(state.characters) ? state.characters : [];
+  const hasEncounters = encounters.length > 0;
+  const hasCharacters = characters.length > 0;
   const hasAddOptions = hasEncounters || hasCharacters;
 
   return `
@@ -3630,7 +3655,7 @@ function renderCombatAddPickerContent({ hasCharacters, hasEncounters }) {
       ${hasCharacters ? "" : "disabled"}
     >
       <strong>Personajes</strong>
-      <span>${state.characters.length} aliados creados</span>
+      <span>${Array.isArray(state.characters) ? state.characters.length : 0} aliados creados</span>
     </button>
     <button
       class="combat-encounter-picker__option"
@@ -3640,7 +3665,7 @@ function renderCombatAddPickerContent({ hasCharacters, hasEncounters }) {
       ${hasEncounters ? "" : "disabled"}
     >
       <strong>Encuentro</strong>
-      <span>${state.encounters.length} encuentros guardados</span>
+      <span>${Array.isArray(state.encounters) ? state.encounters.length : 0} encuentros guardados</span>
     </button>
   `;
 }
@@ -4775,6 +4800,7 @@ function renderSummaryCard(item) {
 }
 
 function renderHeaderCell(column) {
+  const filterValue = cleanText(state.filters?.[column.key]);
   const isActive = state.sort.key === column.key;
   const sortDirection = isActive ? state.sort.direction : "none";
   const sortLabel =
@@ -4801,7 +4827,7 @@ function renderHeaderCell(column) {
             <span>${sortLabel}</span>
           </button>
           <button
-            class="filter-button ${state.filters[column.key] ? "is-active" : ""}"
+            class="filter-button ${filterValue ? "is-active" : ""}"
             type="button"
             data-action="toggle-filter"
             data-filter-key="${column.key}"
@@ -4818,7 +4844,7 @@ function renderHeaderCell(column) {
                     <input
                       class="filter-input"
                       type="text"
-                      value="${escapeHtml(state.filters[column.key])}"
+                      value="${escapeHtml(filterValue)}"
                       data-filter-key="${column.key}"
                       placeholder="Escribe para filtrar"
                       aria-label="Filtrar ${column.label}"
@@ -5279,8 +5305,8 @@ function renderCombatStatusChip(combatantId, statusName) {
   `;
 }
 
-function getCombatStatusNames(combatant) {
-  const rawStatuses = splitList(combatant.condiciones ?? "", /[,;|]/);
+function getCombatantStatusNames(combatant) {
+  const rawStatuses = splitList(combatant?.condiciones ?? "", /[,;|]/);
   return [...new Set(rawStatuses.map((value) => cleanText(value)).filter(Boolean))];
 }
 
@@ -5298,16 +5324,18 @@ function getCombatStatusReferenceEntries() {
     return [];
   }
 
-  const [nameColumn, descriptionColumn] = statusTable.columns;
+  const columns = Array.isArray(statusTable.columns) ? statusTable.columns : [];
+  const rows = Array.isArray(statusTable.rows) ? statusTable.rows : [];
+  const [nameColumn, descriptionColumn] = columns;
 
   if (!nameColumn || !descriptionColumn) {
     return [];
   }
 
-  return statusTable.rows
+  return rows
     .map((row) => {
-      const name = cleanText(row.cells?.[nameColumn.id]);
-      const description = cleanText(row.cells?.[descriptionColumn.id]);
+      const name = getTableRowCellValue(row, nameColumn, 0);
+      const description = getTableRowCellValue(row, descriptionColumn, 1);
 
       if (!name) {
         return null;
@@ -5320,12 +5348,38 @@ function getCombatStatusReferenceEntries() {
 }
 
 function getCombatStatusReferenceTable() {
-  return state.tables.find((table) => {
+  const tables = Array.isArray(state.tables) ? state.tables.filter((table) => isPlainObject(table)) : [];
+
+  return tables.find((table) => {
     const tableName = cleanText(table.name).toLowerCase();
-    const firstColumnLabel = cleanText(table.columns?.[0]?.label).toLowerCase();
+    const firstColumnLabel = cleanText(Array.isArray(table.columns) ? table.columns[0]?.label : "").toLowerCase();
 
     return tableName.includes("estado") || firstColumnLabel.includes("estado");
   }) ?? null;
+}
+
+function getTableRowCellValue(row, column, columnIndex = 0) {
+  if (!column) {
+    return "";
+  }
+
+  if (Array.isArray(row)) {
+    return cleanText(row[columnIndex]);
+  }
+
+  if (!isPlainObject(row)) {
+    return "";
+  }
+
+  if (Array.isArray(row.cells)) {
+    return cleanText(row.cells[columnIndex]);
+  }
+
+  if (isPlainObject(row.cells)) {
+    return cleanText(row.cells[column.id] ?? row.cells[column.label]);
+  }
+
+  return cleanText(row[column.id] ?? row[column.label]);
 }
 
 function renderCombatNameSuggestion(combatantId, entry) {
@@ -7854,7 +7908,9 @@ function getArcanumSummaries(filteredEntries) {
 }
 
 function getVisibleCombatants() {
-  return [...state.combatants]
+  const combatants = Array.isArray(state.combatants) ? state.combatants.filter(Boolean) : [];
+
+  return [...combatants]
     .filter(matchesFilters)
     .sort(compareCombatants);
 }
@@ -8186,9 +8242,11 @@ function getCombatantSourceOptions(combatant) {
 
   return state.bestiary
     .filter((entry) => cleanText(entry.name).toLowerCase() === name)
-    .sort((left, right) => getBestiarySourceFullName(left.source).localeCompare(getBestiarySourceFullName(right.source), "es", {
-      sensitivity: "base"
-    }));
+    .sort((left, right) => {
+      const leftSource = getBestiarySourceFullName(left.source) || cleanText(left.source);
+      const rightSource = getBestiarySourceFullName(right.source) || cleanText(right.source);
+      return leftSource.localeCompare(rightSource, "es", { sensitivity: "base" });
+    });
 }
 
 function getFilteredBestiary() {
@@ -8251,7 +8309,7 @@ function getSelectedArcanumEntry(filteredEntries = getFilteredArcanum()) {
 
 function matchesFilters(combatant) {
   return columns.every((column) => {
-    const filterValue = state.filters[column.key].trim().toLowerCase();
+    const filterValue = cleanText(state.filters?.[column.key]).toLowerCase();
 
     if (!filterValue) {
       return true;
@@ -9994,24 +10052,27 @@ function getEncounterRowWithSource(row, source) {
 }
 
 function getActiveEncounter() {
-  return state.encounters.find((encounter) => encounter.id === state.activeEncounterId) ?? null;
+  const encounters = Array.isArray(state.encounters) ? state.encounters.filter((encounter) => isPlainObject(encounter)) : [];
+  return encounters.find((encounter) => encounter.id === state.activeEncounterId) ?? null;
 }
 
 function getEncounterFolderGroups() {
+  const encounterFolders = Array.isArray(state.encounterFolders) ? state.encounterFolders.filter((folder) => isPlainObject(folder)) : [];
   const groups = [
     {
       id: "",
       name: "Sin carpeta",
       isExpanded: state.systemEncounterFolderExpanded
     },
-    ...state.encounterFolders
+    ...encounterFolders
   ];
 
-  return groups.filter((folder) => folder.id || getEncountersByFolder("").length > 0 || state.encounterFolders.length === 0);
+  return groups.filter((folder) => folder.id || getEncountersByFolder("").length > 0 || encounterFolders.length === 0);
 }
 
 function getEncountersByFolder(folderId) {
-  return state.encounters.filter((encounter) => (encounter.folderId ?? "") === folderId);
+  const encounters = Array.isArray(state.encounters) ? state.encounters.filter((encounter) => isPlainObject(encounter)) : [];
+  return encounters.filter((encounter) => (encounter.folderId ?? "") === folderId);
 }
 
 function getEncounterRowBestiaryEntry(row) {
@@ -10082,13 +10143,17 @@ function getEncounterSourceOptions(row) {
 
   return state.bestiary
     .filter((entry) => cleanText(entry.name).toLowerCase() === rowName)
-    .sort((left, right) => getBestiarySourceFullName(left.source).localeCompare(getBestiarySourceFullName(right.source), "es", {
-      sensitivity: "base"
-    }));
+    .sort((left, right) => {
+      const leftSource = getBestiarySourceFullName(left.source) || cleanText(left.source);
+      const rightSource = getBestiarySourceFullName(right.source) || cleanText(right.source);
+      return leftSource.localeCompare(rightSource, "es", { sensitivity: "base" });
+    });
 }
 
 function getEncounterSummary(encounter) {
-  return encounter.rows.reduce((summary, row) => {
+  const rows = Array.isArray(encounter?.rows) ? encounter.rows : [];
+
+  return rows.reduce((summary, row) => {
     const units = Math.max(0, toNumber(row.units));
 
     return {
@@ -10102,7 +10167,8 @@ function getEncounterSummary(encounter) {
 }
 
 function getCombatEncounterPickerGroups() {
-  const folderGroups = state.encounterFolders.map((folder) => ({
+  const encounterFolders = Array.isArray(state.encounterFolders) ? state.encounterFolders.filter((folder) => isPlainObject(folder)) : [];
+  const folderGroups = encounterFolders.map((folder) => ({
     id: folder.id,
     name: folder.name || "Carpeta sin nombre",
     isExpanded: folder.isExpanded !== false,
@@ -10338,7 +10404,6 @@ function addBlankCombatant() {
   const id = `entity-${state.nextId}`;
 
   state.combatants = [
-    ...state.combatants,
     {
       id,
       side: "neutral",
@@ -10346,7 +10411,7 @@ function addBlankCombatant() {
       ubicacion: "",
       iniactiva: "",
       nombre: "Nueva entidad neutral",
-      numPeana: formatStandNumber(getNextEnemyStandNumber()),
+      numPeana: "",
       pgMax: "",
       pgAct: "",
       pgTemp: "",
@@ -10362,7 +10427,8 @@ function addBlankCombatant() {
       tag: "NEUTRAL",
       initiativeRoll: null,
       initiativeNat20: false
-    }
+    },
+    ...state.combatants
   ];
 
   state.inlineAdjustments[id] = { ...blankInlineAdjustments };
@@ -10752,6 +10818,10 @@ function normalizeCombatant(combatant, changedKey = "") {
 }
 
 function isCombatantDead(combatant) {
+  if (combatant.pgMax === "" && combatant.pgAct === "") {
+    return false;
+  }
+
   return getEffectivePgMax(combatant) <= 0 || toNumber(combatant.pgAct) <= 0;
 }
 
@@ -10973,9 +11043,9 @@ async function loadBestiary() {
   state.bestiaryStatus = "loading";
   state.bestiaryMessage = "";
   state.bestiaryDebugInfo = null;
-  render();
 
   try {
+    render();
     const csvRelativePath = getRepositoryCsvPath("bestiary");
     const [text, imageMap] = await Promise.all([
       loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath),
@@ -11012,9 +11082,9 @@ async function loadItems() {
   state.itemStatus = "loading";
   state.itemMessage = "";
   state.itemDebugInfo = null;
-  render();
 
   try {
+    render();
     const csvRelativePath = getRepositoryCsvPath("items");
     const [text, imageMap] = await Promise.all([
       loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath),
@@ -11048,9 +11118,9 @@ async function loadArcanum() {
   state.arcanumStatus = "loading";
   state.arcanumMessage = "";
   state.arcanumDebugInfo = null;
-  render();
 
   try {
+    render();
     const csvRelativePath = getRepositoryCsvPath("arcanum");
     const text = await loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath);
     const { rows, meta } = await getLocalizedCompendiumRows("arcanum", text, csvRelativePath);
