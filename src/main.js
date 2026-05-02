@@ -366,7 +366,9 @@ const state = {
   rolledTableId: "",
   rolledTableRowId: "",
   activeCombatNameSearchId: "",
-  activeCombatSourceId: ""
+  activeCombatSourceId: "",
+  activeCombatStatusMenuId: "",
+  combatStatusDrafts: {}
 };
 
 const {
@@ -456,9 +458,15 @@ function handleClick(event) {
   const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
+  const clickedCombatStatusMenu = event.target.closest("[data-combat-status-menu]");
+  const clickedCombatInlineMenu = event.target.closest(".combat-inline-menu");
   const clickedFileMenu = event.target.closest("[data-file-menu]");
   const clickedOptionsMenu = event.target.closest("[data-options-menu]");
   const clickedCharacterSkillConfig = event.target.closest("[data-character-skill-config-menu]");
+
+  if (!clickedCombatInlineMenu) {
+    closeOpenCombatInlineMenus();
+  }
 
   if (
     state.fileMenuOpen &&
@@ -626,6 +634,19 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-combat-source"
   ) {
     state.activeCombatSourceId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.activeCombatStatusMenuId &&
+    !clickedCombatStatusMenu &&
+    actionButton?.dataset.action !== "toggle-combat-status-menu"
+  ) {
+    state.activeCombatStatusMenuId = "";
 
     if (!actionButton) {
       render();
@@ -881,6 +902,10 @@ function handleClick(event) {
   }
 
   if (action === "delete-table") {
+    if (isProtectedTableId(actionButton.dataset.tableId)) {
+      return;
+    }
+
     deleteTable(actionButton.dataset.tableId);
     saveTablesState();
     render();
@@ -990,6 +1015,12 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "delete-combatant-row") {
+    deleteCombatantRow(actionButton.dataset.combatantId);
+    render();
+    return;
+  }
+
   if (action === "add-blank-combatant") {
     const combatantId = addBlankCombatant();
     state.filters = { ...blankFilters };
@@ -1016,8 +1047,19 @@ function handleClick(event) {
 
   if (action === "toggle-combat-status") {
     toggleCombatantStatus(actionButton.dataset.combatantId, actionButton.dataset.combatStatus);
+    state.activeCombatStatusMenuId = "";
     saveCombatTrackerState();
     render();
+    return;
+  }
+
+  if (action === "toggle-combat-status-menu") {
+    event.preventDefault();
+    const combatantId = cleanText(actionButton.dataset.combatantId);
+    state.activeCombatStatusMenuId = state.activeCombatStatusMenuId === combatantId ? "" : combatantId;
+    render({
+      focusSelector: state.activeCombatStatusMenuId ? `[data-combat-status-draft="${combatantId}"]` : null
+    });
     return;
   }
 
@@ -1077,7 +1119,9 @@ function handleClick(event) {
   }
 
   if (action === "focus-combatant-row") {
-    focusCombatantRow(actionButton.dataset.combatantId);
+    selectCombatTurnToken(actionButton.dataset.combatantId, {
+      additive: event.ctrlKey || event.metaKey || event.getModifierState?.("Control") || event.getModifierState?.("Meta")
+    });
     return;
   }
 
@@ -1093,8 +1137,14 @@ function handleClick(event) {
     return;
   }
 
-  if (action === "apply-area-damage") {
-    applyAreaDamage();
+  if (action === "adjust-area-pg-act") {
+    applyAreaPgActAdjustment(actionButton.dataset.mode);
+    render();
+    return;
+  }
+
+  if (action === "adjust-area-necrotic") {
+    applyAreaNecroticAdjustment();
     render();
     return;
   }
@@ -2130,6 +2180,16 @@ function handleInput(event) {
   if (target.matches("[data-adjust-id][data-adjust-field]")) {
     setInlineAdjustment(target.dataset.adjustId, target.dataset.adjustField, target.value);
     saveCombatTrackerState();
+    return;
+  }
+
+  if (target.matches("[data-combat-status-draft]")) {
+    setCombatStatusDraft(target.dataset.combatStatusDraft, target.value);
+    scheduleRender({
+      focusSelector: `[data-combat-status-draft="${target.dataset.combatStatusDraft}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
     return;
   }
 
@@ -3344,24 +3404,42 @@ function renderCombatTracker() {
               class="area-damage__input"
               type="number"
               inputmode="numeric"
-              placeholder="Danio en area"
+              placeholder="Cantidad"
               value="${escapeHtml(state.areaDamage)}"
               data-area-damage
-              aria-label="Puntos de danio en area"
+              aria-label="Cantidad para ajustar filas seleccionadas"
             />
-            <button
-              class="toolbar-button toolbar-button--area"
-              type="button"
-              data-action="apply-area-damage"
-              ${state.selectedIds.size === 0 ? "disabled" : ""}
-              aria-label="Aplicar danio en area"
-            >
-              <span class="button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3c3.9 0 7 2 7 4.5 0 1.7-1.4 3-3.5 3.8 2.5.6 4.5 2.1 4.5 4.2 0 3-3.6 5.5-8 5.5s-8-2.5-8-5.5c0-2.1 2-3.6 4.5-4.2C6.4 10.5 5 9.2 5 7.5 5 5 8.1 3 12 3Zm0 2c-2.8 0-5 .9-5 2.5S9.2 10 12 10s5-1 5-2.5S14.8 5 12 5Zm0 7c-3.3 0-6 1.6-6 3.5S8.7 19 12 19s6-1.6 6-3.5S15.3 12 12 12Z" />
-                </svg>
-              </span>
-            </button>
+            <div class="mini-actions area-damage__actions">
+              <button
+                class="mini-action mini-action--damage"
+                type="button"
+                data-action="adjust-area-pg-act"
+                data-mode="damage"
+                ${state.selectedIds.size === 0 ? "disabled" : ""}
+                aria-label="Aplicar danio a filas seleccionadas"
+              >
+                <span class="mini-action__icon" aria-hidden="true">DMG</span>
+              </button>
+              <button
+                class="mini-action mini-action--heal"
+                type="button"
+                data-action="adjust-area-pg-act"
+                data-mode="heal"
+                ${state.selectedIds.size === 0 ? "disabled" : ""}
+                aria-label="Aplicar curacion a filas seleccionadas"
+              >
+                <span class="mini-action__icon" aria-hidden="true">HEAL</span>
+              </button>
+              <button
+                class="mini-action mini-action--necrotic"
+                type="button"
+                data-action="adjust-area-necrotic"
+                ${state.selectedIds.size === 0 ? "disabled" : ""}
+                aria-label="Aplicar necrotico a filas seleccionadas"
+              >
+                <span class="mini-action__icon" aria-hidden="true">NEC</span>
+              </button>
+            </div>
           </div>
         </div>
         <div class="table-toolbar__group">
@@ -3603,6 +3681,35 @@ function focusCombatantRow(combatantId) {
   window.setTimeout(() => {
     row.classList.remove("row--focus-pulse");
   }, 1200);
+}
+
+function selectCombatTurnToken(combatantId, options = {}) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  if (options.additive) {
+    if (state.selectedIds.has(normalizedCombatantId)) {
+      state.selectedIds.delete(normalizedCombatantId);
+    } else {
+      state.selectedIds.add(normalizedCombatantId);
+    }
+
+    render();
+    return;
+  }
+
+  state.selectedIds = new Set([normalizedCombatantId]);
+  render();
+  focusCombatantRow(normalizedCombatantId);
+}
+
+function closeOpenCombatInlineMenus() {
+  app.querySelectorAll(".combat-inline-menu[open]").forEach((element) => {
+    element.removeAttribute("open");
+  });
 }
 
 function renderCombatEncounterPicker() {
@@ -4879,12 +4986,23 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
       tabindex="-1"
     >
       <td class="cell-select">
-        <input
-          type="checkbox"
-          data-select-row="${combatant.id}"
-          aria-label="Seleccionar ${escapeHtml(combatant.nombre || combatant.id)}"
-          ${state.selectedIds.has(combatant.id) ? "checked" : ""}
-        />
+        <div class="cell-select__stack">
+          <input
+            type="checkbox"
+            data-select-row="${combatant.id}"
+            aria-label="Seleccionar ${escapeHtml(combatant.nombre || combatant.id)}"
+            ${state.selectedIds.has(combatant.id) ? "checked" : ""}
+          />
+          <button
+            class="cell-row-delete"
+            type="button"
+            data-action="delete-combatant-row"
+            data-combatant-id="${escapeHtml(combatant.id)}"
+            aria-label="Eliminar ${escapeHtml(combatant.nombre || combatant.id)}"
+          >
+            <span aria-hidden="true">x</span>
+          </button>
+        </div>
       </td>
       ${columns.map((column) => renderDataCell(combatant, column, isDead)).join("")}
     </tr>
@@ -4978,30 +5096,32 @@ function renderDataCell(combatant, column, isDead) {
 
     return `
       <td>
-        <div class="resource-cell">
-          <input
-            class="cell-input"
-            type="number"
-            inputmode="${inputMode}"
-            value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
-            data-edit-id="${combatant.id}"
-            data-edit-key="${column.key}"
-          />
-          ${showEffectiveMax ? `<span class="resource-note">Original ${value}</span>` : ""}
-          <label class="armor-badge" aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}">
-            <svg class="armor-badge__icon" viewBox="0 0 48 54" aria-hidden="true">
-              <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
-            </svg>
+        <div class="resource-cell resource-cell--pgmax">
+          <div class="resource-cell__top">
             <input
-              class="armor-badge__input"
+              class="cell-input"
               type="number"
-              inputmode="numeric"
-              value="${escapeHtml(String(armorClass))}"
+              inputmode="${inputMode}"
+              value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
               data-edit-id="${combatant.id}"
-              data-edit-key="ca"
-              aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}"
+              data-edit-key="${column.key}"
             />
-          </label>
+          <label class="armor-badge" aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}">
+              <svg class="armor-badge__icon" viewBox="0 0 48 54" aria-hidden="true">
+              <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
+              </svg>
+              <input
+                class="armor-badge__input"
+                type="number"
+                inputmode="numeric"
+                value="${escapeHtml(String(armorClass))}"
+                data-edit-id="${combatant.id}"
+                data-edit-key="ca"
+                aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}"
+              />
+            </label>
+          </div>
+          ${showEffectiveMax ? `<span class="resource-note">Original ${value}</span>` : ""}
         </div>
       </td>
     `;
@@ -5033,7 +5153,7 @@ function renderDataCell(combatant, column, isDead) {
               value="${escapeHtml(inlineValues.pgAct)}"
               data-adjust-id="${combatant.id}"
               data-adjust-field="pgAct"
-              aria-label="Cantidad para ajustar PG act de ${escapeHtml(combatant.nombre)}"
+              aria-label="Cantidad para ajustar recursos de ${escapeHtml(combatant.nombre)}"
             />
             <div class="mini-actions">
               <button
@@ -5055,6 +5175,15 @@ function renderDataCell(combatant, column, isDead) {
                 aria-label="Sumar puntos de golpe a ${escapeHtml(combatant.nombre)}"
               >
                 <span class="mini-action__icon" aria-hidden="true">HEAL</span>
+              </button>
+              <button
+                class="mini-action mini-action--necrotic"
+                type="button"
+                data-action="adjust-necrotic"
+                data-id="${combatant.id}"
+                aria-label="Ajustar danio necrotico de ${escapeHtml(combatant.nombre)}"
+              >
+                <span class="mini-action__icon" aria-hidden="true">NEC</span>
               </button>
             </div>
           </div>
@@ -5105,46 +5234,6 @@ function renderDataCell(combatant, column, isDead) {
               `;
             })
             .join("")}
-        </div>
-      </td>
-    `;
-  }
-
-  if (column.key === "necrotic") {
-    return `
-      <td>
-        <div class="resource-cell">
-          <input
-            class="cell-input"
-            type="number"
-            inputmode="${inputMode}"
-            value="${escapeHtml(String(value))}"
-            data-edit-id="${combatant.id}"
-            data-edit-key="${column.key}"
-          />
-          <div class="inline-adjust">
-            <input
-              class="mini-input"
-              type="number"
-              inputmode="numeric"
-              placeholder="0"
-              value="${escapeHtml(inlineValues.necrotic)}"
-              data-adjust-id="${combatant.id}"
-              data-adjust-field="necrotic"
-              aria-label="Cantidad para ajustar necrotic de ${escapeHtml(combatant.nombre)}"
-            />
-            <div class="mini-actions">
-              <button
-                class="mini-action mini-action--necrotic"
-                type="button"
-                data-action="adjust-necrotic"
-                data-id="${combatant.id}"
-                aria-label="Ajustar danio necrotico de ${escapeHtml(combatant.nombre)}"
-              >
-                <span class="mini-action__icon" aria-hidden="true">NEC</span>
-              </button>
-            </div>
-          </div>
         </div>
       </td>
     `;
@@ -5227,7 +5316,7 @@ function renderCombatantTagChip(combatant) {
       <div class="combat-inline-menu__popover">
         ${combatTagOptions.map((tagOption) => `
           <button
-            class="combat-inline-menu__option ${tagOption === tagValue ? "is-active" : ""}"
+            class="combat-inline-menu__option combat-inline-menu__option--${tagOption.toLowerCase()} ${tagOption === tagValue ? "is-active" : ""}"
             type="button"
             data-action="set-combat-tag"
             data-combatant-id="${escapeHtml(combatant.id)}"
@@ -5243,15 +5332,43 @@ function renderCombatantTagChip(combatant) {
 
 function renderCombatStatusCell(combatant) {
   const statusNames = getCombatantStatusNames(combatant);
-  const statusEntries = getCombatStatusReferenceEntries();
+  const statusDraft = getCombatStatusDraft(combatant.id);
+  const statusEntries = getFilteredCombatStatusReferenceEntries(statusDraft);
+  const hasExactDraftMatch = statusEntries.some((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizeTranslationKey(statusDraft.toLowerCase()));
 
   return `
     <div class="combat-status-cell">
-      <details class="combat-inline-menu combat-inline-menu--status">
-        <summary class="combat-status-cell__add">
+      <details class="combat-inline-menu combat-inline-menu--status" data-combat-status-menu ${state.activeCombatStatusMenuId === combatant.id ? "open" : ""}>
+        <summary class="combat-status-cell__add" data-action="toggle-combat-status-menu" data-combatant-id="${escapeHtml(combatant.id)}">
           + Estado
         </summary>
         <div class="combat-inline-menu__popover combat-inline-menu__popover--status">
+          <label class="combat-inline-menu__search">
+            <span>Buscar o escribir estado</span>
+            <input
+              class="filter-input combat-inline-menu__search-input"
+              type="text"
+              value="${escapeHtml(statusDraft)}"
+              data-combat-status-draft="${escapeHtml(combatant.id)}"
+              placeholder="Ej. Derribado"
+            />
+          </label>
+          ${
+            statusDraft && !hasExactDraftMatch
+              ? `
+                <button
+                  class="combat-inline-menu__option combat-inline-menu__option--custom"
+                  type="button"
+                  data-action="toggle-combat-status"
+                  data-combatant-id="${escapeHtml(combatant.id)}"
+                  data-combat-status="${escapeHtml(statusDraft)}"
+                >
+                  <strong>Anadir estado personalizado</strong>
+                  <span>${escapeHtml(statusDraft)}</span>
+                </button>
+              `
+              : ""
+          }
           ${
             statusEntries.length > 0
               ? statusEntries.map((entry) => `
@@ -5266,7 +5383,7 @@ function renderCombatStatusCell(combatant) {
                   ${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : ""}
                 </button>
               `).join("")
-              : `<div class="combat-inline-menu__empty">No hay tabla de estados disponible.</div>`
+              : `<div class="combat-inline-menu__empty">${statusDraft ? "No hay coincidencias en la tabla de estados." : "No hay tabla de estados disponible."}</div>`
           }
         </div>
       </details>
@@ -5310,11 +5427,51 @@ function getCombatantStatusNames(combatant) {
   return [...new Set(rawStatuses.map((value) => cleanText(value)).filter(Boolean))];
 }
 
+function getCombatStatusDraft(combatantId) {
+  return cleanText(state.combatStatusDrafts?.[combatantId]);
+}
+
+function setCombatStatusDraft(combatantId, value) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  state.combatStatusDrafts = {
+    ...state.combatStatusDrafts,
+    [normalizedCombatantId]: cleanText(value)
+  };
+}
+
+function clearCombatStatusDraft(combatantId) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId || !state.combatStatusDrafts?.[normalizedCombatantId]) {
+    return;
+  }
+
+  const nextDrafts = { ...state.combatStatusDrafts };
+  delete nextDrafts[normalizedCombatantId];
+  state.combatStatusDrafts = nextDrafts;
+}
+
 function getCombatStatusDescription(statusName) {
   const normalizedName = normalizeTranslationKey(cleanText(statusName).toLowerCase());
   return getCombatStatusReferenceEntries()
     .find((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizedName)
     ?.description ?? "";
+}
+
+function getFilteredCombatStatusReferenceEntries(query) {
+  const search = cleanText(query).toLowerCase();
+  const entries = getCombatStatusReferenceEntries();
+
+  if (!search) {
+    return entries;
+  }
+
+  return entries.filter((entry) => entry.name.toLowerCase().includes(search) || entry.description.toLowerCase().includes(search));
 }
 
 function getCombatStatusReferenceEntries() {
@@ -5356,6 +5513,26 @@ function getCombatStatusReferenceTable() {
 
     return tableName.includes("estado") || firstColumnLabel.includes("estado");
   }) ?? null;
+}
+
+function isProtectedTable(table) {
+  if (!isPlainObject(table)) {
+    return false;
+  }
+
+  const tableName = cleanText(table.name).toLowerCase();
+  const firstColumnLabel = cleanText(Array.isArray(table.columns) ? table.columns[0]?.label : "").toLowerCase();
+  return tableName === "tabla estados" || (tableName.includes("estado") && firstColumnLabel.includes("estado"));
+}
+
+function isProtectedTableId(tableId) {
+  const normalizedTableId = cleanText(tableId);
+
+  if (!normalizedTableId) {
+    return false;
+  }
+
+  return isProtectedTable(state.tables.find((table) => table.id === normalizedTableId));
 }
 
 function getTableRowCellValue(row, column, columnIndex = 0) {
@@ -6395,6 +6572,7 @@ function renderTableFolderGroup(folder) {
   const isActive = state.activeTableFolderId === folder.id;
   const isSystemFolder = folder.id === "";
   const selectedTableInFolder = state.tables.find((table) => table.id === state.activeTableId && (table.folderId ?? "") === folder.id) ?? null;
+  const isSelectedTableProtected = isProtectedTable(selectedTableInFolder);
 
   if (folderTables.length === 0 && isSystemFolder && state.tableFolders.length > 0) {
     return "";
@@ -6442,8 +6620,8 @@ function renderTableFolderGroup(folder) {
             type="button"
             data-action="delete-table"
             data-table-id="${escapeHtml(selectedTableInFolder?.id ?? "")}"
-            aria-label="${selectedTableInFolder ? `Eliminar tabla ${escapeHtml(selectedTableInFolder.name)}` : `Selecciona una tabla de ${escapeHtml(folder.name)} para eliminarla`}"
-            ${selectedTableInFolder ? "" : "disabled"}
+            aria-label="${selectedTableInFolder ? isSelectedTableProtected ? `La tabla ${escapeHtml(selectedTableInFolder.name)} esta protegida` : `Eliminar tabla ${escapeHtml(selectedTableInFolder.name)}` : `Selecciona una tabla de ${escapeHtml(folder.name)} para eliminarla`}"
+            ${selectedTableInFolder && !isSelectedTableProtected ? "" : "disabled"}
           >
             Eliminar
           </button>
@@ -6472,6 +6650,7 @@ function renderTablePanel(table) {
   const rowCount = table.rows.length;
   const panelTitle = getTablePanelTitle(table);
   const isRolling = state.rollingTableId === table.id;
+  const isTableProtected = isProtectedTable(table);
 
   return `
     <section class="panel panel--inner table-panel ${isActive ? "is-active" : ""} ${table.collapsed ? "is-collapsed" : ""}">
@@ -6520,7 +6699,7 @@ function renderTablePanel(table) {
                 <button class="toolbar-button toolbar-button--subtle" type="button" data-action="export-table" data-table-id="${escapeHtml(table.id)}">
                   Exportar Excel
                 </button>
-                <button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="delete-table" data-table-id="${escapeHtml(table.id)}">
+                <button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="delete-table" data-table-id="${escapeHtml(table.id)}" ${isTableProtected ? "disabled" : ""}>
                   Eliminar
                 </button>
               </div>
@@ -10402,16 +10581,17 @@ function selectCombatantSource(combatantId, source) {
 
 function addBlankCombatant() {
   const id = `entity-${state.nextId}`;
+  const nextStandNumber = formatStandNumber(getNextEnemyStandNumber());
 
   state.combatants = [
     {
       id,
-      side: "neutral",
+      side: "enemies",
       source: "",
       ubicacion: "",
       iniactiva: "",
-      nombre: "Nueva entidad neutral",
-      numPeana: "",
+      nombre: "Nueva entidad enemiga",
+      numPeana: nextStandNumber,
       pgMax: "",
       pgAct: "",
       pgTemp: "",
@@ -10424,7 +10604,7 @@ function addBlankCombatant() {
       vision: "",
       lenguas: "",
       crExp: "",
-      tag: "NEUTRAL",
+      tag: "ENEMIGO",
       initiativeRoll: null,
       initiativeNat20: false
     },
@@ -10507,6 +10687,28 @@ function deleteEnemies() {
   }
 
   if (removedIds.has(state.activeTurnCombatantId)) {
+    state.activeTurnCombatantId = "";
+  }
+}
+
+function deleteCombatantRow(combatantId) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  const hadCombatant = state.combatants.some((combatant) => combatant.id === normalizedCombatantId);
+
+  if (!hadCombatant) {
+    return;
+  }
+
+  state.combatants = state.combatants.filter((combatant) => combatant.id !== normalizedCombatantId);
+  delete state.inlineAdjustments[normalizedCombatantId];
+  state.selectedIds.delete(normalizedCombatantId);
+
+  if (state.activeTurnCombatantId === normalizedCombatantId) {
     state.activeTurnCombatantId = "";
   }
 }
@@ -10613,6 +10815,7 @@ function toggleCombatantStatus(combatantId, statusName) {
       condiciones: nextStatuses.join(", ")
     });
   });
+  clearCombatStatusDraft(combatantId);
 }
 
 function generateInitiative() {
@@ -10680,7 +10883,7 @@ function applyPgActAdjustment(id, mode) {
 }
 
 function applyNecroticAdjustment(id) {
-  const amount = Number(getInlineAdjustment(id).necrotic);
+  const amount = Number(getInlineAdjustment(id).pgAct);
 
   if (!Number.isFinite(amount)) {
     return;
@@ -10699,10 +10902,10 @@ function applyNecroticAdjustment(id) {
   });
 
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
-  setInlineAdjustment(id, "necrotic", "");
+  setInlineAdjustment(id, "pgAct", "");
 }
 
-function applyAreaDamage() {
+function applyAreaPgActAdjustment(mode = "damage") {
   const amount = Number(state.areaDamage);
 
   if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
@@ -10715,6 +10918,13 @@ function applyAreaDamage() {
       return combatant;
     }
 
+    if (mode === "heal") {
+      return normalizeCombatant({
+        ...combatant,
+        pgAct: toNumber(combatant.pgAct) + amount
+      }, "pgAct");
+    }
+
     let remainingDamage = amount;
     const currentTemp = Math.max(0, toNumber(combatant.pgTemp));
     const tempAfterDamage = Math.max(0, currentTemp - remainingDamage);
@@ -10725,6 +10935,29 @@ function applyAreaDamage() {
       pgTemp: tempAfterDamage,
       pgAct: toNumber(combatant.pgAct) - remainingDamage
     }, "pgAct");
+  });
+
+  distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+  state.areaDamage = "";
+}
+
+function applyAreaNecroticAdjustment() {
+  const amount = Number(state.areaDamage);
+
+  if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
+    return;
+  }
+
+  const previousCombatants = state.combatants;
+  state.combatants = state.combatants.map((combatant) => {
+    if (!state.selectedIds.has(combatant.id)) {
+      return combatant;
+    }
+
+    return normalizeCombatant({
+      ...combatant,
+      necrotic: toNumber(combatant.necrotic) + amount
+    }, "necrotic");
   });
 
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
@@ -13224,6 +13457,8 @@ function resetTransientCampaignUiState() {
   state.draggedFolderId = "";
   state.selectedCharacterIds = new Set();
   state.activeDiaryFolderId = "";
+  state.activeCombatStatusMenuId = "";
+  state.combatStatusDrafts = {};
 }
 
 function applyCampaignSave(campaign, fileResult = null) {
@@ -15563,6 +15798,11 @@ function deleteTableFolder(folderId) {
 
 function deleteTable(tableId) {
   const normalizedTableId = cleanText(tableId);
+
+  if (isProtectedTableId(normalizedTableId)) {
+    return;
+  }
+
   const currentIndex = state.tables.findIndex((table) => table.id === normalizedTableId);
 
   if (currentIndex < 0) {

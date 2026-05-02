@@ -2481,11 +2481,6 @@ table {
   color: rgba(247, 210, 214, 0.82);
 }
 
-.toolbar-button--area {
-  border-color: rgba(255, 140, 84, 0.32);
-  background: linear-gradient(180deg, rgba(255, 125, 64, 0.22), rgba(255, 198, 79, 0.08));
-}
-
 .toolbar-button--combat {
   border-color: rgba(240, 200, 121, 0.46);
   background:
@@ -2505,6 +2500,7 @@ table {
   align-items: center;
   gap: 0.85rem;
   margin-left: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .area-damage__input,
@@ -2518,7 +2514,11 @@ table {
 }
 
 .area-damage__input {
-  width: 11.5rem;
+  width: 8rem;
+}
+
+.area-damage__actions {
+  align-items: center;
 }
 
 .button-icon {
@@ -2718,10 +2718,37 @@ table {
   text-align: center;
 }
 
+.cell-select__stack {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
 .cell-select input {
   width: 1rem;
   height: 1rem;
   accent-color: #d8b15f;
+}
+
+.cell-row-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid rgba(184, 60, 74, 0.34);
+  border-radius: 999px;
+  background: rgba(184, 60, 74, 0.14);
+  color: #f0c879;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.cell-row-delete:hover,
+.cell-row-delete:focus-visible {
+  background: rgba(184, 60, 74, 0.24);
+  border-color: rgba(184, 60, 74, 0.56);
 }
 
 .row--allies {
@@ -2788,14 +2815,25 @@ table {
   gap: 0.45rem;
 }
 
+.resource-cell__top {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.resource-cell--pgmax .cell-input {
+  flex: 1 1 auto;
+}
+
 .armor-badge {
   position: relative;
   display: inline-grid;
   place-items: center;
   width: 2.65rem;
-  height: 2.95rem;
+  height: 2.45rem;
   color: var(--accent-soft);
-  justify-self: center;
+  justify-self: end;
+  flex: 0 0 auto;
 }
 
 .armor-badge__icon {
@@ -3334,6 +3372,7 @@ table {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .mini-input {
@@ -3487,9 +3526,23 @@ table {
 }
 
 .combat-inline-menu__popover--status {
+  left: auto;
+  right: calc(100% + 0.45rem);
+  top: 0;
   width: min(24rem, 72vw);
   max-height: 18rem;
   overflow: auto;
+}
+
+.combat-inline-menu__search {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.combat-inline-menu__search-input {
+  min-width: 0;
 }
 
 .combat-inline-menu__option {
@@ -3510,6 +3563,25 @@ table {
 .combat-inline-menu__option.is-active {
   border-color: rgba(240, 200, 121, 0.32);
   background: rgba(240, 200, 121, 0.08);
+}
+
+.combat-inline-menu__option--aliado {
+  border-color: rgba(84, 160, 101, 0.26);
+  background: rgba(84, 160, 101, 0.18);
+}
+
+.combat-inline-menu__option--neutral {
+  border-color: rgba(146, 132, 189, 0.26);
+  background: rgba(146, 132, 189, 0.18);
+}
+
+.combat-inline-menu__option--enemigo {
+  border-color: rgba(184, 60, 74, 0.28);
+  background: rgba(184, 60, 74, 0.18);
+}
+
+.combat-inline-menu__option--custom {
+  border-style: dashed;
 }
 
 .combat-inline-menu__option span {
