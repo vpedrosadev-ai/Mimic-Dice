@@ -250,6 +250,7 @@ const state = {
   campaignFilePath: initialCampaignMeta.filePath,
   appLanguage: normalizeStoredAppLanguage(initialCampaignMeta.language),
   contentLanguage: normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage),
+  includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(initialCampaignMeta.includeNpcInCombatExperience),
   repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(initialCampaignMeta.repositoryCsvPaths),
   dataCsvFiles: [...defaultDataCsvFiles],
   contentSourceMeta: {
@@ -1015,6 +1016,12 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "combat-long-rest") {
+    applyCombatLongRest();
+    render();
+    return;
+  }
+
   if (action === "delete-combatant-row") {
     deleteCombatantRow(actionButton.dataset.combatantId);
     render();
@@ -1064,7 +1071,12 @@ function handleClick(event) {
   }
 
   if (action === "select-combat-name-suggestion") {
-    fillCombatantFromBestiary(actionButton.dataset.combatantId, actionButton.dataset.entryId);
+    selectCombatNameSuggestion(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.entryId,
+      actionButton.dataset.entryKind
+    );
+    saveCombatTrackerState();
     render();
     return;
   }
@@ -1145,6 +1157,12 @@ function handleClick(event) {
 
   if (action === "adjust-area-necrotic") {
     applyAreaNecroticAdjustment();
+    render();
+    return;
+  }
+
+  if (action === "adjust-area-pg-temp") {
+    applyAreaPgTempAdjustment();
     render();
     return;
   }
@@ -1740,7 +1758,8 @@ function handleChange(event) {
   }
 
   if (target.matches("[data-character-field]")) {
-    updateCharacterField(target.dataset.characterField, target.value, true);
+    const fieldValue = target.type === "checkbox" ? target.checked : target.value;
+    updateCharacterField(target.dataset.characterField, fieldValue, true);
     saveCharacters();
     render({
       focusSelector: `[data-character-field="${target.dataset.characterField}"]`
@@ -1956,6 +1975,13 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-npc-xp-switch]")) {
+    state.includeNpcInCombatExperience = target.checked;
+    saveCampaignMeta();
+    render();
+    return;
+  }
+
   if (target.matches("[data-area-damage]")) {
     state.areaDamage = target.value;
     saveCombatTrackerState();
@@ -2108,7 +2134,8 @@ function handleInput(event) {
   }
 
   if (target.matches("[data-character-field]")) {
-    updateCharacterField(target.dataset.characterField, target.value, false);
+    const fieldValue = target.type === "checkbox" ? target.checked : target.value;
+    updateCharacterField(target.dataset.characterField, fieldValue, false);
     saveCharacters();
     return;
   }
@@ -3061,6 +3088,7 @@ function renderOptionsDialog() {
   }
 
   const usesVariableHp = state.enemyHpMode === ENEMY_HP_MODE_VARIABLE;
+  const includesNpcExperience = state.includeNpcInCombatExperience === true;
 
   return `
     <div class="options-dialog" data-options-menu>
@@ -3145,6 +3173,23 @@ function renderOptionsDialog() {
             </button>
           </div>
         </div>
+        <div class="options-dialog__switch-card ${includesNpcExperience ? "is-selected" : ""}">
+          <div class="options-dialog__switch-copy">
+            <strong>${escapeHtml(includesNpcExperience ? t("options_npc_xp_on") : t("options_npc_xp_off"))}</strong>
+            <small>${escapeHtml(includesNpcExperience ? t("options_npc_xp_on_help") : t("options_npc_xp_off_help"))}</small>
+          </div>
+          <label class="options-dialog__switch" aria-label="${escapeHtml(t("options_npc_xp_title"))}">
+            <input
+              class="options-dialog__switch-input"
+              type="checkbox"
+              data-npc-xp-switch
+              ${includesNpcExperience ? "checked" : ""}
+            />
+            <span class="options-dialog__switch-track">
+              <span class="options-dialog__switch-thumb"></span>
+            </span>
+          </label>
+        </div>
       </section>
     </div>
   `;
@@ -3178,6 +3223,10 @@ function normalizeStoredAppLanguage(value) {
 
 function normalizeStoredContentLanguage(value) {
   return cleanText(value) === CONTENT_LANGUAGE_EN ? CONTENT_LANGUAGE_EN : CONTENT_LANGUAGE_ES;
+}
+
+function normalizeStoredNpcExperienceSetting(value) {
+  return value === true;
 }
 
 function normalizeStoredRepositoryCsvPaths(value) {
@@ -3415,29 +3464,42 @@ function renderCombatTracker() {
                 type="button"
                 data-action="adjust-area-pg-act"
                 data-mode="damage"
+                data-tooltip="Daño"
                 ${state.selectedIds.size === 0 ? "disabled" : ""}
                 aria-label="Aplicar danio a filas seleccionadas"
               >
-                <span class="mini-action__icon" aria-hidden="true">DMG</span>
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("damage")}</span>
               </button>
               <button
                 class="mini-action mini-action--heal"
                 type="button"
                 data-action="adjust-area-pg-act"
                 data-mode="heal"
+                data-tooltip="Curacion"
                 ${state.selectedIds.size === 0 ? "disabled" : ""}
                 aria-label="Aplicar curacion a filas seleccionadas"
               >
-                <span class="mini-action__icon" aria-hidden="true">HEAL</span>
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("heal")}</span>
               </button>
               <button
                 class="mini-action mini-action--necrotic"
                 type="button"
                 data-action="adjust-area-necrotic"
+                data-tooltip="Necrotico"
                 ${state.selectedIds.size === 0 ? "disabled" : ""}
                 aria-label="Aplicar necrotico a filas seleccionadas"
               >
-                <span class="mini-action__icon" aria-hidden="true">NEC</span>
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span>
+              </button>
+              <button
+                class="mini-action mini-action--temp"
+                type="button"
+                data-action="adjust-area-pg-temp"
+                data-tooltip="Vida temporal"
+                ${state.selectedIds.size === 0 ? "disabled" : ""}
+                aria-label="Aplicar vida temporal a filas seleccionadas"
+              >
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("temp")}</span>
               </button>
             </div>
           </div>
@@ -3464,7 +3526,10 @@ function renderCombatTracker() {
           >
             ${state.isCombatActive ? "FIN COMBATE" : "COMBATE!"}
           </button>
-          <button class="toolbar-button" type="button" data-action="clear-filters">Limpiar filtros</button>
+          <button class="toolbar-button toolbar-button--accent" type="button" data-action="combat-long-rest">
+            <span class="button-icon" aria-hidden="true">${renderCombatToolbarIcon("campfire")}</span>
+            DESCANSO LARGO
+          </button>
         </div>
       </div>
 
@@ -3604,6 +3669,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
           >
             Pasar turno
           </button>
+          <span class="round-chip">RONDA ${escapeHtml(String(getCombatRound()))}</span>
         </div>
         <div
           class="combat-turn-strip"
@@ -3639,14 +3705,17 @@ function renderCombatTurnToken(combatant, isActive) {
   const label = cleanText(combatant.nombre) || "Sin nombre";
   const side = mapTagToSide(combatant.tag);
   const initials = getCombatantInitials(combatant);
+  const statusNames = getCombatantStatusNames(combatant).slice(0, 3);
   const isFallenAlly = side === "allies" && toNumber(combatant.pgAct) < 1;
   const maxHp = Math.max(1, getEffectivePgMax(combatant));
   const hpFill = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
+  const hpVisualFill = getCombatHealthVisualFill(hpFill);
+  const hpToneColor = getCombatHealthToneColor(hpFill);
 
   return `
     <div
       class="combat-turn-token-wrap ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""}"
-      style="--turn-hp-fill:${hpFill}%"
+      style="--turn-hp-fill:${hpVisualFill}%;--turn-hp-color:${hpToneColor}"
       role="button"
       tabindex="0"
       data-action="focus-combatant-row"
@@ -3662,6 +3731,15 @@ function renderCombatTurnToken(combatant, isActive) {
         }
         ${isEnemyCombatant(combatant) && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}
       </div>
+      ${
+        statusNames.length > 0
+          ? `
+            <div class="combat-turn-token__statuses">
+              ${statusNames.map((statusName) => `<span class="combat-turn-token__status ${getCombatStatusToneClass(statusName)}">${escapeHtml(statusName)}</span>`).join("")}
+            </div>
+          `
+          : ""
+      }
     </div>
   `;
 }
@@ -4906,6 +4984,82 @@ function renderSummaryCard(item) {
   `;
 }
 
+function renderCombatMiniActionIcon(kind) {
+  if (kind === "damage") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M12 2c2.4 3.1 5.5 6.2 5.5 10.1A5.5 5.5 0 1 1 6.5 12C6.5 8.2 9.6 5.1 12 2Z" />
+      </svg>
+    `;
+  }
+
+  if (kind === "heal") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6V4Z" />
+      </svg>
+    `;
+  }
+
+  if (kind === "necrotic") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M9 3c1.6 2 3.1 4.1 3.1 6.6A3.1 3.1 0 1 1 5.9 9.6C5.9 7.1 7.4 5 9 3Zm6 2.3c1.4 1.7 2.8 3.6 2.8 5.7a2.8 2.8 0 1 1-5.6 0c0-2.1 1.4-4 2.8-5.7ZM7 14c2 0 3.8 1.1 4.8 2.9 1-1.8 2.8-2.9 4.8-2.9 2.1 0 4 1.2 5 3.1-.9 2-2.6 3.9-5 4.9-2-.8-3.7-2.3-4.8-4.1-1.1 1.8-2.8 3.3-4.8 4.1-2.4-1-4.1-2.9-5-4.9 1-1.9 2.9-3.1 5-3.1Z" />
+      </svg>
+    `;
+  }
+
+  if (kind === "temp") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M12 2 20 5v6.5c0 5.1-3 9.5-8 11.7-5-2.2-8-6.6-8-11.7V5l8-3Zm0 4.1L7 7.9v3.5c0 3.6 1.9 6.6 5 8.3 3.1-1.7 5-4.7 5-8.3V7.9l-5-1.8Z" />
+      </svg>
+    `;
+  }
+
+  return "";
+}
+
+function getCombatHealthToneColor(healthPercent) {
+  const clampedPercent = Math.max(0, Math.min(100, Math.round(toNumber(healthPercent))));
+
+  if (clampedPercent === 0) {
+    return "rgba(16, 14, 14, 0.96)";
+  }
+
+  if (clampedPercent <= 25) {
+    return "rgba(184, 60, 74, 0.92)";
+  }
+
+  if (clampedPercent <= 50) {
+    return "rgba(201, 124, 44, 0.94)";
+  }
+
+  return "rgba(84, 160, 101, 0.9)";
+}
+
+function getCombatHealthVisualFill(healthPercent) {
+  const clampedPercent = Math.max(0, Math.min(100, toNumber(healthPercent)));
+
+  if (clampedPercent <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(100 * Math.pow(clampedPercent / 100, 0.45))));
+}
+
+function renderCombatToolbarIcon(kind) {
+  if (kind === "campfire") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M9 2c2 1.4 4 4.1 4 6.8 0 1.2-.3 2.4-.9 3.4 2.2-.6 3.9-2.7 3.9-5.2 1.8 1.6 3 4 3 6.6A7 7 0 0 1 5 13.6c0-2.7 1.3-5.2 3.3-6.8.2 1.9 1.1 3.4 2.5 4.2.2-.7.2-1.4.2-2.1 0-2.3-.8-4.6-2-6.9Zm-5 19h16v2H4v-2Zm8-9.2c1.6 1 2.6 2.5 2.6 4.1A2.6 2.6 0 1 1 9.4 16c0-1.4.8-2.8 2.6-4.2Z" />
+      </svg>
+    `;
+  }
+
+  return "";
+}
+
 function renderHeaderCell(column) {
   const filterValue = cleanText(state.filters?.[column.key]);
   const isActive = state.sort.key === column.key;
@@ -5044,6 +5198,8 @@ function renderDataCell(combatant, column, isDead) {
     const sourceChip = renderCombatantSourceChip(combatant);
     const token = renderCombatantNameToken(combatant);
     const tagChip = renderCombatantTagChip(combatant);
+    const npcChip = renderCombatantNpcChip(combatant);
+    const nameInputStyle = getCombatNameInputStyle(value);
 
     return `
       <td>
@@ -5054,23 +5210,25 @@ function renderDataCell(combatant, column, isDead) {
               type="text"
               inputmode="text"
               value="${escapeHtml(String(value))}"
+              style="${escapeHtml(nameInputStyle)}"
               data-edit-id="${combatant.id}"
               data-edit-key="${column.key}"
               autocomplete="off"
             />
             ${token}
           </div>
-          ${isDead || sourceChip || tagChip ? `
+          ${isDead || sourceChip || tagChip || npcChip ? `
             <div class="name-cell__chips">
               ${isDead ? `<span class="death-badge">Muerto</span>` : ""}
               ${tagChip}
+              ${npcChip}
               ${sourceChip}
             </div>
           ` : ""}
           ${
             state.activeCombatNameSearchId === combatant.id && suggestions.length > 0
               ? `
-                <div class="combat-name-suggestions" role="listbox" aria-label="Criaturas del bestiario">
+                <div class="combat-name-suggestions" role="listbox" aria-label="Sugerencias de combate">
                   ${suggestions.map((entry) => renderCombatNameSuggestion(combatant.id, entry)).join("")}
                 </div>
               `
@@ -5099,7 +5257,7 @@ function renderDataCell(combatant, column, isDead) {
         <div class="resource-cell resource-cell--pgmax">
           <div class="resource-cell__top">
             <input
-              class="cell-input"
+              class="cell-input cell-input--center"
               type="number"
               inputmode="${inputMode}"
               value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
@@ -5130,21 +5288,40 @@ function renderDataCell(combatant, column, isDead) {
   if (column.key === "pgAct") {
     const maxForBar = Math.max(1, getEffectivePgMax(combatant));
     const healthPercent = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxForBar) * 100)));
+    const hpVisualFill = getCombatHealthVisualFill(healthPercent);
+    const hpToneColor = getCombatHealthToneColor(healthPercent);
 
     return `
       <td>
         <div class="resource-cell">
-          <label class="hp-bar" style="--hp-fill:${healthPercent}%">
-            <input
-              class="cell-input cell-input--hp"
-              type="number"
-              inputmode="${inputMode}"
-              value="${escapeHtml(String(value))}"
-              data-edit-id="${combatant.id}"
-              data-edit-key="${column.key}"
-            />
-          </label>
-          <div class="inline-adjust">
+          <div class="resource-cell__pair">
+            <div class="resource-cell__act-wrap">
+              <label class="hp-bar hp-bar--compact" style="--hp-fill:${hpVisualFill}%;--hp-tone-color:${hpToneColor}">
+                <input
+                  class="cell-input cell-input--hp cell-input--center"
+                  type="number"
+                  inputmode="${inputMode}"
+                  value="${escapeHtml(String(value))}"
+                  data-edit-id="${combatant.id}"
+                  data-edit-key="${column.key}"
+                />
+              </label>
+              <span class="resource-cell__act-label"><span>PG</span><span>ACT</span></span>
+            </div>
+            <div class="resource-cell__temp-wrap">
+              <input
+                class="cell-input resource-cell__temp-input cell-input--center"
+                type="number"
+                inputmode="${inputMode}"
+                value="${escapeHtml(String(combatant.pgTemp ?? ""))}"
+                data-edit-id="${combatant.id}"
+                data-edit-key="pgTemp"
+                aria-label="PG TEMP de ${escapeHtml(combatant.nombre || combatant.id)}"
+              />
+              <span class="resource-cell__temp-label"><span>PG</span><span>TEMP</span></span>
+            </div>
+          </div>
+          <div class="inline-adjust inline-adjust--group">
             <input
               class="mini-input"
               type="number"
@@ -5162,9 +5339,10 @@ function renderDataCell(combatant, column, isDead) {
                 data-action="adjust-pg-act"
                 data-id="${combatant.id}"
                 data-mode="damage"
+                data-tooltip="Daño"
                 aria-label="Restar puntos de golpe a ${escapeHtml(combatant.nombre)}"
               >
-                <span class="mini-action__icon" aria-hidden="true">DMG</span>
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("damage")}</span>
               </button>
               <button
                 class="mini-action mini-action--heal"
@@ -5172,37 +5350,24 @@ function renderDataCell(combatant, column, isDead) {
                 data-action="adjust-pg-act"
                 data-id="${combatant.id}"
                 data-mode="heal"
+                data-tooltip="Curacion"
                 aria-label="Sumar puntos de golpe a ${escapeHtml(combatant.nombre)}"
               >
-                <span class="mini-action__icon" aria-hidden="true">HEAL</span>
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("heal")}</span>
               </button>
               <button
                 class="mini-action mini-action--necrotic"
                 type="button"
                 data-action="adjust-necrotic"
                 data-id="${combatant.id}"
+                data-tooltip="Necrotico"
                 aria-label="Ajustar danio necrotico de ${escapeHtml(combatant.nombre)}"
               >
-                <span class="mini-action__icon" aria-hidden="true">NEC</span>
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span>
               </button>
             </div>
           </div>
         </div>
-      </td>
-    `;
-  }
-
-  if (column.key === "pgTemp") {
-    return `
-      <td>
-        <input
-          class="cell-input"
-          type="number"
-          inputmode="${inputMode}"
-          value="${escapeHtml(String(value))}"
-          data-edit-id="${combatant.id}"
-          data-edit-key="${column.key}"
-        />
       </td>
     `;
   }
@@ -5243,6 +5408,21 @@ function renderDataCell(combatant, column, isDead) {
     const linkedCharacter = getLinkedCharacterForCombatant(combatant);
 
     if (linkedCharacter && cleanText(combatant.tag).toUpperCase() === "ALIADO") {
+      if (isNpcCharacter(linkedCharacter) && !state.includeNpcInCombatExperience) {
+        return `
+          <td>
+            <input
+              class="cell-input cell-input--center"
+              type="text"
+              inputmode="text"
+              value="${escapeHtml(`LVL ${linkedCharacter.level || 1}`)}"
+              data-edit-id="${combatant.id}"
+              data-edit-key="${column.key}"
+            />
+          </td>
+        `;
+      }
+
       return `
         <td>
           <div class="combat-character-xp-cell">
@@ -5255,7 +5435,7 @@ function renderDataCell(combatant, column, isDead) {
     return `
       <td>
         <input
-          class="cell-input"
+          class="cell-input cell-input--center"
           type="text"
           inputmode="text"
           value="${escapeHtml(formatCombatCrDisplay(value))}"
@@ -5269,7 +5449,7 @@ function renderDataCell(combatant, column, isDead) {
   return `
     <td>
       <input
-        class="cell-input"
+        class="cell-input ${["numPeana"].includes(column.key) ? "cell-input--center" : ""}"
         type="${column.type === "number" ? "number" : "text"}"
         inputmode="${inputMode}"
         value="${escapeHtml(String(value))}"
@@ -5288,6 +5468,10 @@ function getLinkedCharacterForCombatant(combatant) {
   }
 
   return state.characters.find((character) => character.id === characterId) ?? null;
+}
+
+function isNpcCharacter(character) {
+  return character?.isNpc === true;
 }
 
 function getCombatantColumnValue(combatant, key) {
@@ -5330,68 +5514,81 @@ function renderCombatantTagChip(combatant) {
   `;
 }
 
+function renderCombatantNpcChip(combatant) {
+  return isNpcCharacter(getLinkedCharacterForCombatant(combatant))
+    ? `<span class="combat-npc-chip">NPC</span>`
+    : "";
+}
+
 function renderCombatStatusCell(combatant) {
   const statusNames = getCombatantStatusNames(combatant);
   const statusDraft = getCombatStatusDraft(combatant.id);
   const statusEntries = getFilteredCombatStatusReferenceEntries(statusDraft);
   const hasExactDraftMatch = statusEntries.some((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizeTranslationKey(statusDraft.toLowerCase()));
+  const firstStatus = statusNames[0] ?? "";
+  const remainingStatuses = statusNames.slice(1);
 
   return `
     <div class="combat-status-cell">
-      <details class="combat-inline-menu combat-inline-menu--status" data-combat-status-menu ${state.activeCombatStatusMenuId === combatant.id ? "open" : ""}>
-        <summary class="combat-status-cell__add" data-action="toggle-combat-status-menu" data-combatant-id="${escapeHtml(combatant.id)}">
-          + Estado
-        </summary>
-        <div class="combat-inline-menu__popover combat-inline-menu__popover--status">
-          <label class="combat-inline-menu__search">
-            <span>Buscar o escribir estado</span>
-            <input
-              class="filter-input combat-inline-menu__search-input"
-              type="text"
-              value="${escapeHtml(statusDraft)}"
-              data-combat-status-draft="${escapeHtml(combatant.id)}"
-              placeholder="Ej. Derribado"
-            />
-          </label>
-          ${
-            statusDraft && !hasExactDraftMatch
-              ? `
-                <button
-                  class="combat-inline-menu__option combat-inline-menu__option--custom"
-                  type="button"
-                  data-action="toggle-combat-status"
-                  data-combatant-id="${escapeHtml(combatant.id)}"
-                  data-combat-status="${escapeHtml(statusDraft)}"
-                >
-                  <strong>Anadir estado personalizado</strong>
-                  <span>${escapeHtml(statusDraft)}</span>
-                </button>
-              `
-              : ""
-          }
-          ${
-            statusEntries.length > 0
-              ? statusEntries.map((entry) => `
-                <button
-                  class="combat-inline-menu__option ${statusNames.includes(entry.name) ? "is-active" : ""}"
-                  type="button"
-                  data-action="toggle-combat-status"
-                  data-combatant-id="${escapeHtml(combatant.id)}"
-                  data-combat-status="${escapeHtml(entry.name)}"
-                >
-                  <strong>${escapeHtml(entry.name)}</strong>
-                  ${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : ""}
-                </button>
-              `).join("")
-              : `<div class="combat-inline-menu__empty">${statusDraft ? "No hay coincidencias en la tabla de estados." : "No hay tabla de estados disponible."}</div>`
-          }
-        </div>
-      </details>
+      <div class="combat-status-cell__top">
+        <details class="combat-inline-menu combat-inline-menu--status" data-combat-status-menu ${state.activeCombatStatusMenuId === combatant.id ? "open" : ""}>
+          <summary class="combat-status-cell__add" data-action="toggle-combat-status-menu" data-combatant-id="${escapeHtml(combatant.id)}">
+            + Estado
+          </summary>
+          <div class="combat-inline-menu__popover combat-inline-menu__popover--status">
+            <label class="combat-inline-menu__search">
+              <span>Buscar o escribir estado</span>
+              <input
+                class="filter-input combat-inline-menu__search-input"
+                type="text"
+                value="${escapeHtml(statusDraft)}"
+                data-combat-status-draft="${escapeHtml(combatant.id)}"
+                placeholder="Ej. Derribado"
+              />
+            </label>
+            ${
+              statusDraft && !hasExactDraftMatch
+                ? `
+                  <button
+                    class="combat-inline-menu__option combat-inline-menu__option--custom"
+                    type="button"
+                    data-action="toggle-combat-status"
+                    data-combatant-id="${escapeHtml(combatant.id)}"
+                    data-combat-status="${escapeHtml(statusDraft)}"
+                  >
+                    <strong>Anadir estado personalizado</strong>
+                    <span>${escapeHtml(statusDraft)}</span>
+                  </button>
+                `
+                : ""
+            }
+            ${
+              statusEntries.length > 0
+                ? statusEntries.map((entry) => `
+                  <button
+                    class="combat-inline-menu__option ${statusNames.includes(entry.name) ? "is-active" : ""}"
+                    type="button"
+                    data-action="toggle-combat-status"
+                    data-combatant-id="${escapeHtml(combatant.id)}"
+                    data-combat-status="${escapeHtml(entry.name)}"
+                  >
+                    <strong>${escapeHtml(entry.name)}</strong>
+                    ${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : ""}
+                  </button>
+                `).join("")
+                : `<div class="combat-inline-menu__empty">${statusDraft ? "No hay coincidencias en la tabla de estados." : "No hay tabla de estados disponible."}</div>`
+            }
+          </div>
+        </details>
+        ${firstStatus ? renderCombatStatusChip(combatant.id, firstStatus) : ""}
+      </div>
       <div class="combat-status-cell__chips">
         ${
-          statusNames.length > 0
-            ? statusNames.map((statusName) => renderCombatStatusChip(combatant.id, statusName)).join("")
-            : `<span class="combat-status-cell__empty">Sin estados</span>`
+          remainingStatuses.length > 0
+            ? remainingStatuses.map((statusName) => renderCombatStatusChip(combatant.id, statusName)).join("")
+            : firstStatus
+              ? ""
+              : `<span class="combat-status-cell__empty">Sin estados</span>`
         }
       </div>
     </div>
@@ -5400,11 +5597,12 @@ function renderCombatStatusCell(combatant) {
 
 function renderCombatStatusChip(combatantId, statusName) {
   const description = getCombatStatusDescription(statusName);
+  const tone = getCombatStatusToneClass(statusName);
 
   return `
     <div class="combat-status-chip-wrap">
       <button
-        class="combat-status-chip"
+        class="combat-status-chip ${tone}"
         type="button"
         data-action="toggle-combat-status"
         data-combatant-id="${escapeHtml(combatantId)}"
@@ -5425,6 +5623,71 @@ function renderCombatStatusChip(combatantId, statusName) {
 function getCombatantStatusNames(combatant) {
   const rawStatuses = splitList(combatant?.condiciones ?? "", /[,;|]/);
   return [...new Set(rawStatuses.map((value) => cleanText(value)).filter(Boolean))];
+}
+
+function getCombatantExhaustionLevel(combatant) {
+  return getExhaustionLevelFromStatusNames(getCombatantStatusNames(combatant));
+}
+
+function getExhaustionLevelFromStatusNames(statusNames) {
+  return statusNames.reduce((highestLevel, statusName) => {
+    const match = cleanText(statusName).match(/^agotamiento(?:\s+(\d+))?$/i);
+
+    if (!match) {
+      return highestLevel;
+    }
+
+    const level = Math.max(1, Math.floor(toNumber(match[1]) || 1));
+    return Math.max(highestLevel, level);
+  }, 0);
+}
+
+function removeExhaustionStatuses(statusNames) {
+  return statusNames.filter((statusName) => !/^agotamiento(?:\s+\d+)?$/i.test(cleanText(statusName)));
+}
+
+function formatExhaustionStatus(level) {
+  return `AGOTAMIENTO ${Math.max(1, Math.floor(toNumber(level)) || 1)}`;
+}
+
+function getCombatNameInputStyle(value) {
+  const length = cleanText(value).length;
+
+  if (length >= 40) {
+    return "font-size:0.68rem;";
+  }
+
+  if (length >= 32) {
+    return "font-size:0.76rem;";
+  }
+
+  if (length >= 24) {
+    return "font-size:0.84rem;";
+  }
+
+  return "";
+}
+
+function getCombatStatusToneClass(statusName) {
+  const normalized = normalizeTranslationKey(cleanText(statusName).toLowerCase());
+
+  if (["paralizado", "aturdido", "incapacitado", "inconsciente", "petrificado"].includes(normalized)) {
+    return "combat-status-chip--violet";
+  }
+
+  if (normalized.startsWith("agotamiento") || ["envenenado", "asustado", "ciego", "ensordecido"].includes(normalized)) {
+    return "combat-status-chip--green";
+  }
+
+  if (["hechizado", "restrenido", "restringido", "agarrado", "derribado"].includes(normalized)) {
+    return "combat-status-chip--amber";
+  }
+
+  if (["ardiendo", "maldito", "sangrando"].includes(normalized)) {
+    return "combat-status-chip--red";
+  }
+
+  return "combat-status-chip--blue";
 }
 
 function getCombatStatusDraft(combatantId) {
@@ -5457,6 +5720,12 @@ function clearCombatStatusDraft(combatantId) {
 }
 
 function getCombatStatusDescription(statusName) {
+  const exhaustionLevel = Math.max(0, Math.floor(toNumber(cleanText(statusName).match(/^agotamiento(?:\s+(\d+))?$/i)?.[1]) || 0));
+
+  if (exhaustionLevel > 0) {
+    return `El personaje tiene un -${exhaustionLevel} al resultado de todas sus tiradas.`;
+  }
+
   const normalizedName = normalizeTranslationKey(cleanText(statusName).toLowerCase());
   return getCombatStatusReferenceEntries()
     .find((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizedName)
@@ -5560,8 +5829,6 @@ function getTableRowCellValue(row, column, columnIndex = 0) {
 }
 
 function renderCombatNameSuggestion(combatantId, entry) {
-  const sourceCode = entry.source || "?";
-
   return `
     <button
       class="combat-name-suggestions__option"
@@ -5569,9 +5836,10 @@ function renderCombatNameSuggestion(combatantId, entry) {
       data-action="select-combat-name-suggestion"
       data-combatant-id="${escapeHtml(combatantId)}"
       data-entry-id="${escapeHtml(entry.id)}"
+      data-entry-kind="${escapeHtml(entry.kind || "bestiary")}"
     >
-      <strong>${escapeHtml(entry.name)} (${escapeHtml(sourceCode)})</strong>
-      <span>CR ${formatCrNumber(entry.crBaseValue)} | ${escapeHtml(entry.type || "Sin tipo")}</span>
+      <strong>${escapeHtml(entry.name)} (${escapeHtml(entry.badge || "?")})</strong>
+      <span>${escapeHtml(entry.subtitle || "")}</span>
     </button>
   `;
 }
@@ -6943,7 +7211,7 @@ function renderCharacterListItem(character) {
   const subtitle = [
     character.className,
     character.level ? `Nivel ${character.level}` : "",
-    character.playerName
+    isNpcCharacter(character) ? "" : character.playerName
   ].filter(Boolean).join(" | ");
   const classIcon = getCharacterClassIcon(character.className);
 
@@ -6959,7 +7227,8 @@ function renderCharacterListItem(character) {
       ${renderCharacterAvatar(character)}
       <span class="character-list-item__copy">
         <strong>${escapeHtml(character.name || "Personaje sin nombre")}</strong>
-        <small>${escapeHtml(subtitle || "ALIADO")}</small>
+        <small>${escapeHtml(subtitle || (isNpcCharacter(character) ? "NPC" : "ALIADO"))}</small>
+        ${isNpcCharacter(character) ? `<span class="character-list-item__npc">NPC</span>` : ""}
         ${isSelected ? `<span class="character-list-item__selection-mark" aria-hidden="true">+</span>` : ""}
       </span>
       ${
@@ -6986,7 +7255,10 @@ function renderCharacterEditor(character) {
         <p class="eyebrow">Ficha rapida 5e</p>
         <div class="character-sheet__header-fields">
           ${renderCharacterTextField("name", "Nombre", character.name, "Seraphina Vale", { compact: true })}
-          ${renderCharacterTextField("playerName", "Jugador", character.playerName, "Victor", { compact: true })}
+          <div class="character-sheet__player-row">
+            ${renderCharacterTextField("playerName", "Jugador", character.playerName, "Victor", { compact: true, short: true })}
+            ${renderCharacterNpcField(character)}
+          </div>
         </div>
       </div>
       ${renderCharacterHeaderAside(character)}
@@ -7964,10 +8236,11 @@ function getCharacterInventorySuggestions(rowId) {
 
 function renderCharacterTextField(key, label, value, placeholder = "", options = {}) {
   const compactClass = options.compact ? " character-identity-field--compact" : "";
+  const shortClass = options.short ? " character-identity-field--short" : "";
   const lengthClass = getCharacterTextLengthClass(value);
 
   return `
-    <label class="toolbar-field character-identity-field${compactClass}">
+    <label class="toolbar-field character-identity-field${compactClass}${shortClass}">
       <span>${escapeHtml(label)}</span>
       <input
         class="filter-input character-identity-field__input ${lengthClass}"
@@ -7976,6 +8249,19 @@ function renderCharacterTextField(key, label, value, placeholder = "", options =
         placeholder="${escapeHtml(placeholder)}"
         data-character-field="${escapeHtml(key)}"
       />
+    </label>
+  `;
+}
+
+function renderCharacterNpcField(character) {
+  return `
+    <label class="character-npc-toggle" aria-label="Marcar personaje como NPC">
+      <input
+        type="checkbox"
+        data-character-field="isNpc"
+        ${isNpcCharacter(character) ? "checked" : ""}
+      />
+      <span>NPC</span>
     </label>
   `;
 }
@@ -8369,15 +8655,42 @@ function getActiveTurnCombatantId(turnOrder = getCombatTurnOrder()) {
 function getCombatNameSuggestions(combatant) {
   const query = cleanText(combatant.nombre).toLowerCase();
 
-  if (!query || state.bestiaryStatus !== "ready") {
+  if (!query) {
     return [];
   }
 
-  return state.bestiary
-    .filter((entry) => entry.nameLower.includes(query))
-    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
-      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
-    .slice(0, 10);
+  const bestiarySuggestions = state.bestiaryStatus === "ready"
+    ? state.bestiary
+      .filter((entry) => entry.nameLower.includes(query))
+      .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
+        || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
+      .slice(0, 7)
+      .map((entry) => ({
+        id: entry.id,
+        kind: "bestiary",
+        name: entry.name,
+        badge: entry.source || "?",
+        subtitle: `CR ${formatCrNumber(entry.crBaseValue)} | ${entry.type || "Sin tipo"}`
+      }))
+    : [];
+
+  const characterSuggestions = state.characters
+    .filter((character) => cleanText(character.name).toLowerCase().includes(query))
+    .sort((left, right) => cleanText(left.name).localeCompare(cleanText(right.name), "es", { sensitivity: "base" }))
+    .slice(0, 5)
+    .map((character) => ({
+      id: character.id,
+      kind: "character",
+      name: character.name,
+      badge: "PJ",
+      subtitle: [
+        character.className,
+        character.level ? `Nivel ${character.level}` : "",
+        isNpcCharacter(character) ? "NPC" : character.playerName
+      ].filter(Boolean).join(" | ") || "Personaje"
+    }));
+
+  return [...characterSuggestions, ...bestiarySuggestions].slice(0, 10);
 }
 
 function getCombatantBestiaryEntry(combatant) {
@@ -8901,6 +9214,7 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
 
   if (["pgAct", "pgMax", "pgTemp", "necrotic"].includes(key)) {
     distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+    applyReviveExhaustion(previousCombatants);
   }
 }
 
@@ -8949,6 +9263,7 @@ function createDefaultCharacter(overrides = {}) {
     id: createStableId("character"),
     name: `Personaje ${nextNumber}`,
     playerName: "",
+    isNpc: false,
     className: "",
     subclassName: "",
     level: 1,
@@ -10523,6 +10838,21 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
   return options.rollInitiative ? getCombatantWithGeneratedInitiative(combatant) : combatant;
 }
 
+function fillCombatantFromCharacter(combatantId, characterId) {
+  const character = state.characters.find((item) => item.id === characterId);
+
+  if (!character) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
+    ? createCombatantFromCharacter(character, combatant.id)
+    : combatant);
+  state.activeCombatNameSearchId = "";
+  state.activeCombatSourceId = "";
+  state.inlineAdjustments[combatantId] = state.inlineAdjustments[combatantId] ?? { ...blankInlineAdjustments };
+}
+
 function fillCombatantFromBestiary(combatantId, entryId) {
   const entry = state.bestiary.find((item) => item.id === entryId);
 
@@ -10536,6 +10866,15 @@ function fillCombatantFromBestiary(combatantId, entryId) {
   state.activeCombatNameSearchId = "";
   state.activeCombatSourceId = "";
   state.inlineAdjustments[combatantId] = state.inlineAdjustments[combatantId] ?? { ...blankInlineAdjustments };
+}
+
+function selectCombatNameSuggestion(combatantId, entryId, entryKind = "") {
+  if (cleanText(entryKind) === "character") {
+    fillCombatantFromCharacter(combatantId, entryId);
+    return;
+  }
+
+  fillCombatantFromBestiary(combatantId, entryId);
 }
 
 function openCombatantBestiary(entryId) {
@@ -10713,6 +11052,36 @@ function deleteCombatantRow(combatantId) {
   }
 }
 
+function applyCombatLongRest() {
+  state.combatants = state.combatants.map((combatant) => {
+    if (cleanText(combatant.tag).toUpperCase() !== "ALIADO") {
+      return combatant;
+    }
+
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const restoredMaxHp = linkedCharacter ? Math.max(0, toNumber(linkedCharacter.maxHp)) : Math.max(0, toNumber(combatant.pgMax));
+    const currentStatuses = getCombatantStatusNames(combatant);
+    const nextExhaustionLevel = Math.max(0, getExhaustionLevelFromStatusNames(currentStatuses) - 1);
+    const nextStatuses = [
+      ...removeExhaustionStatuses(currentStatuses),
+      ...(nextExhaustionLevel > 0 ? [formatExhaustionStatus(nextExhaustionLevel)] : [])
+    ];
+
+    return normalizeCombatant({
+      ...combatant,
+      pgMax: restoredMaxHp,
+      pgAct: restoredMaxHp,
+      pgTemp: 0,
+      necrotic: 0,
+      condiciones: nextStatuses.join(", "),
+      iniactiva: "",
+      initiativeRoll: null,
+      initiativeNat20: false
+    }, "pgMax");
+  });
+  endCombatTurns();
+}
+
 function isEnemyCombatant(combatant) {
   return combatant.tag === "ENEMIGO" || combatant.side === "enemies";
 }
@@ -10879,6 +11248,7 @@ function applyPgActAdjustment(id, mode) {
   });
 
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+  applyReviveExhaustion(previousCombatants);
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -10902,6 +11272,28 @@ function applyNecroticAdjustment(id) {
   });
 
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+  applyReviveExhaustion(previousCombatants);
+  setInlineAdjustment(id, "pgAct", "");
+}
+
+function applyPgTempAdjustment(id) {
+  const amount = Number(getInlineAdjustment(id).pgAct);
+
+  if (!Number.isFinite(amount)) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== id) {
+      return combatant;
+    }
+
+    return normalizeCombatant({
+      ...combatant,
+      pgTemp: toNumber(combatant.pgTemp) + amount
+    }, "pgTemp");
+  });
+
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -10938,6 +11330,7 @@ function applyAreaPgActAdjustment(mode = "damage") {
   });
 
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+  applyReviveExhaustion(previousCombatants);
   state.areaDamage = "";
 }
 
@@ -10961,7 +11354,61 @@ function applyAreaNecroticAdjustment() {
   });
 
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
+  applyReviveExhaustion(previousCombatants);
   state.areaDamage = "";
+}
+
+function applyAreaPgTempAdjustment() {
+  const amount = Number(state.areaDamage);
+
+  if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (!state.selectedIds.has(combatant.id)) {
+      return combatant;
+    }
+
+    return normalizeCombatant({
+      ...combatant,
+      pgTemp: toNumber(combatant.pgTemp) + amount
+    }, "pgTemp");
+  });
+
+  state.areaDamage = "";
+}
+
+function applyReviveExhaustion(previousCombatants = []) {
+  const previousCombatantsById = new Map(previousCombatants.map((combatant) => [combatant.id, combatant]));
+
+  state.combatants = state.combatants.map((combatant) => {
+    const previousCombatant = previousCombatantsById.get(combatant.id);
+
+    if (!previousCombatant) {
+      return combatant;
+    }
+
+    if (cleanText(combatant.tag).toUpperCase() !== "ALIADO") {
+      return combatant;
+    }
+
+    if (!isCombatantDead(previousCombatant) || isCombatantDead(combatant)) {
+      return combatant;
+    }
+
+    const currentStatuses = getCombatantStatusNames(combatant);
+    const nextExhaustionLevel = getExhaustionLevelFromStatusNames(currentStatuses) + 1;
+    const nextStatuses = [
+      ...removeExhaustionStatuses(currentStatuses),
+      formatExhaustionStatus(nextExhaustionLevel)
+    ];
+
+    return normalizeCombatant({
+      ...combatant,
+      condiciones: nextStatuses.join(", ")
+    });
+  });
 }
 
 function distributeExperienceForNewlyDefeatedEnemies(previousCombatants = []) {
@@ -11002,6 +11449,7 @@ function getEligibleCharacterIdsForCombatExperience() {
     .filter((combatant) => combatant.side === "allies" && combatant.iniactiva !== "")
     .map((combatant) => getLinkedCharacterForCombatant(combatant))
     .filter(Boolean)
+    .filter((character) => state.includeNpcInCombatExperience || !isNpcCharacter(character))
     .filter((character) => {
       if (seenCharacterIds.has(character.id)) {
         return false;
@@ -13366,6 +13814,7 @@ function createCampaignSavePayload(options = {}) {
       activeEncounterId: state.activeEncounterId,
       activeEncounterFolderId: state.activeEncounterFolderId,
       contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
+      includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
       repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
     }
   };
@@ -13425,6 +13874,7 @@ function normalizeCampaignSave(value) {
     activeEncounterId: cleanText(ui.activeEncounterId),
     activeEncounterFolderId: cleanText(ui.activeEncounterFolderId),
     contentLanguage: normalizeStoredContentLanguage(ui.contentLanguage),
+    includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(ui.includeNpcInCombatExperience),
     repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths)
   };
 }
@@ -13469,6 +13919,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.campaignFilePath = cleanText(fileResult?.filePath) || state.campaignFilePath;
   state.activeScreen = campaign.activeScreen;
   state.contentLanguage = campaign.contentLanguage;
+  state.includeNpcInCombatExperience = campaign.includeNpcInCombatExperience;
   state.repositoryCsvPaths = campaign.repositoryCsvPaths;
   resetTransientCampaignUiState();
   state.combatants = campaign.combatTracker.combatants;
@@ -13681,11 +14132,11 @@ function getFileNameFromPath(filePath) {
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   if (usesDesktopFileOnlyPersistence()) {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   try {
@@ -13699,10 +14150,11 @@ function loadCampaignMeta() {
       filePath,
       language: normalizeStoredAppLanguage(parsedValue.language),
       contentLanguage: normalizeStoredContentLanguage(parsedValue.contentLanguage),
+      includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(parsedValue.includeNpcInCombatExperience),
       repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(parsedValue.repositoryCsvPaths)
     };
   } catch {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 }
 
@@ -13719,6 +14171,7 @@ function saveCampaignMeta() {
         filePath: cleanText(state.campaignFilePath),
         language: normalizeStoredAppLanguage(state.appLanguage),
         contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
+        includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
         repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
       }));
     } catch {
@@ -13865,6 +14318,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     id: cleanText(character.id) || createStableId("character"),
     name: cleanText(character.name) || "Personaje",
     playerName: cleanText(character.playerName),
+    isNpc: character.isNpc === true,
     className: cleanText(character.className),
     subclassName: cleanText(character.subclassName),
     level,
