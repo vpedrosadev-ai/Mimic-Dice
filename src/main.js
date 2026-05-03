@@ -311,6 +311,9 @@ const state = {
   itemSelectedId: "",
   activeCharacterInventoryRowId: "",
   showCharacterInventorySuggestions: false,
+  activeCharacterSpellRowId: "",
+  showCharacterSpellSuggestions: false,
+  activeCombatSpellbookCombatantId: "",
   itemStatus: "loading",
   itemMessage: "",
   itemDebugInfo: null,
@@ -452,6 +455,7 @@ function handleClick(event) {
   const clickedItemFilter = event.target.closest("[data-item-filter-menu]");
   const clickedItemQuery = event.target.closest("[data-item-query-menu]");
   const clickedCharacterInventoryMenu = event.target.closest("[data-character-inventory-menu]");
+  const clickedCharacterSpellMenu = event.target.closest("[data-character-spell-menu]");
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
@@ -460,10 +464,64 @@ function handleClick(event) {
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
   const clickedCombatStatusMenu = event.target.closest("[data-combat-status-menu]");
+  const clickedCombatSpellbookMenu = event.target.closest("[data-combat-spellbook-menu]");
   const clickedCombatInlineMenu = event.target.closest(".combat-inline-menu");
   const clickedFileMenu = event.target.closest("[data-file-menu]");
   const clickedOptionsMenu = event.target.closest("[data-options-menu]");
   const clickedCharacterSkillConfig = event.target.closest("[data-character-skill-config-menu]");
+  const ctrlOrMetaPressed = event.ctrlKey || event.metaKey;
+
+  if (ctrlOrMetaPressed) {
+    const clickedInventoryName = event.target.closest("[data-character-inventory-name]");
+
+    if (clickedInventoryName) {
+      const activeCharacter = getActiveCharacter();
+      const row = activeCharacter?.inventory.find((entry) => entry.id === clickedInventoryName.dataset.characterInventoryName);
+      const matchedItem = row ? getCharacterInventoryMatchedItemEntry(row) : null;
+
+      if (matchedItem) {
+        event.preventDefault();
+        resetItemVirtualScroll();
+        state.activeScreen = "items";
+        state.itemFilters = {
+          ...blankItemFilters,
+          query: matchedItem.name
+        };
+        state.itemFilterSearch = { ...blankItemFilterSearch };
+        state.activeItemFilterKey = "";
+        state.showItemQuerySuggestions = false;
+        render({
+          focusSelector: "[data-item-query]"
+        });
+        return;
+      }
+    }
+
+    const clickedSpellName = event.target.closest("[data-character-spell-name]");
+
+    if (clickedSpellName) {
+      const activeCharacter = getActiveCharacter();
+      const row = activeCharacter?.spells.find((entry) => entry.id === clickedSpellName.dataset.characterSpellName);
+      const matchedSpell = row ? getCharacterSpellMatchedEntry(row) : null;
+
+      if (matchedSpell) {
+        event.preventDefault();
+        resetArcanumVirtualScroll();
+        state.activeScreen = "arcanum";
+        state.arcanumFilters = {
+          ...blankArcanumFilters,
+          query: matchedSpell.name
+        };
+        state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
+        state.activeArcanumFilterKey = "";
+        state.showArcanumQuerySuggestions = false;
+        render({
+          focusSelector: "[data-arcanum-query]"
+        });
+        return;
+      }
+    }
+  }
 
   if (!clickedCombatInlineMenu) {
     closeOpenCombatInlineMenus();
@@ -562,6 +620,16 @@ function handleClick(event) {
     }
   }
 
+  if (state.showCharacterSpellSuggestions && !clickedCharacterSpellMenu) {
+    state.showCharacterSpellSuggestions = false;
+    state.activeCharacterSpellRowId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
   if (
     state.activeArcanumFilterKey &&
     !clickedArcanumFilter &&
@@ -648,6 +716,19 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-combat-status-menu"
   ) {
     state.activeCombatStatusMenuId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.activeCombatSpellbookCombatantId &&
+    !clickedCombatSpellbookMenu &&
+    actionButton?.dataset.action !== "toggle-combat-spellbook-popup"
+  ) {
+    state.activeCombatSpellbookCombatantId = "";
 
     if (!actionButton) {
       render();
@@ -1018,6 +1099,28 @@ function handleClick(event) {
 
   if (action === "combat-long-rest") {
     applyCombatLongRest();
+    saveCombatTrackerState();
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-spellbook-popup") {
+    const combatantId = cleanText(actionButton.dataset.combatantId);
+    state.activeCombatSpellbookCombatantId = state.activeCombatSpellbookCombatantId === combatantId
+      ? ""
+      : combatantId;
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-spell-slot-spent") {
+    toggleCombatSpellSlotSpent(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.spellSlotLevel,
+      actionButton.dataset.spellSlotIndex
+    );
+    saveCharacters();
     render();
     return;
   }
@@ -1444,6 +1547,20 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-character-spellbook") {
+    toggleCharacterSpellbookSection();
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "add-character-spell-slot-level") {
+    addCharacterSpellSlotLevel();
+    saveCharacters();
+    render();
+    return;
+  }
+
   if (action === "add-character-skill-definition") {
     const skillId = addCharacterSkillDefinition();
     saveCharacters();
@@ -1471,11 +1588,48 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "add-character-class-row") {
+    const rowId = addCharacterClassRow();
+    saveCharacters();
+    render({
+      focusSelector: rowId ? `[data-character-class-field="name"][data-character-class-row="${rowId}"]` : null
+    });
+    return;
+  }
+
   if (action === "remove-character-skill-definition") {
     removeCharacterSkillDefinition(actionButton.dataset.characterSkillDefinitionId);
     saveCharacters();
     saveCharacterSkillDefinitions();
     render();
+    return;
+  }
+
+  if (action === "add-character-spell-row") {
+    const rowId = addCharacterSpellRow();
+    saveCharacters();
+    render({
+      focusSelector: rowId ? `[data-character-spell-name="${rowId}"]` : null
+    });
+    return;
+  }
+
+  if (action === "remove-character-spell-row") {
+    removeCharacterSpellRow(actionButton.dataset.characterSpellRowId);
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "select-character-spell-suggestion") {
+    selectCharacterSpellSuggestion(
+      actionButton.dataset.characterSpellRowId,
+      actionButton.dataset.arcanumEntryId
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-spell-name="${actionButton.dataset.characterSpellRowId}"]`
+    });
     return;
   }
 
@@ -1757,6 +1911,27 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-character-multiclass]")) {
+    toggleCharacterMulticlass(target.checked);
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (target.matches("[data-character-class-field][data-character-class-row]")) {
+    updateCharacterClassEntry(
+      target.dataset.characterClassRow,
+      target.dataset.characterClassField,
+      target.value,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-class-field="${target.dataset.characterClassField}"][data-character-class-row="${target.dataset.characterClassRow}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-character-field]")) {
     const fieldValue = target.type === "checkbox" ? target.checked : target.value;
     updateCharacterField(target.dataset.characterField, fieldValue, true);
@@ -1807,6 +1982,30 @@ function handleChange(event) {
     saveCharacters();
     render({
       focusSelector: `[data-character-inventory-field="${target.dataset.characterInventoryField}"][data-character-inventory-row="${target.dataset.characterInventoryRow}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-spell-field][data-character-spell-row]")) {
+    const fieldValue = target.type === "checkbox" ? target.checked : target.value;
+    updateCharacterSpellRow(
+      target.dataset.characterSpellRow,
+      target.dataset.characterSpellField,
+      fieldValue,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-spell-field="${target.dataset.characterSpellField}"][data-character-spell-row="${target.dataset.characterSpellRow}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-spell-slot-level]")) {
+    updateCharacterSpellSlot(target.dataset.characterSpellSlotLevel, target.value, true);
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-spell-slot-level="${target.dataset.characterSpellSlotLevel}"]`
     });
     return;
   }
@@ -2133,6 +2332,17 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-character-class-field][data-character-class-row]")) {
+    updateCharacterClassEntry(
+      target.dataset.characterClassRow,
+      target.dataset.characterClassField,
+      target.value,
+      false
+    );
+    saveCharacters();
+    return;
+  }
+
   if (target.matches("[data-character-field]")) {
     const fieldValue = target.type === "checkbox" ? target.checked : target.value;
     updateCharacterField(target.dataset.characterField, fieldValue, false);
@@ -2174,6 +2384,36 @@ function handleInput(event) {
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
+    return;
+  }
+
+  if (target.matches("[data-character-spell-name]")) {
+    updateCharacterSpellRow(target.dataset.characterSpellName, "name", target.value, false);
+    state.activeCharacterSpellRowId = target.dataset.characterSpellName;
+    state.showCharacterSpellSuggestions = cleanText(target.value).length > 0;
+    saveCharacters();
+    scheduleRender({
+      focusSelector: `[data-character-spell-name="${target.dataset.characterSpellName}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-character-spell-field][data-character-spell-row]")) {
+    updateCharacterSpellRow(
+      target.dataset.characterSpellRow,
+      target.dataset.characterSpellField,
+      target.type === "checkbox" ? target.checked : target.value,
+      false
+    );
+    saveCharacters();
+    return;
+  }
+
+  if (target.matches("[data-character-spell-slot-level]")) {
+    updateCharacterSpellSlot(target.dataset.characterSpellSlotLevel, target.value, false);
+    saveCharacters();
     return;
   }
 
@@ -2924,7 +3164,11 @@ function render(focusState = null) {
     const target = app.querySelector(focusState.focusSelector);
 
     if (target) {
-      target.focus();
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        target.focus();
+      }
 
       if (typeof focusState.selectionStart === "number" && typeof target.setSelectionRange === "function") {
         target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd ?? focusState.selectionStart);
@@ -5057,6 +5301,22 @@ function renderCombatToolbarIcon(kind) {
     `;
   }
 
+  if (kind === "book") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M5 3.5A2.5 2.5 0 0 1 7.5 1H20v18.5a2.5 2.5 0 0 0-2.5-2.5H5V3.5Zm2.5-.5A1.5 1.5 0 0 0 6 4.5V16h11.5c.53 0 1.04.13 1.5.36V3H7.5ZM4 18h13.5c.83 0 1.5.67 1.5 1.5V21H6.5A2.5 2.5 0 0 1 4 18.5V18Z" />
+      </svg>
+    `;
+  }
+
+  if (kind === "wand") {
+    return `
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="m3.8 19.1 9.9-9.9 1.4 1.4-9.9 9.9a1 1 0 0 1-1.4-1.4Zm10.6-13.8.6-2.3.6 2.3 2.3.6-2.3.6-.6 2.3-.6-2.3-2.3-.6 2.3-.6Zm4.7 4 .4-1.7.4 1.7 1.7.4-1.7.4-.4 1.7-.4-1.7-1.7-.4 1.7-.4ZM9.7 2.8l.5-1.8.5 1.8 1.8.5-1.8.5-.5 1.8-.5-1.8-1.8-.5 1.8-.5Z" />
+      </svg>
+    `;
+  }
+
   return "";
 }
 
@@ -5168,6 +5428,7 @@ function renderDataCell(combatant, column, isDead) {
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inputMode = column.type === "number" ? "numeric" : "text";
   const inlineValues = getInlineAdjustment(combatant.id);
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
 
   if (column.key === "iniactiva") {
     return `
@@ -5290,6 +5551,7 @@ function renderDataCell(combatant, column, isDead) {
     const healthPercent = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxForBar) * 100)));
     const hpVisualFill = getCombatHealthVisualFill(healthPercent);
     const hpToneColor = getCombatHealthToneColor(healthPercent);
+    const spellbookControl = renderCombatSpellbookControl(combatant, linkedCharacter);
 
     return `
       <td>
@@ -5321,6 +5583,7 @@ function renderDataCell(combatant, column, isDead) {
               <span class="resource-cell__temp-label"><span>PG</span><span>TEMP</span></span>
             </div>
           </div>
+          <div class="resource-cell__actions-row">
           <div class="inline-adjust inline-adjust--group">
             <input
               class="mini-input"
@@ -5367,6 +5630,8 @@ function renderDataCell(combatant, column, isDead) {
               </button>
             </div>
           </div>
+          ${spellbookControl}
+          </div>
         </div>
       </td>
     `;
@@ -5405,8 +5670,6 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "crExp") {
-    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
-
     if (linkedCharacter && cleanText(combatant.tag).toUpperCase() === "ALIADO") {
       if (isNpcCharacter(linkedCharacter) && !state.includeNpcInCombatExperience) {
         return `
@@ -5463,11 +5726,146 @@ function renderDataCell(combatant, column, isDead) {
 function getLinkedCharacterForCombatant(combatant) {
   const characterId = cleanText(combatant.characterId);
 
-  if (!characterId) {
+  if (characterId) {
+    const linkedById = state.characters.find((character) => character.id === characterId) ?? null;
+
+    if (linkedById) {
+      return linkedById;
+    }
+  }
+
+  const normalizedName = cleanText(combatant.nombre).toLowerCase();
+
+  if (!normalizedName) {
     return null;
   }
 
-  return state.characters.find((character) => character.id === characterId) ?? null;
+  return state.characters.find((character) => cleanText(character.name).toLowerCase() === normalizedName) ?? null;
+}
+
+function renderCombatSpellbookControl(combatant, linkedCharacter) {
+  if (!linkedCharacter || !hasCombatSpellbookData(linkedCharacter)) {
+    return "";
+  }
+
+  const isOpen = state.activeCombatSpellbookCombatantId === combatant.id;
+
+  return `
+    <div class="combat-spellbook-anchor" data-combat-spellbook-menu>
+      <button
+        class="toolbar-button toolbar-button--subtle combat-spellbook-button${isOpen ? " is-active" : ""}"
+        type="button"
+        data-action="toggle-combat-spellbook-popup"
+        data-combatant-id="${escapeHtml(combatant.id)}"
+        aria-expanded="${isOpen}"
+        aria-label="Abrir hechizos de ${escapeHtml(linkedCharacter.name || combatant.nombre || "personaje")}"
+        data-tooltip="Hechizos"
+      >
+        <span class="button-icon" aria-hidden="true">${renderCombatToolbarIcon("wand")}</span>
+      </button>
+      ${isOpen ? renderCombatSpellbookPopover(combatant, linkedCharacter) : ""}
+    </div>
+  `;
+}
+
+function renderCombatSpellbookPopover(combatant, character) {
+  const spellSlots = getCombatSpellbookVisibleSlots(character);
+
+  return `
+    <section class="combat-spellbook-popover detail-section" data-combat-spellbook-menu>
+      <div class="combat-spellbook-popover__layout">
+        <div class="combat-spellbook-popover__slots">
+          ${
+            spellSlots.length > 0
+              ? `
+                <div class="combat-spellbook-popover__header">
+                  <span>Nivel</span>
+                  <span>Espacios totales</span>
+                  <span>Espacios gastados</span>
+                </div>
+                ${spellSlots.map((entry) => renderCombatSpellbookSlotRow(combatant, entry)).join("")}
+                <div class="combat-spellbook-popover__footer">Lanzamiento de conjuros</div>
+              `
+              : `<div class="combat-spellbook-popover__empty-state">Sin espacios de conjuro definidos.</div>`
+          }
+        </div>
+        <div class="combat-spellbook-popover__meta">
+          ${renderCombatSpellbookMetric("CD de salvacion de conjuro", formatCombatSpellSaveDc(character.spellSaveDc))}
+          ${renderCombatSpellbookMetric("Modificador de ataque magico", formatCombatSpellAttackModifier(character.spellAttackModifier))}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function hasCombatSpellbookData(character) {
+  if (!character) {
+    return false;
+  }
+
+  const visibleLevels = normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots);
+  const hasSpellRows = Array.isArray(character.spells)
+    && character.spells.some((row) => cleanText(row?.name) || cleanText(row?.level) || row?.prepared === true);
+  const hasSlotData = getVisibleCharacterSpellSlots(character).some((entry) => entry.slots > 0) || visibleLevels > 1;
+
+  return hasSpellRows
+    || hasSlotData
+    || character.spellSaveDc !== ""
+    || character.spellAttackModifier !== "";
+}
+
+function getCombatSpellbookVisibleSlots(character) {
+  return getVisibleCharacterSpellSlots(character).filter((entry) => entry.slots > 0);
+}
+
+function renderCombatSpellbookSlotRow(combatant, entry) {
+  return `
+    <div class="combat-spellbook-popover__row">
+      <span class="combat-spellbook-popover__level">${escapeHtml(String(entry.level))}</span>
+      <span class="combat-spellbook-popover__total">${escapeHtml(String(entry.slots))}</span>
+      <div class="combat-spellbook-popover__spent" role="group" aria-label="Espacios gastados de nivel ${escapeHtml(String(entry.level))}">
+        ${renderCombatSpellbookSpentDots(combatant.id, entry)}
+      </div>
+    </div>
+  `;
+}
+
+function renderCombatSpellbookSpentDots(combatantId, entry) {
+  if (entry.slots <= 0) {
+    return `<span class="combat-spellbook-popover__empty">-</span>`;
+  }
+
+  return Array.from({ length: entry.slots }, (_, index) => `
+    <button
+      class="combat-spellbook-popover__dot${entry.spent[index] ? " is-spent" : ""}"
+      type="button"
+      data-action="toggle-combat-spell-slot-spent"
+      data-combatant-id="${escapeHtml(combatantId)}"
+      data-spell-slot-level="${escapeHtml(String(entry.level))}"
+      data-spell-slot-index="${escapeHtml(String(index))}"
+      aria-pressed="${entry.spent[index] ? "true" : "false"}"
+      aria-label="${entry.spent[index] ? "Recuperar" : "Gastar"} espacio de nivel ${escapeHtml(String(entry.level))} ${escapeHtml(String(index + 1))}"
+    ></button>
+  `).join("");
+}
+
+function renderCombatSpellbookMetric(label, value) {
+  return `
+    <div class="combat-spellbook-popover__metric">
+      <div class="combat-spellbook-popover__metric-value">${escapeHtml(value)}</div>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function formatCombatSpellSaveDc(value) {
+  return value === "" || value === null || value === undefined ? "-" : String(value);
+}
+
+function formatCombatSpellAttackModifier(value) {
+  return value === "" || value === null || value === undefined
+    ? "-"
+    : formatModifier(toNumber(value));
 }
 
 function isNpcCharacter(character) {
@@ -7264,10 +7662,9 @@ function renderCharacterEditor(character) {
       ${renderCharacterHeaderAside(character)}
     </div>
 
-    <div class="character-editor__section character-editor__section--identity">
+    <div class="character-editor__section--identity">
       <div class="character-identity-grid">
-        ${renderCharacterTextField("className", "Clase", character.className, "Guerrero")}
-        ${renderCharacterTextField("subclassName", "Subclase", character.subclassName, "Campeon")}
+        ${renderCharacterClassSection(character)}
         ${renderCharacterTextField("species", "Especie", character.species, "Humano")}
         ${renderCharacterTextField("size", "Talla", character.size, "Mediano")}
       </div>
@@ -7287,6 +7684,7 @@ function renderCharacterEditor(character) {
     </div>
 
     <div class="bestiary-sections character-sheet__extras">
+      ${renderCharacterSpellbookSection(character)}
       ${renderCharacterSkillSection(character)}
       ${renderCharacterInventorySection(character)}
     </div>
@@ -7731,6 +8129,250 @@ function renderCharacterSkillGainInputs(skillDefinitionId, field, values) {
   `).join("");
 }
 
+function renderCharacterSpellbookSection(character) {
+  const isOpen = character.spellsOpen === true;
+  const spellCount = character.spells.length;
+  const preparedCount = character.spells.filter((row) => row.prepared).length;
+  const visibleSpellSlots = getVisibleCharacterSpellSlots(character);
+
+  return `
+    <section class="detail-section character-spellbook" data-character-spell-menu>
+      <div class="character-section-toggle character-section-toggle--spellbook">
+        <div class="character-spellbook__heading">
+          <span>Hechizos</span>
+          <div class="character-spellbook__summary">
+            <strong>${escapeHtml(String(preparedCount))} preparados</strong>
+            <small>${escapeHtml(String(spellCount))} totales</small>
+          </div>
+        </div>
+        <button
+          class="character-section-toggle__button"
+          type="button"
+          data-action="toggle-character-spellbook"
+          aria-expanded="${isOpen}"
+          aria-label="${isOpen ? "Ocultar hechizos" : "Mostrar hechizos"}"
+        >
+          <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
+        </button>
+      </div>
+      ${
+        isOpen
+          ? `
+            <div class="character-spellbook__body">
+              <div class="character-spellbook__slots">
+                <div class="character-spellbook__slots-grid character-spellbook__slots-grid--meta">
+                  <label class="character-spellbook__slot-field">
+                    <span>Modificador</span>
+                    <input
+                      class="filter-input character-spellbook__slot-input"
+                      type="text"
+                      inputmode="text"
+                      value="${escapeHtml(formatCharacterSignedFieldValue(character.spellAttackModifier))}"
+                      placeholder="+0"
+                      data-character-field="spellAttackModifier"
+                    />
+                  </label>
+                  <label class="character-spellbook__slot-field">
+                    <span>CD</span>
+                    <input
+                      class="filter-input character-spellbook__slot-input"
+                      type="number"
+                      inputmode="numeric"
+                      min="0"
+                      value="${escapeHtml(String(character.spellSaveDc ?? ""))}"
+                      data-character-field="spellSaveDc"
+                    />
+                  </label>
+                </div>
+                <div class="character-spellbook__slots-header">
+                  <p>Espacios de hechizo</p>
+                </div>
+                <div class="character-spellbook__slots-grid">
+                  ${visibleSpellSlots.map((entry) => renderCharacterSpellSlotField(entry)).join("")}
+                  <button
+                    class="toolbar-button toolbar-button--subtle character-spellbook__slot-add"
+                    type="button"
+                    data-action="add-character-spell-slot-level"
+                    ${visibleSpellSlots.length >= 9 ? "disabled" : ""}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              <div class="character-spellbook__toolbar">
+                <p>${spellCount} hechizos conocidos</p>
+              </div>
+              <div class="character-spellbook__list">
+                <div class="character-spellbook__header" aria-hidden="true">
+                  <span>Nombre</span>
+                  <span>Nivel</span>
+                  <span>Preparado</span>
+                  <span></span>
+                </div>
+                ${
+                  spellCount > 0
+                    ? character.spells.map((row) => renderCharacterSpellRow(row)).join("")
+                    : `<div class="empty-state empty-state--compact">No hay hechizos cargados.</div>`
+                }
+                <div class="character-rows-add">
+                  <button class="toolbar-button toolbar-button--subtle character-rows-add__button" type="button" data-action="add-character-spell-row">
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderCharacterSpellSlotField(entry) {
+  return `
+    <label class="character-spellbook__slot-field">
+      <span>Nivel ${escapeHtml(String(entry.level))}</span>
+      <input
+        class="filter-input character-spellbook__slot-input"
+        type="number"
+        inputmode="numeric"
+        min="0"
+        value="${escapeHtml(String(entry.slots))}"
+        data-character-spell-slot-level="${escapeHtml(String(entry.level))}"
+      />
+    </label>
+  `;
+}
+
+function getVisibleCharacterSpellSlots(character) {
+  const visibleLevels = normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots);
+  return ensureCharacterSpellSlotLevels(character.spellSlots, visibleLevels).slice(0, visibleLevels);
+}
+
+function getCharacterSpellSuggestions(rowId) {
+  const character = getActiveCharacter();
+  const row = character?.spells.find((entry) => entry.id === rowId);
+  const query = cleanText(row?.name).toLowerCase();
+
+  if (!query || state.arcanumStatus !== "ready") {
+    return [];
+  }
+
+  return state.arcanum
+    .filter((entry) => entry.nameLower.includes(query))
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }))
+    .slice(0, 12);
+}
+
+function buildSuggestionDuplicateCountMap(entries) {
+  return entries.reduce((counts, entry) => {
+    const key = cleanText(entry?.name).toLowerCase();
+
+    if (!key) {
+      return counts;
+    }
+
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map());
+}
+
+function formatCompendiumSuggestionLabel(entry, duplicateCounts) {
+  const duplicateCount = duplicateCounts.get(cleanText(entry?.name).toLowerCase()) ?? 0;
+  return duplicateCount > 1
+    ? `${entry.name} (${entry.source || "?"})`
+    : entry.name;
+}
+
+function getCharacterSpellMatchedEntry(row) {
+  return state.arcanum.find((entry) => entry.id === row.spellId)
+    ?? getArcanumEntryByName(row.name);
+}
+
+function renderCharacterSpellPreview(entry) {
+  return `
+    <div class="character-spellbook__preview" role="tooltip">
+      <div class="character-spellbook__preview-card">
+        ${renderArcanumDetail(entry)}
+      </div>
+    </div>
+  `;
+}
+
+function renderCharacterSpellRow(row) {
+  const matchedSpell = getCharacterSpellMatchedEntry(row);
+  const suggestions = getCharacterSpellSuggestions(row.id);
+  const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
+  const showSuggestions = state.showCharacterSpellSuggestions
+    && state.activeCharacterSpellRowId === row.id
+    && suggestions.length > 0;
+  const levelLabel = getCharacterSpellLevelLabel(row.level);
+
+  return `
+    <div class="character-spellbook__row" data-character-spell-menu>
+      <div class="character-spellbook__name-cell${matchedSpell ? " character-spellbook__name-cell--linked" : ""}" data-character-spell-menu>
+        <div class="character-spellbook__name-stack">
+          <input
+            class="filter-input character-spellbook__input${matchedSpell ? " character-spellbook__input--linked" : ""}"
+            type="search"
+            value="${escapeHtml(row.name)}"
+            placeholder="Nombre del hechizo"
+            data-character-spell-name="${escapeHtml(row.id)}"
+          />
+        </div>
+        ${matchedSpell ? renderCharacterSpellPreview(matchedSpell) : ""}
+        ${
+          showSuggestions
+            ? `
+              <div class="bestiary-query__popover character-spellbook__suggestions" role="listbox" aria-label="Sugerencias de hechizos">
+                ${suggestions.map((entry) => `
+                  <button
+                    class="bestiary-query__option"
+                    type="button"
+                    data-action="select-character-spell-suggestion"
+                    data-character-spell-row-id="${escapeHtml(row.id)}"
+                    data-arcanum-entry-id="${escapeHtml(entry.id)}"
+                  >
+                    ${escapeHtml(formatCompendiumSuggestionLabel(entry, duplicateCounts))}
+                  </button>
+                `).join("")}
+              </div>
+            `
+            : ""
+        }
+      </div>
+      <label class="character-spellbook__field">
+        <input
+          class="filter-input character-spellbook__input"
+          type="text"
+          value="${escapeHtml(levelLabel)}"
+          placeholder="N/D"
+          data-character-spell-field="level"
+          data-character-spell-row="${escapeHtml(row.id)}"
+          ${matchedSpell ? "disabled" : ""}
+        />
+      </label>
+      <label class="character-spellbook__prepared">
+        <input
+          type="checkbox"
+          data-character-spell-field="prepared"
+          data-character-spell-row="${escapeHtml(row.id)}"
+          ${row.prepared ? "checked" : ""}
+        />
+      </label>
+      <button
+        class="toolbar-button toolbar-button--subtle-danger character-spellbook__remove"
+        type="button"
+        data-action="remove-character-spell-row"
+        data-character-spell-row-id="${escapeHtml(row.id)}"
+        aria-label="Quitar ${escapeHtml(row.name || "hechizo")}"
+      >
+        Quitar
+      </button>
+    </div>
+  `;
+}
+
 function renderCharacterSkillSection(character) {
   const isExpanded = state.characterSkillsExpanded;
 
@@ -7931,9 +8573,6 @@ function renderCharacterInventorySection(character) {
             <div class="character-inventory__body">
               <div class="character-inventory__toolbar">
                 <p>${itemCount} objetos</p>
-                <button class="toolbar-button toolbar-button--subtle" type="button" data-action="add-character-inventory-row">
-                  Anadir objeto
-                </button>
               </div>
               <div class="character-inventory__list">
                 <div class="character-inventory__header" aria-hidden="true">
@@ -7947,6 +8586,11 @@ function renderCharacterInventorySection(character) {
                     ? nonCurrencyRows.map((row) => renderCharacterInventoryRow(row)).join("")
                     : `<div class="empty-state empty-state--compact">No hay objetos en inventario.</div>`
                 }
+                <div class="character-rows-add">
+                  <button class="toolbar-button toolbar-button--subtle character-rows-add__button" type="button" data-action="add-character-inventory-row">
+                    +
+                  </button>
+                </div>
               </div>
             </div>
           `
@@ -7995,6 +8639,7 @@ function renderCharacterInventoryItemPreview(entry) {
 function renderCharacterInventoryRow(row) {
   const isCurrencyRow = isCharacterCurrencyRow(row.name);
   const suggestions = getCharacterInventorySuggestions(row.id);
+  const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
   const showSuggestions = state.showCharacterInventorySuggestions
     && state.activeCharacterInventoryRowId === row.id
     && suggestions.length > 0;
@@ -8024,7 +8669,7 @@ function renderCharacterInventoryRow(row) {
                     data-character-inventory-row-id="${escapeHtml(row.id)}"
                     data-item-entry-id="${escapeHtml(entry.id)}"
                   >
-                    ${escapeHtml(entry.name)}
+                    ${escapeHtml(formatCompendiumSuggestionLabel(entry, duplicateCounts))}
                   </button>
                 `).join("")}
               </div>
@@ -8216,6 +8861,84 @@ function renderCharacterImageControls(character) {
           : ""
       }
     </div>
+  `;
+}
+
+function renderCharacterClassSection(character) {
+  const isMulticlass = character.isMulticlass === true;
+  const visibleEntries = getCharacterVisibleClassEntries(character);
+
+  return `
+    <div class="character-class-stack">
+      <label class="character-multiclass-toggle" aria-label="Activar multiclase">
+        <input
+          type="checkbox"
+          data-character-multiclass
+          ${isMulticlass ? "checked" : ""}
+        />
+        <span>Multiclase</span>
+      </label>
+      <div class="character-class-stack__rows">
+        ${visibleEntries.map((entry, index) => renderCharacterClassRow(entry, index)).join("")}
+      </div>
+      ${
+        isMulticlass
+          ? `
+            <div class="character-class-stack__actions">
+              <button class="toolbar-button toolbar-button--subtle character-class-stack__add" type="button" data-action="add-character-class-row">
+                +
+              </button>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderCharacterClassRow(entry, index) {
+  return `
+    <div class="character-class-row">
+      ${renderCharacterClassTextField(entry.id, "name", "Clase", entry.name, index === 0 ? "Guerrero" : "Mago")}
+      ${renderCharacterClassTextField(entry.id, "subclassName", "Subclase", entry.subclassName, index === 0 ? "Campeon" : "Evocacion")}
+      ${renderCharacterClassLevelField(entry.id, entry.level)}
+    </div>
+  `;
+}
+
+function renderCharacterClassTextField(rowId, key, label, value, placeholder = "") {
+  const lengthClass = getCharacterTextLengthClass(value);
+
+  return `
+    <label class="toolbar-field character-identity-field">
+      <span>${escapeHtml(label)}</span>
+      <input
+        class="filter-input character-identity-field__input ${lengthClass}"
+        type="text"
+        value="${escapeHtml(value ?? "")}"
+        placeholder="${escapeHtml(placeholder)}"
+        data-character-class-field="${escapeHtml(key)}"
+        data-character-class-row="${escapeHtml(rowId)}"
+      />
+    </label>
+  `;
+}
+
+function renderCharacterClassLevelField(rowId, value) {
+  return `
+    <label class="toolbar-field character-identity-field character-identity-field--level">
+      <span>Nivel</span>
+      <input
+        class="filter-input character-identity-field__input character-identity-field__input--sm"
+        type="number"
+        inputmode="numeric"
+        min="0"
+        max="20"
+        value="${escapeHtml(String(value ?? 0))}"
+        data-character-class-field="level"
+        data-character-class-row="${escapeHtml(rowId)}"
+      />
+    </label>
   `;
 }
 
@@ -8453,14 +9176,14 @@ function renderCharacterExperienceBar(character, options = {}) {
     <section class="${baseClassName}" style="${fillStyle}" aria-label="Progreso de experiencia de ${escapeHtml(character.name || "personaje")}">
       <div class="character-experience__fields">
         <label class="character-experience__field character-experience__field--level">
-          <span>Nivel</span>
+          <span>LVL</span>
           <input
             class="character-experience__input"
             type="number"
             inputmode="numeric"
-            value="${escapeHtml(String(character.level ?? progress.level))}"
-            data-character-field="level"
-            aria-label="Nivel"
+            value="${escapeHtml(String(progress.level))}"
+            aria-label="LVL"
+            readonly
           />
         </label>
         <label class="character-experience__field">
@@ -9258,14 +9981,17 @@ function createCharacter(overrides = {}) {
 function createDefaultCharacter(overrides = {}) {
   const nextNumber = state.characters.length + 1;
   const maxHp = normalizeStoredNonNegativeNumber(overrides.maxHp ?? 10);
+  const defaultPrimaryClassEntry = createDefaultCharacterClassEntry({ level: 1 });
 
   return normalizeStoredCharacter({
     id: createStableId("character"),
     name: `Personaje ${nextNumber}`,
     playerName: "",
     isNpc: false,
-    className: "",
-    subclassName: "",
+    className: defaultPrimaryClassEntry.name,
+    subclassName: defaultPrimaryClassEntry.subclassName,
+    isMulticlass: false,
+    classEntries: [defaultPrimaryClassEntry],
     level: 1,
     experiencePoints: 0,
     species: "",
@@ -9284,6 +10010,12 @@ function createDefaultCharacter(overrides = {}) {
     stand: "",
     notes: "",
     skillProgress: getDefaultCharacterSkillProgress(),
+    spellsOpen: false,
+    spells: [],
+    spellAttackModifier: "",
+    spellSaveDc: "",
+    spellSlotLevelsVisible: 1,
+    spellSlots: getDefaultCharacterSpellSlots(),
     inventoryOpen: true,
     inventory: getDefaultCharacterInventory(),
     abilities: {
@@ -9325,6 +10057,8 @@ function selectCharacter(characterId, options = {}) {
   state.activeCharacterId = characterId;
   state.activeCharacterInventoryRowId = "";
   state.showCharacterInventorySuggestions = false;
+  state.activeCharacterSpellRowId = "";
+  state.showCharacterSpellSuggestions = false;
 }
 
 function duplicateActiveCharacter() {
@@ -9364,7 +10098,7 @@ function updateCharacterField(key, rawValue, normalize = true) {
 }
 
 function updateCharacterFieldForId(characterId, key, rawValue, normalize = true) {
-  const numberFields = new Set(["level", "experiencePoints", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus"]);
+  const numberFields = new Set(["level", "experiencePoints", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus", "spellAttackModifier", "spellSaveDc"]);
 
   state.characters = state.characters.map((character) => {
     if (character.id !== characterId) {
@@ -9528,6 +10262,64 @@ function toggleCharacterSkillsView() {
   state.characterSkillsExpanded = !state.characterSkillsExpanded;
 }
 
+function toggleCharacterMulticlass(isChecked) {
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    return normalizeStoredCharacter({
+      ...character,
+      isMulticlass: isChecked,
+      classEntries: ensureCharacterClassEntryCount(character.classEntries, isChecked ? 2 : 1)
+    });
+  });
+}
+
+function addCharacterClassRow() {
+  const row = createDefaultCharacterClassEntry({ level: 0 });
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      isMulticlass: true,
+      classEntries: [...ensureCharacterClassEntryCount(character.classEntries, 2), row]
+    })
+    : character);
+
+  return row.id;
+}
+
+function updateCharacterClassEntry(rowId, key, rawValue, normalize = true) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const classEntries = ensureCharacterClassEntryCount(character.classEntries, character.isMulticlass ? 2 : 1)
+      .map((entry) => entry.id === normalizedRowId
+        ? normalizeStoredCharacterClassEntry({
+          ...entry,
+          [key]: key === "level" && normalize
+            ? normalizeStoredCharacterClassLevel(rawValue)
+            : rawValue
+        })
+        : entry)
+      .filter(Boolean);
+
+    return normalizeStoredCharacter({
+      ...character,
+      classEntries
+    });
+  });
+}
+
 function getCharacterSkillProgressEntry(character, skillId) {
   const normalizedSkillId = cleanText(skillId);
   const skillProgress = Array.isArray(character?.skillProgress)
@@ -9650,9 +10442,175 @@ function toggleCharacterInventorySection() {
     : character);
 }
 
+function toggleCharacterSpellbookSection() {
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      spellsOpen: character.spellsOpen !== true
+    })
+    : character);
+}
+
+function addCharacterSpellSlotLevel() {
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const nextVisibleLevels = Math.min(9, Math.max(1, toNumber(character.spellSlotLevelsVisible) || 1) + 1);
+    return normalizeStoredCharacter({
+      ...character,
+      spellsOpen: true,
+      spellSlotLevelsVisible: nextVisibleLevels,
+      spellSlots: ensureCharacterSpellSlotLevels(character.spellSlots, nextVisibleLevels)
+    });
+  });
+}
+
+function updateCharacterSpellSlot(level, rawValue, normalize = true) {
+  const normalizedLevel = Math.max(1, Math.min(9, Math.floor(toNumber(level) || 1)));
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const spellSlots = ensureCharacterSpellSlotLevels(character.spellSlots, Math.max(character.spellSlotLevelsVisible ?? 1, normalizedLevel))
+      .map((entry) => entry.level === normalizedLevel
+        ? normalizeStoredCharacterSpellSlotRow({
+          ...entry,
+          slots: normalize ? normalizeStoredNonNegativeNumber(rawValue) : rawValue
+        })
+        : entry);
+
+    return normalizeStoredCharacter({
+      ...character,
+      spellSlots
+    });
+  });
+}
+
+function addCharacterSpellRow(overrides = {}) {
+  const row = createBlankCharacterSpellRow(overrides);
+
+  if (!row) {
+    return "";
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      spellsOpen: true,
+      spells: [...character.spells, row]
+    })
+    : character);
+  state.activeCharacterSpellRowId = row.id;
+  state.showCharacterSpellSuggestions = false;
+  return row.id;
+}
+
+function removeCharacterSpellRow(rowId) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const remainingRows = character.spells.filter((row) => row.id !== normalizedRowId);
+
+    return normalizeStoredCharacter({
+      ...character,
+      spells: remainingRows.length > 0 ? remainingRows : [createBlankCharacterSpellRow()]
+    });
+  });
+
+  if (state.activeCharacterSpellRowId === normalizedRowId) {
+    state.activeCharacterSpellRowId = "";
+    state.showCharacterSpellSuggestions = false;
+  }
+}
+
+function updateCharacterSpellRow(rowId, key, rawValue, normalize = true) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const spells = character.spells.map((row) => {
+      if (row.id !== normalizedRowId) {
+        return row;
+      }
+
+      const nextRow = {
+        ...row,
+        [key]: key === "prepared"
+          ? rawValue === true
+          : rawValue
+      };
+
+      if (key === "name") {
+        const matchedSpell = getArcanumEntryByName(rawValue);
+        nextRow.spellId = matchedSpell?.id ?? "";
+        nextRow.level = normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort ?? cleanText(nextRow.level));
+      }
+
+      if (key === "level" && normalize) {
+        nextRow.level = normalizeCharacterSpellLevelLabel(rawValue);
+      }
+
+      return normalizeStoredCharacterSpellRow(nextRow);
+    });
+
+    return normalizeStoredCharacter({
+      ...character,
+      spells
+    });
+  });
+}
+
+function selectCharacterSpellSuggestion(rowId, arcanumEntryId) {
+  const normalizedRowId = cleanText(rowId);
+  const spellEntry = state.arcanum.find((entry) => entry.id === cleanText(arcanumEntryId));
+
+  if (!normalizedRowId || !spellEntry) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    return normalizeStoredCharacter({
+      ...character,
+      spells: character.spells.map((row) => row.id === normalizedRowId
+        ? normalizeStoredCharacterSpellRow({
+          ...row,
+          spellId: spellEntry.id,
+          name: spellEntry.name,
+          level: normalizeCharacterSpellLevelLabel(spellEntry.levelShort)
+        })
+        : row)
+    });
+  });
+
+  state.activeCharacterSpellRowId = normalizedRowId;
+  state.showCharacterSpellSuggestions = false;
+}
+
 function addCharacterInventoryRow(overrides = {}) {
-  const row = normalizeStoredCharacterInventoryRow({
-    id: createStableId("character-item"),
+  const row = createBlankCharacterInventoryRow({
     quantity: 1,
     ...overrides
   });
@@ -9674,11 +10632,14 @@ function addCharacterInventoryRow(overrides = {}) {
 }
 
 function getDefaultCharacterInventory() {
-  return characterCurrencyRows.map((currency) => normalizeStoredCharacterInventoryRow({
-    id: createStableId("character-item"),
-    name: currency.name,
-    quantity: 0
-  })).filter(Boolean);
+  return [
+    ...characterCurrencyRows.map((currency) => normalizeStoredCharacterInventoryRow({
+      id: createStableId("character-item"),
+      name: currency.name,
+      quantity: 0
+    })).filter(Boolean),
+    createBlankCharacterInventoryRow()
+  ].filter(Boolean);
 }
 
 function isCharacterCurrencyRow(name) {
@@ -9739,12 +10700,21 @@ function removeCharacterInventoryRow(rowId) {
     return;
   }
 
-  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
-    ? normalizeStoredCharacter({
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const remainingInventory = character.inventory.filter((row) => row.id !== normalizedRowId);
+    const remainingNonCurrencyRows = remainingInventory.filter((row) => !isCharacterCurrencyRow(row.name));
+
+    return normalizeStoredCharacter({
       ...character,
-      inventory: character.inventory.filter((row) => row.id !== normalizedRowId)
-    })
-    : character);
+      inventory: remainingNonCurrencyRows.length > 0
+        ? remainingInventory
+        : [...remainingInventory, createBlankCharacterInventoryRow()]
+    });
+  });
 
   if (state.activeCharacterInventoryRowId === normalizedRowId) {
     state.activeCharacterInventoryRowId = "";
@@ -11050,15 +12020,26 @@ function deleteCombatantRow(combatantId) {
   if (state.activeTurnCombatantId === normalizedCombatantId) {
     state.activeTurnCombatantId = "";
   }
+
+  if (state.activeCombatSpellbookCombatantId === normalizedCombatantId) {
+    state.activeCombatSpellbookCombatantId = "";
+  }
 }
 
 function applyCombatLongRest() {
+  const linkedCharacterIds = new Set();
+
   state.combatants = state.combatants.map((combatant) => {
     if (cleanText(combatant.tag).toUpperCase() !== "ALIADO") {
       return combatant;
     }
 
     const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+
+    if (linkedCharacter) {
+      linkedCharacterIds.add(linkedCharacter.id);
+    }
+
     const restoredMaxHp = linkedCharacter ? Math.max(0, toNumber(linkedCharacter.maxHp)) : Math.max(0, toNumber(combatant.pgMax));
     const currentStatuses = getCombatantStatusNames(combatant);
     const nextExhaustionLevel = Math.max(0, getExhaustionLevelFromStatusNames(currentStatuses) - 1);
@@ -11079,7 +12060,54 @@ function applyCombatLongRest() {
       initiativeNat20: false
     }, "pgMax");
   });
+
+  if (linkedCharacterIds.size > 0) {
+    state.characters = state.characters.map((character) => linkedCharacterIds.has(character.id)
+      ? normalizeStoredCharacter({
+        ...character,
+        spellSlots: clearCharacterSpellSlotsSpent(character.spellSlots)
+      })
+      : character);
+  }
+
   endCombatTurns();
+}
+
+function toggleCombatSpellSlotSpent(combatantId, level, slotIndex) {
+  const linkedCharacter = getLinkedCharacterForCombatant(
+    state.combatants.find((combatant) => combatant.id === cleanText(combatantId)) ?? {}
+  );
+  const normalizedLevel = Math.max(1, Math.min(9, Math.floor(toNumber(level) || 1)));
+  const normalizedSlotIndex = Math.max(0, Math.floor(toNumber(slotIndex) || 0));
+
+  if (!linkedCharacter) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== linkedCharacter.id) {
+      return character;
+    }
+
+    const spellSlots = ensureCharacterSpellSlotLevels(character.spellSlots, Math.max(character.spellSlotLevelsVisible ?? 1, normalizedLevel))
+      .map((entry) => {
+        if (entry.level !== normalizedLevel || normalizedSlotIndex >= entry.slots) {
+          return entry;
+        }
+
+        const spent = normalizeStoredCharacterSpellSlotSpent(entry.spent, entry.slots);
+        spent[normalizedSlotIndex] = !spent[normalizedSlotIndex];
+        return normalizeStoredCharacterSpellSlotRow({
+          ...entry,
+          spent
+        });
+      });
+
+    return normalizeStoredCharacter({
+      ...character,
+      spellSlots
+    });
+  });
 }
 
 function isEnemyCombatant(combatant) {
@@ -11842,7 +12870,25 @@ function getItemEntryByName(name) {
     return null;
   }
 
+  if (typeof state === "undefined" || !Array.isArray(state.items)) {
+    return null;
+  }
+
   return state.items.find((entry) => entry.nameLower === normalizedName) ?? null;
+}
+
+function getArcanumEntryByName(name) {
+  const normalizedName = cleanText(name).toLowerCase();
+
+  if (!normalizedName) {
+    return null;
+  }
+
+  if (typeof state === "undefined" || !Array.isArray(state.arcanum)) {
+    return null;
+  }
+
+  return state.arcanum.find((entry) => entry.nameLower === normalizedName) ?? null;
 }
 
 function renderBestiaryFilterDropdown(key, label) {
@@ -13888,6 +14934,8 @@ function resetTransientCampaignUiState() {
   state.characterSkillsExpanded = false;
   state.activeCharacterInventoryRowId = "";
   state.showCharacterInventorySuggestions = false;
+  state.activeCharacterSpellRowId = "";
+  state.showCharacterSpellSuggestions = false;
   state.encounterInventoryOpen = false;
   state.selectedIds = new Set();
   state.activeFilterKey = "";
@@ -14299,11 +15347,17 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
   }
 
   const resolvedSkillDefinitions = resolveCharacterSkillDefinitions(skillDefinitions, [character]);
+  const classEntries = normalizeStoredCharacterClassEntries(character.classEntries, character);
+  const hasStoredMulticlassFlag = typeof character.isMulticlass === "boolean";
+  const inferredMulticlass = classEntries.slice(1).some((entry) => hasMeaningfulCharacterClassEntry(entry));
+  const isMulticlass = hasStoredMulticlassFlag ? character.isMulticlass === true : inferredMulticlass;
+  const normalizedClassEntries = ensureCharacterClassEntryCount(classEntries, isMulticlass ? 2 : 1);
+  const primaryClassEntry = normalizedClassEntries[0] ?? createDefaultCharacterClassEntry({ level: 1 });
 
   const maxHp = normalizeStoredNonNegativeNumber(character.maxHp);
   const hasCurrentHp = character.currentHp !== undefined && character.currentHp !== null;
   let currentHp = hasCurrentHp ? normalizeStoredNonNegativeNumber(character.currentHp) : maxHp;
-  const level = normalizeStoredCharacterLevel(character.level);
+  const level = getCharacterTotalLevelFromClassEntries(normalizedClassEntries, isMulticlass);
   const levelStartExperiencePoints = getCharacterLevelProgressionEntry(level).experiencePoints;
   const hasSeparatedExperience = character.totalExperiencePoints !== undefined;
   const levelExperiencePoints = hasSeparatedExperience
@@ -14319,8 +15373,10 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     name: cleanText(character.name) || "Personaje",
     playerName: cleanText(character.playerName),
     isNpc: character.isNpc === true,
-    className: cleanText(character.className),
-    subclassName: cleanText(character.subclassName),
+    className: primaryClassEntry.name,
+    subclassName: primaryClassEntry.subclassName,
+    isMulticlass,
+    classEntries: normalizedClassEntries,
     level,
     experiencePoints: levelExperiencePoints,
     totalExperiencePoints: levelStartExperiencePoints + levelExperiencePoints,
@@ -14344,10 +15400,90 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
       resolvedSkillDefinitions,
       character.skillTracks
     ),
+    spellsOpen: character.spellsOpen === true,
+    spells: normalizeStoredCharacterSpells(character.spells),
+    spellAttackModifier: normalizeStoredNumber(character.spellAttackModifier),
+    spellSaveDc: normalizeStoredNumber(character.spellSaveDc),
+    spellSlotLevelsVisible: normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots),
+    spellSlots: normalizeStoredCharacterSpellSlots(character.spellSlots),
     inventoryOpen: character.inventoryOpen !== false,
     inventory: normalizeStoredCharacterInventory(character.inventory),
     abilities: normalizeStoredCharacterAbilities(character.abilities)
   };
+}
+
+function createDefaultCharacterClassEntry(overrides = {}) {
+  return normalizeStoredCharacterClassEntry({
+    id: createStableId("character-class"),
+    level: 1,
+    ...overrides
+  });
+}
+
+function normalizeStoredCharacterClassEntries(entries, legacyCharacter = {}) {
+  const normalizedEntries = Array.isArray(entries)
+    ? entries.map((entry) => normalizeStoredCharacterClassEntry(entry)).filter(Boolean)
+    : [];
+
+  if (normalizedEntries.length > 0) {
+    return normalizedEntries;
+  }
+
+  return [createDefaultCharacterClassEntry({
+    name: legacyCharacter.className,
+    subclassName: legacyCharacter.subclassName,
+    level: legacyCharacter.level ?? 1
+  })];
+}
+
+function normalizeStoredCharacterClassEntry(entry) {
+  if (!isPlainObject(entry)) {
+    return null;
+  }
+
+  return {
+    id: cleanText(entry.id) || createStableId("character-class"),
+    name: cleanText(entry.name ?? entry.className),
+    subclassName: cleanText(entry.subclassName),
+    level: normalizeStoredCharacterClassLevel(entry.level)
+  };
+}
+
+function normalizeStoredCharacterClassLevel(value) {
+  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
+  return Math.min(numericValue, 20);
+}
+
+function ensureCharacterClassEntryCount(entries, minimumCount = 1) {
+  const normalizedEntries = Array.isArray(entries)
+    ? entries.map((entry) => normalizeStoredCharacterClassEntry(entry)).filter(Boolean)
+    : [];
+  const requiredCount = Math.max(1, Math.floor(toNumber(minimumCount) || 1));
+
+  while (normalizedEntries.length < requiredCount) {
+    normalizedEntries.push(createDefaultCharacterClassEntry({
+      level: normalizedEntries.length === 0 ? 1 : 0
+    }));
+  }
+
+  return normalizedEntries;
+}
+
+function hasMeaningfulCharacterClassEntry(entry) {
+  return cleanText(entry?.name).length > 0
+    || cleanText(entry?.subclassName).length > 0
+    || normalizeStoredCharacterClassLevel(entry?.level) > 0;
+}
+
+function getCharacterVisibleClassEntries(character) {
+  const entries = ensureCharacterClassEntryCount(character?.classEntries, character?.isMulticlass ? 2 : 1);
+  return character?.isMulticlass ? entries : entries.slice(0, 1);
+}
+
+function getCharacterTotalLevelFromClassEntries(classEntries, isMulticlass) {
+  const visibleEntries = isMulticlass ? classEntries : classEntries.slice(0, 1);
+  const summedLevel = visibleEntries.reduce((sum, entry) => sum + normalizeStoredCharacterClassLevel(entry?.level), 0);
+  return normalizeStoredCharacterLevel(summedLevel || 1);
 }
 
 function normalizeStoredCharacterLevel(value) {
@@ -14627,6 +15763,137 @@ function normalizeStoredCharacterSkillGains(value, defaultValues = [0]) {
   return normalizedDefaults;
 }
 
+function normalizeStoredCharacterSpells(spells) {
+  const normalizedRows = Array.isArray(spells)
+    ? spells.map((row) => normalizeStoredCharacterSpellRow(row)).filter(Boolean)
+    : [];
+
+  return normalizedRows.length > 0 ? normalizedRows : [createBlankCharacterSpellRow()];
+}
+
+function normalizeStoredCharacterSpellRow(row) {
+  if (!isPlainObject(row)) {
+    return null;
+  }
+
+  const name = cleanText(row.name);
+  const matchedSpell = getArcanumEntryByName(name);
+
+  return {
+    id: cleanText(row.id) || createStableId("character-spell"),
+    spellId: cleanText(row.spellId) || matchedSpell?.id || "",
+    name,
+    level: normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort || cleanText(row.level) || ""),
+    prepared: row.prepared === true
+  };
+}
+
+function normalizeCharacterSpellLevelLabel(value) {
+  const normalizedValue = cleanText(value);
+  const compactValue = normalizedValue.toLowerCase().replace(/\s+/g, "");
+
+  if (compactValue === "n/a" || compactValue === "na") {
+    return "Truco";
+  }
+
+  return normalizedValue;
+}
+
+function getCharacterSpellLevelLabel(value) {
+  const normalizedValue = normalizeCharacterSpellLevelLabel(value);
+  return normalizedValue || "N/D";
+}
+
+function formatCharacterSignedFieldValue(value) {
+  if (value === "" || value === null || value === undefined) {
+    return "";
+  }
+
+  return formatModifier(toNumber(value));
+}
+
+function createBlankCharacterSpellRow(overrides = {}) {
+  return normalizeStoredCharacterSpellRow({
+    id: createStableId("character-spell"),
+    prepared: false,
+    level: "",
+    name: "",
+    spellId: "",
+    ...overrides
+  });
+}
+
+function getDefaultCharacterSpellSlots() {
+  return [normalizeStoredCharacterSpellSlotRow({ level: 1, slots: 0 })].filter(Boolean);
+}
+
+function normalizeStoredCharacterSpellSlots(spellSlots) {
+  const normalizedRows = Array.isArray(spellSlots)
+    ? spellSlots.map((row) => normalizeStoredCharacterSpellSlotRow(row)).filter(Boolean)
+    : [];
+
+  if (normalizedRows.length === 0) {
+    return getDefaultCharacterSpellSlots();
+  }
+
+  const byLevel = new Map();
+  normalizedRows.forEach((row) => {
+    if (!byLevel.has(row.level)) {
+      byLevel.set(row.level, row);
+    }
+  });
+
+  return [...byLevel.values()].sort((left, right) => left.level - right.level);
+}
+
+function normalizeStoredCharacterSpellSlotRow(row) {
+  if (!isPlainObject(row)) {
+    return null;
+  }
+
+  const level = Math.max(1, Math.min(9, Math.floor(toNumber(row.level) || 1)));
+  const slots = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.slots)) || 0));
+
+  return {
+    level,
+    slots,
+    spent: normalizeStoredCharacterSpellSlotSpent(row.spent, slots)
+  };
+}
+
+function normalizeStoredCharacterSpellSlotSpent(spent, slots) {
+  const normalizedSlots = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(slots)) || 0));
+  const source = Array.isArray(spent) ? spent : [];
+  return Array.from({ length: normalizedSlots }, (_, index) => source[index] === true);
+}
+
+function normalizeStoredCharacterSpellSlotVisibleLevels(value, spellSlots = []) {
+  const highestStoredLevel = normalizeStoredCharacterSpellSlots(spellSlots).reduce((max, entry) => Math.max(max, entry.level), 1);
+  const numericValue = Math.max(1, Math.floor(toNumber(value) || 1));
+  return Math.min(9, Math.max(numericValue, highestStoredLevel));
+}
+
+function ensureCharacterSpellSlotLevels(spellSlots, visibleLevels = 1) {
+  const normalizedSpellSlots = normalizeStoredCharacterSpellSlots(spellSlots);
+  const requiredLevels = Math.max(1, Math.min(9, Math.floor(toNumber(visibleLevels) || 1)));
+  const byLevel = new Map(normalizedSpellSlots.map((entry) => [entry.level, entry]));
+
+  for (let level = 1; level <= requiredLevels; level += 1) {
+    if (!byLevel.has(level)) {
+      byLevel.set(level, normalizeStoredCharacterSpellSlotRow({ level, slots: 0 }));
+    }
+  }
+
+  return [...byLevel.values()].sort((left, right) => left.level - right.level);
+}
+
+function clearCharacterSpellSlotsSpent(spellSlots) {
+  return normalizeStoredCharacterSpellSlots(spellSlots).map((entry) => normalizeStoredCharacterSpellSlotRow({
+    ...entry,
+    spent: Array.from({ length: entry.slots }, () => false)
+  }));
+}
+
 function normalizeStoredCharacterInventory(inventory) {
   const normalizedRows = Array.isArray(inventory)
     ? inventory.map((row) => normalizeStoredCharacterInventoryRow(row)).filter(Boolean)
@@ -14641,7 +15908,7 @@ function normalizeStoredCharacterInventory(inventory) {
     });
   }).filter(Boolean);
 
-  return [...currencyRows, ...nonCurrencyRows];
+  return [...currencyRows, ...(nonCurrencyRows.length > 0 ? nonCurrencyRows : [createBlankCharacterInventoryRow()])];
 }
 
 function normalizeStoredCharacterInventoryRow(row) {
@@ -14663,6 +15930,17 @@ function normalizeStoredCharacterInventoryRow(row) {
     size,
     quantity
   };
+}
+
+function createBlankCharacterInventoryRow(overrides = {}) {
+  return normalizeStoredCharacterInventoryRow({
+    id: createStableId("character-item"),
+    name: "",
+    size: "XS",
+    quantity: 1,
+    itemId: "",
+    ...overrides
+  });
 }
 
 function normalizeItemSizeLabel(value) {
