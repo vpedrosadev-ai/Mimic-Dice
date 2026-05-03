@@ -68,7 +68,10 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
     return `
       <div class="bestiary-detail__header arcanum-detail__header">
         <p class="eyebrow">${escapeHtml(t("spell_selected"))}</p>
-        <h3>${escapeHtml(entry.name)}</h3>
+        <div class="arcanum-detail__title-row">
+          <h3>${escapeHtml(entry.name)}</h3>
+          <p class="bestiary-detail__label arcanum-detail__level-title">${escapeHtml(entry.levelValue === 99 ? "NIVEL ?" : `NIVEL ${entry.levelValue}`)}</p>
+        </div>
         <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
       </div>
 

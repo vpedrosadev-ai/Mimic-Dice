@@ -337,7 +337,7 @@ export function parseSpellLevel(level) {
     return 99;
   }
 
-  if (normalizedLevel.includes("cantrip")) {
+  if (normalizedLevel.includes("cantrip") || normalizedLevel.includes("truco")) {
     return 0;
   }
 
@@ -347,13 +347,14 @@ export function parseSpellLevel(level) {
 
 export function formatSpellLevel(level) {
   const normalizedLevel = cleanText(level);
+  const normalizedLower = normalizedLevel.toLowerCase();
 
   if (!normalizedLevel) {
     return "Nivel no indicado";
   }
 
-  if (normalizedLevel.toLowerCase().includes("cantrip")) {
-    return "Cantrip";
+  if (normalizedLower.includes("cantrip") || normalizedLower.includes("truco")) {
+    return "Truco";
   }
 
   return normalizedLevel;

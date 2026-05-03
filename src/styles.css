@@ -3758,8 +3758,8 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .combat-spellbook-popover__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(9rem, 0.95fr);
-  gap: 0.8rem;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 4.55rem;
   align-items: start;
 }
 
@@ -3767,6 +3767,21 @@ input[type="number"]::-webkit-inner-spin-button {
 .combat-spellbook-popover__meta {
   display: grid;
   gap: 0.5rem;
+  justify-items: end;
+}
+
+.combat-spellbook-popover__meta {
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+  width: max-content;
+  padding: 0.28rem 0.4rem 0.28rem 0;
+  align-items: start;
+  justify-items: stretch;
+}
+
+.combat-spellbook-popover__slots {
+  justify-items: stretch;
+  text-align: left;
 }
 
 .combat-spellbook-popover__header,
@@ -3782,19 +3797,27 @@ input[type="number"]::-webkit-inner-spin-button {
   font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.08em;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.combat-spellbook-popover__header > span,
+.combat-spellbook-popover__footer {
+  justify-self: start;
 }
 
 .combat-spellbook-popover__level,
 .combat-spellbook-popover__total {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 2rem;
+  padding: 0 0.6rem;
   border: 1px solid rgba(240, 200, 121, 0.14);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   font-weight: 700;
+  text-align: left;
 }
 
 .combat-spellbook-popover__spent {
@@ -3840,32 +3863,122 @@ input[type="number"]::-webkit-inner-spin-button {
 .combat-spellbook-popover__metric {
   display: grid;
   gap: 0.45rem;
+  width: 4.6rem;
+  min-width: 4.6rem;
+  justify-items: center;
+  justify-self: end;
 }
 
 .combat-spellbook-popover__metric-value {
   display: grid;
   place-items: center;
-  min-height: 5.2rem;
-  padding: 0.5rem;
+  min-height: 3.55rem;
+  width: 4.6rem;
+  min-width: 4.6rem;
+  padding: 0.4rem 0.65rem;
   border: 1px solid rgba(240, 200, 121, 0.26);
-  border-radius: 18px;
+  border-radius: 14px;
   background:
     linear-gradient(180deg, rgba(59, 38, 22, 0.72), rgba(23, 15, 11, 0.94)),
     rgba(255, 255, 255, 0.02);
   color: #fff0cf;
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
-.combat-spellbook-popover__metric span,
-.combat-spellbook-popover__footer {
+.combat-spellbook-popover__metric span {
+  width: 100%;
   color: var(--accent-soft);
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-align: center;
   text-transform: uppercase;
+}
+
+.combat-spellbook-popover__footer {
+  color: var(--accent-soft);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-top: 0.65rem;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.combat-spellbook-popover__prepared {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.combat-spellbook-popover__spell-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.125fr) 4.6rem;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.combat-spellbook-popover__spell-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid rgba(240, 200, 121, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.combat-spellbook-popover__spell-link-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.combat-spellbook-popover__spell-link,
+.combat-spellbook-popover__spell-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(240, 200, 121, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.combat-spellbook-popover__spell-link {
+  cursor: pointer;
+}
+
+.combat-spellbook-popover__spell-link:hover,
+.combat-spellbook-popover__spell-link:focus-visible {
+  border-color: rgba(240, 200, 121, 0.34);
+  color: var(--accent-soft);
+}
+
+.combat-spellbook-popover__spell-link-wrap .character-spellbook__preview {
+  top: 50%;
+  bottom: auto;
+  transform: translate3d(0.35rem, -50%, 0);
+  width: min(30rem, 48vw);
+}
+
+.combat-spellbook-popover__spell-link-wrap:hover .character-spellbook__preview,
+.combat-spellbook-popover__spell-link-wrap:focus-within .character-spellbook__preview {
+  opacity: 1;
+  visibility: visible;
+  transform: translate3d(0, -50%, 0);
 }
 
 .stats-grid {
@@ -8283,8 +8396,34 @@ body.is-table-resizing * {
   overflow-wrap: anywhere;
 }
 
-.arcanum-detail__header h3 {
+.arcanum-detail__title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.9rem;
+  align-items: start;
   margin-top: 0.75rem;
+}
+
+.arcanum-detail__header h3 {
+  margin-top: 0;
+}
+
+.arcanum-detail__level-title,
+.arcanum-detail__header .arcanum-detail__level-title.bestiary-detail__label,
+.character-spellbook__preview-card .arcanum-detail__level-title.bestiary-detail__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0;
+  align-self: center;
+  color: var(--accent-soft);
+  font-size: clamp(1.6em, 1.25rem + 1.9vw, 1.85rem) !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  text-transform: uppercase;
 }
 
 .bestiary-detail__source {

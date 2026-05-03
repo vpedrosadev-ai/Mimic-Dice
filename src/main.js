@@ -5770,6 +5770,7 @@ function renderCombatSpellbookControl(combatant, linkedCharacter) {
 
 function renderCombatSpellbookPopover(combatant, character) {
   const spellSlots = getCombatSpellbookVisibleSlots(character);
+  const preparedSpells = getPreparedCombatSpellbookSpells(character);
 
   return `
     <section class="combat-spellbook-popover detail-section" data-combat-spellbook-menu>
@@ -5784,14 +5785,15 @@ function renderCombatSpellbookPopover(combatant, character) {
                   <span>Espacios gastados</span>
                 </div>
                 ${spellSlots.map((entry) => renderCombatSpellbookSlotRow(combatant, entry)).join("")}
-                <div class="combat-spellbook-popover__footer">Lanzamiento de conjuros</div>
               `
               : `<div class="combat-spellbook-popover__empty-state">Sin espacios de conjuro definidos.</div>`
           }
+          <div class="combat-spellbook-popover__footer">Conjuros preparados</div>
+          ${renderCombatPreparedSpellList(preparedSpells)}
         </div>
         <div class="combat-spellbook-popover__meta">
-          ${renderCombatSpellbookMetric("CD de salvacion de conjuro", formatCombatSpellSaveDc(character.spellSaveDc))}
           ${renderCombatSpellbookMetric("Modificador de ataque magico", formatCombatSpellAttackModifier(character.spellAttackModifier))}
+          ${renderCombatSpellbookMetric("CD SALVACION CONJUROS", formatCombatSpellSaveDc(character.spellSaveDc))}
         </div>
       </div>
     </section>
@@ -5816,6 +5818,54 @@ function hasCombatSpellbookData(character) {
 
 function getCombatSpellbookVisibleSlots(character) {
   return getVisibleCharacterSpellSlots(character).filter((entry) => entry.slots > 0);
+}
+
+function getPreparedCombatSpellbookSpells(character) {
+  const spellRows = Array.isArray(character?.spells) ? character.spells : [];
+  return getSortedCharacterSpellRows(spellRows)
+    .filter((row) => row.prepared === true)
+    .filter((row) => cleanText(getCharacterSpellMatchedEntry(row)?.name || row?.name));
+}
+
+function renderCombatPreparedSpellList(spellRows) {
+  if (spellRows.length === 0) {
+    return `<div class="combat-spellbook-popover__empty-state">No hay conjuros preparados.</div>`;
+  }
+
+  return `
+    <div class="combat-spellbook-popover__prepared">
+      ${spellRows.map((row) => renderCombatPreparedSpellRow(row)).join("")}
+    </div>
+  `;
+}
+
+function renderCombatPreparedSpellRow(row) {
+  const matchedSpell = getCharacterSpellMatchedEntry(row);
+  const spellName = matchedSpell?.name || row.name || "Sin nombre";
+  const levelLabel = formatCompactSpellLevelLabel(matchedSpell?.levelValue ?? getCharacterSpellSortLevel(row));
+
+  return `
+    <div class="combat-spellbook-popover__spell-row">
+      <div class="combat-spellbook-popover__spell-link-wrap">
+        ${
+          matchedSpell
+            ? `
+              <button
+                class="combat-spellbook-popover__spell-link"
+                type="button"
+                data-action="filter-arcanum-by-spell-name"
+                data-arcanum-spell-name="${escapeHtml(matchedSpell.name)}"
+              >
+                ${escapeHtml(spellName)}
+              </button>
+              ${renderCharacterSpellPreview(matchedSpell)}
+            `
+            : `<span class="combat-spellbook-popover__spell-name">${escapeHtml(spellName)}</span>`
+        }
+      </div>
+      <span class="combat-spellbook-popover__spell-level">${escapeHtml(levelLabel)}</span>
+    </div>
+  `;
 }
 
 function renderCombatSpellbookSlotRow(combatant, entry) {
@@ -8131,7 +8181,8 @@ function renderCharacterSkillGainInputs(skillDefinitionId, field, values) {
 
 function renderCharacterSpellbookSection(character) {
   const isOpen = character.spellsOpen === true;
-  const spellCount = character.spells.length;
+  const sortedSpellRows = getSortedCharacterSpellRows(character.spells);
+  const spellCount = sortedSpellRows.length;
   const preparedCount = character.spells.filter((row) => row.prepared).length;
   const visibleSpellSlots = getVisibleCharacterSpellSlots(character);
 
@@ -8211,7 +8262,7 @@ function renderCharacterSpellbookSection(character) {
                 </div>
                 ${
                   spellCount > 0
-                    ? character.spells.map((row) => renderCharacterSpellRow(row)).join("")
+                    ? sortedSpellRows.map((row) => renderCharacterSpellRow(row)).join("")
                     : `<div class="empty-state empty-state--compact">No hay hechizos cargados.</div>`
                 }
                 <div class="character-rows-add">
@@ -8289,6 +8340,39 @@ function getCharacterSpellMatchedEntry(row) {
     ?? getArcanumEntryByName(row.name);
 }
 
+function getCharacterSpellSortLevel(row) {
+  const matchedSpell = getCharacterSpellMatchedEntry(row);
+  const rawLevel = matchedSpell?.levelShort || row?.level || "";
+
+  if (isCharacterSpellCantripLabel(rawLevel)) {
+    return 0;
+  }
+
+  return matchedSpell?.levelValue ?? parseSpellLevel(rawLevel);
+}
+
+function compareCharacterSpellRows(left, right) {
+  const levelDifference = getCharacterSpellSortLevel(left) - getCharacterSpellSortLevel(right);
+
+  if (levelDifference !== 0) {
+    return levelDifference;
+  }
+
+  const leftName = cleanText(getCharacterSpellMatchedEntry(left)?.name || left?.name).toLowerCase();
+  const rightName = cleanText(getCharacterSpellMatchedEntry(right)?.name || right?.name).toLowerCase();
+  const nameDifference = leftName.localeCompare(rightName, "es", { sensitivity: "base" });
+
+  if (nameDifference !== 0) {
+    return nameDifference;
+  }
+
+  return cleanText(left?.id).localeCompare(cleanText(right?.id), "es", { sensitivity: "base" });
+}
+
+function getSortedCharacterSpellRows(spellRows) {
+  return Array.isArray(spellRows) ? [...spellRows].sort(compareCharacterSpellRows) : [];
+}
+
 function renderCharacterSpellPreview(entry) {
   return `
     <div class="character-spellbook__preview" role="tooltip">
@@ -8306,7 +8390,10 @@ function renderCharacterSpellRow(row) {
   const showSuggestions = state.showCharacterSpellSuggestions
     && state.activeCharacterSpellRowId === row.id
     && suggestions.length > 0;
-  const levelLabel = getCharacterSpellLevelLabel(row.level);
+  const rawLevelValue = matchedSpell?.levelShort || row.level;
+  const levelLabel = getCharacterSpellSortLevel(row) === 0 || isCharacterSpellCantripLabel(rawLevelValue)
+    ? "TRUCO"
+    : getCharacterSpellLevelLabel(rawLevelValue);
 
   return `
     <div class="character-spellbook__row" data-character-spell-menu>
@@ -15791,8 +15878,19 @@ function normalizeStoredCharacterSpellRow(row) {
 function normalizeCharacterSpellLevelLabel(value) {
   const normalizedValue = cleanText(value);
   const compactValue = normalizedValue.toLowerCase().replace(/\s+/g, "");
+  const parsedLevel = normalizedValue ? parseSpellLevel(normalizedValue) : 99;
 
-  if (compactValue === "n/a" || compactValue === "na") {
+  if (
+    compactValue === "n/a"
+    || compactValue === "na"
+    || compactValue === "0"
+    || compactValue === "cantrip"
+    || compactValue === "truco"
+    || compactValue === "level0"
+    || compactValue === "nivel0"
+    || compactValue === "lvl0"
+    || parsedLevel === 0
+  ) {
     return "Truco";
   }
 
@@ -15802,6 +15900,14 @@ function normalizeCharacterSpellLevelLabel(value) {
 function getCharacterSpellLevelLabel(value) {
   const normalizedValue = normalizeCharacterSpellLevelLabel(value);
   return normalizedValue || "N/D";
+}
+
+function isCharacterSpellCantripLabel(value) {
+  return normalizeCharacterSpellLevelLabel(value).toLowerCase() === "truco";
+}
+
+function formatCompactSpellLevelLabel(levelValue) {
+  return levelValue === 99 ? "LVL ?" : `LVL ${levelValue}`;
 }
 
 function formatCharacterSignedFieldValue(value) {
