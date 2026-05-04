@@ -26,7 +26,9 @@ import {
 } from "./data/contentTranslation.js";
 import { initialTableDefinitions } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
+import { getCombatMiniActionIconUrl, getCombatStatusIconUrl } from "./assets/combatIcons.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
+import { getScreenIconUrl } from "./assets/screenIcons.js";
 import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
 import { parseCsv } from "./shared/csv.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
@@ -259,6 +261,7 @@ const state = {
     arcanum: { ...blankContentSourceMeta }
   },
   campaignMessage: "",
+  menuHubOpen: false,
   fileMenuOpen: false,
   optionsMenuOpen: false,
   campaignSaveNameDialogOpen: false,
@@ -441,6 +444,7 @@ function handleClick(event) {
     }
 
     state.activeScreen = screenButton.dataset.screen;
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = false;
     state.combatEncounterPickerOpen = false;
@@ -525,6 +529,19 @@ function handleClick(event) {
 
   if (!clickedCombatInlineMenu) {
     closeOpenCombatInlineMenus();
+  }
+
+  if (
+    state.menuHubOpen &&
+    !clickedFileMenu &&
+    actionButton?.dataset.action !== "toggle-file-menu"
+  ) {
+    state.menuHubOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
   }
 
   if (
@@ -742,18 +759,31 @@ function handleClick(event) {
 
   const { action } = actionButton.dataset;
 
-  if (state.optionsMenuOpen && clickedOptionsMenu && action !== "toggle-options-menu") {
-    state.optionsMenuOpen = false;
-  }
-
   if (action === "toggle-file-menu") {
+    const nextOpenState = !(state.menuHubOpen || state.fileMenuOpen);
     state.optionsMenuOpen = false;
-    state.fileMenuOpen = !state.fileMenuOpen;
+    state.fileMenuOpen = false;
+    state.menuHubOpen = nextOpenState;
     render();
     return;
   }
 
-  if (action === "toggle-options-menu") {
+  if (action === "open-file-menu-section") {
+    state.menuHubOpen = false;
+    state.fileMenuOpen = true;
+    render();
+    return;
+  }
+
+  if (action === "open-menu-hub") {
+    state.fileMenuOpen = false;
+    state.menuHubOpen = true;
+    render();
+    return;
+  }
+
+  if (action === "open-options-menu-section" || action === "toggle-options-menu") {
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = !state.optionsMenuOpen;
     render();
@@ -762,6 +792,7 @@ function handleClick(event) {
 
   if (action === "close-options-menu") {
     state.optionsMenuOpen = false;
+    state.menuHubOpen = false;
     render();
     return;
   }
@@ -781,6 +812,7 @@ function handleClick(event) {
   }
 
   if (action === "new-campaign") {
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     createNewCampaign();
     render();
@@ -788,6 +820,7 @@ function handleClick(event) {
   }
 
   if (action === "save-campaign-file") {
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     render();
     saveCampaignFile();
@@ -795,6 +828,7 @@ function handleClick(event) {
   }
 
   if (action === "save-campaign-file-as") {
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     render();
     saveCampaignFileAs();
@@ -802,6 +836,7 @@ function handleClick(event) {
   }
 
   if (action === "choose-campaign-file") {
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     render();
     chooseCampaignFile();
@@ -2604,8 +2639,9 @@ function handleGlobalKeydown(event) {
     return;
   }
 
-  if (event.key === "Escape" && (state.fileMenuOpen || state.optionsMenuOpen)) {
+  if (event.key === "Escape" && (state.menuHubOpen || state.fileMenuOpen || state.optionsMenuOpen)) {
     event.preventDefault();
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = false;
     render();
@@ -2614,6 +2650,7 @@ function handleGlobalKeydown(event) {
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
+    state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = false;
     saveCampaignFile();
@@ -3134,10 +3171,6 @@ function render(focusState = null) {
   app.innerHTML = `
     <div class="shell">
       <div class="shell__backdrop"></div>
-      <div class="shell-menu-bar" aria-label="Menus principales">
-        ${renderFileMenu()}
-        ${renderOptionsMenu()}
-      </div>
       <header class="topbar">
         <div class="brand">
           <div class="brand__crest">
@@ -3150,6 +3183,9 @@ function render(focusState = null) {
           </div>
         </div>
         ${renderTopbarNavigation()}
+        <div class="shell-menu-bar" aria-label="Menus principales">
+          ${renderFileMenu()}
+        </div>
       </header>
       <main class="workspace">
         ${renderScreen()}
@@ -3200,9 +3236,26 @@ function render(focusState = null) {
 }
 
 function renderTopbarNavigation() {
+  const buttonOrder = [
+    "combat-tracker",
+    "initiative-board",
+    "bestiary",
+    "arcanum",
+    "items",
+    "diary",
+    "tables"
+  ];
+  const buttonScreens = buttonOrder
+    .map((screenId) => screens.find((screen) => screen.id === screenId))
+    .filter(Boolean);
+
   return `
     <div class="topbar__nav-stack" aria-label="Barra principal">
-      ${TOPBAR_NAV_ROWS.map((row) => renderTopbarNavRow(row)).join("")}
+      <div class="nav-row nav-row--combined">
+        <nav class="nav nav--row" aria-label="Pantallas principales">
+          ${buttonScreens.map((screen) => renderScreenButton(screen)).join("")}
+        </nav>
+      </div>
     </div>
   `;
 }
@@ -3224,16 +3277,25 @@ function renderTopbarNavRow(row) {
 
 function renderScreenButton(screen, extraClassName = "") {
   const buttonLabel = state.appLanguage === APP_LANGUAGE_EN ? screen.label : screen.shortLabel;
+  const screenIconUrl = getScreenIconUrl(screen.id);
 
   return `
     <button
       class="nav__button ${extraClassName} ${screen.id === state.activeScreen ? "is-active" : ""}"
       type="button"
       data-screen="${screen.id}"
+      data-tooltip="${escapeHtml(buttonLabel)}"
       aria-pressed="${screen.id === state.activeScreen}"
+      aria-label="${escapeHtml(buttonLabel)}"
       title="${escapeHtml(screen.label)}"
     >
-      <span class="nav__icon">${screen.icon}</span>
+      <span class="nav__icon">
+        ${
+          screenIconUrl
+            ? `<img src="${escapeHtml(screenIconUrl)}" alt="" loading="eager" decoding="async" aria-hidden="true" />`
+            : screen.icon
+        }
+      </span>
       <span class="nav__label">${escapeHtml(buttonLabel)}</span>
     </button>
   `;
@@ -3242,27 +3304,46 @@ function renderScreenButton(screen, extraClassName = "") {
 function renderFileMenu() {
   const activeCampaignFileName = cleanText(state.campaignFileName) || getFileNameFromPath(state.campaignFilePath);
   const activeCampaignFilePath = cleanText(state.campaignFilePath);
+  const buttonActive = state.menuHubOpen || state.fileMenuOpen || state.optionsMenuOpen;
 
   return `
     <div class="file-menu" data-file-menu>
       <button
-        class="nav__button file-menu__trigger ${state.fileMenuOpen ? "is-active" : ""}"
+        class="nav__button file-menu__trigger ${buttonActive ? "is-active" : ""}"
         type="button"
         data-action="toggle-file-menu"
-        aria-expanded="${state.fileMenuOpen}"
+        aria-expanded="${buttonActive}"
         aria-haspopup="menu"
+        aria-label="Opciones"
       >
         <span class="nav__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
-            <path d="M4 4h7l2 2h7v14H4V4Zm2 4v10h12V8H6Z" />
+            <path d="m19.14 12.94.04-.94-.04-.94 2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.57.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58-.04.94.04.94-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.57-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
           </svg>
         </span>
-        <span class="nav__label">${escapeHtml(t("menu_file"))}</span>
+        <span class="nav__label">Opciones</span>
       </button>
+      ${
+        state.menuHubOpen
+          ? `
+            <div class="file-menu__popover" role="menu">
+              <button class="file-menu__item" type="button" role="menuitem" data-action="open-file-menu-section">
+                Archivo
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="open-options-menu-section">
+                Ajustes
+              </button>
+            </div>
+          `
+          : ""
+      }
       ${
         state.fileMenuOpen
           ? `
             <div class="file-menu__popover" role="menu">
+              <button class="file-menu__item" type="button" role="menuitem" data-action="open-menu-hub">
+                Volver
+              </button>
               ${
                 activeCampaignFileName
                   ? `
@@ -3305,27 +3386,6 @@ function renderFileMenu() {
   `;
 }
 
-function renderOptionsMenu() {
-  return `
-    <div class="file-menu options-menu" data-options-menu>
-      <button
-        class="nav__button file-menu__trigger options-menu__trigger ${state.optionsMenuOpen ? "is-active" : ""}"
-        type="button"
-        data-action="toggle-options-menu"
-        aria-expanded="${state.optionsMenuOpen}"
-        aria-haspopup="menu"
-      >
-        <span class="nav__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M5 7h14v2H5V7Zm3 4h11v2H8v-2Zm-3 4h14v2H5v-2Zm-2-4h3v2H3v-2Z" />
-          </svg>
-        </span>
-        <span class="nav__label">${escapeHtml(t("menu_options"))}</span>
-      </button>
-    </div>
-  `;
-}
-
 function renderOptionsDialog() {
   if (!state.optionsMenuOpen) {
     return "";
@@ -3346,7 +3406,7 @@ function renderOptionsDialog() {
         class="options-dialog__panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Opciones"
+        aria-label="Ajustes"
       >
         <div class="options-dialog__header">
           <button
@@ -3648,9 +3708,7 @@ function renderCombatTracker() {
   return `
     <section class="panel panel--table combat-tracker-panel">
       <div class="section-heading">
-        <div>
-          <h3>${escapeHtml(t("combat_table_title"))}</h3>
-        </div>
+        ${renderScreenHeadingIdentity("combat-tracker", "", t("combat_table_title"))}
         <div class="section-heading__side">
           ${!state.combatTimerPanelOpen
             ? `
@@ -3979,12 +4037,35 @@ function renderCombatTurnToken(combatant, isActive) {
         statusNames.length > 0
           ? `
             <div class="combat-turn-token__statuses">
-              ${statusNames.map((statusName) => `<span class="combat-turn-token__status ${getCombatStatusToneClass(statusName)}">${escapeHtml(statusName)}</span>`).join("")}
+              ${statusNames.map((statusName) => renderCombatTurnStatusChip(statusName)).join("")}
             </div>
           `
           : ""
       }
     </div>
+  `;
+}
+
+function renderCombatTurnStatusChip(statusName) {
+  const description = getCombatStatusDescription(statusName) || "Sin descripcion disponible.";
+  const tone = getCombatStatusToneClass(statusName);
+  const iconUrl = getCombatStatusIconUrl(statusName);
+  const fallbackLabel = cleanText(statusName).slice(0, 2).toUpperCase() || "?";
+
+  return `
+    <span class="combat-turn-token__status-wrap" tabindex="0" aria-label="${escapeHtml(statusName)}">
+      <span class="combat-turn-token__status ${tone}" aria-hidden="true">
+        ${
+          iconUrl
+            ? `<img class="combat-turn-token__status-icon" src="${escapeHtml(iconUrl)}" alt="" decoding="async" />`
+            : `<span class="combat-turn-token__status-fallback">${escapeHtml(fallbackLabel)}</span>`
+        }
+      </span>
+      <span class="combat-turn-token__status-tooltip" role="tooltip">
+        <strong>${escapeHtml(statusName)}</strong>
+        <span>${escapeHtml(description)}</span>
+      </span>
+    </span>
   `;
 }
 
@@ -4636,10 +4717,7 @@ function renderBestiary() {
 
     <section class="panel panel--table compendium-panel bestiary-showcase bestiary-showcase--hearth">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">${escapeHtml(t("bestiary_eyebrow"))}</p>
-          <h3>${escapeHtml(t("bestiary_title"))}</h3>
-        </div>
+        ${renderScreenHeadingIdentity("bestiary", t("bestiary_eyebrow"), t("bestiary_title"))}
         <div class="section-heading__side">
           <div class="section-meta">
             ${renderRepositoryCsvPicker("bestiary")}
@@ -4675,10 +4753,7 @@ function renderItems() {
   return `
     <section class="panel panel--table compendium-panel">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">${escapeHtml(t("items_eyebrow"))}</p>
-          <h3>${escapeHtml(t("items_title"))}</h3>
-        </div>
+        ${renderScreenHeadingIdentity("items", t("items_eyebrow"), t("items_title"))}
         <div class="section-meta">
           ${renderRepositoryCsvPicker("items")}
           <span>${getItemStatusLabel()}</span>
@@ -4712,10 +4787,7 @@ function renderArcanum() {
   return `
     <section class="panel panel--table compendium-panel">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">${escapeHtml(t("arcanum_eyebrow"))}</p>
-          <h3>${escapeHtml(t("arcanum_title"))}</h3>
-        </div>
+        ${renderScreenHeadingIdentity("arcanum", t("arcanum_eyebrow"), t("arcanum_title"))}
         <div class="section-meta">
           ${renderRepositoryCsvPicker("arcanum")}
           <span>${getArcanumStatusLabel()}</span>
@@ -5228,7 +5300,33 @@ function renderSummaryCard(item) {
   `;
 }
 
+function renderScreenHeadingIdentity(screenId, eyebrow, title) {
+  const screenIconUrl = getScreenIconUrl(screenId);
+
+  return `
+    <div class="section-heading__identity">
+      ${
+        screenIconUrl
+          ? `
+            <img class="section-heading__icon" src="${escapeHtml(screenIconUrl)}" alt="" decoding="async" aria-hidden="true" />
+          `
+          : ""
+      }
+      <div class="section-heading__text">
+        ${eyebrow ? `<p class="eyebrow">${escapeHtml(eyebrow)}</p>` : ""}
+        <h3>${escapeHtml(title)}</h3>
+      </div>
+    </div>
+  `;
+}
+
 function renderCombatMiniActionIcon(kind) {
+  const iconUrl = getCombatMiniActionIconUrl(kind);
+
+  if (iconUrl) {
+    return `<img class="mini-action__icon-image" src="${escapeHtml(iconUrl)}" alt="" decoding="async" />`;
+  }
+
   if (kind === "damage") {
     return `
       <svg viewBox="0 0 24 24" focusable="false">
@@ -6643,10 +6741,7 @@ function renderCharactersScreen() {
     <section class="panel panel--table characters-screen">
       ${renderCharactersOverviewPanel(state.characters)}
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">Aliados de campana</p>
-          <h3>Personajes</h3>
-        </div>
+        ${renderScreenHeadingIdentity("initiative-board", "Aliados de campana", "Personajes")}
         <div class="section-meta">
           <span>${state.characters.length} fichas</span>
         </div>
@@ -6710,10 +6805,7 @@ function renderDiaryScreen() {
   return `
     <section class="panel panel--table diary-screen">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">${escapeHtml(t("diary_eyebrow"))}</p>
-          <h3>${escapeHtml(t("diary_title"))}</h3>
-        </div>
+        ${renderScreenHeadingIdentity("diary", t("diary_eyebrow"), t("diary_title"))}
         <div class="section-meta">
           <span>${escapeHtml(t("diary_notes_count", { count: state.diaryNotes.length }))}</span>
           <span>${escapeHtml(t("diary_folders_count", { count: folderCount }))}</span>
@@ -7172,10 +7264,7 @@ function renderTablesScreen() {
   return `
     <section class="panel panel--table tables-screen">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">Referencia editable</p>
-          <h3>Tablas</h3>
-        </div>
+        ${renderScreenHeadingIdentity("tables", "Referencia editable", "Tablas")}
         <div class="section-meta">
           <span>${state.tables.length} tablas</span>
           <span>${openTables.length} abiertas</span>
@@ -15014,6 +15103,7 @@ function normalizeCampaignSave(value) {
 
 function resetTransientCampaignUiState() {
   stopActiveTableRoll();
+  state.menuHubOpen = false;
   state.fileMenuOpen = false;
   state.optionsMenuOpen = false;
   closeCampaignSaveNameDialog();

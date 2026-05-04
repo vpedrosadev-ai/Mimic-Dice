@@ -1,0 +1,3 @@
+En la barra del menu mueve a la derecha todos los botones para que esten pegados al boton de opciones, ya no quiero que dejes espacio. Haz un poco mas alta la barra del menu de forma que "D&D 5e encounter suite" no esté tan pegado al borde superior y el nombre de la campaña no esté tan pegado al borde inferior. Revisa cual es el boton mas grande todos y haz que los demas tengan su mismo tamaño, no quiero que cada boton tenga un tamaño distinto exceptuando el boton de opciones.
+
+En la cadena de iniciativa de la pantalla de combate fijate que la ventana emergente que describe el estado sigue transparentando y/o queda por detras de otros elementos de la pantalla, solucionalo para que este adelante de todo y no trasparente
