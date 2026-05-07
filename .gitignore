@@ -1,7 +1,9 @@
 node_modules/
 dist/
 dist-electron/
-campaigns/
+campaigns/*
+!campaigns/examples/
+!campaigns/examples/**
 .DS_Store
 Thumbs.db
 .env

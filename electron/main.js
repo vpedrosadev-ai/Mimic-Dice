@@ -24,6 +24,18 @@ protocol.registerSchemesAsPrivileged([{
   }
 }]);
 
+function configureDesktopScaleNormalization() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  // Keep desktop layout tied to real monitor resolution instead of Windows UI scale.
+  app.commandLine.appendSwitch("high-dpi-support", "1");
+  app.commandLine.appendSwitch("force-device-scale-factor", "1");
+}
+
+configureDesktopScaleNormalization();
+
 function getCampaignSaveDirectory() {
   return path.join(PROJECT_ROOT, "campaigns");
 }

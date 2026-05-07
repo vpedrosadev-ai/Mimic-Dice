@@ -24,9 +24,9 @@ import {
   mergeCompendiumTranslationRows,
   translateCompendiumRows
 } from "./data/contentTranslation.js";
-import { initialTableDefinitions } from "./data/tablesSeedData.js";
+import { getLocalizedSystemTableDefinitions, initialTableDefinitions } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
-import { getCombatMiniActionIconUrl, getCombatStatusIconUrl } from "./assets/combatIcons.js";
+import { getCombatMiniActionIconUrl, getCombatSpellbookIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "./assets/combatIcons.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
 import { getScreenIconUrl } from "./assets/screenIcons.js";
 import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
@@ -61,6 +61,9 @@ import {
 import { getVirtualStartIndex, getVirtualWindow } from "./shared/virtualList.js";
 import * as XLSX from "xlsx";
 import appIconUrl from "../build-resources/icon.png";
+import combatSoundUrl from "./assets/sound-effects/combate.mp3";
+import longRestSoundUrl from "./assets/sound-effects/descanso.mp3";
+import diceRollSoundUrl from "./assets/sound-effects/dice_roll.mp3";
 import {
   APP_LANGUAGE_EN,
   APP_LANGUAGE_ES,
@@ -152,7 +155,8 @@ const bestiaryRenderCache = {
   }
 };
 
-const blankFilters = Object.fromEntries(columns.map((column) => [column.key, ""]));
+const blankFilters = Object.fromEntries(columns.map((column) => [column.key, []]));
+const blankCombatFilterDrafts = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const blankBestiaryFilters = {
   query: "",
@@ -228,6 +232,9 @@ let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
 let activeTableColumnResize = null;
 let activeTableRollTimer = 0;
+let activeCombatSpellbookPopoverSyncFrame = 0;
+let activeCombatSpellPreviewSyncFrame = 0;
+const notificationTimeouts = new Map();
 let tableRollAudioContext = null;
 resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
@@ -250,6 +257,7 @@ const state = {
   campaignName: initialCampaignMeta.name,
   campaignFileName: initialCampaignMeta.fileName,
   campaignFilePath: initialCampaignMeta.filePath,
+  campaignSavedAt: initialCampaignMeta.savedAt,
   appLanguage: normalizeStoredAppLanguage(initialCampaignMeta.language),
   contentLanguage: normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage),
   includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(initialCampaignMeta.includeNpcInCombatExperience),
@@ -261,6 +269,7 @@ const state = {
     arcanum: { ...blankContentSourceMeta }
   },
   campaignMessage: "",
+  notifications: [],
   menuHubOpen: false,
   fileMenuOpen: false,
   optionsMenuOpen: false,
@@ -278,6 +287,7 @@ const state = {
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
   activeFilterKey: "",
+  combatFilterDrafts: { ...blankCombatFilterDrafts },
   selectedIds: new Set(),
   newEntitySide: initialCombatTrackerState.newEntitySide,
   nextId: initialCombatTrackerState.nextId,
@@ -317,6 +327,7 @@ const state = {
   activeCharacterSpellRowId: "",
   showCharacterSpellSuggestions: false,
   activeCombatSpellbookCombatantId: "",
+  activeCombatSpellPreviewName: "",
   itemStatus: "loading",
   itemMessage: "",
   itemDebugInfo: null,
@@ -378,6 +389,19 @@ const state = {
   combatStatusDrafts: {}
 };
 
+const localizedSystemTablesEs = getLocalizedSystemTableDefinitions(APP_LANGUAGE_ES);
+const localizedSystemTablesEn = getLocalizedSystemTableDefinitions(APP_LANGUAGE_EN);
+const localizedStatusTableEs = localizedSystemTablesEs.find((table) => cleanText(table.name).toLowerCase().includes("estado")) ?? localizedSystemTablesEs[0];
+const localizedStatusTableEn = localizedSystemTablesEn.find((table) => cleanText(table.name).toLowerCase().includes("condition")) ?? localizedSystemTablesEn[0];
+const combatStatusEsToEnMap = new Map(
+  localizedStatusTableEs.rows.map((row, index) => [normalizeTranslationKey(cleanText(row[0]).toLowerCase()), cleanText(localizedStatusTableEn.rows[index]?.[0] || row[0])])
+);
+const combatStatusEnToEsMap = new Map(
+  localizedStatusTableEn.rows.map((row, index) => [normalizeTranslationKey(cleanText(row[0]).toLowerCase()), cleanText(localizedStatusTableEs.rows[index]?.[0] || row[0])])
+);
+
+synchronizeLanguageSpecificSystemData({ syncCombatants: true });
+
 const {
   renderArcanumDetail,
   renderArcanumDetailEmpty,
@@ -416,6 +440,10 @@ app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("keydown", handleKeydown);
 app.addEventListener("paste", handlePaste);
+app.addEventListener("mouseover", handleMouseOver);
+app.addEventListener("mouseout", handleMouseOut);
+app.addEventListener("focusin", handleFocusIn);
+app.addEventListener("focusout", handleFocusOut);
 app.addEventListener("pointerdown", handlePointerDown);
 document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("pointermove", handlePointerMove);
@@ -468,6 +496,7 @@ function handleClick(event) {
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
   const clickedCombatStatusMenu = event.target.closest("[data-combat-status-menu]");
+  const clickedCombatFilterMenu = event.target.closest("[data-combat-filter-menu]");
   const clickedCombatSpellbookMenu = event.target.closest("[data-combat-spellbook-menu]");
   const clickedCombatInlineMenu = event.target.closest(".combat-inline-menu");
   const clickedFileMenu = event.target.closest("[data-file-menu]");
@@ -741,11 +770,25 @@ function handleClick(event) {
   }
 
   if (
+    state.activeFilterKey &&
+    !clickedCombatFilterMenu &&
+    actionButton?.dataset.action !== "toggle-filter"
+  ) {
+    state.activeFilterKey = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
     state.activeCombatSpellbookCombatantId &&
     !clickedCombatSpellbookMenu &&
     actionButton?.dataset.action !== "toggle-combat-spellbook-popup"
   ) {
     state.activeCombatSpellbookCombatantId = "";
+    state.activeCombatSpellPreviewName = "";
 
     if (!actionButton) {
       render();
@@ -799,7 +842,10 @@ function handleClick(event) {
 
   if (action === "set-app-language") {
     state.appLanguage = normalizeStoredAppLanguage(actionButton.dataset.appLanguage);
+    synchronizeLanguageSpecificSystemData({ syncCombatants: true });
     saveCampaignMeta();
+    saveCombatTrackerState();
+    saveTablesState();
     render();
     return;
   }
@@ -1081,22 +1127,30 @@ function handleClick(event) {
     const nextKey = state.activeFilterKey === actionButton.dataset.filterKey ? "" : actionButton.dataset.filterKey;
     state.activeFilterKey = nextKey;
     render({
-      focusSelector: nextKey ? `[data-filter-key="${nextKey}"]` : null
+      focusSelector: nextKey ? `[data-filter-search-key="${nextKey}"]` : null
     });
     return;
   }
 
   if (action === "clear-filter") {
-    state.filters[actionButton.dataset.filterKey] = "";
+    state.filters[actionButton.dataset.filterKey] = [];
+    state.combatFilterDrafts[actionButton.dataset.filterKey] = "";
     render({
-      focusSelector: `[data-filter-key="${actionButton.dataset.filterKey}"]`
+      focusSelector: `[data-filter-search-key="${actionButton.dataset.filterKey}"]`
     });
     return;
   }
 
   if (action === "clear-filters") {
     state.filters = { ...blankFilters };
+    state.combatFilterDrafts = { ...blankCombatFilterDrafts };
     state.activeFilterKey = "";
+    render();
+    return;
+  }
+
+  if (action === "dismiss-notification") {
+    dismissNotification(actionButton.dataset.notificationId);
     render();
     return;
   }
@@ -1133,6 +1187,7 @@ function handleClick(event) {
   }
 
   if (action === "combat-long-rest") {
+    playInterfaceSound(longRestSoundUrl, 0.72);
     applyCombatLongRest();
     saveCombatTrackerState();
     saveCharacters();
@@ -1142,9 +1197,9 @@ function handleClick(event) {
 
   if (action === "toggle-combat-spellbook-popup") {
     const combatantId = cleanText(actionButton.dataset.combatantId);
-    state.activeCombatSpellbookCombatantId = state.activeCombatSpellbookCombatantId === combatantId
-      ? ""
-      : combatantId;
+    const isClosing = state.activeCombatSpellbookCombatantId === combatantId;
+    state.activeCombatSpellbookCombatantId = isClosing ? "" : combatantId;
+    state.activeCombatSpellPreviewName = "";
     render();
     return;
   }
@@ -1169,7 +1224,9 @@ function handleClick(event) {
   if (action === "add-blank-combatant") {
     const combatantId = addBlankCombatant();
     state.filters = { ...blankFilters };
+    state.combatFilterDrafts = { ...blankCombatFilterDrafts };
     state.activeFilterKey = "";
+    state.sort = { key: "numPeana", direction: "asc" };
     render({
       focusSelector: `[data-edit-id="${combatantId}"][data-edit-key="nombre"]`
     });
@@ -1202,9 +1259,7 @@ function handleClick(event) {
     event.preventDefault();
     const combatantId = cleanText(actionButton.dataset.combatantId);
     state.activeCombatStatusMenuId = state.activeCombatStatusMenuId === combatantId ? "" : combatantId;
-    render({
-      focusSelector: state.activeCombatStatusMenuId ? `[data-combat-status-draft="${combatantId}"]` : null
-    });
+    render();
     return;
   }
 
@@ -1251,6 +1306,7 @@ function handleClick(event) {
   }
 
   if (action === "start-combat-turns") {
+    playInterfaceSound(combatSoundUrl, 0.76);
     startCombatTurns();
     render();
     return;
@@ -1596,6 +1652,26 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-combat-spellbook-ability-spent") {
+    toggleCombatSpellbookAbilitySpent(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.characterSpellbookAbilityRowId,
+      actionButton.dataset.characterSpellbookAbilityUseIndex
+    );
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "add-character-spellbook-ability-row") {
+    const rowId = addCharacterSpellbookAbilityRow();
+    saveCharacters();
+    render({
+      focusSelector: rowId ? `[data-character-spellbook-ability-field="name"][data-character-spellbook-ability-row="${rowId}"]` : null
+    });
+    return;
+  }
+
   if (action === "add-character-skill-definition") {
     const skillId = addCharacterSkillDefinition();
     saveCharacters();
@@ -1651,6 +1727,13 @@ function handleClick(event) {
 
   if (action === "remove-character-spell-row") {
     removeCharacterSpellRow(actionButton.dataset.characterSpellRowId);
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "remove-character-spellbook-ability-row") {
+    removeCharacterSpellbookAbilityRow(actionButton.dataset.characterSpellbookAbilityRowId);
     saveCharacters();
     render();
     return;
@@ -2036,6 +2119,20 @@ function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-character-spellbook-ability-field][data-character-spellbook-ability-row]")) {
+    updateCharacterSpellbookAbilityRow(
+      target.dataset.characterSpellbookAbilityRow,
+      target.dataset.characterSpellbookAbilityField,
+      target.value,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-spellbook-ability-field="${target.dataset.characterSpellbookAbilityField}"][data-character-spellbook-ability-row="${target.dataset.characterSpellbookAbilityRow}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-character-spell-slot-level]")) {
     updateCharacterSpellSlot(target.dataset.characterSpellSlotLevel, target.value, true);
     saveCharacters();
@@ -2222,10 +2319,10 @@ function handleChange(event) {
     return;
   }
 
-  if (target.matches("[data-filter-key]")) {
-    state.filters[target.dataset.filterKey] = target.value;
+  if (target.matches("[data-combat-filter-option]")) {
+    toggleCombatFilterValue(target.dataset.combatFilterOption, target.value, target.checked);
     render({
-      focusSelector: `[data-filter-key="${target.dataset.filterKey}"]`
+      focusSelector: `[data-filter-search-key="${target.dataset.combatFilterOption}"]`
     });
     return;
   }
@@ -2452,6 +2549,17 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-character-spellbook-ability-field][data-character-spellbook-ability-row]")) {
+    updateCharacterSpellbookAbilityRow(
+      target.dataset.characterSpellbookAbilityRow,
+      target.dataset.characterSpellbookAbilityField,
+      target.value,
+      false
+    );
+    saveCharacters();
+    return;
+  }
+
   if (target.matches("[data-character-inventory-field][data-character-inventory-row]")) {
     updateCharacterInventoryRow(
       target.dataset.characterInventoryRow,
@@ -2469,10 +2577,10 @@ function handleInput(event) {
     return;
   }
 
-  if (target.matches("[data-filter-key]")) {
-    state.filters[target.dataset.filterKey] = target.value;
+  if (target.matches("[data-filter-search-key]")) {
+    state.combatFilterDrafts[target.dataset.filterSearchKey] = target.value;
     render({
-      focusSelector: `[data-filter-key="${target.dataset.filterKey}"]`,
+      focusSelector: `[data-filter-search-key="${target.dataset.filterSearchKey}"]`,
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
@@ -2767,6 +2875,14 @@ async function handlePaste(event) {
 function handleScroll(event) {
   const target = event.target;
 
+  if (state.activeCombatSpellbookCombatantId) {
+    scheduleActiveCombatSpellbookPopoverSync();
+  }
+
+  if (state.activeCombatSpellPreviewName) {
+    scheduleActiveCombatSpellPreviewSync();
+  }
+
   if (target.matches?.("[data-bestiary-list-root]")) {
     const previousStartIndex = getBestiaryVirtualStartIndex(state.bestiaryListScrollTop);
     const previousViewportHeight = state.bestiaryListViewportHeight;
@@ -2819,6 +2935,101 @@ function handleWindowResize() {
   updateBestiaryListViewport(true);
   updateItemListViewport(true);
   updateArcanumListViewport(true);
+  scheduleActiveCombatSpellbookPopoverSync();
+  scheduleActiveCombatSpellPreviewSync();
+}
+
+function handleMouseOver(event) {
+  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+
+  if (!previewTrigger) {
+    return;
+  }
+
+  const previewName = cleanText(previewTrigger.dataset.combatSpellPreviewName);
+
+  if (!previewName || state.activeCombatSpellPreviewName === previewName) {
+    return;
+  }
+
+  state.activeCombatSpellPreviewName = previewName;
+  syncCombatSpellPreviewOverlayMarkup();
+}
+
+function handleMouseOut(event) {
+  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+  const previewOverlay = event.target.closest("[data-combat-spell-preview-overlay]");
+
+  if (previewOverlay) {
+    if (
+      event.relatedTarget?.closest?.("[data-combat-spell-preview-overlay]")
+      || event.relatedTarget?.closest?.("[data-combat-spell-preview-name]")
+    ) {
+      return;
+    }
+
+    if (!state.activeCombatSpellPreviewName) {
+      return;
+    }
+
+    state.activeCombatSpellPreviewName = "";
+    syncCombatSpellPreviewOverlayMarkup();
+    return;
+  }
+
+  if (!previewTrigger) {
+    return;
+  }
+
+  if (
+    (event.relatedTarget && previewTrigger.contains(event.relatedTarget))
+    || event.relatedTarget?.closest?.("[data-combat-spell-preview-overlay]")
+  ) {
+    return;
+  }
+
+  if (!state.activeCombatSpellPreviewName) {
+    return;
+  }
+
+  state.activeCombatSpellPreviewName = "";
+  syncCombatSpellPreviewOverlayMarkup();
+}
+
+function handleFocusIn(event) {
+  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+
+  if (!previewTrigger) {
+    return;
+  }
+
+  const previewName = cleanText(previewTrigger.dataset.combatSpellPreviewName);
+
+  if (!previewName || state.activeCombatSpellPreviewName === previewName) {
+    return;
+  }
+
+  state.activeCombatSpellPreviewName = previewName;
+  syncCombatSpellPreviewOverlayMarkup();
+}
+
+function handleFocusOut(event) {
+  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+
+  if (!previewTrigger) {
+    return;
+  }
+
+  if (event.relatedTarget && previewTrigger.contains(event.relatedTarget)) {
+    return;
+  }
+
+  if (!state.activeCombatSpellPreviewName) {
+    return;
+  }
+
+  state.activeCombatSpellPreviewName = "";
+  syncCombatSpellPreviewOverlayMarkup();
 }
 
 function handleDragStart(event) {
@@ -3190,6 +3401,8 @@ function render(focusState = null) {
       <main class="workspace">
         ${renderScreen()}
       </main>
+      ${renderNotifications()}
+      ${renderCombatSpellPreviewOverlay()}
       ${renderBootOverlay()}
       ${renderOptionsDialog()}
       ${renderCampaignSaveNameDialog()}
@@ -3231,6 +3444,8 @@ function render(focusState = null) {
   syncCompendiumLayoutHeights();
   applyInterfaceTranslations(app);
   syncTopbarNavigationMetrics();
+  scheduleActiveCombatSpellbookPopoverSync();
+  scheduleActiveCombatSpellPreviewSync();
 
   saveCombatTrackerState();
 }
@@ -3304,6 +3519,7 @@ function renderScreenButton(screen, extraClassName = "") {
 function renderFileMenu() {
   const activeCampaignFileName = cleanText(state.campaignFileName) || getFileNameFromPath(state.campaignFilePath);
   const activeCampaignFilePath = cleanText(state.campaignFilePath);
+  const activeCampaignSavedAt = formatCampaignSavedAt(state.campaignSavedAt);
   const buttonActive = state.menuHubOpen || state.fileMenuOpen || state.optionsMenuOpen;
 
   return `
@@ -3314,24 +3530,24 @@ function renderFileMenu() {
         data-action="toggle-file-menu"
         aria-expanded="${buttonActive}"
         aria-haspopup="menu"
-        aria-label="Opciones"
+        aria-label="${escapeHtml(t("menu_options"))}"
       >
         <span class="nav__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="m19.14 12.94.04-.94-.04-.94 2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.57.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58-.04.94.04.94-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.57-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
           </svg>
         </span>
-        <span class="nav__label">Opciones</span>
+        <span class="nav__label">${escapeHtml(t("menu_options"))}</span>
       </button>
       ${
         state.menuHubOpen
           ? `
             <div class="file-menu__popover" role="menu">
               <button class="file-menu__item" type="button" role="menuitem" data-action="open-file-menu-section">
-                Archivo
+                ${escapeHtml(t("menu_file"))}
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="open-options-menu-section">
-                Ajustes
+                ${escapeHtml(t("menu_settings"))}
               </button>
             </div>
           `
@@ -3350,6 +3566,7 @@ function renderFileMenu() {
                     <div class="file-menu__status">
                       <span class="file-menu__status-label">Fichero de campana activa:</span>
                       <strong class="file-menu__status-name">${escapeHtml(activeCampaignFileName)}</strong>
+                      ${activeCampaignSavedAt ? `<small class="file-menu__status-date">Ultimo guardado: ${escapeHtml(activeCampaignSavedAt)}</small>` : ""}
                       ${
                         activeCampaignFilePath
                           ? `<small class="file-menu__status-path" title="${escapeHtml(activeCampaignFilePath)}">${escapeHtml(activeCampaignFilePath)}</small>`
@@ -3406,7 +3623,7 @@ function renderOptionsDialog() {
         class="options-dialog__panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Ajustes"
+        aria-label="${escapeHtml(t("menu_settings"))}"
       >
         <div class="options-dialog__header">
           <button
@@ -3501,19 +3718,30 @@ function renderOptionsDialog() {
 
 function syncTopbarNavigationMetrics() {
   const navStack = app.querySelector(".topbar__nav-stack");
-  const combatButton = navStack?.querySelector(".nav-row--game [data-screen]");
-  const navButtons = navStack ? [...navStack.querySelectorAll(".nav-row [data-screen]")] : [];
+  const navButtons = navStack ? [...navStack.querySelectorAll(".nav__button[data-screen]")] : [];
+  const firstButton = navButtons[0] ?? null;
 
-  if (!navStack || !combatButton || navButtons.length === 0) {
+  if (!navStack || !firstButton || navButtons.length === 0) {
     return;
   }
 
-  const combatButtonWidth = combatButton.getBoundingClientRect().width;
+  const firstButtonWidth = firstButton.getBoundingClientRect().width;
   const maxButtonWidth = navButtons.reduce((maxWidth, button) => {
-    return Math.max(maxWidth, button.getBoundingClientRect().width);
+    const label = button.querySelector(".nav__label");
+    const icon = button.querySelector(".nav__icon");
+    const naturalWidth = Math.ceil(
+      Math.max(
+        button.getBoundingClientRect().width,
+        (label?.scrollWidth ?? 0) + 20,
+        (icon?.getBoundingClientRect().width ?? 0) + 18,
+        96
+      )
+    );
+
+    return Math.max(maxWidth, naturalWidth);
   }, 0);
 
-  navStack.style.setProperty("--nav-stagger", `${Math.max(0, combatButtonWidth / 4)}px`);
+  navStack.style.setProperty("--nav-stagger", `${Math.max(0, firstButtonWidth / 4)}px`);
   navStack.style.setProperty("--nav-button-width", `${Math.ceil(maxButtonWidth)}px`);
 }
 
@@ -3540,6 +3768,132 @@ function normalizeStoredRepositoryCsvPaths(value) {
     items: normalizeDataCsvRelativePath(source.items) || defaultRepositoryCsvPaths.items,
     arcanum: normalizeDataCsvRelativePath(source.arcanum) || defaultRepositoryCsvPaths.arcanum
   };
+}
+
+function isEnglishInterface() {
+  return normalizeStoredAppLanguage(state?.appLanguage) === APP_LANGUAGE_EN;
+}
+
+function getCurrentHitPointLabelShort() {
+  return isEnglishInterface() ? "HP" : "PV";
+}
+
+function getSystemTableKind(table) {
+  if (!isPlainObject(table)) {
+    return "";
+  }
+
+  const tableName = cleanText(table.name).toLowerCase();
+  const firstColumnLabel = cleanText(Array.isArray(table.columns) ? table.columns[0]?.label : "").toLowerCase();
+
+  if (
+    tableName === "tabla estados"
+    || tableName === "conditions table"
+    || tableName.includes("estado")
+    || tableName.includes("condition")
+    || firstColumnLabel.includes("estado")
+    || firstColumnLabel.includes("condition")
+  ) {
+    return "status";
+  }
+
+  if (tableName === "tabla magia salvaje" || tableName === "wild magic table" || (tableName.includes("magia salvaje") || tableName.includes("wild magic"))) {
+    return "wild-magic";
+  }
+
+  return "";
+}
+
+function getLocalizedSystemTableTemplate(kind, language = state.appLanguage) {
+  const normalizedLanguage = normalizeStoredAppLanguage(language);
+  return getLocalizedSystemTableDefinitions(normalizedLanguage).find((table) => getSystemTableKind(table) === kind) ?? null;
+}
+
+function applyLocalizedSystemTableTemplate(table, template) {
+  if (!isPlainObject(table) || !isPlainObject(template)) {
+    return table;
+  }
+
+  const nextColumns = template.columns.map((label, index) => ({
+    id: cleanText(table.columns?.[index]?.id) || createStableId("table-col"),
+    label: cleanText(label) || `Columna ${index + 1}`,
+    width: normalizeStoredTableColumnWidth(table.columns?.[index]?.width)
+  }));
+  const nextRows = template.rows.map((row, rowIndex) => ({
+    id: cleanText(table.rows?.[rowIndex]?.id) || createStableId("table-row"),
+    cells: Object.fromEntries(nextColumns.map((column, columnIndex) => [column.id, cleanText(row[columnIndex])]))
+  }));
+
+  return {
+    ...table,
+    name: cleanText(template.name) || cleanText(table.name),
+    columns: nextColumns,
+    rows: nextRows
+  };
+}
+
+function getCanonicalCombatStatusName(statusName) {
+  const rawStatus = cleanText(statusName);
+  const normalizedStatus = normalizeTranslationKey(rawStatus.toLowerCase());
+  const exhaustionMatch = rawStatus.match(/^(agotamiento|exhaustion)(?:\s+(\d+))?$/i);
+
+  if (exhaustionMatch) {
+    const level = Math.max(1, Math.floor(toNumber(exhaustionMatch[2]) || 1));
+    return `Agotamiento ${level}`;
+  }
+
+  return combatStatusEnToEsMap.get(normalizedStatus) || rawStatus;
+}
+
+function translateCombatStatusNameForLanguage(statusName, language = state.appLanguage) {
+  const rawStatus = cleanText(statusName);
+  const normalizedLanguage = normalizeStoredAppLanguage(language);
+  const exhaustionMatch = rawStatus.match(/^(agotamiento|exhaustion)(?:\s+(\d+))?$/i);
+
+  if (exhaustionMatch) {
+    const level = Math.max(1, Math.floor(toNumber(exhaustionMatch[2]) || 1));
+    return normalizedLanguage === APP_LANGUAGE_EN ? `Exhaustion ${level}` : `Agotamiento ${level}`;
+  }
+
+  const normalizedStatus = normalizeTranslationKey(rawStatus.toLowerCase());
+
+  if (normalizedLanguage === APP_LANGUAGE_EN) {
+    return combatStatusEsToEnMap.get(normalizedStatus) || rawStatus;
+  }
+
+  return combatStatusEnToEsMap.get(normalizedStatus) || rawStatus;
+}
+
+function synchronizeLanguageSpecificSystemData({ syncCombatants = false } = {}) {
+  state.tables = state.tables.map((table) => {
+    const kind = getSystemTableKind(table);
+
+    if (!kind) {
+      return table;
+    }
+
+    const template = getLocalizedSystemTableTemplate(kind, state.appLanguage);
+    return template ? applyLocalizedSystemTableTemplate(table, template) : table;
+  });
+
+  if (!syncCombatants) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    const currentStatuses = getCombatantStatusNames(combatant);
+
+    if (currentStatuses.length === 0) {
+      return combatant;
+    }
+
+    const nextStatuses = currentStatuses.map((entry) => translateCombatStatusNameForLanguage(entry, state.appLanguage));
+
+    return normalizeCombatant({
+      ...combatant,
+      condiciones: nextStatuses.join(", ")
+    });
+  });
 }
 
 function t(key, replacements = {}) {
@@ -3615,7 +3969,7 @@ function applyInterfaceTranslations(root = app) {
       return;
     }
 
-    ["placeholder", "title", "aria-label"].forEach((attributeName) => {
+    ["placeholder", "title", "aria-label", "data-tooltip"].forEach((attributeName) => {
       const attributeValue = element.getAttribute(attributeName);
 
       if (!attributeValue) {
@@ -3625,7 +3979,7 @@ function applyInterfaceTranslations(root = app) {
       let translatedValue =
         UI_ATTRIBUTE_TRANSLATIONS_EN.get(attributeValue)
         ?? UI_ATTRIBUTE_TRANSLATIONS_EN_NORMALIZED.get(normalizeTranslationKey(attributeValue))
-        ?? attributeValue;
+        ?? translateUiString(attributeValue);
 
       for (const [pattern, replacement] of UI_REGEX_TRANSLATIONS_EN) {
         if (pattern.test(translatedValue)) {
@@ -3704,6 +4058,15 @@ function renderCombatTracker() {
     visibleCombatants.length > 0 &&
     visibleCombatants.every((combatant) => state.selectedIds.has(combatant.id));
   const battleTimerLabel = formatBattleTimer(getBattleTimerElapsedMs());
+  const initiativeActionIconUrl = getCombatToolbarActionIconUrl("initiative");
+  const combatActionIconUrl = getCombatToolbarActionIconUrl("combat");
+  const longRestActionIconUrl = getCombatToolbarActionIconUrl("longRest");
+  const combatActionTooltip = state.isCombatActive
+    ? "Para el contador y oculta el visual de combate"
+    : "Muestra el visual de combate para todas las filas ordenadas con un valor de iniciativa y enciende el contador";
+  const combatActionLabel = state.isCombatActive
+    ? "<span>Fin del</span><span>combate</span>"
+    : "<span class=\"combat-action-button__single-line\">Combate !</span>";
 
   return `
     <section class="panel panel--table combat-tracker-panel">
@@ -3750,12 +4113,18 @@ function renderCombatTracker() {
           >
             Eliminar enemigos
           </button>
-          <div class="area-damage">
+        </div>
+      <div class="table-toolbar__group">
+          <div
+            class="combat-area-bulk-box area-damage combat-inline-tooltip-anchor combat-inline-tooltip-anchor--panel"
+            data-tooltip="${escapeHtml(t("Aplica un efecto a las filas que esten seleccionadas"))}"
+            data-area-label="${escapeHtml(t("area_effects"))}"
+          >
             <input
               class="area-damage__input"
               type="number"
               inputmode="numeric"
-              placeholder="Cantidad"
+              placeholder="${escapeHtml(t("amount_label"))}"
               value="${escapeHtml(state.areaDamage)}"
               data-area-damage
               aria-label="Cantidad para ajustar filas seleccionadas"
@@ -3805,32 +4174,36 @@ function renderCombatTracker() {
               </button>
             </div>
           </div>
-        </div>
-        <div class="table-toolbar__group">
           <button
-            class="toolbar-button toolbar-button--accent"
+            class="toolbar-button toolbar-button--combat"
             type="button"
             data-action="generate-iniactiva"
+            data-tooltip="Lanza la iniciativa sumando el bonus para las filas seleccionadas"
             ${state.selectedIds.size === 0 ? "disabled" : ""}
           >
-            <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M6.2 3h11.6L22 8.2v7.6L17.8 21H6.2L2 15.8V8.2L6.2 3Zm1.4 2L4 9.4v5.2L7.6 19h8.8l3.6-4.4V9.4L16.4 5H7.6Zm2.1 2.7h4.6l2.4 2.8-2.4 2.8H9.7l-2.3-2.8 2.3-2.8Zm.9 7.1h2.8l1.4 1.8-1.4 1.7h-2.8l-1.4-1.7 1.4-1.8Z" />
-              </svg>
-            </span>
-            Generar iniciativa
+            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(initiativeActionIconUrl)}" alt="" decoding="async" /></span>
+            <span class="combat-action-button__label"><span>${escapeHtml(t("Generar"))}</span><span>${escapeHtml(t("iniciativa"))}</span></span>
           </button>
           <button
             class="toolbar-button toolbar-button--combat"
             type="button"
             data-action="${state.isCombatActive ? "end-combat-turns" : "start-combat-turns"}"
+            data-tooltip="${escapeHtml(combatActionTooltip)}"
             ${!state.isCombatActive && turnParticipants.length === 0 ? "disabled" : ""}
           >
-            ${state.isCombatActive ? "FIN COMBATE" : "COMBATE!"}
+            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(combatActionIconUrl)}" alt="" decoding="async" /></span>
+            <span class="combat-action-button__label combat-action-button__label--combat${state.isCombatActive ? "" : " combat-action-button__label--combat-start"}">
+              ${combatActionLabel}
+            </span>
           </button>
-          <button class="toolbar-button toolbar-button--accent" type="button" data-action="combat-long-rest">
-            <span class="button-icon" aria-hidden="true">${renderCombatToolbarIcon("campfire")}</span>
-            DESCANSO LARGO
+          <button
+            class="toolbar-button toolbar-button--combat"
+            type="button"
+            data-action="combat-long-rest"
+            data-tooltip="Todos los Aliados recuperan toda la vida, restauran vida maxima, dados de golpe, estados y usos de hechizos y habilidades."
+          >
+            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(longRestActionIconUrl)}" alt="" decoding="async" /></span>
+            <span class="combat-action-button__label"><span>${escapeHtml(t("Descanso"))}</span><span>${escapeHtml(t("Largo"))}</span></span>
           </button>
         </div>
       </div>
@@ -3844,12 +4217,14 @@ function renderCombatTracker() {
           <thead>
             <tr>
               <th class="cell-select" scope="col">
-                <input
-                  type="checkbox"
-                  data-select-all
-                  aria-label="Seleccionar todas las entidades visibles"
-                  ${allVisibleSelected ? "checked" : ""}
-                />
+                <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--corner" data-tooltip="Seleccionar todas las filas de la tabla">
+                  <input
+                    type="checkbox"
+                    data-select-all
+                    aria-label="Seleccionar todas las entidades visibles"
+                    ${allVisibleSelected ? "checked" : ""}
+                  />
+                </span>
               </th>
               ${columns.map(renderHeaderCell).join("")}
             </tr>
@@ -3863,14 +4238,16 @@ function renderCombatTracker() {
             <tr>
               <td colspan="${columns.length + 1}">
                 <div class="add-row-cell">
-                  <button
-                    class="add-row-button"
-                    type="button"
-                    data-action="add-blank-combatant"
-                    aria-label="Anadir fila en blanco"
-                  >
-                    <span class="add-row-button__icon" aria-hidden="true">+</span>
-                  </button>
+                  <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--side-right" data-tooltip="Añadir fila">
+                    <button
+                      class="add-row-button"
+                      type="button"
+                      data-action="add-blank-combatant"
+                      aria-label="Anadir fila en blanco"
+                    >
+                      <span class="add-row-button__icon" aria-hidden="true">+</span>
+                    </button>
+                  </span>
                 </div>
               </td>
             </tr>
@@ -3884,7 +4261,7 @@ function renderCombatTracker() {
 function renderCombatTimerToggleButton(isActive = false) {
   return `
     <button
-      class="toolbar-button combat-overview-toggle ${isActive ? "is-active" : ""}"
+      class="toolbar-button toolbar-button--combat combat-overview-toggle ${isActive ? "is-active" : ""}"
       type="button"
       data-action="toggle-combat-timer-panel"
       aria-expanded="${isActive}"
@@ -3969,9 +4346,9 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
             type="button"
             data-action="advance-combat-turn"
           >
-            Pasar turno
+            ${escapeHtml(t("Pasar turno"))}
           </button>
-          <span class="round-chip">RONDA ${escapeHtml(String(getCombatRound()))}</span>
+          <span class="round-chip">${escapeHtml(t("round_label"))} ${escapeHtml(String(getCombatRound()))}</span>
         </div>
         <div
           class="combat-turn-strip"
@@ -4003,6 +4380,7 @@ function getCombatTurnTokenScale(turnCount) {
 
 function renderCombatTurnToken(combatant, isActive) {
   const tokenUrl = getCombatantTokenUrl(combatant);
+  const initiativeIconUrl = getCombatToolbarActionIconUrl("initiative");
   const standNumber = cleanText(combatant.numPeana);
   const label = cleanText(combatant.nombre) || "Sin nombre";
   const side = mapTagToSide(combatant.tag);
@@ -4024,7 +4402,10 @@ function renderCombatTurnToken(combatant, isActive) {
       data-combatant-id="${escapeHtml(combatant.id)}"
       title="${escapeHtml(label)} | Inic ${escapeHtml(String(combatant.iniactiva ?? ""))}"
     >
-      <span class="combat-turn-token__initiative">${escapeHtml(String(combatant.iniactiva ?? "-"))}</span>
+      <span class="combat-turn-token__initiative" data-tooltip="Iniciativa en el combate">
+        <img class="combat-turn-token__initiative-icon" src="${escapeHtml(initiativeIconUrl)}" alt="" decoding="async" aria-hidden="true" />
+        <span>${escapeHtml(String(combatant.iniactiva ?? "-"))}</span>
+      </span>
       <div class="combat-turn-token combat-turn-token--${side}">
         ${
           tokenUrl
@@ -4033,27 +4414,22 @@ function renderCombatTurnToken(combatant, isActive) {
         }
         ${isEnemyCombatant(combatant) && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}
       </div>
-      ${
-        statusNames.length > 0
-          ? `
-            <div class="combat-turn-token__statuses">
-              ${statusNames.map((statusName) => renderCombatTurnStatusChip(statusName)).join("")}
-            </div>
-          `
-          : ""
-      }
+      <div class="combat-turn-token__statuses">
+        ${statusNames.map((statusName) => renderCombatTurnStatusChip(statusName)).join("")}
+      </div>
     </div>
   `;
 }
 
 function renderCombatTurnStatusChip(statusName) {
+  const localizedStatusName = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
   const description = getCombatStatusDescription(statusName) || "Sin descripcion disponible.";
   const tone = getCombatStatusToneClass(statusName);
-  const iconUrl = getCombatStatusIconUrl(statusName);
-  const fallbackLabel = cleanText(statusName).slice(0, 2).toUpperCase() || "?";
+  const iconUrl = getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName));
+  const fallbackLabel = cleanText(localizedStatusName).slice(0, 2).toUpperCase() || "?";
 
   return `
-    <span class="combat-turn-token__status-wrap" tabindex="0" aria-label="${escapeHtml(statusName)}">
+    <span class="combat-turn-token__status-wrap" tabindex="0" aria-label="${escapeHtml(localizedStatusName)}">
       <span class="combat-turn-token__status ${tone}" aria-hidden="true">
         ${
           iconUrl
@@ -4062,7 +4438,7 @@ function renderCombatTurnStatusChip(statusName) {
         }
       </span>
       <span class="combat-turn-token__status-tooltip" role="tooltip">
-        <strong>${escapeHtml(statusName)}</strong>
+        <strong>${escapeHtml(localizedStatusName)}</strong>
         <span>${escapeHtml(description)}</span>
       </span>
     </span>
@@ -5419,7 +5795,9 @@ function renderCombatToolbarIcon(kind) {
 }
 
 function renderHeaderCell(column) {
-  const filterValue = cleanText(state.filters?.[column.key]);
+  const selectedFilterValues = Array.isArray(state.filters?.[column.key]) ? state.filters[column.key] : [];
+  const filterValue = cleanText(state.combatFilterDrafts?.[column.key]);
+  const filterOptions = getCombatFilterOptions(column.key, filterValue);
   const isActive = state.sort.key === column.key;
   const sortDirection = isActive ? state.sort.direction : "none";
   const sortLabel =
@@ -5435,7 +5813,7 @@ function renderHeaderCell(column) {
         <div class="th-content">
           <span>${column.label}</span>
         </div>
-        <div class="th-actions">
+        <div class="th-actions" data-combat-filter-menu>
           <button
             class="sort-button ${isActive ? "is-active" : ""}"
             type="button"
@@ -5446,7 +5824,7 @@ function renderHeaderCell(column) {
             <span>${sortLabel}</span>
           </button>
           <button
-            class="filter-button ${filterValue ? "is-active" : ""}"
+            class="filter-button ${selectedFilterValues.length > 0 ? "is-active" : ""}"
             type="button"
             data-action="toggle-filter"
             data-filter-key="${column.key}"
@@ -5464,11 +5842,28 @@ function renderHeaderCell(column) {
                       class="filter-input"
                       type="text"
                       value="${escapeHtml(filterValue)}"
-                      data-filter-key="${column.key}"
-                      placeholder="Escribe para filtrar"
+                      data-filter-search-key="${column.key}"
+                      placeholder="${escapeHtml(t("search_values_placeholder"))}"
                       aria-label="Filtrar ${column.label}"
                     />
                   </label>
+                  <div class="combat-filter-options" role="group" aria-label="Valores de ${escapeHtml(column.label)}">
+                    ${
+                      filterOptions.length > 0
+                        ? filterOptions.map((optionValue) => `
+                          <label class="combat-filter-option">
+                            <input
+                              type="checkbox"
+                              data-combat-filter-option="${column.key}"
+                              value="${escapeHtml(optionValue)}"
+                              ${selectedFilterValues.includes(optionValue) ? "checked" : ""}
+                            />
+                            <span>${escapeHtml(optionValue)}</span>
+                          </label>
+                        `).join("")
+                        : `<div class="combat-filter-options__empty">No hay valores coincidentes.</div>`
+                    }
+                  </div>
                   <button
                     class="filter-clear"
                     type="button"
@@ -5499,21 +5894,25 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
     >
       <td class="cell-select">
         <div class="cell-select__stack">
-          <input
-            type="checkbox"
-            data-select-row="${combatant.id}"
-            aria-label="Seleccionar ${escapeHtml(combatant.nombre || combatant.id)}"
-            ${state.selectedIds.has(combatant.id) ? "checked" : ""}
-          />
-          <button
-            class="cell-row-delete"
-            type="button"
-            data-action="delete-combatant-row"
-            data-combatant-id="${escapeHtml(combatant.id)}"
-            aria-label="Eliminar ${escapeHtml(combatant.nombre || combatant.id)}"
-          >
-            <span aria-hidden="true">x</span>
-          </button>
+          <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--corner" data-tooltip="Seleccionar fila">
+            <input
+              type="checkbox"
+              data-select-row="${combatant.id}"
+              aria-label="Seleccionar ${escapeHtml(combatant.nombre || combatant.id)}"
+              ${state.selectedIds.has(combatant.id) ? "checked" : ""}
+            />
+          </span>
+          <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--corner" data-tooltip="Eliminar fila">
+            <button
+              class="cell-row-delete"
+              type="button"
+              data-action="delete-combatant-row"
+              data-combatant-id="${escapeHtml(combatant.id)}"
+              aria-label="Eliminar ${escapeHtml(combatant.nombre || combatant.id)}"
+            >
+              <span aria-hidden="true">x</span>
+            </button>
+          </span>
         </div>
       </td>
       ${columns.map((column) => renderDataCell(combatant, column, isDead)).join("")}
@@ -5576,12 +5975,13 @@ function renderDataCell(combatant, column, isDead) {
             />
             ${token}
           </div>
-          ${isDead || sourceChip || tagChip || npcChip ? `
+          ${isDead || sourceChip || tagChip || npcChip || linkedCharacter ? `
             <div class="name-cell__chips">
               ${isDead ? `<span class="death-badge">Muerto</span>` : ""}
               ${tagChip}
               ${npcChip}
               ${sourceChip}
+              ${linkedCharacter ? renderCombatSpellbookControl(combatant, linkedCharacter) : ""}
             </div>
           ` : ""}
           ${
@@ -5610,19 +6010,27 @@ function renderDataCell(combatant, column, isDead) {
     const effectiveMax = getEffectivePgMax(combatant);
     const showEffectiveMax = toNumber(combatant.necrotic) !== 0;
     const armorClass = combatant.ca ?? "";
+    const maxHpFill = Math.max(0, Math.min(100, Math.round((effectiveMax / Math.max(1, toNumber(combatant.pgMax))) * 100)));
+    const maxHpInput = `
+      <input
+        class="cell-input cell-input--center${showEffectiveMax ? " cell-input--hp" : ""}"
+        type="number"
+        inputmode="${inputMode}"
+        value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
+        data-edit-id="${combatant.id}"
+        data-edit-key="${column.key}"
+      />
+    `;
 
     return `
       <td>
         <div class="resource-cell resource-cell--pgmax">
           <div class="resource-cell__top">
-            <input
-              class="cell-input cell-input--center"
-              type="number"
-              inputmode="${inputMode}"
-              value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
-              data-edit-id="${combatant.id}"
-              data-edit-key="${column.key}"
-            />
+            ${
+              showEffectiveMax
+                ? `<label class="hp-bar hp-bar--compact hp-bar--necrotic" style="--hp-fill:${maxHpFill}%;--hp-tone-color:rgba(143, 98, 214, 0.92)">${maxHpInput}</label>`
+                : maxHpInput
+            }
           <label class="armor-badge" aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}">
               <svg class="armor-badge__icon" viewBox="0 0 48 54" aria-hidden="true">
               <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
@@ -5649,7 +6057,8 @@ function renderDataCell(combatant, column, isDead) {
     const healthPercent = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxForBar) * 100)));
     const hpVisualFill = getCombatHealthVisualFill(healthPercent);
     const hpToneColor = getCombatHealthToneColor(healthPercent);
-    const spellbookControl = renderCombatSpellbookControl(combatant, linkedCharacter);
+    const showHitDice = shouldShowCombatHitDiceField(combatant, linkedCharacter);
+    const hitDiceValue = showHitDice ? getCombatantHitDiceValue(combatant, linkedCharacter) : "";
 
     return `
       <td>
@@ -5666,7 +6075,7 @@ function renderDataCell(combatant, column, isDead) {
                   data-edit-key="${column.key}"
                 />
               </label>
-              <span class="resource-cell__act-label"><span>PG</span><span>ACT</span></span>
+              <span class="resource-cell__act-label"><span>${escapeHtml(getCurrentHitPointLabelShort())}</span></span>
             </div>
             <div class="resource-cell__temp-wrap">
               <input
@@ -5682,7 +6091,7 @@ function renderDataCell(combatant, column, isDead) {
             </div>
           </div>
           <div class="resource-cell__actions-row">
-          <div class="inline-adjust inline-adjust--group">
+            <div class="inline-adjust inline-adjust--group">
             <input
               class="mini-input"
               type="number"
@@ -5727,8 +6136,25 @@ function renderDataCell(combatant, column, isDead) {
                 <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span>
               </button>
             </div>
-          </div>
-          ${spellbookControl}
+            </div>
+            ${
+              showHitDice
+                ? `
+                  <div class="resource-cell__temp-wrap resource-cell__hit-dice-wrap">
+                    <input
+                      class="cell-input resource-cell__temp-input cell-input--center"
+                      type="number"
+                      inputmode="${inputMode}"
+                      value="${escapeHtml(String(hitDiceValue))}"
+                      data-edit-id="${combatant.id}"
+                      data-edit-key="hitDice"
+                      aria-label="Dados de golpe de ${escapeHtml(combatant.nombre || combatant.id)}"
+                    />
+                    <span class="resource-cell__temp-label resource-cell__hit-dice-label"><span>DADOS</span><span>GOLPE</span></span>
+                  </div>
+                `
+                : ""
+            }
           </div>
         </div>
       </td>
@@ -5847,6 +6273,7 @@ function renderCombatSpellbookControl(combatant, linkedCharacter) {
   }
 
   const isOpen = state.activeCombatSpellbookCombatantId === combatant.id;
+  const spellbookIconUrl = getCombatSpellbookIconUrl();
 
   return `
     <div class="combat-spellbook-anchor" data-combat-spellbook-menu>
@@ -5856,62 +6283,194 @@ function renderCombatSpellbookControl(combatant, linkedCharacter) {
         data-action="toggle-combat-spellbook-popup"
         data-combatant-id="${escapeHtml(combatant.id)}"
         aria-expanded="${isOpen}"
-        aria-label="Abrir hechizos de ${escapeHtml(linkedCharacter.name || combatant.nombre || "personaje")}"
-        data-tooltip="Hechizos"
+        aria-label="Abrir hechizos y habilidades de ${escapeHtml(linkedCharacter.name || combatant.nombre || "personaje")}"
+        data-tooltip="Hechizos y Habilidades"
       >
-        <span class="button-icon" aria-hidden="true">${renderCombatToolbarIcon("wand")}</span>
+        <span class="button-icon" aria-hidden="true">
+          <img src="${escapeHtml(spellbookIconUrl)}" alt="" decoding="async" />
+        </span>
       </button>
       ${isOpen ? renderCombatSpellbookPopover(combatant, linkedCharacter) : ""}
     </div>
   `;
 }
 
+function renderNotifications() {
+  if (!Array.isArray(state.notifications) || state.notifications.length === 0) {
+    return "";
+  }
+
+  return `
+    <aside class="notification-stack" aria-live="polite" aria-atomic="false">
+      ${state.notifications.map((notification) => {
+        const effectIconUrl = notification.effectKind ? getCombatMiniActionIconUrl(notification.effectKind) : "";
+
+        return `
+        <article class="notification-card notification-card--${escapeHtml(notification.tone || "info")}${notification.imageUrl ? " notification-card--with-media" : ""}${effectIconUrl ? " notification-card--with-effect" : ""}" role="status">
+          ${
+            notification.imageUrl
+              ? `
+                <div class="notification-card__media" aria-hidden="true">
+                  <img src="${escapeHtml(notification.imageUrl)}" alt="" loading="lazy" decoding="async" />
+                </div>
+              `
+              : ""
+          }
+          <div class="notification-card__copy">
+            <strong>${escapeHtml(notification.title || "Notificación")}</strong>
+            <p>${escapeHtml(notification.message || "")}</p>
+          </div>
+          ${
+            effectIconUrl
+              ? `
+                <div class="notification-card__effect" aria-hidden="true">
+                  <img src="${escapeHtml(effectIconUrl)}" alt="" loading="lazy" decoding="async" />
+                </div>
+              `
+              : ""
+          }
+          <button
+            class="notification-card__close"
+            type="button"
+            data-action="dismiss-notification"
+            data-notification-id="${escapeHtml(notification.id)}"
+            aria-label="Cerrar notificación"
+          >
+            x
+          </button>
+        </article>
+      `;
+      }).join("")}
+    </aside>
+  `;
+}
+
+function renderCombatSpellPreviewOverlay() {
+  const previewName = cleanText(state.activeCombatSpellPreviewName);
+
+  if (!previewName) {
+    return "";
+  }
+
+  const previewEntry = state.arcanum.find((entry) => cleanText(entry.name) === previewName);
+
+  if (!previewEntry) {
+    return "";
+  }
+
+  return `
+    <aside class="combat-spell-preview-overlay" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+      <div class="character-spellbook__preview-card">
+        ${renderArcanumDetail(previewEntry)}
+      </div>
+    </aside>
+  `;
+}
+
+function syncCombatSpellPreviewOverlayMarkup() {
+  const existingOverlay = app.querySelector("[data-combat-spell-preview-overlay]");
+  const overlayMarkup = renderCombatSpellPreviewOverlay();
+
+  if (!overlayMarkup) {
+    existingOverlay?.remove();
+    return;
+  }
+
+  if (existingOverlay) {
+    existingOverlay.outerHTML = overlayMarkup;
+  } else {
+    const shellRoot = app.querySelector(".shell");
+    shellRoot?.insertAdjacentHTML("beforeend", overlayMarkup);
+  }
+
+  scheduleActiveCombatSpellPreviewSync();
+}
+
 function renderCombatSpellbookPopover(combatant, character) {
   const spellSlots = getCombatSpellbookVisibleSlots(character);
   const preparedSpells = getPreparedCombatSpellbookSpells(character);
+  const spellbookAbilities = getMeaningfulCharacterSpellbookAbilityRows(character.spellbookAbilities);
+  const showSpellSection = hasCombatSpellData(character);
+  const showAbilitySection = spellbookAbilities.length > 0;
+  const showMeta = showSpellSection;
 
   return `
-    <section class="combat-spellbook-popover detail-section" data-combat-spellbook-menu>
-      <div class="combat-spellbook-popover__layout">
-        <div class="combat-spellbook-popover__slots">
+    <section class="combat-spellbook-popover detail-section" data-combat-spellbook-menu data-combat-spellbook-popover>
+      <div class="combat-spellbook-popover__layout${showMeta ? "" : " combat-spellbook-popover__layout--single"}">
+        <div class="combat-spellbook-popover__sections">
           ${
-            spellSlots.length > 0
+            showSpellSection
               ? `
-                <div class="combat-spellbook-popover__header">
-                  <span>Nivel</span>
-                  <span>Espacios totales</span>
-                  <span>Espacios gastados</span>
-                </div>
-                ${spellSlots.map((entry) => renderCombatSpellbookSlotRow(combatant, entry)).join("")}
+                <section class="combat-spellbook-popover__section">
+                  <div class="combat-spellbook-popover__section-title">Hechizos</div>
+                  <div class="combat-spellbook-popover__slots">
+                    ${
+                      spellSlots.length > 0
+                        ? `
+                          <div class="combat-spellbook-popover__header">
+                            <span>Nivel</span>
+                            <span>Espacios totales</span>
+                            <span>Espacios gastados</span>
+                          </div>
+                          ${spellSlots.map((entry) => renderCombatSpellbookSlotRow(combatant, entry)).join("")}
+                        `
+                        : `<div class="combat-spellbook-popover__empty-state">Sin espacios de conjuro definidos.</div>`
+                    }
+                    <div class="combat-spellbook-popover__footer">Conjuros preparados</div>
+                    ${renderCombatPreparedSpellList(preparedSpells)}
+                  </div>
+                </section>
               `
-              : `<div class="combat-spellbook-popover__empty-state">Sin espacios de conjuro definidos.</div>`
+              : ""
           }
-          <div class="combat-spellbook-popover__footer">Conjuros preparados</div>
-          ${renderCombatPreparedSpellList(preparedSpells)}
+          ${showSpellSection && showAbilitySection ? '<div class="combat-spellbook-popover__divider" aria-hidden="true"></div>' : ""}
+          ${
+            showAbilitySection
+              ? `
+                <section class="combat-spellbook-popover__section">
+                  <div class="combat-spellbook-popover__section-title">Habilidades</div>
+                  ${renderCombatSpellbookAbilityList(combatant, spellbookAbilities)}
+                </section>
+              `
+              : ""
+          }
         </div>
-        <div class="combat-spellbook-popover__meta">
-          ${renderCombatSpellbookMetric("Modificador de ataque magico", formatCombatSpellAttackModifier(character.spellAttackModifier))}
-          ${renderCombatSpellbookMetric("CD SALVACION CONJUROS", formatCombatSpellSaveDc(character.spellSaveDc))}
-        </div>
+        ${
+          showMeta
+            ? `
+              <div class="combat-spellbook-popover__meta">
+                ${renderCombatSpellbookMetric("Modificador de ataque magico", formatCombatSpellAttackModifier(character.spellAttackModifier))}
+                ${renderCombatSpellbookMetric("CD SALVACION CONJUROS", formatCombatSpellSaveDc(character.spellSaveDc))}
+              </div>
+            `
+            : ""
+        }
       </div>
     </section>
   `;
 }
 
 function hasCombatSpellbookData(character) {
+  return hasCombatSpellData(character) || hasCombatAbilityData(character);
+}
+
+function hasCombatSpellData(character) {
   if (!character) {
     return false;
   }
 
   const visibleLevels = normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots);
-  const hasSpellRows = Array.isArray(character.spells)
-    && character.spells.some((row) => cleanText(row?.name) || cleanText(row?.level) || row?.prepared === true);
+  const hasSpellRows = getMeaningfulCharacterSpellRows(character.spells).length > 0;
   const hasSlotData = getVisibleCharacterSpellSlots(character).some((entry) => entry.slots > 0) || visibleLevels > 1;
 
   return hasSpellRows
     || hasSlotData
     || character.spellSaveDc !== ""
     || character.spellAttackModifier !== "";
+}
+
+function hasCombatAbilityData(character) {
+  return getMeaningfulCharacterSpellbookAbilityRows(character?.spellbookAbilities).length > 0;
 }
 
 function getCombatSpellbookVisibleSlots(character) {
@@ -5923,6 +6482,56 @@ function getPreparedCombatSpellbookSpells(character) {
   return getSortedCharacterSpellRows(spellRows)
     .filter((row) => row.prepared === true)
     .filter((row) => cleanText(getCharacterSpellMatchedEntry(row)?.name || row?.name));
+}
+
+function renderCombatSpellbookAbilityList(combatant, rows) {
+  if (rows.length === 0) {
+    return `<div class="combat-spellbook-popover__empty-state">No hay habilidades definidas.</div>`;
+  }
+
+  return `
+    <div class="combat-spellbook-popover__abilities">
+      <div class="combat-spellbook-popover__ability-header" aria-hidden="true">
+        <span>Nombre</span>
+        <span>Usos</span>
+      </div>
+      ${rows.map((row) => renderCombatSpellbookAbilityRow(combatant, row)).join("")}
+    </div>
+  `;
+}
+
+function renderCombatSpellbookAbilityRow(combatant, row) {
+  const abilityName = cleanText(row?.name) || "Sin nombre";
+
+  return `
+    <div class="combat-spellbook-popover__ability-row">
+      <span class="combat-spellbook-popover__ability-name">${escapeHtml(abilityName)}</span>
+      <div class="combat-spellbook-popover__ability-uses" role="group" aria-label="Usos de ${escapeHtml(abilityName)}">
+        ${renderCombatSpellbookAbilityUseDots(combatant.id, row)}
+      </div>
+    </div>
+  `;
+}
+
+function renderCombatSpellbookAbilityUseDots(combatantId, row) {
+  const uses = Math.max(0, Math.floor(toNumber(row?.uses) || 0));
+
+  if (uses <= 0) {
+    return `<span class="combat-spellbook-popover__empty">-</span>`;
+  }
+
+  return Array.from({ length: uses }, (_, index) => `
+    <button
+      class="combat-spellbook-popover__dot${row.spent[index] ? " is-spent" : ""}"
+      type="button"
+      data-action="toggle-combat-spellbook-ability-spent"
+      data-combatant-id="${escapeHtml(combatantId)}"
+      data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+      data-character-spellbook-ability-use-index="${escapeHtml(String(index))}"
+      aria-pressed="${row.spent[index] ? "true" : "false"}"
+      aria-label="${row.spent[index] ? "Recuperar" : "Gastar"} uso ${escapeHtml(String(index + 1))} de ${escapeHtml(cleanText(row?.name) || "habilidad")}"
+    ></button>
+  `).join("");
 }
 
 function renderCombatPreparedSpellList(spellRows) {
@@ -5953,10 +6562,10 @@ function renderCombatPreparedSpellRow(row) {
                 type="button"
                 data-action="filter-arcanum-by-spell-name"
                 data-arcanum-spell-name="${escapeHtml(matchedSpell.name)}"
+                data-combat-spell-preview-name="${escapeHtml(matchedSpell.name)}"
               >
                 ${escapeHtml(spellName)}
               </button>
-              ${renderCharacterSpellPreview(matchedSpell)}
             `
             : `<span class="combat-spellbook-popover__spell-name">${escapeHtml(spellName)}</span>`
         }
@@ -6070,7 +6679,12 @@ function renderCombatStatusCell(combatant) {
   const statusNames = getCombatantStatusNames(combatant);
   const statusDraft = getCombatStatusDraft(combatant.id);
   const statusEntries = getFilteredCombatStatusReferenceEntries(statusDraft);
-  const hasExactDraftMatch = statusEntries.some((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizeTranslationKey(statusDraft.toLowerCase()));
+  const normalizedDraft = normalizeTranslationKey(statusDraft.toLowerCase());
+  const hasExactDraftMatch = statusEntries.some((entry) => {
+    const localizedStatusName = translateCombatStatusNameForLanguage(entry.name, state.appLanguage);
+    return normalizeTranslationKey(entry.name.toLowerCase()) === normalizedDraft
+      || normalizeTranslationKey(localizedStatusName.toLowerCase()) === normalizedDraft;
+  });
   const firstStatus = statusNames[0] ?? "";
   const remainingStatuses = statusNames.slice(1);
 
@@ -6100,28 +6714,48 @@ function renderCombatStatusCell(combatant) {
                     type="button"
                     data-action="toggle-combat-status"
                     data-combatant-id="${escapeHtml(combatant.id)}"
-                    data-combat-status="${escapeHtml(statusDraft)}"
+                    data-combat-status="${escapeHtml(translateCombatStatusNameForLanguage(statusDraft, APP_LANGUAGE_ES))}"
                   >
-                    <strong>Anadir estado personalizado</strong>
-                    <span>${escapeHtml(statusDraft)}</span>
+                    <span class="combat-inline-menu__option-body">
+                      <strong>Anadir estado personalizado</strong>
+                      <span>${escapeHtml(statusDraft)}</span>
+                    </span>
                   </button>
                 `
                 : ""
             }
             ${
               statusEntries.length > 0
-                ? statusEntries.map((entry) => `
+                ? statusEntries.map((entry) => {
+                  const canonicalEntryName = getCanonicalCombatStatusName(entry.name);
+                  const localizedEntryName = translateCombatStatusNameForLanguage(entry.name, state.appLanguage);
+                  const isActive = statusNames.some((statusName) => normalizeTranslationKey(getCanonicalCombatStatusName(statusName).toLowerCase()) === normalizeTranslationKey(canonicalEntryName.toLowerCase()));
+                  const iconUrl = getCombatStatusIconUrl(canonicalEntryName);
+
+                  return `
                   <button
-                    class="combat-inline-menu__option ${statusNames.includes(entry.name) ? "is-active" : ""}"
+                    class="combat-inline-menu__option combat-inline-menu__option--status-card ${getCombatStatusToneClass(entry.name)} ${isActive ? "is-active" : ""}"
                     type="button"
                     data-action="toggle-combat-status"
                     data-combatant-id="${escapeHtml(combatant.id)}"
-                    data-combat-status="${escapeHtml(entry.name)}"
+                    data-combat-status="${escapeHtml(canonicalEntryName)}"
                   >
-                    <strong>${escapeHtml(entry.name)}</strong>
-                    ${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : ""}
+                    <span class="combat-inline-menu__option-body">
+                      <strong>${escapeHtml(localizedEntryName)}</strong>
+                      ${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : ""}
+                    </span>
+                    ${
+                      iconUrl
+                        ? `
+                          <span class="combat-inline-menu__option-icon" aria-hidden="true">
+                            <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" />
+                          </span>
+                        `
+                        : ""
+                    }
                   </button>
-                `).join("")
+                `;
+                }).join("")
                 : `<div class="combat-inline-menu__empty">${statusDraft ? "No hay coincidencias en la tabla de estados." : "No hay tabla de estados disponible."}</div>`
             }
           </div>
@@ -6142,6 +6776,7 @@ function renderCombatStatusCell(combatant) {
 }
 
 function renderCombatStatusChip(combatantId, statusName) {
+  const localizedStatusName = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
   const description = getCombatStatusDescription(statusName);
   const tone = getCombatStatusToneClass(statusName);
 
@@ -6153,9 +6788,9 @@ function renderCombatStatusChip(combatantId, statusName) {
         data-action="toggle-combat-status"
         data-combatant-id="${escapeHtml(combatantId)}"
         data-combat-status="${escapeHtml(statusName)}"
-        aria-label="Quitar estado ${escapeHtml(statusName)}"
+        aria-label="Quitar estado ${escapeHtml(localizedStatusName)}"
       >
-        ${escapeHtml(statusName)}
+        ${escapeHtml(localizedStatusName)}
       </button>
       ${
         description
@@ -6177,7 +6812,7 @@ function getCombatantExhaustionLevel(combatant) {
 
 function getExhaustionLevelFromStatusNames(statusNames) {
   return statusNames.reduce((highestLevel, statusName) => {
-    const match = cleanText(statusName).match(/^agotamiento(?:\s+(\d+))?$/i);
+    const match = cleanText(statusName).match(/^(?:agotamiento|exhaustion)(?:\s+(\d+))?$/i);
 
     if (!match) {
       return highestLevel;
@@ -6189,11 +6824,11 @@ function getExhaustionLevelFromStatusNames(statusNames) {
 }
 
 function removeExhaustionStatuses(statusNames) {
-  return statusNames.filter((statusName) => !/^agotamiento(?:\s+\d+)?$/i.test(cleanText(statusName)));
+  return statusNames.filter((statusName) => !/^(?:agotamiento|exhaustion)(?:\s+\d+)?$/i.test(cleanText(statusName)));
 }
 
 function formatExhaustionStatus(level) {
-  return `AGOTAMIENTO ${Math.max(1, Math.floor(toNumber(level)) || 1)}`;
+  return translateCombatStatusNameForLanguage(`Agotamiento ${Math.max(1, Math.floor(toNumber(level)) || 1)}`, state.appLanguage).toUpperCase();
 }
 
 function getCombatNameInputStyle(value) {
@@ -6215,25 +6850,33 @@ function getCombatNameInputStyle(value) {
 }
 
 function getCombatStatusToneClass(statusName) {
-  const normalized = normalizeTranslationKey(cleanText(statusName).toLowerCase());
+  const normalized = normalizeTranslationKey(getCanonicalCombatStatusName(statusName).toLowerCase()).replace(/\s+\d+$/u, "");
+  const toneMap = {
+    agarrado: "combat-status-chip--grappled",
+    agotamiento: "combat-status-chip--exhaustion",
+    apresado: "combat-status-chip--restrained",
+    asustado: "combat-status-chip--frightened",
+    aturdido: "combat-status-chip--stunned",
+    cegado: "combat-status-chip--blinded",
+    ciego: "combat-status-chip--blinded",
+    derribado: "combat-status-chip--prone",
+    dormido: "combat-status-chip--sleeping",
+    ensordecido: "combat-status-chip--deafened",
+    envenenado: "combat-status-chip--poisoned",
+    hechizado: "combat-status-chip--charmed",
+    incapacitado: "combat-status-chip--incapacitated",
+    inconsciente: "combat-status-chip--unconscious",
+    invisible: "combat-status-chip--invisible",
+    paralizado: "combat-status-chip--paralyzed",
+    petrificado: "combat-status-chip--petrified",
+    restringido: "combat-status-chip--restrained",
+    restrenido: "combat-status-chip--restrained",
+    ardiendo: "combat-status-chip--burning",
+    maldito: "combat-status-chip--cursed",
+    sangrando: "combat-status-chip--bleeding"
+  };
 
-  if (["paralizado", "aturdido", "incapacitado", "inconsciente", "petrificado"].includes(normalized)) {
-    return "combat-status-chip--violet";
-  }
-
-  if (normalized.startsWith("agotamiento") || ["envenenado", "asustado", "ciego", "ensordecido"].includes(normalized)) {
-    return "combat-status-chip--green";
-  }
-
-  if (["hechizado", "restrenido", "restringido", "agarrado", "derribado"].includes(normalized)) {
-    return "combat-status-chip--amber";
-  }
-
-  if (["ardiendo", "maldito", "sangrando"].includes(normalized)) {
-    return "combat-status-chip--red";
-  }
-
-  return "combat-status-chip--blue";
+  return toneMap[normalized] ?? "combat-status-chip--default";
 }
 
 function getCombatStatusDraft(combatantId) {
@@ -6266,15 +6909,16 @@ function clearCombatStatusDraft(combatantId) {
 }
 
 function getCombatStatusDescription(statusName) {
-  const exhaustionLevel = Math.max(0, Math.floor(toNumber(cleanText(statusName).match(/^agotamiento(?:\s+(\d+))?$/i)?.[1]) || 0));
+  const canonicalStatusName = getCanonicalCombatStatusName(statusName);
+  const exhaustionLevel = Math.max(0, Math.floor(toNumber(cleanText(canonicalStatusName).match(/^agotamiento(?:\s+(\d+))?$/i)?.[1]) || 0));
 
   if (exhaustionLevel > 0) {
     return `El personaje tiene un -${exhaustionLevel} al resultado de todas sus tiradas.`;
   }
 
-  const normalizedName = normalizeTranslationKey(cleanText(statusName).toLowerCase());
+  const normalizedName = normalizeTranslationKey(cleanText(canonicalStatusName).toLowerCase());
   return getCombatStatusReferenceEntries()
-    .find((entry) => normalizeTranslationKey(entry.name.toLowerCase()) === normalizedName)
+    .find((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry.name).toLowerCase()) === normalizedName)
     ?.description ?? "";
 }
 
@@ -6316,28 +6960,16 @@ function getCombatStatusReferenceEntries() {
       return { name, description };
     })
     .filter(Boolean)
-    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }));
+    .sort((left, right) => left.name.localeCompare(right.name, isEnglishInterface() ? "en" : "es", { sensitivity: "base" }));
 }
 
 function getCombatStatusReferenceTable() {
   const tables = Array.isArray(state.tables) ? state.tables.filter((table) => isPlainObject(table)) : [];
-
-  return tables.find((table) => {
-    const tableName = cleanText(table.name).toLowerCase();
-    const firstColumnLabel = cleanText(Array.isArray(table.columns) ? table.columns[0]?.label : "").toLowerCase();
-
-    return tableName.includes("estado") || firstColumnLabel.includes("estado");
-  }) ?? null;
+  return tables.find((table) => getSystemTableKind(table) === "status") ?? null;
 }
 
 function isProtectedTable(table) {
-  if (!isPlainObject(table)) {
-    return false;
-  }
-
-  const tableName = cleanText(table.name).toLowerCase();
-  const firstColumnLabel = cleanText(Array.isArray(table.columns) ? table.columns[0]?.label : "").toLowerCase();
-  return tableName === "tabla estados" || (tableName.includes("estado") && firstColumnLabel.includes("estado"));
+  return getSystemTableKind(table) === "status" || getSystemTableKind(table) === "wild-magic";
 }
 
 function isProtectedTableId(tableId) {
@@ -8271,18 +8903,22 @@ function renderCharacterSkillGainInputs(skillDefinitionId, field, values) {
 function renderCharacterSpellbookSection(character) {
   const isOpen = character.spellsOpen === true;
   const sortedSpellRows = getSortedCharacterSpellRows(character.spells);
-  const spellCount = sortedSpellRows.length;
+  const spellCount = getMeaningfulCharacterSpellRows(character.spells).length;
   const preparedCount = character.spells.filter((row) => row.prepared).length;
   const visibleSpellSlots = getVisibleCharacterSpellSlots(character);
+  const spellbookAbilities = normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities);
+  const abilityCount = getMeaningfulCharacterSpellbookAbilityRows(spellbookAbilities).length;
 
   return `
     <section class="detail-section character-spellbook" data-character-spell-menu>
       <div class="character-section-toggle character-section-toggle--spellbook">
-        <div class="character-spellbook__heading">
-          <span>Hechizos</span>
-          <div class="character-spellbook__summary">
-            <strong>${escapeHtml(String(preparedCount))} preparados</strong>
-            <small>${escapeHtml(String(spellCount))} totales</small>
+        <div class="character-section-toggle__click" data-action="toggle-character-spellbook">
+          <div class="character-spellbook__heading">
+            <span>Hechizos y habilidades</span>
+            <div class="character-spellbook__summary">
+              <strong>${escapeHtml(String(preparedCount))} preparados</strong>
+              <small>${escapeHtml(String(spellCount))} totales</small>
+            </div>
           </div>
         </div>
         <button
@@ -8290,7 +8926,7 @@ function renderCharacterSpellbookSection(character) {
           type="button"
           data-action="toggle-character-spellbook"
           aria-expanded="${isOpen}"
-          aria-label="${isOpen ? "Ocultar hechizos" : "Mostrar hechizos"}"
+          aria-label="${isOpen ? "Ocultar hechizos y habilidades" : "Mostrar hechizos y habilidades"}"
         >
           <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
         </button>
@@ -8299,65 +8935,83 @@ function renderCharacterSpellbookSection(character) {
         isOpen
           ? `
             <div class="character-spellbook__body">
-              <div class="character-spellbook__slots">
-                <div class="character-spellbook__slots-grid character-spellbook__slots-grid--meta">
-                  <label class="character-spellbook__slot-field">
-                    <span>Modificador</span>
-                    <input
-                      class="filter-input character-spellbook__slot-input"
-                      type="text"
-                      inputmode="text"
-                      value="${escapeHtml(formatCharacterSignedFieldValue(character.spellAttackModifier))}"
-                      placeholder="+0"
-                      data-character-field="spellAttackModifier"
-                    />
-                  </label>
-                  <label class="character-spellbook__slot-field">
-                    <span>CD</span>
-                    <input
-                      class="filter-input character-spellbook__slot-input"
-                      type="number"
-                      inputmode="numeric"
-                      min="0"
-                      value="${escapeHtml(String(character.spellSaveDc ?? ""))}"
-                      data-character-field="spellSaveDc"
-                    />
-                  </label>
+              <div class="character-spellbook__panel">
+                <div class="character-spellbook__panel-title">
+                  <span>Hechizos</span>
+                  <small>${escapeHtml(String(spellCount))} conocidos</small>
                 </div>
-                <div class="character-spellbook__slots-header">
-                  <p>Espacios de hechizo</p>
+                <div class="character-spellbook__slots">
+                  <div class="character-spellbook__slots-grid character-spellbook__slots-grid--meta">
+                    <label class="character-spellbook__slot-field">
+                      <span>Modificador</span>
+                      <input
+                        class="filter-input character-spellbook__slot-input"
+                        type="text"
+                        inputmode="text"
+                        value="${escapeHtml(formatCharacterSignedFieldValue(character.spellAttackModifier))}"
+                        placeholder="+0"
+                        data-character-field="spellAttackModifier"
+                      />
+                    </label>
+                    <label class="character-spellbook__slot-field">
+                      <span>CD</span>
+                      <input
+                        class="filter-input character-spellbook__slot-input"
+                        type="number"
+                        inputmode="numeric"
+                        min="0"
+                        value="${escapeHtml(String(character.spellSaveDc ?? ""))}"
+                        data-character-field="spellSaveDc"
+                      />
+                    </label>
+                  </div>
+                  <div class="character-spellbook__slots-header">
+                    <p>Espacios de hechizo</p>
+                  </div>
+                  <div class="character-spellbook__slots-grid">
+                    ${visibleSpellSlots.map((entry) => renderCharacterSpellSlotField(entry)).join("")}
+                    <button
+                      class="toolbar-button toolbar-button--subtle character-spellbook__slot-add"
+                      type="button"
+                      data-action="add-character-spell-slot-level"
+                      ${visibleSpellSlots.length >= 9 ? "disabled" : ""}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
-                <div class="character-spellbook__slots-grid">
-                  ${visibleSpellSlots.map((entry) => renderCharacterSpellSlotField(entry)).join("")}
-                  <button
-                    class="toolbar-button toolbar-button--subtle character-spellbook__slot-add"
-                    type="button"
-                    data-action="add-character-spell-slot-level"
-                    ${visibleSpellSlots.length >= 9 ? "disabled" : ""}
-                  >
-                    +
-                  </button>
+                <div class="character-spellbook__list">
+                  <div class="character-spellbook__header" aria-hidden="true">
+                    <span>Nombre</span>
+                    <span>Nivel</span>
+                    <span>Preparado</span>
+                    <span></span>
+                  </div>
+                  ${sortedSpellRows.map((row) => renderCharacterSpellRow(row)).join("")}
+                  <div class="character-rows-add">
+                    <button class="toolbar-button toolbar-button--subtle character-rows-add__button" type="button" data-action="add-character-spell-row">
+                      +
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div class="character-spellbook__toolbar">
-                <p>${spellCount} hechizos conocidos</p>
-              </div>
-              <div class="character-spellbook__list">
-                <div class="character-spellbook__header" aria-hidden="true">
-                  <span>Nombre</span>
-                  <span>Nivel</span>
-                  <span>Preparado</span>
-                  <span></span>
+              <div class="character-spellbook__panel">
+                <div class="character-spellbook__panel-title">
+                  <span>Habilidades</span>
+                  <small>${escapeHtml(String(abilityCount))} registradas</small>
                 </div>
-                ${
-                  spellCount > 0
-                    ? sortedSpellRows.map((row) => renderCharacterSpellRow(row)).join("")
-                    : `<div class="empty-state empty-state--compact">No hay hechizos cargados.</div>`
-                }
-                <div class="character-rows-add">
-                  <button class="toolbar-button toolbar-button--subtle character-rows-add__button" type="button" data-action="add-character-spell-row">
-                    +
-                  </button>
+                <div class="character-spellbook__ability-list">
+                  <div class="character-spellbook__ability-header" aria-hidden="true">
+                    <span>Nombre</span>
+                    <span>Usos</span>
+                    <span></span>
+                  </div>
+                  ${spellbookAbilities.map((row) => renderCharacterSpellbookAbilityRow(row)).join("")}
+                  <div class="character-rows-add">
+                    <button class="toolbar-button toolbar-button--subtle character-rows-add__button" type="button" data-action="add-character-spellbook-ability-row">
+                      +
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -8462,6 +9116,14 @@ function getSortedCharacterSpellRows(spellRows) {
   return Array.isArray(spellRows) ? [...spellRows].sort(compareCharacterSpellRows) : [];
 }
 
+function hasMeaningfulCharacterSpellRow(row) {
+  return Boolean(cleanText(row?.name) || cleanText(row?.level) || row?.prepared === true);
+}
+
+function getMeaningfulCharacterSpellRows(spellRows) {
+  return getSortedCharacterSpellRows(spellRows).filter((row) => hasMeaningfulCharacterSpellRow(row));
+}
+
 function renderCharacterSpellPreview(entry) {
   return `
     <div class="character-spellbook__preview" role="tooltip">
@@ -8549,13 +9211,50 @@ function renderCharacterSpellRow(row) {
   `;
 }
 
+function renderCharacterSpellbookAbilityRow(row) {
+  return `
+    <div class="character-spellbook__ability-row">
+      <label class="character-spellbook__name-cell">
+        <input
+          class="filter-input character-spellbook__input"
+          type="text"
+          value="${escapeHtml(row.name)}"
+          placeholder="Nombre de la habilidad"
+          data-character-spellbook-ability-field="name"
+          data-character-spellbook-ability-row="${escapeHtml(row.id)}"
+        />
+      </label>
+      <label class="character-spellbook__ability-field">
+        <input
+          class="filter-input character-spellbook__input"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          value="${escapeHtml(String(row.uses ?? 0))}"
+          data-character-spellbook-ability-field="uses"
+          data-character-spellbook-ability-row="${escapeHtml(row.id)}"
+        />
+      </label>
+      <button
+        class="toolbar-button toolbar-button--subtle-danger character-spellbook__remove"
+        type="button"
+        data-action="remove-character-spellbook-ability-row"
+        data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+        aria-label="Quitar ${escapeHtml(row.name || "habilidad")}"
+      >
+        Quitar
+      </button>
+    </div>
+  `;
+}
+
 function renderCharacterSkillSection(character) {
   const isExpanded = state.characterSkillsExpanded;
 
   return `
     <section class="detail-section character-skill-tracks">
       <div class="character-skill-tracks__header">
-        <div>
+        <div class="character-skill-tracks__summary" data-action="toggle-character-skills-view">
           <h4>Skills de campana</h4>
           <p>${isExpanded ? "Configura nivel y progreso de este personaje en las skills comunes." : "Vista resumida de progreso y nivel actual."}</p>
         </div>
@@ -8724,7 +9423,7 @@ function renderCharacterInventorySection(character) {
   return `
     <section class="detail-section character-inventory" data-character-inventory-menu>
       <div class="character-section-toggle character-section-toggle--inventory">
-        <div class="character-inventory__heading">
+        <div class="character-inventory__heading character-section-toggle__click" data-action="toggle-character-inventory">
           <span>Inventario</span>
           <div class="character-inventory__weight-summary">
             <strong>${escapeHtml(formatWeight(load.totalWeight))} / ${escapeHtml(formatWeight(load.maxWeight))} lb</strong>
@@ -9700,18 +10399,65 @@ function getSelectedArcanumEntry(filteredEntries = getFilteredArcanum()) {
 
 function matchesFilters(combatant) {
   return columns.every((column) => {
-    const filterValue = cleanText(state.filters?.[column.key]).toLowerCase();
+    const filterValues = Array.isArray(state.filters?.[column.key])
+      ? state.filters[column.key].map((value) => cleanText(value)).filter(Boolean)
+      : [];
 
-    if (!filterValue) {
+    if (filterValues.length === 0) {
       return true;
     }
 
-    const value = column.key === "pgMax"
-      ? `${combatant.pgMax} ${getEffectivePgMax(combatant)}`
-      : getCombatantColumnValue(combatant, column.key);
-
-    return String(value).toLowerCase().includes(filterValue);
+    return filterValues.includes(getCombatFilterValue(combatant, column.key));
   });
+}
+
+function getCombatFilterValue(combatant, columnKey) {
+  if (columnKey === "pgMax") {
+    return String(combatant.pgMax ?? "");
+  }
+
+  if (columnKey === "estados") {
+    return getCombatantStatusNames(combatant).join(", ");
+  }
+
+  if (columnKey === "tag") {
+    return cleanText(combatant.tag);
+  }
+
+  return cleanText(getCombatantColumnValue(combatant, columnKey));
+}
+
+function getCombatFilterOptions(columnKey, searchQuery = "") {
+  const normalizedQuery = cleanText(searchQuery).toLowerCase();
+  const uniqueValues = new Set();
+
+  state.combatants.forEach((combatant) => {
+    const value = getCombatFilterValue(combatant, columnKey);
+
+    if (value) {
+      uniqueValues.add(value);
+    }
+  });
+
+  return [...uniqueValues]
+    .filter((value) => !normalizedQuery || value.toLowerCase().includes(normalizedQuery))
+    .sort((left, right) => left.localeCompare(right, "es", { numeric: true, sensitivity: "base" }));
+}
+
+function toggleCombatFilterValue(filterKey, value, checked) {
+  const normalizedKey = cleanText(filterKey);
+  const normalizedValue = cleanText(value);
+
+  if (!normalizedKey || !normalizedValue) {
+    return;
+  }
+
+  const currentValues = Array.isArray(state.filters?.[normalizedKey]) ? state.filters[normalizedKey] : [];
+  const nextValues = checked
+    ? [...new Set([...currentValues, normalizedValue])]
+    : currentValues.filter((entry) => cleanText(entry) !== normalizedValue);
+
+  state.filters[normalizedKey] = nextValues;
 }
 
 function matchesBestiaryFilters(entry, overrides = {}) {
@@ -10092,7 +10838,7 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
       return combatant;
     }
 
-    const column = columns.find((item) => item.key === key) ?? (key === "ca" ? { key, type: "number" } : null);
+    const column = columns.find((item) => item.key === key) ?? (key === "ca" || key === "hitDice" ? { key, type: "number" } : null);
     const nextValue = getNormalizedValue(column, rawValue, normalize);
     const updatedCombatant = {
       ...combatant,
@@ -10112,8 +10858,10 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
   });
 
   if (["pgAct", "pgMax", "pgTemp", "necrotic"].includes(key)) {
+    syncDownedAllyUnconsciousStatus(previousCombatants);
     distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
     applyReviveExhaustion(previousCombatants);
+    notifyCombatantDeaths(previousCombatants);
   }
 }
 
@@ -10192,6 +10940,7 @@ function createDefaultCharacter(overrides = {}) {
     spellSaveDc: "",
     spellSlotLevelsVisible: 1,
     spellSlots: getDefaultCharacterSpellSlots(),
+    spellbookAbilities: [createBlankCharacterSpellbookAbilityRow()],
     inventoryOpen: true,
     inventory: getDefaultCharacterInventory(),
     abilities: {
@@ -10293,6 +11042,10 @@ function updateCharacterFieldForId(characterId, key, rawValue, normalize = true)
 
     return updatedCharacter;
   });
+
+  if (key === "level") {
+    syncLinkedCombatantsHitDice(characterId);
+  }
 }
 
 function getCharacterProgressStateFromTotalExperience(totalExperiencePoints) {
@@ -10324,6 +11077,8 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
     uniqueCharacterIds.map((characterId, index) => [characterId, baseGain + (index < remainder ? 1 : 0)])
   );
 
+  const levelUpNotifications = [];
+
   state.characters = state.characters.map((character) => {
     const gain = gainByCharacterId.get(character.id);
 
@@ -10333,14 +11088,48 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
 
     const currentProgress = getCharacterExperienceProgress(character);
     const nextProgress = getCharacterProgressStateFromTotalExperience(currentProgress.totalExperiencePoints + gain);
+    const nextClassEntries = getCharacterClassEntriesForTargetLevel(character, nextProgress.level);
+
+    if (nextProgress.level > toNumber(character.level)) {
+      levelUpNotifications.push({
+        title: "Subida de nivel",
+        message: `${cleanText(character.name) || "Personaje"} ha alcanzado el nivel ${nextProgress.level}.`,
+        tone: "success",
+        imageUrl: cleanText(character.tokenUrl)
+      });
+    }
 
     return normalizeStoredCharacter({
       ...character,
-      level: nextProgress.level,
+      classEntries: nextClassEntries,
       experiencePoints: nextProgress.experiencePoints,
       totalExperiencePoints: nextProgress.totalExperiencePoints
     });
   });
+
+  uniqueCharacterIds.forEach((characterId) => syncLinkedCombatantsHitDice(characterId));
+  levelUpNotifications.forEach(pushNotification);
+  saveCharacters();
+}
+
+function getCharacterClassEntriesForTargetLevel(character, targetLevel) {
+  const nextLevel = Math.max(1, Math.floor(toNumber(targetLevel) || 1));
+  const isMulticlass = character?.isMulticlass === true;
+  const classEntries = ensureCharacterClassEntryCount(
+    normalizeStoredCharacterClassEntries(character?.classEntries, character),
+    isMulticlass ? 2 : 1
+  );
+  const currentLevel = getCharacterTotalLevelFromClassEntries(classEntries, isMulticlass);
+  const primaryEntry = classEntries[0] ?? createDefaultCharacterClassEntry({ level: 1 });
+  const nextPrimaryLevel = Math.max(1, Math.floor(toNumber(primaryEntry.level) || 1) + (nextLevel - currentLevel));
+
+  return [
+    {
+      ...primaryEntry,
+      level: nextPrimaryLevel
+    },
+    ...classEntries.slice(1)
+  ];
 }
 
 function getDefaultCharacterSkillDefinitions() {
@@ -10685,6 +11474,23 @@ function addCharacterSpellRow(overrides = {}) {
   return row.id;
 }
 
+function addCharacterSpellbookAbilityRow(overrides = {}) {
+  const row = createBlankCharacterSpellbookAbilityRow(overrides);
+
+  if (!row) {
+    return "";
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      spellsOpen: true,
+      spellbookAbilities: [...character.spellbookAbilities, row]
+    })
+    : character);
+  return row.id;
+}
+
 function removeCharacterSpellRow(rowId) {
   const normalizedRowId = cleanText(rowId);
 
@@ -10709,6 +11515,27 @@ function removeCharacterSpellRow(rowId) {
     state.activeCharacterSpellRowId = "";
     state.showCharacterSpellSuggestions = false;
   }
+}
+
+function removeCharacterSpellbookAbilityRow(rowId) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const remainingRows = character.spellbookAbilities.filter((row) => row.id !== normalizedRowId);
+
+    return normalizeStoredCharacter({
+      ...character,
+      spellbookAbilities: remainingRows.length > 0 ? remainingRows : [createBlankCharacterSpellbookAbilityRow()]
+    });
+  });
 }
 
 function updateCharacterSpellRow(rowId, key, rawValue, normalize = true) {
@@ -10751,6 +11578,40 @@ function updateCharacterSpellRow(rowId, key, rawValue, normalize = true) {
     return normalizeStoredCharacter({
       ...character,
       spells
+    });
+  });
+}
+
+function updateCharacterSpellbookAbilityRow(rowId, key, rawValue, normalize = true) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const spellbookAbilities = character.spellbookAbilities.map((row) => {
+      if (row.id !== normalizedRowId) {
+        return row;
+      }
+
+      const nextRow = {
+        ...row,
+        [key]: key === "uses" && normalize
+          ? normalizeStoredNonNegativeNumber(rawValue)
+          : rawValue
+      };
+
+      return normalizeStoredCharacterSpellbookAbilityRow(nextRow);
+    });
+
+    return normalizeStoredCharacter({
+      ...character,
+      spellbookAbilities
     });
   });
 }
@@ -11110,6 +11971,15 @@ function addCharactersToCombat(characters, options = {}) {
     state.combatAddPickerMode = "";
   }
 
+  validCharacters.forEach((character) => {
+    pushNotification({
+      title: "Personaje añadido",
+      message: `${cleanText(character.name) || "Personaje"} se ha añadido a la tabla de combate.`,
+      tone: "info",
+      imageUrl: cleanText(character.tokenUrl)
+    });
+  });
+
   saveCombatTrackerState();
 }
 
@@ -11163,6 +12033,7 @@ function createCombatantFromCharacter(character, id) {
     pgMax: maxHp,
     pgAct: currentHp,
     pgTemp: 0,
+    hitDice: Math.max(0, Math.floor(toNumber(character.level) || 0)),
     necrotic: 0,
     ca: character.armorClass,
     condiciones: "",
@@ -11997,6 +12868,12 @@ function fillCombatantFromCharacter(combatantId, characterId) {
   state.activeCombatNameSearchId = "";
   state.activeCombatSourceId = "";
   state.inlineAdjustments[combatantId] = state.inlineAdjustments[combatantId] ?? { ...blankInlineAdjustments };
+  pushNotification({
+    title: "Personaje añadido",
+    message: `${cleanText(character.name) || "Personaje"} se ha añadido a la tabla de combate.`,
+    tone: "info",
+    imageUrl: cleanText(character.tokenUrl)
+  });
 }
 
 function fillCombatantFromBestiary(combatantId, entryId) {
@@ -12075,7 +12952,7 @@ function addBlankCombatant() {
       source: "",
       ubicacion: "",
       iniactiva: "",
-      nombre: "Nueva entidad enemiga",
+      nombre: "",
       numPeana: nextStandNumber,
       pgMax: "",
       pgAct: "",
@@ -12113,7 +12990,7 @@ function addEntity() {
       source: "",
       ubicacion: "",
       iniactiva: "",
-      nombre: state.newEntitySide === "allies" ? "Nueva entidad aliada" : "Nueva entidad enemiga",
+      nombre: "",
       numPeana: formatStandNumber(getNextEnemyStandNumber()),
       pgMax: basePg,
       pgAct: basePg,
@@ -12203,7 +13080,9 @@ function deleteCombatantRow(combatantId) {
 }
 
 function applyCombatLongRest() {
+  const previousCombatantsById = new Map(state.combatants.map((combatant) => [combatant.id, combatant]));
   const linkedCharacterIds = new Set();
+  const restNotifications = [];
 
   state.combatants = state.combatants.map((combatant) => {
     if (cleanText(combatant.tag).toUpperCase() !== "ALIADO") {
@@ -12217,20 +13096,26 @@ function applyCombatLongRest() {
     }
 
     const restoredMaxHp = linkedCharacter ? Math.max(0, toNumber(linkedCharacter.maxHp)) : Math.max(0, toNumber(combatant.pgMax));
+    const restoredHitDice = linkedCharacter ? Math.max(0, Math.floor(toNumber(linkedCharacter.level) || 0)) : combatant.hitDice;
+    const previousCombatant = previousCombatantsById.get(combatant.id) ?? combatant;
+    const healedHitPoints = Math.max(0, restoredMaxHp - Math.max(0, toNumber(previousCombatant.pgAct)));
     const currentStatuses = getCombatantStatusNames(combatant);
-    const nextExhaustionLevel = Math.max(0, getExhaustionLevelFromStatusNames(currentStatuses) - 1);
-    const nextStatuses = [
-      ...removeExhaustionStatuses(currentStatuses),
-      ...(nextExhaustionLevel > 0 ? [formatExhaustionStatus(nextExhaustionLevel)] : [])
-    ];
+
+    restNotifications.push({
+      title: "Descanso largo",
+      message: `${getCombatantNotificationLabel(combatant)} ha recuperado ${healedHitPoints} puntos de vida tras un merecido descanso largo.`,
+      tone: "success",
+      imageUrl: cleanText(getCombatantTokenUrl(combatant))
+    });
 
     return normalizeCombatant({
       ...combatant,
       pgMax: restoredMaxHp,
       pgAct: restoredMaxHp,
       pgTemp: 0,
+      hitDice: restoredHitDice,
       necrotic: 0,
-      condiciones: nextStatuses.join(", "),
+      condiciones: "",
       iniactiva: "",
       initiativeRoll: null,
       initiativeNat20: false
@@ -12241,10 +13126,14 @@ function applyCombatLongRest() {
     state.characters = state.characters.map((character) => linkedCharacterIds.has(character.id)
       ? normalizeStoredCharacter({
         ...character,
-        spellSlots: clearCharacterSpellSlotsSpent(character.spellSlots)
+        spellSlots: clearCharacterSpellSlotsSpent(character.spellSlots),
+        spellbookAbilities: clearCharacterSpellbookAbilityUsesSpent(character.spellbookAbilities)
       })
       : character);
+    saveCharacters();
   }
+
+  restNotifications.forEach(pushNotification);
 
   endCombatTurns();
 }
@@ -12282,6 +13171,42 @@ function toggleCombatSpellSlotSpent(combatantId, level, slotIndex) {
     return normalizeStoredCharacter({
       ...character,
       spellSlots
+    });
+  });
+}
+
+function toggleCombatSpellbookAbilitySpent(combatantId, rowId, useIndex) {
+  const linkedCharacter = getLinkedCharacterForCombatant(
+    state.combatants.find((combatant) => combatant.id === cleanText(combatantId)) ?? {}
+  );
+  const normalizedRowId = cleanText(rowId);
+  const normalizedUseIndex = Math.max(0, Math.floor(toNumber(useIndex) || 0));
+
+  if (!linkedCharacter || !normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== linkedCharacter.id) {
+      return character;
+    }
+
+    const spellbookAbilities = normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities).map((row) => {
+      if (row.id !== normalizedRowId || normalizedUseIndex >= row.uses) {
+        return row;
+      }
+
+      const spent = normalizeStoredCharacterSpellbookAbilitySpent(row.spent, row.uses);
+      spent[normalizedUseIndex] = !spent[normalizedUseIndex];
+      return normalizeStoredCharacterSpellbookAbilityRow({
+        ...row,
+        spent
+      });
+    });
+
+    return normalizeStoredCharacter({
+      ...character,
+      spellbookAbilities
     });
   });
 }
@@ -12366,10 +13291,14 @@ function setCombatantTag(combatantId, tag) {
 
 function toggleCombatantStatus(combatantId, statusName) {
   const normalizedStatus = cleanText(statusName);
+  const canonicalTargetStatus = getCanonicalCombatStatusName(normalizedStatus);
 
   if (!normalizedStatus) {
     return;
   }
+
+  let addedStatusName = "";
+  let notificationCombatant = null;
 
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== combatantId) {
@@ -12377,17 +13306,32 @@ function toggleCombatantStatus(combatantId, statusName) {
     }
 
     const currentStatuses = getCombatantStatusNames(combatant);
-    const normalizedStatuses = currentStatuses.map((entry) => normalizeTranslationKey(entry.toLowerCase()));
-    const targetKey = normalizeTranslationKey(normalizedStatus.toLowerCase());
+    const normalizedStatuses = currentStatuses.map((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()));
+    const targetKey = normalizeTranslationKey(canonicalTargetStatus.toLowerCase());
     const nextStatuses = normalizedStatuses.includes(targetKey)
-      ? currentStatuses.filter((entry) => normalizeTranslationKey(entry.toLowerCase()) !== targetKey)
-      : [...currentStatuses, normalizedStatus];
+      ? currentStatuses.filter((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()) !== targetKey)
+      : [...currentStatuses, translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage)];
+
+    if (!normalizedStatuses.includes(targetKey)) {
+      addedStatusName = translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage);
+      notificationCombatant = combatant;
+    }
 
     return normalizeCombatant({
       ...combatant,
       condiciones: nextStatuses.join(", ")
     });
   });
+
+  if (addedStatusName) {
+    pushNotification({
+      title: "Estado aplicado",
+      message: `${getCombatantNotificationLabel(notificationCombatant || {})} está ahora ${addedStatusName}.`,
+      tone: "warning",
+      imageUrl: cleanText(getCombatantTokenUrl(notificationCombatant || {}))
+    });
+  }
+
   clearCombatStatusDraft(combatantId);
 }
 
@@ -12396,24 +13340,48 @@ function generateInitiative() {
     return;
   }
 
+  playInitiativeRollSound();
+  const initiativeNotifications = [];
   state.combatants = state.combatants.map((combatant) => {
     if (!state.selectedIds.has(combatant.id)) {
       return combatant;
     }
 
-    return getCombatantWithGeneratedInitiative(combatant);
+    const nextCombatant = getCombatantWithGeneratedInitiative(combatant);
+
+    if (nextCombatant.initiativeRoll === 1) {
+      initiativeNotifications.push({
+        title: "Pifia de iniciativa",
+        message: `${getCombatantNotificationLabel(nextCombatant)} ha sacado un 1 natural en iniciativa.`,
+        tone: "danger",
+        imageUrl: cleanText(getCombatantTokenUrl(nextCombatant))
+      });
+    } else if (nextCombatant.initiativeRoll === 20) {
+      initiativeNotifications.push({
+        title: "Crítico de iniciativa",
+        message: `${getCombatantNotificationLabel(nextCombatant)} ha sacado un 20 natural en iniciativa.`,
+        tone: "success",
+        imageUrl: cleanText(getCombatantTokenUrl(nextCombatant))
+      });
+    }
+
+    return nextCombatant;
   });
 
   state.sort = { key: "iniactiva", direction: "desc" };
+  initiativeNotifications.forEach(pushNotification);
 }
 
 function getCombatantWithGeneratedInitiative(combatant) {
   const roll = randomD20();
-  const dexModifier = getDexModifier(combatant.stats);
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+  const initiativeBonus = linkedCharacter
+    ? toNumber(linkedCharacter.initiativeBonus)
+    : getDexModifier(combatant.stats);
 
   return {
     ...combatant,
-    iniactiva: roll + dexModifier,
+    iniactiva: roll === 1 ? roll : roll + initiativeBonus,
     initiativeRoll: roll,
     initiativeNat20: roll === 20
   };
@@ -12427,10 +13395,13 @@ function applyPgActAdjustment(id, mode) {
   }
 
   const previousCombatants = state.combatants;
+  const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
     }
+
+    adjustedCombatants.push(combatant);
 
     if (mode === "heal") {
       return normalizeCombatant({
@@ -12451,8 +13422,11 @@ function applyPgActAdjustment(id, mode) {
     }, "pgAct");
   });
 
+  syncDownedAllyUnconsciousStatus(previousCombatants);
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   applyReviveExhaustion(previousCombatants);
+  notifyCombatantDeaths(previousCombatants);
+  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", amount));
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -12464,10 +13438,13 @@ function applyNecroticAdjustment(id) {
   }
 
   const previousCombatants = state.combatants;
+  const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
     }
+
+    adjustedCombatants.push(combatant);
 
     return normalizeCombatant({
       ...combatant,
@@ -12475,8 +13452,11 @@ function applyNecroticAdjustment(id) {
     }, "necrotic");
   });
 
+  syncDownedAllyUnconsciousStatus(previousCombatants);
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   applyReviveExhaustion(previousCombatants);
+  notifyCombatantDeaths(previousCombatants);
+  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "necrotic", amount));
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -12487,10 +13467,13 @@ function applyPgTempAdjustment(id) {
     return;
   }
 
+  const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
     }
+
+    adjustedCombatants.push(combatant);
 
     return normalizeCombatant({
       ...combatant,
@@ -12498,6 +13481,7 @@ function applyPgTempAdjustment(id) {
     }, "pgTemp");
   });
 
+  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "temp", amount));
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -12509,10 +13493,13 @@ function applyAreaPgActAdjustment(mode = "damage") {
   }
 
   const previousCombatants = state.combatants;
+  const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
     if (!state.selectedIds.has(combatant.id)) {
       return combatant;
     }
+
+    adjustedCombatants.push(combatant);
 
     if (mode === "heal") {
       return normalizeCombatant({
@@ -12533,8 +13520,11 @@ function applyAreaPgActAdjustment(mode = "damage") {
     }, "pgAct");
   });
 
+  syncDownedAllyUnconsciousStatus(previousCombatants);
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   applyReviveExhaustion(previousCombatants);
+  notifyCombatantDeaths(previousCombatants);
+  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", amount));
   state.areaDamage = "";
 }
 
@@ -12546,10 +13536,13 @@ function applyAreaNecroticAdjustment() {
   }
 
   const previousCombatants = state.combatants;
+  const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
     if (!state.selectedIds.has(combatant.id)) {
       return combatant;
     }
+
+    adjustedCombatants.push(combatant);
 
     return normalizeCombatant({
       ...combatant,
@@ -12557,8 +13550,11 @@ function applyAreaNecroticAdjustment() {
     }, "necrotic");
   });
 
+  syncDownedAllyUnconsciousStatus(previousCombatants);
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   applyReviveExhaustion(previousCombatants);
+  notifyCombatantDeaths(previousCombatants);
+  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "necrotic", amount));
   state.areaDamage = "";
 }
 
@@ -12569,10 +13565,13 @@ function applyAreaPgTempAdjustment() {
     return;
   }
 
+  const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
     if (!state.selectedIds.has(combatant.id)) {
       return combatant;
     }
+
+    adjustedCombatants.push(combatant);
 
     return normalizeCombatant({
       ...combatant,
@@ -12580,6 +13579,7 @@ function applyAreaPgTempAdjustment() {
     }, "pgTemp");
   });
 
+  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "temp", amount));
   state.areaDamage = "";
 }
 
@@ -12646,6 +13646,127 @@ function distributeExperienceForNewlyDefeatedEnemies(previousCombatants = []) {
   }
 }
 
+function syncDownedAllyUnconsciousStatus(previousCombatants = []) {
+  const previousCombatantsById = new Map(previousCombatants.map((combatant) => [combatant.id, combatant]));
+
+  state.combatants = state.combatants.map((combatant) => {
+    const normalizedTag = cleanText(combatant.tag).toUpperCase();
+
+    if (normalizedTag !== "ALIADO" && combatant.side !== "allies") {
+      return combatant;
+    }
+
+    const previousCombatant = previousCombatantsById.get(combatant.id) ?? combatant;
+    const currentStatuses = getCombatantStatusNames(combatant);
+    const withoutUnconscious = currentStatuses.filter((statusName) => normalizeTranslationKey(statusName.toLowerCase()) !== "inconsciente");
+
+    if (isCombatantDead(combatant)) {
+      if (withoutUnconscious.length !== currentStatuses.length) {
+        return combatant;
+      }
+
+      return normalizeCombatant({
+        ...combatant,
+        condiciones: [...withoutUnconscious, translateCombatStatusNameForLanguage("Inconsciente", state.appLanguage)].join(", ")
+      });
+    }
+
+    if (isCombatantDead(previousCombatant) && withoutUnconscious.length !== currentStatuses.length) {
+      return normalizeCombatant({
+        ...combatant,
+        condiciones: withoutUnconscious.join(", ")
+      });
+    }
+
+    return combatant;
+  });
+}
+
+function notifyCombatantDeaths(previousCombatants = []) {
+  const previousCombatantsById = new Map(previousCombatants.map((combatant) => [combatant.id, combatant]));
+
+  state.combatants.forEach((combatant) => {
+    const previousCombatant = previousCombatantsById.get(combatant.id);
+
+    if (!previousCombatant) {
+      return;
+    }
+
+    if (isCombatantDead(previousCombatant) || !isCombatantDead(combatant)) {
+      return;
+    }
+
+    const normalizedTag = cleanText(combatant.tag).toUpperCase();
+    const isAlly = normalizedTag === "ALIADO" || combatant.side === "allies";
+    const isEnemy = normalizedTag === "ENEMIGO" || combatant.side === "enemies";
+
+    pushNotification({
+      title: isAlly ? "UN ALIADO HA CAIDO!" : isEnemy ? "UN ENEMIGO HA MUERTO" : "HA MUERTO",
+      message: isAlly
+        ? `${getCombatantNotificationLabel(combatant)} ha caido inconsciente.`
+        : `${getCombatantNotificationLabel(combatant)} ha muerto.`,
+      tone: "danger",
+      imageUrl: cleanText(getCombatantTokenUrl(combatant))
+    });
+  });
+}
+
+function getCombatantNotificationLabel(combatant) {
+  const baseName = cleanText(combatant?.nombre) || (isEnglishInterface() ? "Entity" : "Entidad");
+  const standLabel = cleanText(combatant?.numPeana);
+  const isEnemyLike = combatant?.side === "enemies" || cleanText(combatant?.tag).toUpperCase() === "ENEMIGO";
+
+  if (isEnemyLike && standLabel) {
+    return `${baseName} (${isEnglishInterface() ? "Stand" : "Peana"} ${standLabel})`;
+  }
+
+  return baseName;
+}
+
+function queueCombatResourceNotification(combatant, kind, amount) {
+  const normalizedAmount = Math.abs(toNumber(amount));
+
+  if (!combatant || !Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+    return;
+  }
+
+  const amountLabel = Number.isInteger(normalizedAmount) ? String(normalizedAmount) : String(normalizedAmount);
+  const combatantLabel = getCombatantNotificationLabel(combatant);
+  let title = "";
+  let message = "";
+  let tone = "info";
+
+  if (kind === "damage") {
+    title = "Daño aplicado";
+    message = `${combatantLabel} ha recibido ${amountLabel} puntos de dano.`;
+    tone = "danger";
+  } else if (kind === "heal") {
+    title = "Curacion aplicada";
+    message = `${combatantLabel} ha recuperado ${amountLabel} puntos de vida.`;
+    tone = "success";
+  } else if (kind === "necrotic") {
+    title = "Daño necrotico";
+    message = `${combatantLabel} sufre ${amountLabel} puntos de dano necrotico.`;
+    tone = "warning";
+  } else if (kind === "temp") {
+    title = "Vida temporal aplicada";
+    message = `${combatantLabel} gana ${amountLabel} puntos de vida temporal.`;
+    tone = "info";
+  }
+
+  if (!title || !message) {
+    return;
+  }
+
+  pushNotification({
+    title,
+    message,
+    tone,
+    imageUrl: cleanText(getCombatantTokenUrl(combatant)),
+    effectKind: kind
+  });
+}
+
 function getEligibleCharacterIdsForCombatExperience() {
   const seenCharacterIds = new Set();
 
@@ -12674,6 +13795,7 @@ function getCombatantExperienceAward(combatant) {
 
 function normalizeCombatant(combatant, changedKey = "") {
   const baseMax = Math.max(0, toNumber(combatant.pgMax));
+  const hitDice = normalizeStoredNonNegativeNumber(combatant.hitDice);
   const necrotic = Math.max(0, toNumber(combatant.necrotic));
   const effectiveMax = Math.max(0, baseMax - necrotic);
   const pgTemp = Math.max(0, toNumber(combatant.pgTemp));
@@ -12696,6 +13818,7 @@ function normalizeCombatant(combatant, changedKey = "") {
     pgMax: baseMax,
     pgAct,
     pgTemp,
+    hitDice,
     necrotic,
     stats: changedKey === "stats" ? formatStatsWithModifiers(combatant.stats) : combatant.stats,
     side: changedKey === "tag" ? mapTagToSide(combatant.tag) : combatant.side
@@ -12732,6 +13855,57 @@ function getInlineAdjustment(id) {
 
 function getDexModifier(stats) {
   return getAbilityModifier(parseStats(stats).DEX ?? 10);
+}
+
+function shouldShowCombatHitDiceField(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
+  return cleanText(combatant.tag).toUpperCase() === "ALIADO" && Boolean(linkedCharacter);
+}
+
+function getCombatantHitDiceValue(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
+  if (!shouldShowCombatHitDiceField(combatant, linkedCharacter)) {
+    return "";
+  }
+
+  if (combatant.hitDice === "") {
+    return Math.max(0, Math.floor(toNumber(linkedCharacter?.level) || 0));
+  }
+
+  return Math.max(0, Math.floor(toNumber(combatant.hitDice) || 0));
+}
+
+function syncLinkedCombatantsHitDice(characterId) {
+  const normalizedCharacterId = cleanText(characterId);
+  const linkedCharacter = state.characters.find((character) => character.id === normalizedCharacterId);
+
+  if (!linkedCharacter) {
+    return;
+  }
+
+  const nextHitDice = Math.max(0, Math.floor(toNumber(linkedCharacter.level) || 0));
+  state.combatants = state.combatants.map((combatant) => cleanText(combatant.characterId) === normalizedCharacterId
+    ? normalizeCombatant({
+      ...combatant,
+      hitDice: nextHitDice
+    }, "hitDice")
+    : combatant);
+}
+
+function playInitiativeRollSound() {
+  playInterfaceSound(diceRollSoundUrl, 0.72);
+}
+
+function playInterfaceSound(soundUrl, volume = 0.72) {
+  if (typeof window === "undefined" || typeof Audio === "undefined" || !cleanText(soundUrl)) {
+    return;
+  }
+
+  try {
+    const audio = new Audio(soundUrl);
+    audio.volume = Math.max(0, Math.min(1, Number(volume) || 0.72));
+    audio.play().catch(() => {});
+  } catch {
+    // Ignore playback failures caused by browser policies or missing codecs.
+  }
 }
 
 function getNormalizedValue(column, rawValue, normalize) {
@@ -14428,6 +15602,7 @@ function closeCampaignSaveNameDialog() {
 function clearActiveCampaignFileSelection() {
   state.campaignFileName = "";
   state.campaignFilePath = "";
+  state.campaignSavedAt = "";
   saveCampaignMeta();
 }
 
@@ -14493,6 +15668,7 @@ async function saveCampaignFile(options = {}) {
     const fileName = cleanText(options.suggestedFileName) || getCampaignFileName(payload.campaign.name);
     downloadJsonFile(payload, fileName);
     state.campaignName = payload.campaign.name;
+    state.campaignSavedAt = payload.savedAt;
     state.campaignMessage = `Archivo creado: ${fileName}`;
     saveCampaignMeta();
     render();
@@ -14533,6 +15709,7 @@ async function saveCampaignFileAs(options = {}) {
     const fileName = cleanText(options.suggestedFileName) || getCampaignFileName(payload.campaign.name);
     downloadJsonFile(payload, fileName);
     state.campaignName = payload.campaign.name;
+    state.campaignSavedAt = payload.savedAt;
     state.campaignMessage = `Archivo creado: ${fileName}`;
     saveCampaignMeta();
     render();
@@ -14579,6 +15756,7 @@ function applyCampaignFileResult(result) {
 
   state.campaignFileName = fileName || state.campaignFileName;
   state.campaignFilePath = filePath || state.campaignFilePath;
+  state.campaignSavedAt = cleanText(result?.payload?.savedAt) || state.campaignSavedAt;
   state.campaignName = cleanText(result.name)
     || cleanText(result.payload?.campaign?.name)
     || getCampaignNameFromFileName(fileName);
@@ -15079,12 +16257,14 @@ function normalizeCampaignSave(value) {
   const characters = normalizeStoredCharacters(value.characters, characterSkillDefinitions);
   const combatTracker = normalizeStoredCombatTrackerState(value.combatTracker);
   const battleTimer = normalizeStoredBattleTimer(value.combatTracker?.battleTimer);
+  const savedAt = cleanText(value.savedAt);
   const ui = isPlainObject(value.ui) ? value.ui : {};
   const campaign = isPlainObject(value.campaign) ? value.campaign : {};
   const name = cleanText(campaign.name) || cleanText(value.name) || "Campaña sin nombre";
 
   return {
     name,
+    savedAt,
     characterSkillDefinitions,
     characters,
     encounterInventory,
@@ -15140,6 +16320,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   stopBattleTimerInterval();
 
   state.campaignName = campaign.name;
+  state.campaignSavedAt = cleanText(campaign.savedAt);
   state.campaignFileName = cleanText(fileResult?.fileName) || state.campaignFileName;
   state.campaignFilePath = cleanText(fileResult?.filePath) || state.campaignFilePath;
   state.activeScreen = campaign.activeScreen;
@@ -15186,6 +16367,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.activeTableId = campaign.tables.activeTableId;
   state.openTableIds = campaign.tables.openTableIds;
   state.rolledTableRowId = "";
+  synchronizeLanguageSpecificSystemData({ syncCombatants: true });
   reconcileDiaryUiState();
   reconcileTablesUiState();
 
@@ -15357,11 +16539,11 @@ function getFileNameFromPath(filePath) {
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   if (usesDesktopFileOnlyPersistence()) {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   try {
@@ -15373,13 +16555,14 @@ function loadCampaignMeta() {
       name: fileName ? cleanText(parsedValue.name) || getCampaignNameFromFileName(fileName) : "",
       fileName,
       filePath,
+      savedAt: cleanText(parsedValue.savedAt),
       language: normalizeStoredAppLanguage(parsedValue.language),
       contentLanguage: normalizeStoredContentLanguage(parsedValue.contentLanguage),
       includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(parsedValue.includeNpcInCombatExperience),
       repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(parsedValue.repositoryCsvPaths)
     };
   } catch {
-    return { name: "", fileName: "", filePath: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 }
 
@@ -15394,6 +16577,7 @@ function saveCampaignMeta() {
         name: cleanText(state.campaignName),
         fileName: cleanText(state.campaignFileName),
         filePath: cleanText(state.campaignFilePath),
+        savedAt: cleanText(state.campaignSavedAt),
         language: normalizeStoredAppLanguage(state.appLanguage),
         contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
         includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
@@ -15405,6 +16589,194 @@ function saveCampaignMeta() {
   }
 
   scheduleDesktopCampaignDirtyStateSync(60);
+}
+
+function formatCampaignSavedAt(value) {
+  const normalizedValue = cleanText(value);
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  const parsedDate = new Date(normalizedValue);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(parsedDate);
+  } catch {
+    return parsedDate.toLocaleString();
+  }
+}
+
+function scheduleActiveCombatSpellbookPopoverSync() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!state.activeCombatSpellbookCombatantId) {
+    activeCombatSpellbookPopoverSyncFrame = 0;
+    return;
+  }
+
+  if (activeCombatSpellbookPopoverSyncFrame) {
+    return;
+  }
+
+  const schedule = typeof window.requestAnimationFrame === "function"
+    ? window.requestAnimationFrame.bind(window)
+    : (callback) => window.setTimeout(callback, 16);
+
+  activeCombatSpellbookPopoverSyncFrame = schedule(() => {
+    activeCombatSpellbookPopoverSyncFrame = 0;
+    syncActiveCombatSpellbookPopoverPosition();
+  });
+}
+
+function syncActiveCombatSpellbookPopoverPosition() {
+  if (typeof window === "undefined" || !state.activeCombatSpellbookCombatantId) {
+    return;
+  }
+
+  const anchorButton = [...app.querySelectorAll("[data-action=\"toggle-combat-spellbook-popup\"][data-combatant-id]")]
+    .find((button) => button.dataset.combatantId === state.activeCombatSpellbookCombatantId);
+  const popover = app.querySelector("[data-combat-spellbook-popover]");
+
+  if (!anchorButton || !popover) {
+    return;
+  }
+
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const padding = 14;
+  const gap = 12;
+  const anchorRect = anchorButton.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const popoverWidth = popoverRect.width || popover.offsetWidth || 0;
+  const popoverHeight = popoverRect.height || popover.offsetHeight || 0;
+  const maxHeight = Math.max(220, viewportHeight - (padding * 2));
+  let left = anchorRect.left - gap - popoverWidth;
+
+  if (left < padding) {
+    left = anchorRect.right + gap;
+  }
+
+  if (left + popoverWidth > viewportWidth - padding) {
+    left = Math.max(padding, viewportWidth - popoverWidth - padding);
+  }
+
+  const centeredTop = anchorRect.top + (anchorRect.height / 2) - (popoverHeight / 2);
+  const top = Math.min(
+    Math.max(padding, centeredTop),
+    Math.max(padding, viewportHeight - Math.min(popoverHeight, maxHeight) - padding)
+  );
+
+  popover.style.setProperty("--combat-spellbook-popover-left", `${Math.round(left)}px`);
+  popover.style.setProperty("--combat-spellbook-popover-top", `${Math.round(top)}px`);
+  popover.style.setProperty("--combat-spellbook-popover-max-height", `${Math.round(maxHeight)}px`);
+}
+
+function scheduleActiveCombatSpellPreviewSync() {
+  const schedule = window.requestAnimationFrame?.bind(window) ?? ((callback) => window.setTimeout(callback, 16));
+
+  if (!state.activeCombatSpellPreviewName) {
+    activeCombatSpellPreviewSyncFrame = 0;
+    return;
+  }
+
+  if (activeCombatSpellPreviewSyncFrame) {
+    return;
+  }
+
+  activeCombatSpellPreviewSyncFrame = schedule(() => {
+    activeCombatSpellPreviewSyncFrame = 0;
+    syncActiveCombatSpellPreviewPosition();
+  });
+}
+
+function syncActiveCombatSpellPreviewPosition() {
+  if (typeof window === "undefined" || !state.activeCombatSpellPreviewName) {
+    return;
+  }
+
+  const trigger = [...app.querySelectorAll("[data-combat-spell-preview-name]")]
+    .find((element) => element.dataset.combatSpellPreviewName === state.activeCombatSpellPreviewName);
+  const preview = app.querySelector("[data-combat-spell-preview-overlay]");
+
+  if (!trigger || !preview) {
+    return;
+  }
+
+  const triggerRect = trigger.getBoundingClientRect();
+  const previewRect = preview.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const gap = 14;
+  const padding = 12;
+
+  let left = triggerRect.left - previewRect.width - gap;
+  if (left < padding) {
+    left = Math.min(viewportWidth - previewRect.width - padding, triggerRect.right + gap);
+  }
+
+  const top = Math.max(
+    padding,
+    Math.min(triggerRect.top + (triggerRect.height / 2) - (previewRect.height / 2), viewportHeight - previewRect.height - padding)
+  );
+
+  preview.style.setProperty("--combat-spell-preview-left", `${Math.round(left)}px`);
+  preview.style.setProperty("--combat-spell-preview-top", `${Math.round(top)}px`);
+}
+
+function pushNotification({ title = "Notificación", message = "", tone = "info", durationMs = 5200, imageUrl = "" } = {}) {
+  const normalizedTitle = cleanText(title) || "Notificación";
+  const normalizedMessage = cleanText(message);
+  const normalizedEffectKind = cleanText(arguments[0]?.effectKind);
+  const localizedTitle = isEnglishInterface() ? translateUiString(normalizedTitle) : normalizedTitle;
+  const localizedMessage = isEnglishInterface() ? translateUiString(normalizedMessage) : normalizedMessage;
+  const id = createStableId("notification");
+  const notification = {
+    id,
+    title: localizedTitle,
+    message: localizedMessage,
+    tone,
+    imageUrl: cleanText(imageUrl),
+    effectKind: normalizedEffectKind
+  };
+
+  state.notifications = [...state.notifications.slice(-5), notification];
+
+  if (typeof window !== "undefined" && durationMs > 0) {
+    const timeoutId = window.setTimeout(() => {
+      dismissNotification(id);
+      render();
+    }, durationMs);
+    notificationTimeouts.set(id, timeoutId);
+  }
+
+  return id;
+}
+
+function dismissNotification(notificationId) {
+  const normalizedNotificationId = cleanText(notificationId);
+
+  if (!normalizedNotificationId) {
+    return;
+  }
+
+  const timeoutId = notificationTimeouts.get(normalizedNotificationId);
+
+  if (timeoutId && typeof window !== "undefined") {
+    window.clearTimeout(timeoutId);
+  }
+
+  notificationTimeouts.delete(normalizedNotificationId);
+  state.notifications = state.notifications.filter((notification) => notification.id !== normalizedNotificationId);
 }
 
 function loadCharacterSkillDefinitions() {
@@ -15583,6 +16955,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     spellSaveDc: normalizeStoredNumber(character.spellSaveDc),
     spellSlotLevelsVisible: normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots),
     spellSlots: normalizeStoredCharacterSpellSlots(character.spellSlots),
+    spellbookAbilities: normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities),
     inventoryOpen: character.inventoryOpen !== false,
     inventory: normalizeStoredCharacterInventory(character.inventory),
     abilities: normalizeStoredCharacterAbilities(character.abilities)
@@ -15997,6 +17370,10 @@ function isCharacterSpellCantripLabel(value) {
 }
 
 function formatCompactSpellLevelLabel(levelValue) {
+  if (levelValue === 0) {
+    return "TRUCO";
+  }
+
   return levelValue === 99 ? "LVL ?" : `LVL ${levelValue}`;
 }
 
@@ -16017,6 +17394,57 @@ function createBlankCharacterSpellRow(overrides = {}) {
     spellId: "",
     ...overrides
   });
+}
+
+function normalizeStoredCharacterSpellbookAbilities(rows) {
+  const normalizedRows = Array.isArray(rows)
+    ? rows.map((row) => normalizeStoredCharacterSpellbookAbilityRow(row)).filter(Boolean)
+    : [];
+
+  return normalizedRows.length > 0 ? normalizedRows : [createBlankCharacterSpellbookAbilityRow()];
+}
+
+function normalizeStoredCharacterSpellbookAbilityRow(row) {
+  if (!isPlainObject(row)) {
+    return null;
+  }
+
+  const uses = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.uses)) || 0));
+
+  return {
+    id: cleanText(row.id) || createStableId("character-spellbook-ability"),
+    name: cleanText(row.name),
+    uses,
+    spent: normalizeStoredCharacterSpellbookAbilitySpent(row.spent, uses)
+  };
+}
+
+function normalizeStoredCharacterSpellbookAbilitySpent(spent, uses) {
+  const normalizedUses = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(uses)) || 0));
+  const source = Array.isArray(spent) ? spent : [];
+  return Array.from({ length: normalizedUses }, (_, index) => source[index] === true);
+}
+
+function createBlankCharacterSpellbookAbilityRow(overrides = {}) {
+  return normalizeStoredCharacterSpellbookAbilityRow({
+    id: createStableId("character-spellbook-ability"),
+    name: "",
+    uses: 0,
+    spent: [],
+    ...overrides
+  });
+}
+
+function getMeaningfulCharacterSpellbookAbilityRows(rows) {
+  return normalizeStoredCharacterSpellbookAbilities(rows)
+    .filter((row) => cleanText(row.name) || row.uses > 0);
+}
+
+function clearCharacterSpellbookAbilityUsesSpent(rows) {
+  return normalizeStoredCharacterSpellbookAbilities(rows).map((row) => normalizeStoredCharacterSpellbookAbilityRow({
+    ...row,
+    spent: Array.from({ length: row.uses }, () => false)
+  }));
 }
 
 function getDefaultCharacterSpellSlots() {
@@ -16328,6 +17756,7 @@ function normalizeStoredCombatant(combatant) {
     pgMax,
     pgAct,
     pgTemp,
+    hitDice: normalizeStoredNonNegativeNumber(combatant.hitDice),
     necrotic,
     ca: normalizeStoredNumber(combatant.ca),
     condiciones: cleanText(combatant.condiciones),
@@ -16354,7 +17783,13 @@ function normalizeStoredCombatFilters(filters) {
   }
 
   for (const key of Object.keys(normalizedFilters)) {
-    normalizedFilters[key] = cleanText(filters[key]);
+    if (Array.isArray(filters[key])) {
+      normalizedFilters[key] = filters[key].map((value) => cleanText(value)).filter(Boolean);
+      continue;
+    }
+
+    const legacyValue = cleanText(filters[key]);
+    normalizedFilters[key] = legacyValue ? [legacyValue] : [];
   }
 
   return normalizedFilters;

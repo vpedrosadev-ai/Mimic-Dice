@@ -1,4 +1,8 @@
 import healIconUrl from "./buttons-icons/Curacion.png";
+import combatActionIconUrl from "./buttons-icons/Combate.png";
+import longRestIconUrl from "./buttons-icons/Descanso.png";
+import initiativeActionIconUrl from "./buttons-icons/Iniciativa.png";
+import spellbookIconUrl from "./buttons-icons/Hechizos.png";
 import damageIconUrl from "./buttons-icons/Daño.png";
 import necroticIconUrl from "./buttons-icons/Necrotico.png";
 import tempIconUrl from "./buttons-icons/Vida Temporal.png";
@@ -25,6 +29,12 @@ const MINI_ACTION_ICON_URLS = Object.freeze({
   heal: healIconUrl,
   necrotic: necroticIconUrl,
   temp: tempIconUrl
+});
+
+const COMBAT_TOOLBAR_ACTION_ICON_URLS = Object.freeze({
+  combat: combatActionIconUrl,
+  longRest: longRestIconUrl,
+  initiative: initiativeActionIconUrl
 });
 
 const STATUS_ICON_URLS = Object.freeze({
@@ -65,6 +75,14 @@ function normalizeIconKey(value) {
 
 export function getCombatMiniActionIconUrl(kind) {
   return MINI_ACTION_ICON_URLS[kind] ?? "";
+}
+
+export function getCombatSpellbookIconUrl() {
+  return spellbookIconUrl;
+}
+
+export function getCombatToolbarActionIconUrl(kind) {
+  return COMBAT_TOOLBAR_ACTION_ICON_URLS[kind] ?? "";
 }
 
 export function getCombatStatusIconUrl(statusName) {
