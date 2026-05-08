@@ -2,7 +2,7 @@
   "schema": "mimic-dice:campaign",
   "version": 1,
   "app": "Mimic Dice",
-  "savedAt": "2026-05-06T17:54:20.813Z",
+  "savedAt": "2026-05-08T10:40:16.078Z",
   "campaign": {
     "name": "Campana larga de usabilidad"
   },
@@ -89,7 +89,7 @@
       "id": "character-daria",
       "name": "Daria Salmuera",
       "playerName": "Vicky",
-      "isNpc": false,
+      "isNpc": true,
       "className": "explorador",
       "subclassName": "Cazadora",
       "isMulticlass": false,
@@ -1104,21 +1104,21 @@
             "id": "table-row-mon7coil-n21whr",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Dormir",
-              "table-col-mon7coik-faehe3": "Permaneces inconsciente hasta que el conjuro termina, hasta que reciba dano o hasta que alguien la zarandee para que se despierte."
+              "table-col-mon7coik-faehe3": "Permaneces inconsciente hasta que el conjuro termina, hasta que reciba dano o hasta que alguien la zarandee para despertarla."
             }
           },
           {
             "id": "table-row-mon7coil-75ow01",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Envenenado",
-              "table-col-mon7coik-faehe3": "Una criatura envenenada tiene desventaja en las tiradas de ataque y las pruebas de caracteristica."
+              "table-col-mon7coik-faehe3": "La criatura tiene desventaja en las tiradas de ataque y en las pruebas de caracteristica."
             }
           },
           {
             "id": "table-row-mon7coil-xqj3he",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Derribado",
-              "table-col-mon7coik-faehe3": "Una criatura derribada solo podra moverse arrastrandose, a no ser que se levante, terminando asi el estado. La criatura tiene desventaja en las tiradas de ataque. Las tiradas de ataque contra la criatura tienen ventaja si el atacante esta a 5 pies o menos de ella. Sin embargo, tienen desventaja si el atacante esta a mas distancia."
+              "table-col-mon7coik-faehe3": "Solo puede moverse arrastrandose, salvo que se levante. Tiene desventaja en sus ataques; los ataques contra ella tienen ventaja a 5 pies o menos y desventaja desde mas lejos."
             }
           },
           {
@@ -1132,77 +1132,77 @@
             "id": "table-row-mon7coil-i6ln19",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Apresado",
-              "table-col-mon7coik-faehe3": "Velocidad 0, tiradas de ataque contra criatura con ventaja y tiradas de ataque de criatura con desventaja."
+              "table-col-mon7coik-faehe3": "Velocidad 0. Los ataques contra la criatura tienen ventaja y sus ataques tienen desventaja."
             }
           },
           {
             "id": "table-row-mon7coil-u7kv7a",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Asustado",
-              "table-col-mon7coik-faehe3": "Una criatura asustada tiene desventaja en las pruebas de caracteristica y tiradas de ataque mientras pueda ver a la fuente de su miedo. La criatura no puede acercarse a la fuente de su miedo voluntariamente."
+              "table-col-mon7coik-faehe3": "Tiene desventaja en pruebas y ataques mientras vea la fuente de su miedo y no puede acercarse voluntariamente a ella."
             }
           },
           {
             "id": "table-row-mon7coil-dwztvd",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Aturdido",
-              "table-col-mon7coik-faehe3": "Una criatura aturdida esta incapacitada, no puede moverse y solo es capaz de hablar con voz entrecortada. La criatura falla automaticamente las tiradas de salvacion de Fuerza y Destreza. Las tiradas de ataque contra la criatura tienen ventaja."
+              "table-col-mon7coik-faehe3": "Esta incapacitada, no puede moverse y solo habla con dificultad. Falla automaticamente las salvaciones de Fuerza y Destreza y los ataques contra ella tienen ventaja."
             }
           },
           {
             "id": "table-row-mon7coil-7eoyco",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Cegado",
-              "table-col-mon7coik-faehe3": "Una criatura cegada no puede ver y falla automaticamente todas las pruebas de caracteristica que requieran vista. Las tiradas de ataque contra la criatura tienen ventaja y las tiradas de ataque hechas por la criatura tienen desventaja."
+              "table-col-mon7coik-faehe3": "No puede ver y falla automaticamente las pruebas que requieran vista. Los ataques contra ella tienen ventaja y sus ataques tienen desventaja."
             }
           },
           {
             "id": "table-row-mon7coil-3of1lp",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Ensordecido",
-              "table-col-mon7coik-faehe3": "Una criatura ensordecida no puede oir y falla automaticamente todas las pruebas de caracteristica que requieran el oido."
+              "table-col-mon7coik-faehe3": "No puede oir y falla automaticamente las pruebas que requieran oido."
             }
           },
           {
             "id": "table-row-mon7coil-5jorc6",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Hechizado",
-              "table-col-mon7coik-faehe3": "Una criatura hechizada no puede atacar ni elegir como objetivo de efectos daninos o magicos a quien la hechizo. Quien hechizo a la criatura tiene ventaja en las pruebas de caracteristica para interactuar socialmente con ella."
+              "table-col-mon7coik-faehe3": "No puede atacar ni elegir como objetivo de efectos daninos o magicos a quien la hechizo, y esa criatura tiene ventaja en las pruebas sociales con ella."
             }
           },
           {
             "id": "table-row-mon7coil-osm739",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Incapacitado",
-              "table-col-mon7coik-faehe3": "Una criatura incapacitada no puede llevar a cabo acciones ni reacciones."
+              "table-col-mon7coik-faehe3": "No puede realizar acciones ni reacciones."
             }
           },
           {
             "id": "table-row-mon7coil-t6cxzg",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Inconsciente",
-              "table-col-mon7coik-faehe3": "Una criatura inconsciente esta incapacitada, no puede moverse o hablar y no es consciente de su entorno. La criatura deja caer cualquier cosa que este sujetando y cae derribada. La criatura falla automaticamente las tiradas de salvacion de Fuerza y Destreza. Las tiradas de ataque contra la criatura tienen ventaja. Todos los ataques que impacten a la criatura son criticos si el atacante esta a 5 pies o menos de ella."
+              "table-col-mon7coik-faehe3": "Esta incapacitada, no puede moverse ni hablar y no es consciente de su entorno. Suelta lo que lleva, cae derribada, falla las salvaciones de Fuerza y Destreza y los ataques contra ella tienen ventaja; los impactos a 5 pies o menos son criticos."
             }
           },
           {
             "id": "table-row-mon7coil-ly255l",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Invisible",
-              "table-col-mon7coik-faehe3": "Es imposible ver a una criatura invisible sin la ayuda de magia o sentidos especiales. En lo que a esconderse respecta, se considera que la criatura se encuentra en una zona muy oscura, aunque se puede determinar su ubicacion si esta hace algun ruido o deja huellas. Las tiradas de ataque contra la criatura tienen desventaja y las tiradas de ataque hechas por la criatura tienen ventaja."
+              "table-col-mon7coik-faehe3": "No puede verse sin magia o sentidos especiales. Los ataques contra ella tienen desventaja y sus ataques tienen ventaja."
             }
           },
           {
             "id": "table-row-mon7coil-xy4wjv",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Paralizado",
-              "table-col-mon7coik-faehe3": "No puedes hacer nada. Una criatura paralizada esta incapacitada y no puede moverse ni hablar. La criatura falla automaticamente las tiradas de salvacion de Fuerza y Destreza. Las tiradas de ataque contra la criatura tienen ventaja. Todos los ataques que impacten a la criatura son criticos si el atacante esta a 5 pies o menos de ella."
+              "table-col-mon7coik-faehe3": "Esta incapacitada y no puede moverse ni hablar. Falla las salvaciones de Fuerza y Destreza y los ataques contra ella tienen ventaja; los impactos a 5 pies o menos son criticos."
             }
           },
           {
             "id": "table-row-mon7coil-i9yqq4",
             "cells": {
               "table-col-mon7coik-y5dgdg": "Petrificado",
-              "table-col-mon7coik-faehe3": "Una criatura petrificada es transformada, junto con todos los objetos no magicos que lleve encima o tenga puestos, en una sustancia solida e inanimada. Su peso se multiplica por diez y deja de envejecer. La criatura esta incapacitada, no puede moverse o hablar y no es consciente de su entorno. La criatura falla automaticamente las tiradas de salvacion de Fuerza y Destreza. Las tiradas de ataque contra la criatura tienen ventaja. La criatura tiene resistencia contra todo el dano. La criatura es inmune al veneno y la enfermedad. Sin embargo, cualquier enfermedad o veneno que ya estuviera presente en su cuerpo queda suspendido, pero no neutralizado."
+              "table-col-mon7coik-faehe3": "Se transforma en materia solida e inerte. Esta incapacitada, no puede moverse ni hablar, falla las salvaciones de Fuerza y Destreza, los ataques contra ella tienen ventaja y tiene resistencia a todo el dano; es inmune al veneno y a la enfermedad."
             }
           }
         ],
@@ -1229,700 +1229,700 @@
             "id": "table-row-mon7coil-qxq88m",
             "cells": {
               "table-col-mon7coil-mnanwj": "1",
-              "table-col-mon7coil-rld5g6": "Roll on this table every round for 1 minute."
+              "table-col-mon7coil-rld5g6": "Tira en esta tabla cada ronda durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-dfpkov",
             "cells": {
               "table-col-mon7coil-mnanwj": "2",
-              "table-col-mon7coil-rld5g6": "Caster and target switch positions after spell."
+              "table-col-mon7coil-rld5g6": "Lanzador y objetivo intercambian posiciones tras el conjuro."
             }
           },
           {
             "id": "table-row-mon7coil-f19awu",
             "cells": {
               "table-col-mon7coil-mnanwj": "3",
-              "table-col-mon7coil-rld5g6": "Can see invisible creatures."
+              "table-col-mon7coil-rld5g6": "Puedes ver criaturas invisibles."
             }
           },
           {
             "id": "table-row-mon7coil-j2s5eb",
             "cells": {
               "table-col-mon7coil-mnanwj": "4",
-              "table-col-mon7coil-rld5g6": "A flaming horse appears (Not Nightmare, real horse)."
+              "table-col-mon7coil-rld5g6": "Aparece un caballo en llamas (no es una pesadilla; es real)."
             }
           },
           {
             "id": "table-row-mon7coil-wvtxpd",
             "cells": {
               "table-col-mon7coil-mnanwj": "5",
-              "table-col-mon7coil-rld5g6": "A modron appears within 5 feet for one minute."
+              "table-col-mon7coil-rld5g6": "Aparece un modron a 5 pies durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-9wx8sz",
             "cells": {
               "table-col-mon7coil-mnanwj": "6",
-              "table-col-mon7coil-rld5g6": "Caster explodes with plant growth."
+              "table-col-mon7coil-rld5g6": "El lanzador estalla con crecimiento vegetal."
             }
           },
           {
             "id": "table-row-mon7coil-rsh65o",
             "cells": {
               "table-col-mon7coil-mnanwj": "7",
-              "table-col-mon7coil-rld5g6": "Cast fireball at 3rd level centered on self."
+              "table-col-mon7coil-rld5g6": "Lanza bola de fuego de nivel 3 centrada en ti."
             }
           },
           {
             "id": "table-row-mon7coil-ey7aci",
             "cells": {
               "table-col-mon7coil-mnanwj": "8",
-              "table-col-mon7coil-rld5g6": "Weapons in 60' radius turn to food for 1 minute."
+              "table-col-mon7coil-rld5g6": "Las armas en 60 pies se convierten en comida durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-j9dn82",
             "cells": {
               "table-col-mon7coil-mnanwj": "9",
-              "table-col-mon7coil-rld5g6": "Cast magic missile as 5th-level spell."
+              "table-col-mon7coil-rld5g6": "Lanza misil magico como conjuro de nivel 5."
             }
           },
           {
             "id": "table-row-mon7coil-45x14y",
             "cells": {
               "table-col-mon7coil-mnanwj": "10",
-              "table-col-mon7coil-rld5g6": "Caster breathes 30' fire cone next time they speak."
+              "table-col-mon7coil-rld5g6": "La proxima vez que hable, el lanzador exhala un cono de fuego de 30 pies."
             }
           },
           {
             "id": "table-row-mon7coil-defxn0",
             "cells": {
               "table-col-mon7coil-mnanwj": "11",
-              "table-col-mon7coil-rld5g6": "Change height by 1d10: Even grow, odd shrink."
+              "table-col-mon7coil-rld5g6": "La altura cambia 1d10: par crece, impar encoge."
             }
           },
           {
             "id": "table-row-mon7coil-s4vond",
             "cells": {
               "table-col-mon7coil-mnanwj": "12",
-              "table-col-mon7coil-rld5g6": "Target is cocooned in crystal until someone breaks it."
+              "table-col-mon7coil-rld5g6": "El objetivo queda encerrado en cristal hasta que alguien lo rompa."
             }
           },
           {
             "id": "table-row-mon7coil-via93z",
             "cells": {
               "table-col-mon7coil-mnanwj": "13",
-              "table-col-mon7coil-rld5g6": "Cast confusion centered on self."
+              "table-col-mon7coil-rld5g6": "Lanza confusion centrada en ti."
             }
           },
           {
             "id": "table-row-mon7coil-5x6fuf",
             "cells": {
               "table-col-mon7coil-mnanwj": "14",
-              "table-col-mon7coil-rld5g6": "Cast thunder wave centered on self."
+              "table-col-mon7coil-rld5g6": "Lanza onda atronadora centrada en ti."
             }
           },
           {
             "id": "table-row-mon7coil-bwo581",
             "cells": {
               "table-col-mon7coil-mnanwj": "15",
-              "table-col-mon7coil-rld5g6": "Regain 5 HP every round for 1 minute."
+              "table-col-mon7coil-rld5g6": "Recuperas 5 PV cada ronda durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-i973jb",
             "cells": {
               "table-col-mon7coil-mnanwj": "16",
-              "table-col-mon7coil-rld5g6": "Target is transported to Ethereal Plane for 1 minute."
+              "table-col-mon7coil-rld5g6": "El objetivo es transportado al Plano Etereo durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-h863gc",
             "cells": {
               "table-col-mon7coil-mnanwj": "17",
-              "table-col-mon7coil-rld5g6": "Grow long beard made of feathers until sneeze."
+              "table-col-mon7coil-rld5g6": "Te crece una larga barba de plumas hasta que estornudes."
             }
           },
           {
             "id": "table-row-mon7coil-2oech8",
             "cells": {
               "table-col-mon7coil-mnanwj": "18",
-              "table-col-mon7coil-rld5g6": "Swarm of rats carry caster 30' in random direction."
+              "table-col-mon7coil-rld5g6": "Una nube de ratas transporta al lanzador 30 pies en direccion aleatoria."
             }
           },
           {
             "id": "table-row-mon7coil-s6w9u9",
             "cells": {
               "table-col-mon7coil-mnanwj": "19",
-              "table-col-mon7coil-rld5g6": "Cast grease centered on self."
+              "table-col-mon7coil-rld5g6": "Lanza grasa centrada en ti."
             }
           },
           {
             "id": "table-row-mon7coil-dipr6a",
             "cells": {
               "table-col-mon7coil-mnanwj": "20",
-              "table-col-mon7coil-rld5g6": "Creatures within 30' are stuck in place vs Str DC 15."
+              "table-col-mon7coil-rld5g6": "Las criaturas a 30 pies quedan clavadas en el sitio; salvacion de Fuerza CD 15."
             }
           },
           {
             "id": "table-row-mon7coil-web9x7",
             "cells": {
               "table-col-mon7coil-mnanwj": "21",
-              "table-col-mon7coil-rld5g6": "For 1 minute, spell targets have disadvantage on saves."
+              "table-col-mon7coil-rld5g6": "Durante 1 minuto, los objetivos de tus conjuros tienen desventaja en salvaciones."
             }
           },
           {
             "id": "table-row-mon7coil-qj8cjd",
             "cells": {
               "table-col-mon7coil-mnanwj": "22",
-              "table-col-mon7coil-rld5g6": "A mature oak sprouts in an unoccupied space in 60'."
+              "table-col-mon7coil-rld5g6": "Brota un roble adulto en un espacio desocupado a 60 pies."
             }
           },
           {
             "id": "table-row-mon7coil-q2djza",
             "cells": {
               "table-col-mon7coil-mnanwj": "23",
-              "table-col-mon7coil-rld5g6": "Caster's skin turns vibrant blue till remove curse."
+              "table-col-mon7coil-rld5g6": "La piel del lanzador se vuelve azul brillante hasta quitar maldicion."
             }
           },
           {
             "id": "table-row-mon7coil-910xk2",
             "cells": {
               "table-col-mon7coil-mnanwj": "24",
-              "table-col-mon7coil-rld5g6": "Caster can only speak to animals for 24 hours."
+              "table-col-mon7coil-rld5g6": "El lanzador solo puede hablar con animales durante 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-7nyic7",
             "cells": {
               "table-col-mon7coil-mnanwj": "25",
-              "table-col-mon7coil-rld5g6": "Third eye grows; advantage on Perception for 1 minute."
+              "table-col-mon7coil-rld5g6": "Te crece un tercer ojo; ventaja en Percepcion durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-oe3lvv",
             "cells": {
               "table-col-mon7coil-mnanwj": "26",
-              "table-col-mon7coil-rld5g6": "Caster gains 100 lbs, move speed halved, 1 minute."
+              "table-col-mon7coil-rld5g6": "El lanzador gana 100 libras, su velocidad se reduce a la mitad durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-mecdh3",
             "cells": {
               "table-col-mon7coil-mnanwj": "27",
-              "table-col-mon7coil-rld5g6": "Spells cost additional bonus round cast time."
+              "table-col-mon7coil-rld5g6": "Los conjuros requieren una accion adicional para completarse."
             }
           },
           {
             "id": "table-row-mon7coil-6ujs1k",
             "cells": {
               "table-col-mon7coil-mnanwj": "28",
-              "table-col-mon7coil-rld5g6": "Next turn caster takes no action, vomits 1d100 SP."
+              "table-col-mon7coil-rld5g6": "En el siguiente turno no realizas acciones y vomitas 1d100 po."
             }
           },
           {
             "id": "table-row-mon7coil-p9tk7j",
             "cells": {
               "table-col-mon7coil-mnanwj": "29",
-              "table-col-mon7coil-rld5g6": "Teleport up to 60 feet away to unoccupied space."
+              "table-col-mon7coil-rld5g6": "Te teletransportas hasta 60 pies a un espacio desocupado."
             }
           },
           {
             "id": "table-row-mon7coil-p9kqtc",
             "cells": {
               "table-col-mon7coil-mnanwj": "30",
-              "table-col-mon7coil-rld5g6": "Caster's hands become covered in sticky goop."
+              "table-col-mon7coil-rld5g6": "Las manos del lanzador quedan cubiertas de sustancia pegajosa."
             }
           },
           {
             "id": "table-row-mon7coil-eu1sxv",
             "cells": {
               "table-col-mon7coil-mnanwj": "31",
-              "table-col-mon7coil-rld5g6": "Transported to Astral Plane until end of next turn."
+              "table-col-mon7coil-rld5g6": "Eres transportado al Plano Astral hasta el final de tu siguiente turno."
             }
           },
           {
             "id": "table-row-mon7coil-t8j9ao",
             "cells": {
               "table-col-mon7coil-mnanwj": "32",
-              "table-col-mon7coil-rld5g6": "Cabbages sprout abundantly within a 30' radius."
+              "table-col-mon7coil-rld5g6": "Brota una abundancia de coles en un radio de 30 pies."
             }
           },
           {
             "id": "table-row-mon7coil-cg5th3",
             "cells": {
               "table-col-mon7coil-mnanwj": "33",
-              "table-col-mon7coil-rld5g6": "Max damage of next damaging spell cast in next minute."
+              "table-col-mon7coil-rld5g6": "El siguiente conjuro de dano lanzado en 1 minuto hace dano maximo."
             }
           },
           {
             "id": "table-row-mon7coil-39qmbb",
             "cells": {
               "table-col-mon7coil-mnanwj": "34",
-              "table-col-mon7coil-rld5g6": "Caster can mimic target's voice perfectly for 24 hrs."
+              "table-col-mon7coil-rld5g6": "El lanzador puede imitar perfectamente la voz del objetivo durante 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-cc1gs9",
             "cells": {
               "table-col-mon7coil-mnanwj": "35",
-              "table-col-mon7coil-rld5g6": "Age changes 1d10 years. Odd younger, even older."
+              "table-col-mon7coil-rld5g6": "Tu edad cambia 1d10 anos: impar rejuvenece, par envejece."
             }
           },
           {
             "id": "table-row-mon7coil-6wbkd4",
             "cells": {
               "table-col-mon7coil-mnanwj": "36",
-              "table-col-mon7coil-rld5g6": "Caster grows antlers, sheds them in 24 hours."
+              "table-col-mon7coil-rld5g6": "Al lanzador le crecen astas que se caen en 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-w8unwy",
             "cells": {
               "table-col-mon7coil-mnanwj": "37",
-              "table-col-mon7coil-rld5g6": "1d6 flumphs appear for 1 minute in 60'; scared."
+              "table-col-mon7coil-rld5g6": "Aparecen 1d6 flumphs asustados en 60 pies durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-6n886h",
             "cells": {
               "table-col-mon7coil-mnanwj": "38",
-              "table-col-mon7coil-rld5g6": "Caster and target flung 10' in opposite directions."
+              "table-col-mon7coil-rld5g6": "Lanzador y objetivo salen despedidos 10 pies en direcciones opuestas."
             }
           },
           {
             "id": "table-row-mon7coil-vgq9tm",
             "cells": {
               "table-col-mon7coil-mnanwj": "39",
-              "table-col-mon7coil-rld5g6": "Regain 2d10 HP."
+              "table-col-mon7coil-rld5g6": "Recuperas 2d10 PV."
             }
           },
           {
             "id": "table-row-mon7coil-i7jm0j",
             "cells": {
               "table-col-mon7coil-mnanwj": "40",
-              "table-col-mon7coil-rld5g6": "Gravity reverses in 30' radius till start of next turn."
+              "table-col-mon7coil-rld5g6": "La gravedad se invierte en un radio de 30 pies hasta tu siguiente turno."
             }
           },
           {
             "id": "table-row-mon7coil-4vvol6",
             "cells": {
               "table-col-mon7coil-mnanwj": "41",
-              "table-col-mon7coil-rld5g6": "Become potted plant until start of next turn."
+              "table-col-mon7coil-rld5g6": "Te conviertes en planta en maceta hasta el inicio de tu siguiente turno."
             }
           },
           {
             "id": "table-row-mon7coil-spotzt",
             "cells": {
               "table-col-mon7coil-mnanwj": "42",
-              "table-col-mon7coil-rld5g6": "Caster distracted by cloud of gnats for next minute."
+              "table-col-mon7coil-rld5g6": "El lanzador queda distraido por una nube de mosquitos durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-c2xrcd",
             "cells": {
               "table-col-mon7coil-mnanwj": "43",
-              "table-col-mon7coil-rld5g6": "For next minute, teleport up to 20' as bonus action."
+              "table-col-mon7coil-rld5g6": "Durante 1 minuto puedes teletransportarte 20 pies como accion adicional."
             }
           },
           {
             "id": "table-row-mon7coil-tscnyg",
             "cells": {
               "table-col-mon7coil-mnanwj": "44",
-              "table-col-mon7coil-rld5g6": "Spell ricochets off target to random creature in 30'."
+              "table-col-mon7coil-rld5g6": "El conjuro rebota del objetivo a una criatura aleatoria a 30 pies."
             }
           },
           {
             "id": "table-row-mon7coil-vhc1g7",
             "cells": {
               "table-col-mon7coil-mnanwj": "45",
-              "table-col-mon7coil-rld5g6": "Cast levitate on self."
+              "table-col-mon7coil-rld5g6": "Lanza levitar sobre ti."
             }
           },
           {
             "id": "table-row-mon7coil-bnzsd1",
             "cells": {
               "table-col-mon7coil-mnanwj": "46",
-              "table-col-mon7coil-rld5g6": "Caster's money cycles: CP -> SP -> GP -> CP."
+              "table-col-mon7coil-rld5g6": "El dinero del lanzador rota: cp a sp a gp a cp."
             }
           },
           {
             "id": "table-row-mon7coil-dr7efy",
             "cells": {
               "table-col-mon7coil-mnanwj": "47",
-              "table-col-mon7coil-rld5g6": "Unicorn appears within 5' for next minute."
+              "table-col-mon7coil-rld5g6": "Aparece un unicornio a 5 pies durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-e80xj1",
             "cells": {
               "table-col-mon7coil-mnanwj": "48",
-              "table-col-mon7coil-rld5g6": "One of target's eyes replaced by 500 GP sapphire."
+              "table-col-mon7coil-rld5g6": "Uno de los ojos del objetivo es reemplazado por un zafiro de 500 po."
             }
           },
           {
             "id": "table-row-mon7coil-onk01p",
             "cells": {
               "table-col-mon7coil-mnanwj": "49",
-              "table-col-mon7coil-rld5g6": "Cannot speak, emit pink bubbles instead."
+              "table-col-mon7coil-rld5g6": "No puedes hablar; solo salen burbujas rosas."
             }
           },
           {
             "id": "table-row-mon7coil-esz9l5",
             "cells": {
               "table-col-mon7coil-mnanwj": "50",
-              "table-col-mon7coil-rld5g6": "Smoke fumes from caster's ears for 1 minute."
+              "table-col-mon7coil-rld5g6": "Sale humo de las orejas del lanzador durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-h9yil1",
             "cells": {
               "table-col-mon7coil-mnanwj": "51",
-              "table-col-mon7coil-rld5g6": "Spectral shield, +2 AC, no magic missile for 1 minute."
+              "table-col-mon7coil-rld5g6": "Un escudo espectral da +2 CA y bloquea misil magico durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-onwucy",
             "cells": {
               "table-col-mon7coil-mnanwj": "52",
-              "table-col-mon7coil-rld5g6": "Caster gains 3' prehensile tail for 1 hour."
+              "table-col-mon7coil-rld5g6": "El lanzador gana una cola prensil de 3 pies durante 1 hora."
             }
           },
           {
             "id": "table-row-mon7coil-nssqbc",
             "cells": {
               "table-col-mon7coil-mnanwj": "53",
-              "table-col-mon7coil-rld5g6": "Cannot get drunk for 5d6 days."
+              "table-col-mon7coil-rld5g6": "No puedes emborracharte durante 5d6 dias."
             }
           },
           {
             "id": "table-row-mon7coil-9bpnoc",
             "cells": {
               "table-col-mon7coil-mnanwj": "54",
-              "table-col-mon7coil-rld5g6": "All unlocked doors/windows in 60' fly open."
+              "table-col-mon7coil-rld5g6": "Todas las puertas y ventanas sin cerrar a 60 pies se abren de golpe."
             }
           },
           {
             "id": "table-row-mon7coil-i0tdwq",
             "cells": {
               "table-col-mon7coil-mnanwj": "55",
-              "table-col-mon7coil-rld5g6": "Hair falls out, grows back within 24 hours."
+              "table-col-mon7coil-rld5g6": "Se cae todo el pelo y vuelve a crecer en 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-nqbkav",
             "cells": {
               "table-col-mon7coil-mnanwj": "56",
-              "table-col-mon7coil-rld5g6": "Caster's face blackened by small explosion."
+              "table-col-mon7coil-rld5g6": "Una pequena explosion ennegrece el rostro del lanzador."
             }
           },
           {
             "id": "table-row-mon7coil-my96um",
             "cells": {
               "table-col-mon7coil-mnanwj": "57",
-              "table-col-mon7coil-rld5g6": "For 1 minute, flammable touch (not worn/carried)."
+              "table-col-mon7coil-rld5g6": "Durante 1 minuto, todo lo que tocas prende fuego, salvo objetos vestidos o transportados."
             }
           },
           {
             "id": "table-row-mon7coil-78hfb8",
             "cells": {
               "table-col-mon7coil-mnanwj": "58",
-              "table-col-mon7coil-rld5g6": "Geyser lifts caster 50' in air until start of next turn."
+              "table-col-mon7coil-rld5g6": "Un geiser eleva al lanzador 50 pies hasta el inicio de su siguiente turno."
             }
           },
           {
             "id": "table-row-mon7coil-c3jllk",
             "cells": {
               "table-col-mon7coil-mnanwj": "59",
-              "table-col-mon7coil-rld5g6": "Regain lowest-level expended spell slot."
+              "table-col-mon7coil-rld5g6": "Recuperas el espacio de conjuro gastado de menor nivel."
             }
           },
           {
             "id": "table-row-mon7coil-siqkj7",
             "cells": {
               "table-col-mon7coil-mnanwj": "60",
-              "table-col-mon7coil-rld5g6": "A confused bear appears within 60' for 1 minute."
+              "table-col-mon7coil-rld5g6": "Aparece un oso confundido a 60 pies durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-vofhb5",
             "cells": {
               "table-col-mon7coil-mnanwj": "61",
-              "table-col-mon7coil-rld5g6": "For 1 minute, can only shout when speaking."
+              "table-col-mon7coil-rld5g6": "Durante 1 minuto, el lanzador solo puede gritar al hablar."
             }
           },
           {
             "id": "table-row-mon7coil-qafuyt",
             "cells": {
               "table-col-mon7coil-mnanwj": "62",
-              "table-col-mon7coil-rld5g6": "Grass instantly sprouts to 3' tall within 20', 1 minute."
+              "table-col-mon7coil-rld5g6": "La hierba crece al instante hasta 3 pies en 20 pies durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-vl4rzg",
             "cells": {
               "table-col-mon7coil-mnanwj": "63",
-              "table-col-mon7coil-rld5g6": "Cast fog cloud centered on self."
+              "table-col-mon7coil-rld5g6": "Lanza nube de niebla centrada en ti."
             }
           },
           {
             "id": "table-row-mon7coil-6c5kjk",
             "cells": {
               "table-col-mon7coil-mnanwj": "64",
-              "table-col-mon7coil-rld5g6": "Caster can only breathe underwater for next minute."
+              "table-col-mon7coil-rld5g6": "El lanzador solo puede respirar bajo el agua durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-4drns0",
             "cells": {
               "table-col-mon7coil-mnanwj": "65",
-              "table-col-mon7coil-rld5g6": "Up to 3 creatures of choice in 30': 4d10 lightning damage."
+              "table-col-mon7coil-rld5g6": "Hasta 3 criaturas elegidas a 30 pies sufren 4d10 de dano de rayo."
             }
           },
           {
             "id": "table-row-mon7coil-1wr3mh",
             "cells": {
               "table-col-mon7coil-mnanwj": "66",
-              "table-col-mon7coil-rld5g6": "Caster falls unconscious until start of next turn."
+              "table-col-mon7coil-rld5g6": "El lanzador cae inconsciente hasta el inicio de su siguiente turno."
             }
           },
           {
             "id": "table-row-mon7coil-ls93t0",
             "cells": {
               "table-col-mon7coil-mnanwj": "67",
-              "table-col-mon7coil-rld5g6": "Frightened by nearest creature until end of next turn."
+              "table-col-mon7coil-rld5g6": "El lanzador queda asustado por la criatura mas cercana hasta el final de su siguiente turno."
             }
           },
           {
             "id": "table-row-mon7coil-xhvoqs",
             "cells": {
               "table-col-mon7coil-mnanwj": "68",
-              "table-col-mon7coil-rld5g6": "If target dies in next minute, its ghost haunts caster."
+              "table-col-mon7coil-rld5g6": "Si el objetivo muere en el proximo minuto, su fantasma atormenta al lanzador."
             }
           },
           {
             "id": "table-row-mon7coil-c2fa82",
             "cells": {
               "table-col-mon7coil-mnanwj": "69",
-              "table-col-mon7coil-rld5g6": "Everyone in 30': invisible for 1 minute or till atk/cast."
+              "table-col-mon7coil-rld5g6": "Todos a 30 pies se vuelven invisibles durante 1 minuto o hasta atacar o lanzar un conjuro."
             }
           },
           {
             "id": "table-row-mon7coil-96xjbo",
             "cells": {
               "table-col-mon7coil-mnanwj": "70",
-              "table-col-mon7coil-rld5g6": "All within 60' save vs Wis 15 or drop what they hold."
+              "table-col-mon7coil-rld5g6": "Todos a 60 pies hacen salvacion de Sabiduria 15 o sueltan lo que sostienen."
             }
           },
           {
             "id": "table-row-mon7coil-4900b0",
             "cells": {
               "table-col-mon7coil-mnanwj": "71",
-              "table-col-mon7coil-rld5g6": "Resistance to all damage for next minute."
+              "table-col-mon7coil-rld5g6": "Resistencia a todo el dano durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-wo7tx1",
             "cells": {
               "table-col-mon7coil-mnanwj": "72",
-              "table-col-mon7coil-rld5g6": "Everything within 20' pulled 10' toward caster."
+              "table-col-mon7coil-rld5g6": "Todo a 20 pies es arrastrado 10 pies hacia el lanzador."
             }
           },
           {
             "id": "table-row-mon7coil-oqwqmy",
             "cells": {
               "table-col-mon7coil-mnanwj": "73",
-              "table-col-mon7coil-rld5g6": "Random creature within 60' is poisoned for 24 hours."
+              "table-col-mon7coil-rld5g6": "Una criatura aleatoria a 60 pies queda envenenada durante 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-jpqplg",
             "cells": {
               "table-col-mon7coil-mnanwj": "74",
-              "table-col-mon7coil-rld5g6": "Caster smells like lavender for 1d6 days."
+              "table-col-mon7coil-rld5g6": "El lanzador huele a lavanda durante 1d6 dias."
             }
           },
           {
             "id": "table-row-mon7coil-uiant1",
             "cells": {
               "table-col-mon7coil-mnanwj": "75",
-              "table-col-mon7coil-rld5g6": "Glow brightly for 1 minute. Blind others within 5'."
+              "table-col-mon7coil-rld5g6": "Brillas intensamente durante 1 minuto; puedes cegar a criaturas a 5 pies."
             }
           },
           {
             "id": "table-row-mon7coil-b074j6",
             "cells": {
               "table-col-mon7coil-mnanwj": "76",
-              "table-col-mon7coil-rld5g6": "Caster's clothes become uncomfortably tight."
+              "table-col-mon7coil-rld5g6": "La ropa del lanzador se vuelve incomodamente ajustada."
             }
           },
           {
             "id": "table-row-mon7coil-0lgh2r",
             "cells": {
               "table-col-mon7coil-mnanwj": "77",
-              "table-col-mon7coil-rld5g6": "Cast polymorph on self. Fail save: sheep form."
+              "table-col-mon7coil-rld5g6": "Lanza polimorfar sobre ti; si fallas la salvacion, te vuelves oveja."
             }
           },
           {
             "id": "table-row-mon7coil-fgppep",
             "cells": {
               "table-col-mon7coil-mnanwj": "78",
-              "table-col-mon7coil-rld5g6": "If spell would kill target, target's extremities fly apart."
+              "table-col-mon7coil-rld5g6": "Si el conjuro matara al objetivo, sus extremidades salen volando."
             }
           },
           {
             "id": "table-row-mon7coil-8mv4nq",
             "cells": {
               "table-col-mon7coil-mnanwj": "79",
-              "table-col-mon7coil-rld5g6": "Illusory butterflies and flowers flutter in 5' radius 1 min."
+              "table-col-mon7coil-rld5g6": "Mariposas y flores ilusorias revolotean en un radio de 5 pies durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-86uni9",
             "cells": {
               "table-col-mon7coil-mnanwj": "80",
-              "table-col-mon7coil-rld5g6": "Caster trapped in a giant glass ball."
+              "table-col-mon7coil-rld5g6": "El lanzador queda atrapado en una gran bola de cristal."
             }
           },
           {
             "id": "table-row-mon7coil-o84akb",
             "cells": {
               "table-col-mon7coil-mnanwj": "81",
-              "table-col-mon7coil-rld5g6": "Take one additional action immediately."
+              "table-col-mon7coil-rld5g6": "Realizas una accion adicional de inmediato."
             }
           },
           {
             "id": "table-row-mon7coil-2ibsk4",
             "cells": {
               "table-col-mon7coil-mnanwj": "82",
-              "table-col-mon7coil-rld5g6": "Caster's fists become huge, deal 1d8 bludgeoning damage, 1 min."
+              "table-col-mon7coil-rld5g6": "Tus punos se vuelven enormes y hacen 1d8 de dano contundente durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-ebfe7q",
             "cells": {
               "table-col-mon7coil-mnanwj": "83",
-              "table-col-mon7coil-rld5g6": "Others in 30': 1d10 necrotic damage. Gain HP equal to loss."
+              "table-col-mon7coil-rld5g6": "Las demas criaturas a 30 pies sufren 1d10 de dano necrotico; ganas PV iguales al dano causado."
             }
           },
           {
             "id": "table-row-mon7coil-173vbe",
             "cells": {
               "table-col-mon7coil-mnanwj": "84",
-              "table-col-mon7coil-rld5g6": "Loud voice ridicules caster on init count 20 for 1 min."
+              "table-col-mon7coil-rld5g6": "Una voz atronadora ridiculiza al lanzador en iniciativa 20 durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-pxeoko",
             "cells": {
               "table-col-mon7coil-mnanwj": "85",
-              "table-col-mon7coil-rld5g6": "Cast mirror image."
+              "table-col-mon7coil-rld5g6": "Lanza imagen multiple."
             }
           },
           {
             "id": "table-row-mon7coil-qkryy9",
             "cells": {
               "table-col-mon7coil-mnanwj": "86",
-              "table-col-mon7coil-rld5g6": "Caster's arms become tentacles for 1 minute."
+              "table-col-mon7coil-rld5g6": "Los brazos del lanzador se vuelven tentaculos durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-xhnbb9",
             "cells": {
               "table-col-mon7coil-mnanwj": "87",
-              "table-col-mon7coil-rld5g6": "Cast fly on random creature within 60'."
+              "table-col-mon7coil-rld5g6": "Lanza volar sobre una criatura aleatoria a 60 pies."
             }
           },
           {
             "id": "table-row-mon7coil-9k29x2",
             "cells": {
               "table-col-mon7coil-mnanwj": "88",
-              "table-col-mon7coil-rld5g6": "Large floating eye follows caster for 1 hour."
+              "table-col-mon7coil-rld5g6": "Un gran ojo flotante sigue al lanzador durante 1 hora."
             }
           },
           {
             "id": "table-row-mon7coil-5pd6j3",
             "cells": {
               "table-col-mon7coil-mnanwj": "89",
-              "table-col-mon7coil-rld5g6": "Become invisible and silent for 1 minute or till atk/cast."
+              "table-col-mon7coil-rld5g6": "Te vuelves invisible y silencioso durante 1 minuto o hasta atacar o lanzar un conjuro."
             }
           },
           {
             "id": "table-row-mon7coil-o32f2k",
             "cells": {
               "table-col-mon7coil-mnanwj": "90",
-              "table-col-mon7coil-rld5g6": "Caster's INT and STR swap for 1 hour."
+              "table-col-mon7coil-rld5g6": "La INT y la FUE del lanzador se intercambian durante 1 hora."
             }
           },
           {
             "id": "table-row-mon7coil-xr20gz",
             "cells": {
               "table-col-mon7coil-mnanwj": "91",
-              "table-col-mon7coil-rld5g6": "If you die in next minute, come back per reincarnate."
+              "table-col-mon7coil-rld5g6": "Si mueres en el proximo minuto, regresas como reencarnar."
             }
           },
           {
             "id": "table-row-mon7coil-a3d24v",
             "cells": {
               "table-col-mon7coil-mnanwj": "92",
-              "table-col-mon7coil-rld5g6": "Caster sees everyone as a decaying corpse for 24h."
+              "table-col-mon7coil-rld5g6": "El lanzador ve a todos como cadaveres en descomposicion durante 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-p537eu",
             "cells": {
               "table-col-mon7coil-mnanwj": "93",
-              "table-col-mon7coil-rld5g6": "Size increases by 1 size category for 1 minute."
+              "table-col-mon7coil-rld5g6": "Tu tamano aumenta una categoria durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-z7aocu",
             "cells": {
               "table-col-mon7coil-mnanwj": "94",
-              "table-col-mon7coil-rld5g6": "All light sources within 60' radius extinguished."
+              "table-col-mon7coil-rld5g6": "Todas las fuentes de luz a 60 pies se apagan."
             }
           },
           {
             "id": "table-row-mon7coil-t2p1ow",
             "cells": {
               "table-col-mon7coil-mnanwj": "95",
-              "table-col-mon7coil-rld5g6": "You and all in 30': vulnerable to piercing damage, 1 min."
+              "table-col-mon7coil-rld5g6": "Tu y todos a 30 pies os volveis vulnerables al dano perforante durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-oqbeqd",
             "cells": {
               "table-col-mon7coil-mnanwj": "96",
-              "table-col-mon7coil-rld5g6": "Caster becomes frightened of a color for 1 hour."
+              "table-col-mon7coil-rld5g6": "El lanzador queda asustado por un color durante 1 hora."
             }
           },
           {
             "id": "table-row-mon7coil-0tvy0b",
             "cells": {
               "table-col-mon7coil-mnanwj": "97",
-              "table-col-mon7coil-rld5g6": "Surrounded by faint ethereal music for 1 minute."
+              "table-col-mon7coil-rld5g6": "Una tenue musica eterea rodea al lanzador durante 1 minuto."
             }
           },
           {
             "id": "table-row-mon7coil-c4gx00",
             "cells": {
               "table-col-mon7coil-mnanwj": "98",
-              "table-col-mon7coil-rld5g6": "Caster suffers a head cold for 24 hours."
+              "table-col-mon7coil-rld5g6": "El lanzador sufre un resfriado durante 24 horas."
             }
           },
           {
             "id": "table-row-mon7coil-3loemd",
             "cells": {
               "table-col-mon7coil-mnanwj": "99",
-              "table-col-mon7coil-rld5g6": "Regain all expended Sorcery Points."
+              "table-col-mon7coil-rld5g6": "Recuperas todos los puntos de Hechiceria gastados."
             }
           },
           {
             "id": "table-row-mon7coil-jfzojv",
             "cells": {
               "table-col-mon7coil-mnanwj": "100",
-              "table-col-mon7coil-rld5g6": "Next phrase spoken by caster becomes true."
+              "table-col-mon7coil-rld5g6": "La siguiente frase que pronuncie el lanzador se vuelve cierta."
             }
           }
         ],
@@ -1950,6 +1950,7 @@
         "pgMax": 49,
         "pgAct": 44,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 16,
         "condiciones": "",
@@ -1977,6 +1978,7 @@
         "pgMax": 28,
         "pgAct": 21,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 13,
         "condiciones": "Concentrando",
@@ -2004,6 +2006,7 @@
         "pgMax": 41,
         "pgAct": 38,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 18,
         "condiciones": "",
@@ -2031,6 +2034,7 @@
         "pgMax": 34,
         "pgAct": 30,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 15,
         "condiciones": "",
@@ -2058,6 +2062,7 @@
         "pgMax": 65,
         "pgAct": 48,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 15,
         "condiciones": "",
@@ -2085,6 +2090,7 @@
         "pgMax": 11,
         "pgAct": 11,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 12,
         "condiciones": "",
@@ -2112,6 +2118,7 @@
         "pgMax": 11,
         "pgAct": 7,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 12,
         "condiciones": "",
@@ -2139,6 +2146,7 @@
         "pgMax": 36,
         "pgAct": 36,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 13,
         "condiciones": "",
@@ -2166,6 +2174,7 @@
         "pgMax": 33,
         "pgAct": 33,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 18,
         "condiciones": "",
@@ -2193,6 +2202,7 @@
         "pgMax": 9,
         "pgAct": 5,
         "pgTemp": 0,
+        "hitDice": "",
         "necrotic": 0,
         "ca": 10,
         "condiciones": "Asustado",
@@ -2209,14 +2219,14 @@
       }
     ],
     "filters": {
-      "ubicacion": "",
-      "iniactiva": "",
-      "nombre": "",
-      "numPeana": "",
-      "pgMax": "",
-      "pgAct": "",
-      "crExp": "",
-      "estados": ""
+      "ubicacion": [],
+      "iniactiva": [],
+      "nombre": [],
+      "numPeana": [],
+      "pgMax": [],
+      "pgAct": [],
+      "crExp": [],
+      "estados": []
     },
     "sort": {
       "key": "numPeana",
@@ -2278,11 +2288,19 @@
     }
   },
   "ui": {
-    "activeScreen": "initiative-board",
+    "activeScreen": "combat-tracker",
     "activeEncounterId": "enc-muelle-roto",
     "activeEncounterFolderId": "folder-costa",
     "contentLanguage": "es",
     "includeNpcInCombatExperience": false,
+    "soundSettings": {
+      "enabled": true,
+      "combat": true,
+      "initiative": true,
+      "longRest": true,
+      "levelUp": true,
+      "death": true
+    },
     "repositoryCsvPaths": {
       "bestiary": "data/Bestiary.csv",
       "items": "data/Items.csv",
