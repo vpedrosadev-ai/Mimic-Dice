@@ -298,6 +298,9 @@ const state = {
   campaignSaveNameDialogMode: "",
   campaignSaveNameDialogValue: "",
   campaignSaveNameDialogError: "",
+  characterSpellbookAbilityDescriptionDialogOpen: false,
+  characterSpellbookAbilityDescriptionDialogRowId: "",
+  characterSpellbookAbilityDescriptionDialogValue: "",
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   characterSkillDefinitions: initialCharacterSkillDefinitions,
@@ -1792,6 +1795,30 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "open-character-spellbook-ability-description-dialog") {
+    openCharacterSpellbookAbilityDescriptionDialog(actionButton.dataset.characterSpellbookAbilityRowId);
+    render({
+      focusSelector: "[data-character-spellbook-ability-description-input]"
+    });
+    return;
+  }
+
+  if (action === "dismiss-character-spellbook-ability-description-dialog") {
+    closeCharacterSpellbookAbilityDescriptionDialog();
+    render();
+    return;
+  }
+
+  if (action === "save-character-spellbook-ability-description-dialog") {
+    const focusRowId = cleanText(state.characterSpellbookAbilityDescriptionDialogRowId);
+    saveCharacterSpellbookAbilityDescriptionDialog();
+    saveCharacters();
+    render({
+      focusSelector: focusRowId ? `[data-character-spellbook-ability-row-id="${focusRowId}"][data-action="open-character-spellbook-ability-description-dialog"]` : null
+    });
+    return;
+  }
+
   if (action === "select-character-spell-suggestion") {
     selectCharacterSpellSuggestion(
       actionButton.dataset.characterSpellRowId,
@@ -2183,6 +2210,11 @@ function handleChange(event) {
     render({
       focusSelector: `[data-character-spellbook-ability-field="${target.dataset.characterSpellbookAbilityField}"][data-character-spellbook-ability-row="${target.dataset.characterSpellbookAbilityRow}"]`
     });
+    return;
+  }
+
+  if (target.matches("[data-character-spellbook-ability-description-input]")) {
+    state.characterSpellbookAbilityDescriptionDialogValue = target.value;
     return;
   }
 
@@ -3523,6 +3555,60 @@ function renderCampaignSaveNameDialog() {
   `;
 }
 
+function renderCharacterSpellbookAbilityDescriptionDialog() {
+  if (!state.characterSpellbookAbilityDescriptionDialogOpen) {
+    return "";
+  }
+
+  return `
+    <div class="campaign-save-dialog character-ability-description-dialog" role="presentation">
+      <div
+        class="campaign-save-dialog__backdrop"
+        data-action="dismiss-character-spellbook-ability-description-dialog"
+        aria-hidden="true"
+      ></div>
+      <section
+        class="campaign-save-dialog__panel character-ability-description-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-ability-description-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">Descripcion de habilidad</p>
+        <h2 class="campaign-save-dialog__title" id="character-ability-description-dialog-title">
+          Editar descripcion
+        </h2>
+        <p class="campaign-save-dialog__text">
+          Escribe texto de ayuda o reglas para esta habilidad.
+        </p>
+        <label class="campaign-save-dialog__field">
+          <span>Descripcion</span>
+          <textarea
+            class="campaign-save-dialog__input character-ability-description-dialog__input"
+            data-character-spellbook-ability-description-input
+            placeholder="Describe que hace esta habilidad, limites, coste o notas utiles."
+          >${escapeHtml(state.characterSpellbookAbilityDescriptionDialogValue)}</textarea>
+        </label>
+        <div class="campaign-save-dialog__actions">
+          <button
+            class="summary-button summary-button--ghost"
+            type="button"
+            data-action="dismiss-character-spellbook-ability-description-dialog"
+          >
+            Cancelar
+          </button>
+          <button
+            class="summary-button"
+            type="button"
+            data-action="save-character-spellbook-ability-description-dialog"
+          >
+            Guardar descripcion
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function render(focusState = null) {
   cancelScheduledRender();
 
@@ -3553,6 +3639,7 @@ function render(focusState = null) {
       ${renderBootOverlay()}
       ${renderOptionsDialog()}
       ${renderCampaignSaveNameDialog()}
+      ${renderCharacterSpellbookAbilityDescriptionDialog()}
     </div>
   `;
 
@@ -7702,11 +7789,18 @@ function renderCharactersScreen() {
   }
   return `
     <section class="panel panel--table characters-screen">
-      ${renderCharactersOverviewPanel(state.characters)}
       <div class="section-heading">
-        ${renderScreenHeadingIdentity("initiative-board", "Aliados de campana", "Personajes")}
+        ${renderScreenHeadingIdentity("initiative-board", "", "Personajes")}
+      </div>
+
+      ${renderCharactersOverviewPanel(state.characters)}
+
+      <div class="section-heading section-heading--compact characters-repository-heading">
+        <div>
+          <p class="eyebrow">Repositorio de personajes</p>
+        </div>
         <div class="section-meta">
-          <span>${state.characters.length} fichas</span>
+          <span>${state.characters.length} fichas de personaje</span>
         </div>
       </div>
 
@@ -8752,7 +8846,7 @@ function renderCharacterEditor(character) {
   return `
     <div class="bestiary-detail__header character-sheet__header">
       <div class="character-sheet__header-main">
-        <p class="eyebrow">Ficha rapida 5e</p>
+        <p class="eyebrow">Ficha de personaje</p>
         <div class="character-sheet__header-fields">
           ${renderCharacterTextField("name", "Nombre", character.name, "Seraphina Vale", { compact: true })}
           <div class="character-sheet__player-row">
@@ -8803,7 +8897,6 @@ function renderCharactersOverviewPanel(characters) {
       <div class="section-heading section-heading--compact">
         <div>
           <p class="eyebrow">Resumen de grupo</p>
-          <h3>Vista rapida</h3>
         </div>
       </div>
       <div class="table-wrap character-overview__table-wrap" role="region" aria-label="Resumen de personajes">
@@ -9098,9 +9191,11 @@ function renderCharacterSkillSummary(character) {
           <div class="character-skill-summary__item" style="${themeStyle}">
             <div class="character-skill-summary__meta">
               <strong>${escapeHtml(skillDefinition.name || "Skill")}</strong>
-              <small>${escapeHtml(progress.label)}</small>
+              <small>${escapeHtml(progress.level > 0 ? progress.label : "Sin rango")}</small>
             </div>
-            ${renderCharacterOverviewSkillProgressBar(progress, themeStyle)}
+            <div class="character-skill-summary__bar">
+              ${renderCharacterOverviewSkillProgressBar(progress, themeStyle)}
+            </div>
           </div>
         `;
       }).join("")}
@@ -9111,10 +9206,12 @@ function renderCharacterSkillSummary(character) {
 function renderCharacterHeaderAside(character) {
   return `
     <div class="character-sheet__header-side">
-      ${renderCharacterCarryLoadCard(character)}
+      <div class="character-header-support">
+        ${renderCharacterCarryLoadCard(character)}
+        ${renderCharacterExperienceControls(character)}
+      </div>
       <div class="character-experience-panel">
         ${renderCharacterExperienceBar(character)}
-        ${renderCharacterExperienceControls(character)}
       </div>
     </div>
   `;
@@ -9168,6 +9265,9 @@ function renderCharacterSkillConfigSection() {
 function renderCharacterSkillConfigRow(skillDefinition) {
   const hasIntermediateGains = normalizeStoredCharacterSkillGains(skillDefinition.intermediateGains, []).length > 0;
   const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
+  const localizedSkillName = isEnglishInterface()
+    ? translateUiString(skillDefinition.name || "Skill")
+    : (skillDefinition.name || "Skill");
 
   return `
     <div class="character-skill-config__row ${hasIntermediateGains ? "character-skill-config__row--with-intermediate" : ""}" style="${themeStyle}">
@@ -9176,7 +9276,7 @@ function renderCharacterSkillConfigRow(skillDefinition) {
         <input
           class="filter-input character-skill-config__input"
           type="text"
-          value="${escapeHtml(skillDefinition.name)}"
+          value="${escapeHtml(localizedSkillName)}"
           placeholder="Nueva skill"
           data-character-skill-definition-field="name"
           data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
@@ -9337,6 +9437,7 @@ function renderCharacterSpellbookSection(character) {
                 <div class="character-spellbook__ability-list">
                   <div class="character-spellbook__ability-header" aria-hidden="true">
                     <span>Nombre</span>
+                    <span>Descripcion</span>
                     <span>Usos</span>
                     <span></span>
                   </div>
@@ -9546,18 +9647,32 @@ function renderCharacterSpellRow(row) {
 }
 
 function renderCharacterSpellbookAbilityRow(row) {
+  const description = cleanText(row.description);
+  const hasDescription = Boolean(description);
+
   return `
     <div class="character-spellbook__ability-row">
-      <label class="character-spellbook__name-cell">
+      <label class="character-spellbook__name-cell${hasDescription ? " character-spellbook__name-cell--described" : ""}">
         <input
-          class="filter-input character-spellbook__input"
+          class="filter-input character-spellbook__input${hasDescription ? " character-spellbook__input--described" : ""}"
           type="text"
           value="${escapeHtml(row.name)}"
           placeholder="Nombre de la habilidad"
           data-character-spellbook-ability-field="name"
           data-character-spellbook-ability-row="${escapeHtml(row.id)}"
         />
+        ${hasDescription ? renderCharacterSpellbookAbilityPreview(row) : ""}
       </label>
+      <div class="character-spellbook__ability-description-cell">
+        <button
+          class="toolbar-button toolbar-button--subtle character-spellbook__description-button"
+          type="button"
+          data-action="open-character-spellbook-ability-description-dialog"
+          data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+        >
+          Editar
+        </button>
+      </div>
       <label class="character-spellbook__ability-field">
         <input
           class="filter-input character-spellbook__input"
@@ -9578,6 +9693,22 @@ function renderCharacterSpellbookAbilityRow(row) {
       >
         Quitar
       </button>
+    </div>
+  `;
+}
+
+function renderCharacterSpellbookAbilityPreview(row) {
+  const descriptionHtml = escapeHtml(cleanText(row.description)).replaceAll("\n", "<br />");
+
+  return `
+    <div class="character-spellbook__preview character-spellbook__preview--ability" role="tooltip">
+      <div class="character-spellbook__preview-card character-spellbook__preview-card--ability">
+        <div class="character-ability-preview">
+          <p class="eyebrow">Habilidad</p>
+          <h3>${escapeHtml(row.name || "Habilidad sin nombre")}</h3>
+          <p>${descriptionHtml}</p>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -11503,6 +11634,7 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
   );
 
   const levelUpNotifications = [];
+  const xpNotifications = [];
 
   state.characters = state.characters.map((character) => {
     const gain = gainByCharacterId.get(character.id);
@@ -11514,11 +11646,19 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
     const currentProgress = getCharacterExperienceProgress(character);
     const nextProgress = getCharacterProgressStateFromTotalExperience(currentProgress.totalExperiencePoints + gain);
     const nextClassEntries = getCharacterClassEntriesForTargetLevel(character, nextProgress.level);
+    const characterName = cleanText(character.name) || "Personaje";
+
+    xpNotifications.push({
+      title: "Experiencia ganada",
+      message: `${characterName} gana ${gain} XP y suma ${nextProgress.totalExperiencePoints} XP en total.`,
+      tone: "xp",
+      imageUrl: cleanText(character.tokenUrl)
+    });
 
     if (nextProgress.level > toNumber(character.level)) {
       levelUpNotifications.push({
         title: "Subida de nivel",
-        message: `${cleanText(character.name) || "Personaje"} ha alcanzado el nivel ${nextProgress.level}.`,
+        message: `${characterName} ha alcanzado el nivel ${nextProgress.level}.`,
         tone: "success",
         imageUrl: cleanText(character.tokenUrl)
       });
@@ -11533,6 +11673,7 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
   });
 
   uniqueCharacterIds.forEach((characterId) => syncLinkedCombatantsHitDice(characterId));
+  xpNotifications.forEach(pushNotification);
   levelUpNotifications.forEach(pushNotification);
 
   if (levelUpNotifications.length > 0) {
@@ -11951,6 +12092,43 @@ function addCharacterSpellbookAbilityRow(overrides = {}) {
     })
     : character);
   return row.id;
+}
+
+function openCharacterSpellbookAbilityDescriptionDialog(rowId) {
+  const normalizedRowId = cleanText(rowId);
+  const character = getActiveCharacter();
+  const row = character?.spellbookAbilities?.find((entry) => entry.id === normalizedRowId);
+
+  if (!normalizedRowId || !row) {
+    return;
+  }
+
+  state.characterSpellbookAbilityDescriptionDialogOpen = true;
+  state.characterSpellbookAbilityDescriptionDialogRowId = normalizedRowId;
+  state.characterSpellbookAbilityDescriptionDialogValue = cleanText(row.description);
+}
+
+function closeCharacterSpellbookAbilityDescriptionDialog() {
+  state.characterSpellbookAbilityDescriptionDialogOpen = false;
+  state.characterSpellbookAbilityDescriptionDialogRowId = "";
+  state.characterSpellbookAbilityDescriptionDialogValue = "";
+}
+
+function saveCharacterSpellbookAbilityDescriptionDialog() {
+  const rowId = cleanText(state.characterSpellbookAbilityDescriptionDialogRowId);
+
+  if (!rowId) {
+    closeCharacterSpellbookAbilityDescriptionDialog();
+    return;
+  }
+
+  updateCharacterSpellbookAbilityRow(
+    rowId,
+    "description",
+    state.characterSpellbookAbilityDescriptionDialogValue,
+    true
+  );
+  closeCharacterSpellbookAbilityDescriptionDialog();
 }
 
 function removeCharacterSpellRow(rowId) {
@@ -17976,6 +18154,7 @@ function normalizeStoredCharacterSpellbookAbilityRow(row) {
   return {
     id: cleanText(row.id) || createStableId("character-spellbook-ability"),
     name: cleanText(row.name),
+    description: cleanText(row.description),
     uses,
     spent: normalizeStoredCharacterSpellbookAbilitySpent(row.spent, uses)
   };
@@ -17991,6 +18170,7 @@ function createBlankCharacterSpellbookAbilityRow(overrides = {}) {
   return normalizeStoredCharacterSpellbookAbilityRow({
     id: createStableId("character-spellbook-ability"),
     name: "",
+    description: "",
     uses: 0,
     spent: [],
     ...overrides
