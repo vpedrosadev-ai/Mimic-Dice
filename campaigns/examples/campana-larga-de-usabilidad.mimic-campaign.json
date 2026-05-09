@@ -2,7 +2,7 @@
   "schema": "mimic-dice:campaign",
   "version": 1,
   "app": "Mimic Dice",
-  "savedAt": "2026-05-08T10:40:16.078Z",
+  "savedAt": "2026-05-09T08:08:38.534Z",
   "campaign": {
     "name": "Campana larga de usabilidad"
   },
@@ -92,18 +92,24 @@
       "isNpc": true,
       "className": "explorador",
       "subclassName": "Cazadora",
-      "isMulticlass": false,
+      "isMulticlass": true,
       "classEntries": [
         {
           "id": "character-class-mouamm64-769y6j",
           "name": "explorador",
           "subclassName": "Cazadora",
-          "level": 6
+          "level": 7
+        },
+        {
+          "id": "character-class-moy29ip7-y5luew",
+          "name": "MAGO",
+          "subclassName": "",
+          "level": 1
         }
       ],
-      "level": 6,
-      "experiencePoints": 6400,
-      "totalExperiencePoints": 20400,
+      "level": 8,
+      "experiencePoints": 0,
+      "totalExperiencePoints": 34000,
       "species": "Humana",
       "background": "Marinera",
       "size": "Mediano",
@@ -237,6 +243,7 @@
         {
           "id": "character-spellbook-ability-moucula7-o1zjw6",
           "name": "Tomar Aliento",
+          "description": "El personaje recupera vida igual al nivel de guerrero",
           "uses": 3,
           "spent": [
             false,
@@ -333,12 +340,12 @@
           "id": "character-class-mouamm67-019l7n",
           "name": "mago",
           "subclassName": "Evocacion",
-          "level": 5
+          "level": 6
         }
       ],
-      "level": 5,
-      "experiencePoints": 5100,
-      "totalExperiencePoints": 11600,
+      "level": 6,
+      "experiencePoints": 1750,
+      "totalExperiencePoints": 15750,
       "species": "Elfa",
       "background": "Sabia",
       "size": "Mediano",
@@ -416,6 +423,7 @@
         {
           "id": "character-spellbook-ability-mouculaa-mv1t3z",
           "name": "",
+          "description": "",
           "uses": 0,
           "spent": []
         }
@@ -505,8 +513,8 @@
         }
       ],
       "level": 5,
-      "experiencePoints": 4300,
-      "totalExperiencePoints": 10800,
+      "experiencePoints": 4450,
+      "totalExperiencePoints": 10950,
       "species": "Enano",
       "background": "Peregrino",
       "size": "Mediano",
@@ -584,6 +592,7 @@
         {
           "id": "character-spellbook-ability-mouculab-f9s0jl",
           "name": "",
+          "description": "",
           "uses": 0,
           "spent": []
         }
@@ -673,8 +682,8 @@
         }
       ],
       "level": 5,
-      "experiencePoints": 4700,
-      "totalExperiencePoints": 11200,
+      "experiencePoints": 4850,
+      "totalExperiencePoints": 11350,
       "species": "Tiefling",
       "background": "Espia",
       "size": "Mediano",
@@ -753,6 +762,7 @@
         {
           "id": "character-spellbook-ability-mouculac-jb0okw",
           "name": "",
+          "description": "",
           "uses": 0,
           "spent": []
         }
@@ -1950,9 +1960,10 @@
         "pgMax": 49,
         "pgAct": 44,
         "pgTemp": 0,
-        "hitDice": "",
+        "hitDice": 8,
         "necrotic": 0,
         "ca": 16,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 14 (+2) DEX 17 (+3) CON 14 (+2) INT 11 (+0) WIS 15 (+2) CHA 10 (+0)",
         "tamano": "Mediano",
@@ -1978,9 +1989,10 @@
         "pgMax": 28,
         "pgAct": 21,
         "pgTemp": 0,
-        "hitDice": "",
+        "hitDice": 6,
         "necrotic": 0,
         "ca": 13,
+        "shieldEquipped": false,
         "condiciones": "Concentrando",
         "stats": "STR 8 (-1) DEX 14 (+2) CON 13 (+1) INT 18 (+4) WIS 12 (+1) CHA 11 (+0)",
         "tamano": "Mediano",
@@ -2006,9 +2018,10 @@
         "pgMax": 41,
         "pgAct": 38,
         "pgTemp": 0,
-        "hitDice": "",
+        "hitDice": 5,
         "necrotic": 0,
         "ca": 18,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 15 (+2) DEX 10 (+0) CON 16 (+3) INT 10 (+0) WIS 17 (+3) CHA 13 (+1)",
         "tamano": "Mediano",
@@ -2034,9 +2047,10 @@
         "pgMax": 34,
         "pgAct": 30,
         "pgTemp": 0,
-        "hitDice": "",
+        "hitDice": 5,
         "necrotic": 0,
         "ca": 15,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 10 (+0) DEX 18 (+4) CON 14 (+2) INT 13 (+1) WIS 12 (+1) CHA 14 (+2)",
         "tamano": "Mediano",
@@ -2060,11 +2074,12 @@
         "nombre": "Bandit Captain",
         "numPeana": "5",
         "pgMax": 65,
-        "pgAct": 48,
+        "pgAct": 0,
         "pgTemp": 0,
         "hitDice": "",
         "necrotic": 0,
         "ca": 15,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 15 (+2) DEX 16 (+3) CON 14 (+2) INT 14 (+2) WIS 11 (+0) CHA 14 (+2)",
         "tamano": "Mediano",
@@ -2073,7 +2088,7 @@
         "lenguas": "Comun",
         "crExp": "2 (450 XP)",
         "tag": "ENEMIGO",
-        "experienceGranted": false,
+        "experienceGranted": true,
         "initiativeRoll": 14,
         "initiativeNat20": false
       },
@@ -2093,6 +2108,7 @@
         "hitDice": "",
         "necrotic": 0,
         "ca": 12,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 11 (+0) DEX 12 (+1) CON 12 (+1) INT 10 (+0) WIS 10 (+0) CHA 10 (+0)",
         "tamano": "Mediano",
@@ -2121,6 +2137,7 @@
         "hitDice": "",
         "necrotic": 0,
         "ca": 12,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 11 (+0) DEX 12 (+1) CON 12 (+1) INT 10 (+0) WIS 10 (+0) CHA 10 (+0)",
         "tamano": "Mediano",
@@ -2149,6 +2166,7 @@
         "hitDice": "",
         "necrotic": 0,
         "ca": 13,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 16 (+3) DEX 17 (+3) CON 10 (+0) INT 11 (+0) WIS 10 (+0) CHA 8 (-1)",
         "tamano": "Mediano",
@@ -2177,6 +2195,7 @@
         "hitDice": "",
         "necrotic": 0,
         "ca": 18,
+        "shieldEquipped": false,
         "condiciones": "",
         "stats": "STR 14 (+2) DEX 11 (+0) CON 13 (+1) INT 1 (-5) WIS 3 (-4) CHA 1 (-5)",
         "tamano": "Mediano",
@@ -2205,6 +2224,7 @@
         "hitDice": "",
         "necrotic": 0,
         "ca": 10,
+        "shieldEquipped": false,
         "condiciones": "Asustado",
         "stats": "STR 9 (-1) DEX 10 (+0) CON 10 (+0) INT 12 (+1) WIS 11 (+0) CHA 10 (+0)",
         "tamano": "Mediano",

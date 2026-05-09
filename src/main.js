@@ -328,6 +328,11 @@ const state = {
     isRunning: false
   },
   combatTimerPanelOpen: false,
+  combatMaxHpRestoreMenu: {
+    combatantId: "",
+    x: 0,
+    y: 0
+  },
   bestiary: [],
   bestiaryImageMap: {},
   bestiaryFilters: { ...blankBestiaryFilters },
@@ -352,7 +357,11 @@ const state = {
   activeCharacterSpellRowId: "",
   showCharacterSpellSuggestions: false,
   activeCombatSpellbookCombatantId: "",
-  activeCombatSpellPreviewName: "",
+  activeCombatPreviewKind: "",
+  activeCombatPreviewKey: "",
+  activeCombatPreviewName: "",
+  activeCombatPreviewDescription: "",
+  multiclassLevelUpQueue: [],
   itemStatus: "loading",
   itemMessage: "",
   itemDebugInfo: null,
@@ -820,7 +829,7 @@ function handleClick(event) {
     actionButton?.dataset.action !== "toggle-combat-spellbook-popup"
   ) {
     state.activeCombatSpellbookCombatantId = "";
-    state.activeCombatSpellPreviewName = "";
+    clearActiveCombatPreview();
 
     if (!actionButton) {
       render();
@@ -1249,7 +1258,7 @@ function handleClick(event) {
     const combatantId = cleanText(actionButton.dataset.combatantId);
     const isClosing = state.activeCombatSpellbookCombatantId === combatantId;
     state.activeCombatSpellbookCombatantId = isClosing ? "" : combatantId;
-    state.activeCombatSpellPreviewName = "";
+    clearActiveCombatPreview();
     render();
     return;
   }
@@ -1389,6 +1398,21 @@ function handleClick(event) {
 
   if (action === "adjust-necrotic") {
     applyNecroticAdjustment(actionButton.dataset.id);
+    render();
+    return;
+  }
+
+  if (action === "toggle-combatant-shield") {
+    toggleCombatantShield(actionButton.dataset.combatantId);
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
+  if (action === "restore-combatant-max-hp") {
+    restoreCombatantMaxHp(actionButton.dataset.combatantId);
+    closeCombatMaxHpRestoreMenu();
+    saveCombatTrackerState();
     render();
     return;
   }
@@ -1816,6 +1840,13 @@ function handleClick(event) {
     render({
       focusSelector: focusRowId ? `[data-character-spellbook-ability-row-id="${focusRowId}"][data-action="open-character-spellbook-ability-description-dialog"]` : null
     });
+    return;
+  }
+
+  if (action === "choose-multiclass-level-up-class") {
+    applyMulticlassLevelUpChoice(actionButton.dataset.characterId, actionButton.dataset.characterClassEntryId);
+    saveCharacters();
+    render();
     return;
   }
 
@@ -3024,7 +3055,7 @@ function handleScroll(event) {
     scheduleActiveCombatSpellbookPopoverSync();
   }
 
-  if (state.activeCombatSpellPreviewName) {
+  if (state.activeCombatPreviewKey) {
     scheduleActiveCombatSpellPreviewSync();
   }
 
@@ -3085,39 +3116,40 @@ function handleWindowResize() {
 }
 
 function handleMouseOver(event) {
-  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+  const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
     return;
   }
 
-  const previewName = cleanText(previewTrigger.dataset.combatSpellPreviewName);
+  const previewKey = cleanText(previewTrigger.dataset.combatPreviewKey);
+  const previewKind = cleanText(previewTrigger.dataset.combatPreviewKind);
 
-  if (!previewName || state.activeCombatSpellPreviewName === previewName) {
+  if (!previewKey || !previewKind || (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind)) {
     return;
   }
 
-  state.activeCombatSpellPreviewName = previewName;
+  setActiveCombatPreviewFromTrigger(previewTrigger);
   syncCombatSpellPreviewOverlayMarkup();
 }
 
 function handleMouseOut(event) {
-  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+  const previewTrigger = event.target.closest("[data-combat-preview-key]");
   const previewOverlay = event.target.closest("[data-combat-spell-preview-overlay]");
 
   if (previewOverlay) {
     if (
       event.relatedTarget?.closest?.("[data-combat-spell-preview-overlay]")
-      || event.relatedTarget?.closest?.("[data-combat-spell-preview-name]")
+      || event.relatedTarget?.closest?.("[data-combat-preview-key]")
     ) {
       return;
     }
 
-    if (!state.activeCombatSpellPreviewName) {
+    if (!state.activeCombatPreviewKey) {
       return;
     }
 
-    state.activeCombatSpellPreviewName = "";
+    clearActiveCombatPreview();
     syncCombatSpellPreviewOverlayMarkup();
     return;
   }
@@ -3133,33 +3165,34 @@ function handleMouseOut(event) {
     return;
   }
 
-  if (!state.activeCombatSpellPreviewName) {
+  if (!state.activeCombatPreviewKey) {
     return;
   }
 
-  state.activeCombatSpellPreviewName = "";
+  clearActiveCombatPreview();
   syncCombatSpellPreviewOverlayMarkup();
 }
 
 function handleFocusIn(event) {
-  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+  const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
     return;
   }
 
-  const previewName = cleanText(previewTrigger.dataset.combatSpellPreviewName);
+  const previewKey = cleanText(previewTrigger.dataset.combatPreviewKey);
+  const previewKind = cleanText(previewTrigger.dataset.combatPreviewKind);
 
-  if (!previewName || state.activeCombatSpellPreviewName === previewName) {
+  if (!previewKey || !previewKind || (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind)) {
     return;
   }
 
-  state.activeCombatSpellPreviewName = previewName;
+  setActiveCombatPreviewFromTrigger(previewTrigger);
   syncCombatSpellPreviewOverlayMarkup();
 }
 
 function handleFocusOut(event) {
-  const previewTrigger = event.target.closest("[data-combat-spell-preview-name]");
+  const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
     return;
@@ -3169,11 +3202,11 @@ function handleFocusOut(event) {
     return;
   }
 
-  if (!state.activeCombatSpellPreviewName) {
+  if (!state.activeCombatPreviewKey) {
     return;
   }
 
-  state.activeCombatSpellPreviewName = "";
+  clearActiveCombatPreview();
   syncCombatSpellPreviewOverlayMarkup();
 }
 
@@ -3288,6 +3321,16 @@ function handlePointerDown(event) {
     return;
   }
 
+  if (
+    state.combatMaxHpRestoreMenu?.combatantId
+    && !event.target.closest("[data-combat-maxhp-restore-menu]")
+    && !event.target.closest("[data-combat-pgmax-restore-context]")
+  ) {
+    closeCombatMaxHpRestoreMenu();
+    render();
+    return;
+  }
+
   if (event.target.closest("[data-diary-command]")) {
     event.preventDefault();
     return;
@@ -3328,6 +3371,20 @@ function handleContextMenu(event) {
     saveCombatTrackerState();
     render();
     return;
+  }
+
+  const maxHpRestoreTrigger = event.target.closest("[data-combat-pgmax-restore-context]");
+
+  if (maxHpRestoreTrigger) {
+    const combatantId = cleanText(maxHpRestoreTrigger.dataset.combatPgmaxRestoreContext);
+    const combatant = state.combatants.find((entry) => entry.id === combatantId);
+
+    if (combatant && toNumber(combatant.necrotic) > 0) {
+      event.preventDefault();
+      openCombatMaxHpRestoreMenu(combatantId, event.clientX, event.clientY);
+      render();
+      return;
+    }
   }
 
   const turnToken = event.target.closest("[data-combat-turn-token-context]");
@@ -3609,6 +3666,60 @@ function renderCharacterSpellbookAbilityDescriptionDialog() {
   `;
 }
 
+function renderMulticlassLevelUpDialog() {
+  const pendingLevelUp = getActiveMulticlassLevelUpPrompt();
+
+  if (!pendingLevelUp) {
+    return "";
+  }
+
+  const character = state.characters.find((entry) => entry.id === pendingLevelUp.characterId);
+
+  if (!character) {
+    return "";
+  }
+
+  const classEntries = getCharacterVisibleClassEntries(character);
+  const characterName = cleanText(character.name) || "Personaje";
+  const stepLabel = pendingLevelUp.totalChoices > 1
+    ? `Eleccion ${pendingLevelUp.totalChoices - pendingLevelUp.remainingChoices + 1} de ${pendingLevelUp.totalChoices}`
+    : "Elige clase";
+
+  return `
+    <div class="campaign-save-dialog multiclass-levelup-dialog" role="presentation">
+      <div class="campaign-save-dialog__backdrop" aria-hidden="true"></div>
+      <section
+        class="campaign-save-dialog__panel multiclass-levelup-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="multiclass-levelup-dialog-title"
+      >
+        <div class="multiclass-levelup-dialog__header">
+          <div class="multiclass-levelup-dialog__header-copy">
+            <p class="campaign-save-dialog__eyebrow">Subida de nivel multiclase</p>
+            <h2 class="campaign-save-dialog__title" id="multiclass-levelup-dialog-title">
+              ${escapeHtml(characterName)}
+            </h2>
+          </div>
+          <div class="multiclass-levelup-dialog__portrait" aria-hidden="true">
+            ${
+              cleanText(character.tokenUrl)
+                ? `<img src="${escapeHtml(character.tokenUrl)}" alt="" loading="lazy" decoding="async" />`
+                : `<span>${escapeHtml(getInitials(characterName))}</span>`
+            }
+          </div>
+        </div>
+        <p class="campaign-save-dialog__text">
+          ${escapeHtml(stepLabel)}. Indica en que clase quieres aplicar esta subida de nivel.
+        </p>
+        <div class="multiclass-levelup-dialog__choices">
+          ${classEntries.map((entry) => renderMulticlassLevelUpChoiceButton(character, pendingLevelUp, entry)).join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function render(focusState = null) {
   cancelScheduledRender();
 
@@ -3640,6 +3751,7 @@ function render(focusState = null) {
       ${renderOptionsDialog()}
       ${renderCampaignSaveNameDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
+      ${renderMulticlassLevelUpDialog()}
     </div>
   `;
 
@@ -4598,6 +4710,7 @@ function renderCombatTracker() {
           </tfoot>
         </table>
       </div>
+      ${renderCombatMaxHpRestoreMenu()}
     </section>
   `;
 }
@@ -4822,6 +4935,37 @@ function renderCombatTurnQuickMenu() {
   `;
 }
 
+function renderCombatMaxHpRestoreMenu() {
+  const combatantId = cleanText(state.combatMaxHpRestoreMenu?.combatantId);
+
+  if (!combatantId) {
+    return "";
+  }
+
+  const combatant = state.combatants.find((entry) => entry.id === combatantId);
+
+  if (!combatant || toNumber(combatant.necrotic) <= 0) {
+    return "";
+  }
+
+  const menuStyle = getCombatMaxHpRestoreMenuStyle();
+
+  return `
+    <div class="combat-maxhp-restore-menu" style="${escapeHtml(menuStyle)}" data-combat-maxhp-restore-menu>
+      <div class="combat-maxhp-restore-menu__panel">
+        <button
+          class="toolbar-button toolbar-button--combat combat-maxhp-restore-menu__button"
+          type="button"
+          data-action="restore-combatant-max-hp"
+          data-combatant-id="${escapeHtml(combatant.id)}"
+        >
+          RESTAURAR
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function getCombatTurnQuickMenuStyle() {
   const rawX = Math.round(toNumber(state.combatTurnQuickMenu?.x));
   const rawY = Math.round(toNumber(state.combatTurnQuickMenu?.y));
@@ -4830,6 +4974,20 @@ function getCombatTurnQuickMenuStyle() {
   const padding = 12;
   const menuWidth = 320;
   const menuHeight = 120;
+  const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
+  const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));
+
+  return `left:${left}px;top:${top}px;`;
+}
+
+function getCombatMaxHpRestoreMenuStyle() {
+  const rawX = Math.round(toNumber(state.combatMaxHpRestoreMenu?.x));
+  const rawY = Math.round(toNumber(state.combatMaxHpRestoreMenu?.y));
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1280;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+  const padding = 12;
+  const menuWidth = 208;
+  const menuHeight = 72;
   const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
   const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));
 
@@ -6431,7 +6589,7 @@ function renderDataCell(combatant, column, isDead) {
   if (column.key === "pgMax") {
     const effectiveMax = getEffectivePgMax(combatant);
     const showEffectiveMax = toNumber(combatant.necrotic) !== 0;
-    const armorClass = combatant.ca ?? "";
+    const armorClass = getCombatantArmorClassValue(combatant);
     const maxHpFill = Math.max(0, Math.min(100, Math.round((effectiveMax / Math.max(1, toNumber(combatant.pgMax))) * 100)));
     const maxHpInput = `
       <input
@@ -6443,16 +6601,15 @@ function renderDataCell(combatant, column, isDead) {
         data-edit-key="${column.key}"
       />
     `;
+    const maxHpField = showEffectiveMax
+      ? `<label class="hp-bar hp-bar--compact hp-bar--necrotic" data-combat-pgmax-restore-context="${escapeHtml(combatant.id)}" style="--hp-fill:${maxHpFill}%;--hp-tone-color:rgba(143, 98, 214, 0.92)">${maxHpInput}</label>`
+      : maxHpInput;
 
     return `
       <td>
         <div class="resource-cell resource-cell--pgmax">
           <div class="resource-cell__top">
-            ${
-              showEffectiveMax
-                ? `<label class="hp-bar hp-bar--compact hp-bar--necrotic" style="--hp-fill:${maxHpFill}%;--hp-tone-color:rgba(143, 98, 214, 0.92)">${maxHpInput}</label>`
-                : maxHpInput
-            }
+            ${maxHpField}
           <label class="armor-badge" aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}">
               <svg class="armor-badge__icon" viewBox="0 0 48 54" aria-hidden="true">
               <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
@@ -6468,7 +6625,23 @@ function renderDataCell(combatant, column, isDead) {
               />
             </label>
           </div>
-          ${showEffectiveMax ? `<span class="resource-note">Original ${value}</span>` : ""}
+          <div class="resource-cell__bottom">
+            ${showEffectiveMax ? `<span class="resource-note">Original ${value}</span>` : ""}
+            <button
+              class="toolbar-button toolbar-button--subtle combat-shield-toggle ${isCombatantShieldEquipped(combatant) ? "is-active" : ""}"
+              type="button"
+              data-action="toggle-combatant-shield"
+              data-combatant-id="${escapeHtml(combatant.id)}"
+              data-tooltip="EQUIPAR/DESEQUIPAR UN ESCUDO"
+              aria-pressed="${isCombatantShieldEquipped(combatant) ? "true" : "false"}"
+              aria-label="Equipar o desequipar un escudo"
+            >
+              <svg class="combat-shield-toggle__icon" viewBox="0 0 48 54" aria-hidden="true">
+                <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
+              </svg>
+              <span>+2</span>
+            </button>
+          </div>
         </div>
       </td>
     `;
@@ -6621,7 +6794,7 @@ function renderDataCell(combatant, column, isDead) {
         return `
           <td>
             <div class="combat-character-xp-cell combat-character-xp-cell--npc">
-              ${renderCharacterExperienceControls(linkedCharacter, { compact: true, npcOnly: true })}
+              ${renderCharacterExperienceControls(linkedCharacter, { compact: true, npcOnly: true, combatInline: true })}
             </div>
           </td>
         `;
@@ -6631,7 +6804,7 @@ function renderDataCell(combatant, column, isDead) {
         <td>
           <div class="combat-character-xp-cell">
             ${renderCharacterExperienceBar(linkedCharacter, { compact: true, combatCompact: true })}
-            ${renderCharacterExperienceControls(linkedCharacter, { compact: true })}
+            ${renderCharacterExperienceControls(linkedCharacter, { compact: true, combatInline: true })}
           </div>
         </td>
       `;
@@ -6764,25 +6937,51 @@ function renderNotifications() {
 }
 
 function renderCombatSpellPreviewOverlay() {
-  const previewName = cleanText(state.activeCombatSpellPreviewName);
+  const previewKind = cleanText(state.activeCombatPreviewKind);
+  const previewKey = cleanText(state.activeCombatPreviewKey);
 
-  if (!previewName) {
+  if (!previewKind || !previewKey) {
     return "";
   }
 
-  const previewEntry = state.arcanum.find((entry) => cleanText(entry.name) === previewName);
+  if (previewKind === "spell") {
+    const previewEntry = state.arcanum.find((entry) => cleanText(entry.name) === previewKey);
 
-  if (!previewEntry) {
-    return "";
+    if (!previewEntry) {
+      return "";
+    }
+
+    return `
+      <aside class="combat-spell-preview-overlay" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+        <div class="character-spellbook__preview-card">
+          ${renderArcanumDetail(previewEntry)}
+        </div>
+      </aside>
+    `;
   }
 
-  return `
-    <aside class="combat-spell-preview-overlay" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
-      <div class="character-spellbook__preview-card">
-        ${renderArcanumDetail(previewEntry)}
-      </div>
-    </aside>
-  `;
+  if (previewKind === "ability") {
+    const previewName = cleanText(state.activeCombatPreviewName) || "Habilidad sin nombre";
+    const previewDescription = cleanText(state.activeCombatPreviewDescription);
+
+    if (!previewDescription) {
+      return "";
+    }
+
+    return `
+      <aside class="combat-spell-preview-overlay" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+        <div class="character-spellbook__preview-card character-spellbook__preview-card--ability">
+          <div class="character-ability-preview">
+            <p class="eyebrow">Habilidad</p>
+            <h3>${escapeHtml(previewName)}</h3>
+            <p>${escapeHtml(previewDescription).replaceAll("\n", "<br />")}</p>
+          </div>
+        </div>
+      </aside>
+    `;
+  }
+
+  return "";
 }
 
 function syncCombatSpellPreviewOverlayMarkup() {
@@ -6802,6 +7001,28 @@ function syncCombatSpellPreviewOverlayMarkup() {
   }
 
   scheduleActiveCombatSpellPreviewSync();
+}
+
+function setActiveCombatPreviewFromTrigger(trigger) {
+  const previewKind = cleanText(trigger?.dataset?.combatPreviewKind);
+  const previewKey = cleanText(trigger?.dataset?.combatPreviewKey);
+
+  if (!previewKind || !previewKey) {
+    clearActiveCombatPreview();
+    return;
+  }
+
+  state.activeCombatPreviewKind = previewKind;
+  state.activeCombatPreviewKey = previewKey;
+  state.activeCombatPreviewName = cleanText(trigger?.dataset?.combatPreviewName);
+  state.activeCombatPreviewDescription = cleanText(trigger?.dataset?.combatPreviewDescription);
+}
+
+function clearActiveCombatPreview() {
+  state.activeCombatPreviewKind = "";
+  state.activeCombatPreviewKey = "";
+  state.activeCombatPreviewName = "";
+  state.activeCombatPreviewDescription = "";
 }
 
 function renderCombatSpellbookPopover(combatant, character) {
@@ -6920,10 +7141,23 @@ function renderCombatSpellbookAbilityList(combatant, rows) {
 
 function renderCombatSpellbookAbilityRow(combatant, row) {
   const abilityName = cleanText(row?.name) || "Sin nombre";
+  const description = cleanText(row?.description);
+  const abilityNameMarkup = description
+    ? `
+      <span
+        class="combat-spellbook-popover__ability-name"
+        tabindex="0"
+        data-combat-preview-kind="ability"
+        data-combat-preview-key="${escapeHtml(cleanText(row?.id) || abilityName)}"
+        data-combat-preview-name="${escapeHtml(abilityName)}"
+        data-combat-preview-description="${escapeHtml(description)}"
+      >${escapeHtml(abilityName)}</span>
+    `
+    : `<span class="combat-spellbook-popover__ability-name">${escapeHtml(abilityName)}</span>`;
 
   return `
     <div class="combat-spellbook-popover__ability-row">
-      <span class="combat-spellbook-popover__ability-name">${escapeHtml(abilityName)}</span>
+      ${abilityNameMarkup}
       <div class="combat-spellbook-popover__ability-uses" role="group" aria-label="Usos de ${escapeHtml(abilityName)}">
         ${renderCombatSpellbookAbilityUseDots(combatant.id, row)}
       </div>
@@ -6980,7 +7214,9 @@ function renderCombatPreparedSpellRow(row) {
                 type="button"
                 data-action="filter-arcanum-by-spell-name"
                 data-arcanum-spell-name="${escapeHtml(matchedSpell.name)}"
-                data-combat-spell-preview-name="${escapeHtml(matchedSpell.name)}"
+                data-combat-preview-kind="spell"
+                data-combat-preview-key="${escapeHtml(matchedSpell.name)}"
+                data-combat-preview-name="${escapeHtml(matchedSpell.name)}"
               >
                 ${escapeHtml(spellName)}
               </button>
@@ -7057,6 +7293,18 @@ function getCombatantColumnValue(combatant, key) {
   }
 
   return combatant[key] ?? "";
+}
+
+function isCombatantShieldEquipped(combatant) {
+  return combatant?.shieldEquipped === true;
+}
+
+function getCombatantArmorClassValue(combatant) {
+  if (combatant?.ca === "" || combatant?.ca === null || combatant?.ca === undefined) {
+    return "";
+  }
+
+  return Math.max(0, toNumber(combatant.ca) + (isCombatantShieldEquipped(combatant) ? 2 : 0));
 }
 
 function renderCombatantTagChip(combatant) {
@@ -10571,15 +10819,22 @@ function renderCharacterExperienceControls(character, options = {}) {
   }
 
   const compact = options.compact === true;
+  const combatInline = options.combatInline === true;
   const npcOnly = options.npcOnly === true;
   const draftValue = getCharacterXpDraftValue(character.id);
   const xpToNextLevel = getExperiencePointsToNextLevel(character);
-  const addButtonDisabled = Math.max(0, Math.floor(toNumber(draftValue) || 0)) <= 0;
   const levelUpDisabled = xpToNextLevel <= 0;
+  const levelUpLabel = combatInline ? "LVL UP" : "LVL UP !";
+  const controlClassName = [
+    "character-xp-controls",
+    compact ? "character-xp-controls--compact" : "",
+    combatInline ? "character-xp-controls--combat-inline" : "",
+    npcOnly ? "character-xp-controls--npc" : ""
+  ].filter(Boolean).join(" ");
 
   if (npcOnly) {
     return `
-      <div class="character-xp-controls character-xp-controls--npc${compact ? " character-xp-controls--compact" : ""}">
+      <div class="${controlClassName}">
         <label class="character-experience__field character-experience__field--level character-xp-controls__level-box">
           <span>LVL</span>
           <input
@@ -10598,14 +10853,14 @@ function renderCharacterExperienceControls(character, options = {}) {
           data-character-id="${escapeHtml(character.id)}"
           ${levelUpDisabled ? "disabled" : ""}
         >
-          LVL UP !
+          ${levelUpLabel}
         </button>
       </div>
     `;
   }
 
   return `
-    <div class="character-xp-controls${compact ? " character-xp-controls--compact" : ""}">
+    <div class="${controlClassName}">
       <input
         class="cell-input character-xp-controls__input"
         type="number"
@@ -10622,7 +10877,6 @@ function renderCharacterExperienceControls(character, options = {}) {
         type="button"
         data-action="award-character-xp"
         data-character-id="${escapeHtml(character.id)}"
-        ${addButtonDisabled ? "disabled" : ""}
         aria-label="${escapeHtml(t("xp_adjust_add_aria"))}"
       >
         <span class="character-xp-controls__plus" aria-hidden="true">+</span>
@@ -10634,7 +10888,7 @@ function renderCharacterExperienceControls(character, options = {}) {
         data-character-id="${escapeHtml(character.id)}"
         ${levelUpDisabled ? "disabled" : ""}
       >
-        LVL UP !
+        ${levelUpLabel}
       </button>
     </div>
   `;
@@ -11395,7 +11649,9 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
     }
 
     const column = columns.find((item) => item.key === key) ?? (key === "ca" || key === "hitDice" ? { key, type: "number" } : null);
-    const nextValue = getNormalizedValue(column, rawValue, normalize);
+    const nextValue = key === "ca"
+      ? normalizeCombatantArmorClassInput(rawValue, isCombatantShieldEquipped(combatant), normalize)
+      : getNormalizedValue(column, rawValue, normalize);
     const updatedCombatant = {
       ...combatant,
       [key]: nextValue
@@ -11635,6 +11891,7 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
 
   const levelUpNotifications = [];
   const xpNotifications = [];
+  const pendingMulticlassLevelUps = [];
 
   state.characters = state.characters.map((character) => {
     const gain = gainByCharacterId.get(character.id);
@@ -11656,12 +11913,18 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
     });
 
     if (nextProgress.level > toNumber(character.level)) {
+      const levelGain = nextProgress.level - toNumber(character.level);
+
       levelUpNotifications.push({
         title: "Subida de nivel",
         message: `${characterName} ha alcanzado el nivel ${nextProgress.level}.`,
         tone: "success",
         imageUrl: cleanText(character.tokenUrl)
       });
+
+      if (character.isMulticlass === true && getCharacterVisibleClassEntries(character).length > 1) {
+        pendingMulticlassLevelUps.push(createPendingMulticlassLevelUpPrompt(character, levelGain));
+      }
     }
 
     return normalizeStoredCharacter({
@@ -11678,6 +11941,10 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
 
   if (levelUpNotifications.length > 0) {
     playInterfaceSound(levelUpSoundUrl, 0.78, "levelUp");
+  }
+
+  if (pendingMulticlassLevelUps.length > 0) {
+    state.multiclassLevelUpQueue = [...state.multiclassLevelUpQueue, ...pendingMulticlassLevelUps];
   }
 
   saveCharacters();
@@ -11715,6 +11982,36 @@ function awardExperienceToCharacterLevelUp(characterId) {
   addExperienceToCharacters([normalizedCharacterId], amount);
 }
 
+function toggleCombatantShield(combatantId) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => combatant.id === normalizedCombatantId
+    ? normalizeCombatant({
+      ...combatant,
+      shieldEquipped: !isCombatantShieldEquipped(combatant)
+    })
+    : combatant);
+}
+
+function restoreCombatantMaxHp(combatantId) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => combatant.id === normalizedCombatantId
+    ? normalizeCombatant({
+      ...combatant,
+      necrotic: 0
+    }, "necrotic")
+    : combatant);
+}
+
 function getCharacterClassEntriesForTargetLevel(character, targetLevel) {
   const nextLevel = Math.max(1, Math.floor(toNumber(targetLevel) || 1));
   const isMulticlass = character?.isMulticlass === true;
@@ -11733,6 +12030,98 @@ function getCharacterClassEntriesForTargetLevel(character, targetLevel) {
     },
     ...classEntries.slice(1)
   ];
+}
+
+function createPendingMulticlassLevelUpPrompt(character, levelGain = 1) {
+  const classEntries = getCharacterVisibleClassEntries(character);
+  const primaryEntry = classEntries[0] ?? createDefaultCharacterClassEntry({ level: 1 });
+
+  return {
+    characterId: character.id,
+    primaryClassEntryId: primaryEntry.id,
+    remainingChoices: Math.max(1, Math.floor(toNumber(levelGain) || 1)),
+    totalChoices: Math.max(1, Math.floor(toNumber(levelGain) || 1))
+  };
+}
+
+function getActiveMulticlassLevelUpPrompt() {
+  return Array.isArray(state.multiclassLevelUpQueue) ? state.multiclassLevelUpQueue[0] ?? null : null;
+}
+
+function renderMulticlassLevelUpChoiceButton(character, pendingLevelUp, classEntry) {
+  const className = cleanText(classEntry.name) || "Clase sin nombre";
+  const subclassName = cleanText(classEntry.subclassName);
+  const level = normalizeStoredCharacterClassLevel(classEntry.level);
+  const choiceLabel = subclassName ? `${className} (${subclassName})` : className;
+
+  return `
+    <button
+      class="toolbar-button toolbar-button--combat multiclass-levelup-dialog__choice"
+      type="button"
+      data-action="choose-multiclass-level-up-class"
+      data-character-id="${escapeHtml(character.id)}"
+      data-character-class-entry-id="${escapeHtml(classEntry.id)}"
+    >
+      <strong>${escapeHtml(choiceLabel)}</strong>
+      <span>Nivel ${escapeHtml(String(level))}</span>
+    </button>
+  `;
+}
+
+function applyMulticlassLevelUpChoice(characterId, classEntryId) {
+  const normalizedCharacterId = cleanText(characterId);
+  const normalizedClassEntryId = cleanText(classEntryId);
+  const pendingLevelUp = getActiveMulticlassLevelUpPrompt();
+
+  if (!pendingLevelUp || pendingLevelUp.characterId !== normalizedCharacterId || !normalizedClassEntryId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== normalizedCharacterId) {
+      return character;
+    }
+
+    if (normalizedClassEntryId === pendingLevelUp.primaryClassEntryId) {
+      return character;
+    }
+
+    const classEntries = ensureCharacterClassEntryCount(character.classEntries, character.isMulticlass ? 2 : 1)
+      .map((entry) => ({ ...entry }));
+    const primaryEntry = classEntries.find((entry) => entry.id === pendingLevelUp.primaryClassEntryId);
+    const targetEntry = classEntries.find((entry) => entry.id === normalizedClassEntryId);
+
+    if (!primaryEntry || !targetEntry) {
+      return character;
+    }
+
+    primaryEntry.level = Math.max(0, normalizeStoredCharacterClassLevel(primaryEntry.level) - 1);
+    targetEntry.level = Math.min(20, normalizeStoredCharacterClassLevel(targetEntry.level) + 1);
+
+    return normalizeStoredCharacter({
+      ...character,
+      classEntries
+    });
+  });
+
+  state.multiclassLevelUpQueue = state.multiclassLevelUpQueue.flatMap((entry, index) => {
+    if (index !== 0) {
+      return [entry];
+    }
+
+    const nextRemainingChoices = Math.max(0, entry.remainingChoices - 1);
+
+    if (nextRemainingChoices <= 0) {
+      return [];
+    }
+
+    return [{
+      ...entry,
+      remainingChoices: nextRemainingChoices
+    }];
+  });
+
+  syncLinkedCombatantsHitDice(normalizedCharacterId);
 }
 
 function getDefaultCharacterSkillDefinitions() {
@@ -12676,6 +13065,7 @@ function createCombatantFromCharacter(character, id) {
     hitDice: Math.max(0, Math.floor(toNumber(character.level) || 0)),
     necrotic: 0,
     ca: character.armorClass,
+    shieldEquipped: false,
     condiciones: "",
     stats: formatStatsFromObject(abilities),
     tamano: cleanText(character.size) || "Mediano",
@@ -13480,6 +13870,7 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     pgTemp: 0,
     necrotic: 0,
     ca,
+    shieldEquipped: existingCombatant.shieldEquipped === true,
     condiciones: existingCombatant.condiciones ?? "",
     stats: formatStatsFromObject(entry.abilities ?? parseStats("")),
     tamano: entry.size ?? "",
@@ -13599,6 +13990,7 @@ function addBlankCombatant() {
       pgTemp: "",
       necrotic: "",
       ca: "",
+      shieldEquipped: false,
       condiciones: "",
       stats: formatStatsWithModifiers("STR 10 DEX 10 CON 10 INT 10 WIS 10 CHA 10"),
       tamano: "",
@@ -13637,6 +14029,7 @@ function addEntity() {
       pgTemp: 0,
       necrotic: 0,
       ca: 10,
+      shieldEquipped: false,
       condiciones: "",
       stats: formatStatsWithModifiers("STR 10 DEX 10 CON 10 INT 10 WIS 10 CHA 10"),
       tamano: "Mediano",
@@ -14531,6 +14924,28 @@ function closeCombatTurnQuickMenu() {
   };
 }
 
+function openCombatMaxHpRestoreMenu(combatantId, x, y) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  state.combatMaxHpRestoreMenu = {
+    combatantId: normalizedCombatantId,
+    x: Math.round(toNumber(x)),
+    y: Math.round(toNumber(y))
+  };
+}
+
+function closeCombatMaxHpRestoreMenu() {
+  state.combatMaxHpRestoreMenu = {
+    combatantId: "",
+    x: 0,
+    y: 0
+  };
+}
+
 function applyCombatTurnQuickMenuAdjustment(mode = "") {
   const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
   const amount = Number(state.combatTurnQuickMenu?.value);
@@ -14655,6 +15070,16 @@ function getNormalizedValue(column, rawValue, normalize) {
   }
 
   return rawValue;
+}
+
+function normalizeCombatantArmorClassInput(rawValue, shieldEquipped = false, normalize = true) {
+  const normalizedValue = getNormalizedValue({ key: "ca", type: "number" }, rawValue, normalize);
+
+  if (normalizedValue === "") {
+    return "";
+  }
+
+  return Math.max(0, toNumber(normalizedValue) - (shieldEquipped ? 2 : 0));
 }
 
 function mapTagToSide(tag) {
@@ -17424,7 +17849,7 @@ function syncActiveCombatSpellbookPopoverPosition() {
 function scheduleActiveCombatSpellPreviewSync() {
   const schedule = window.requestAnimationFrame?.bind(window) ?? ((callback) => window.setTimeout(callback, 16));
 
-  if (!state.activeCombatSpellPreviewName) {
+  if (!state.activeCombatPreviewKey || !state.activeCombatPreviewKind) {
     activeCombatSpellPreviewSyncFrame = 0;
     return;
   }
@@ -17440,12 +17865,12 @@ function scheduleActiveCombatSpellPreviewSync() {
 }
 
 function syncActiveCombatSpellPreviewPosition() {
-  if (typeof window === "undefined" || !state.activeCombatSpellPreviewName) {
+  if (typeof window === "undefined" || !state.activeCombatPreviewKey || !state.activeCombatPreviewKind) {
     return;
   }
 
-  const trigger = [...app.querySelectorAll("[data-combat-spell-preview-name]")]
-    .find((element) => element.dataset.combatSpellPreviewName === state.activeCombatSpellPreviewName);
+  const trigger = [...app.querySelectorAll("[data-combat-preview-key][data-combat-preview-kind]")]
+    .find((element) => element.dataset.combatPreviewKey === state.activeCombatPreviewKey && element.dataset.combatPreviewKind === state.activeCombatPreviewKind);
   const preview = app.querySelector("[data-combat-spell-preview-overlay]");
 
   if (!trigger || !preview) {
@@ -18501,6 +18926,7 @@ function normalizeStoredCombatant(combatant) {
     hitDice: normalizeStoredNonNegativeNumber(combatant.hitDice),
     necrotic,
     ca: normalizeStoredNumber(combatant.ca),
+    shieldEquipped: combatant.shieldEquipped === true,
     condiciones: cleanText(combatant.condiciones),
     stats: formatStatsWithModifiers(combatant.stats ?? ""),
     tamano: cleanText(combatant.tamano),

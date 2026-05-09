@@ -1805,6 +1805,32 @@ table {
   flex-wrap: nowrap;
 }
 
+.combat-maxhp-restore-menu {
+  position: fixed;
+  z-index: 1280;
+  width: min(12rem, calc(100vw - 1.5rem));
+}
+
+.combat-maxhp-restore-menu__panel {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(186, 138, 71, 0.36);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(44, 28, 18, 0.985), rgba(19, 13, 10, 0.992)),
+    rgba(0, 0, 0, 0.14);
+  box-shadow:
+    0 24px 56px rgba(0, 0, 0, 0.48),
+    inset 0 0 0 1px rgba(83, 53, 30, 0.68),
+    inset 0 1px 0 rgba(255, 234, 191, 0.04);
+}
+
+.combat-maxhp-restore-menu__button {
+  justify-content: center;
+  width: 100%;
+}
+
 .summary-card .round-chip {
   display: inline-flex;
   color: var(--accent-soft);
@@ -3094,7 +3120,7 @@ table {
   position: absolute;
   left: 50%;
   bottom: calc(100% + 0.55rem);
-  z-index: 120;
+  z-index: 1450;
   width: min(25rem, 58vw);
   padding: 0.82rem 1rem;
   border: 1px solid rgba(240, 200, 121, 0.24);
@@ -3116,6 +3142,11 @@ table {
 .combat-tracker-panel .toolbar-button[data-tooltip]:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.combat-tracker-panel .combat-shield-toggle:hover,
+.combat-tracker-panel .combat-shield-toggle:focus-visible {
+  z-index: 1440;
 }
 
 .combat-tracker-panel [data-action="combat-long-rest"][data-tooltip]::after {
@@ -4034,6 +4065,14 @@ input[type="number"]::-webkit-inner-spin-button {
   gap: 0.5rem;
 }
 
+.resource-cell__bottom {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+  margin-top: 0.38rem;
+  min-height: 3.2rem;
+}
+
 .resource-cell--pgmax .cell-input {
   flex: 1 1 auto;
 }
@@ -4785,11 +4824,47 @@ input[type="number"]::-webkit-inner-spin-button {
   flex-direction: column;
   gap: 0.55rem;
   height: 100%;
-  min-width: 12.4rem;
+  min-width: 10.2rem;
+}
+
+.combat-character-xp-cell > .character-experience.character-experience--combat-compact {
+  min-height: 3.2rem;
+  padding-block: 0.42rem;
+  align-items: center;
 }
 
 .combat-character-xp-cell > .character-xp-controls {
   margin-top: auto;
+}
+
+.combat-shield-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  margin-left: auto;
+  min-height: 3.2rem;
+  padding: 0.22rem 0.48rem 0.22rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.combat-shield-toggle.is-active {
+  border-color: rgba(240, 200, 121, 0.72);
+  background:
+    linear-gradient(180deg, rgba(240, 200, 121, 0.22), rgba(84, 160, 101, 0.12)),
+    rgba(255, 255, 255, 0.05);
+  color: #fff8e7;
+}
+
+.combat-shield-toggle__icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: rgba(240, 200, 121, 0.16);
+  stroke: currentColor;
+  stroke-width: 3;
 }
 
 .combat-cr-cell {
@@ -5137,6 +5212,13 @@ input[type="number"]::-webkit-inner-spin-button {
   border: 1px solid rgba(240, 200, 121, 0.14);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
+  cursor: default;
+}
+
+[data-combat-preview-key].combat-spellbook-popover__ability-name {
+  cursor: help;
+  text-decoration: underline dotted rgba(240, 200, 121, 0.55);
+  text-underline-offset: 0.14rem;
 }
 
 .combat-spellbook-popover__ability-uses {
@@ -7325,6 +7407,7 @@ body.is-table-resizing * {
   align-items: center;
   gap: 0.5rem;
   padding: 0.48rem 0.68rem;
+  min-height: 3.2rem;
 }
 
 .character-experience--combat-compact .character-experience__labels {
@@ -7504,6 +7587,44 @@ body.is-table-resizing * {
   letter-spacing: 0.04em;
 }
 
+.character-xp-controls--combat-inline {
+  grid-template-columns: minmax(0, 1fr) 1.95rem minmax(0, 3.6rem);
+  grid-template-areas: "input add level";
+  gap: 0.28rem;
+  width: 100%;
+  min-height: 3.2rem;
+  align-items: stretch;
+}
+
+.character-xp-controls--combat-inline .character-xp-controls__input {
+  min-height: 3.2rem;
+  padding-inline: 0.28rem;
+  font-size: 0.84rem;
+}
+
+.character-xp-controls--combat-inline .character-xp-controls__button,
+.character-xp-controls--combat-inline .character-xp-controls__level-up {
+  min-height: 3.2rem;
+}
+
+.character-xp-controls--combat-inline .character-xp-controls__button {
+  width: 1.95rem;
+  min-width: 1.95rem;
+  height: 3.2rem;
+}
+
+.character-xp-controls--combat-inline .character-xp-controls__plus {
+  font-size: 1.34rem;
+}
+
+.character-xp-controls--combat-inline .character-xp-controls__level-up {
+  justify-self: stretch;
+  min-width: 0;
+  padding-inline: 0.36rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.03em;
+}
+
 .character-xp-controls--npc {
   grid-template-columns: 1fr;
   gap: 0.38rem;
@@ -7523,8 +7644,26 @@ body.is-table-resizing * {
   justify-self: end;
 }
 
+.character-xp-controls--combat-inline.character-xp-controls--npc {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "level levelup";
+  gap: 0.32rem;
+}
+
+.character-xp-controls--combat-inline.character-xp-controls--npc .character-xp-controls__level-box {
+  grid-area: level;
+}
+
+.character-xp-controls--combat-inline.character-xp-controls--npc .character-xp-controls__level-up {
+  grid-area: levelup;
+  align-self: start;
+  justify-self: end;
+  width: auto;
+  max-width: 4.9rem;
+}
+
 .combat-character-xp-cell--npc {
-  min-width: 8rem;
+  min-width: 7.4rem;
 }
 
 .character-identity-grid {
@@ -9220,6 +9359,69 @@ body.is-table-resizing * {
 .character-ability-preview p {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.multiclass-levelup-dialog__panel {
+  width: min(34rem, 100%);
+}
+
+.multiclass-levelup-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.multiclass-levelup-dialog__header-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.multiclass-levelup-dialog__portrait {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.9rem;
+  height: 4.9rem;
+  border: 1px solid rgba(240, 200, 121, 0.34);
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(240, 200, 121, 0.18), transparent 55%),
+    rgba(8, 11, 18, 0.46);
+  color: #fff3cf;
+  font-size: 1.25rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+}
+
+.multiclass-levelup-dialog__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.multiclass-levelup-dialog__choices {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.multiclass-levelup-dialog__choice {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: start;
+  text-align: left;
+}
+
+.multiclass-levelup-dialog__choice strong,
+.multiclass-levelup-dialog__choice span {
+  pointer-events: none;
+}
+
+.multiclass-levelup-dialog__choice span {
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
 .character-ability-description-dialog__panel {
