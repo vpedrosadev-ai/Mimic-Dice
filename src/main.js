@@ -303,6 +303,7 @@ const state = {
   characterSpellbookAbilityDescriptionDialogValue: "",
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
+  charactersOverviewHidden: false,
   characterSkillDefinitions: initialCharacterSkillDefinitions,
   characters: initialCharacters,
   activeCharacterId: initialCharacters[0]?.id ?? "",
@@ -993,6 +994,12 @@ function handleClick(event) {
 
   if (action === "toggle-character-skill-config") {
     state.characterSkillConfigOpen = !state.characterSkillConfigOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-characters-overview") {
+    state.charactersOverviewHidden = !state.charactersOverviewHidden;
     render();
     return;
   }
@@ -6961,8 +6968,9 @@ function renderCombatSpellPreviewOverlay() {
   }
 
   if (previewKind === "ability") {
-    const previewName = cleanText(state.activeCombatPreviewName) || "Habilidad sin nombre";
+    const previewName = cleanText(state.activeCombatPreviewName) || (isEnglishInterface() ? "Unnamed ability" : "Habilidad sin nombre");
     const previewDescription = cleanText(state.activeCombatPreviewDescription);
+    const previewLabel = isEnglishInterface() ? "ABILITIES" : "Habilidad";
 
     if (!previewDescription) {
       return "";
@@ -6972,7 +6980,7 @@ function renderCombatSpellPreviewOverlay() {
       <aside class="combat-spell-preview-overlay" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
         <div class="character-spellbook__preview-card character-spellbook__preview-card--ability">
           <div class="character-ability-preview">
-            <p class="eyebrow">Habilidad</p>
+            <p class="eyebrow">${escapeHtml(previewLabel)}</p>
             <h3>${escapeHtml(previewName)}</h3>
             <p>${escapeHtml(previewDescription).replaceAll("\n", "<br />")}</p>
           </div>
@@ -7890,15 +7898,15 @@ function renderCombatCharacterSkillChipsSection(character) {
   if (state.characterSkillDefinitions.length === 0) {
     return `
       <section class="detail-section">
-        <h4>Skills</h4>
-        <p>Sin skills de campana configuradas.</p>
+        <h4>Maestrias</h4>
+        <p>Sin maestrias de campana configuradas.</p>
       </section>
     `;
   }
 
   return `
     <section class="detail-section">
-      <h4>Skills</h4>
+      <h4>Maestrias</h4>
       <div class="combat-token-preview__skill-chips">
         ${state.characterSkillDefinitions.map((skillDefinition) => {
           const progress = getCharacterSkillProgress(getCharacterSkillProgressEntry(character, skillDefinition.id));
@@ -8051,6 +8059,7 @@ function renderCharactersScreen() {
           <span>${state.characters.length} fichas de personaje</span>
         </div>
       </div>
+      <div class="characters-repository-divider" aria-hidden="true"></div>
 
       <div class="characters-toolbar-wrap" data-character-skill-config-menu>
       <div class="characters-toolbar">
@@ -8074,7 +8083,7 @@ function renderCharactersScreen() {
               <path d="m19.14 12.94.04-.94-.04-.94 2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.57.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58-.04.94.04.94-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.57-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
             </svg>
           </span>
-          Skills
+          Maestrias
         </button>
       <button class="toolbar-button toolbar-button--combat characters-toolbar__combat-action" type="button" data-action="add-character-to-combat" ${selectedCombatCharacters.length > 0 ? "" : "disabled"}>
         Anadir al combate
@@ -9140,44 +9149,69 @@ function renderCharactersOverviewPanel(characters) {
     return "";
   }
 
+  const passivePerceptionTooltip = isEnglishInterface() ? "PASIVE PERCEPTION" : "PERCEPCION PASIVA";
+  const trapPerceptionTooltip = isEnglishInterface()
+    ? "Perception of traps and secret doors"
+    : "Percepcion de trampas y puertas secretas";
+
   return `
     <section class="character-overview">
       <div class="section-heading section-heading--compact">
-        <div>
+        <div class="character-overview__heading-inline">
           <p class="eyebrow">Resumen de grupo</p>
+          <button
+            class="toolbar-button toolbar-button--subtle character-overview__toggle"
+            type="button"
+            data-action="toggle-characters-overview"
+            aria-expanded="${state.charactersOverviewHidden ? "false" : "true"}"
+          >
+            ${state.charactersOverviewHidden ? "Ver tabla" : "Ocultar tabla"}
+          </button>
         </div>
       </div>
-      <div class="table-wrap character-overview__table-wrap" role="region" aria-label="Resumen de personajes">
-        <table class="combat-table character-overview-table">
-          <colgroup>
-            <col style="width: 9rem" />
-            <col style="width: 5.5rem" />
-            <col style="width: 4.5rem" />
-            <col style="width: 5.5rem" />
-            <col style="width: 5.5rem" />
-            <col style="width: 6.5rem" />
-            <col style="width: 10.5rem" />
-            <col style="width: 9.5rem" />
-            <col style="width: 33rem" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th scope="col">Personaje</th>
-              <th scope="col">PG max</th>
-              <th scope="col">CA</th>
-              <th scope="col">Vel.</th>
-              <th scope="col">Talla</th>
-              <th scope="col">Percep.</th>
-              <th scope="col">XP</th>
-              <th scope="col">Carga</th>
-              <th scope="col">Skills</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${characters.map((character) => renderCharacterOverviewRow(character)).join("")}
-          </tbody>
-        </table>
-      </div>
+      ${
+        state.charactersOverviewHidden
+          ? ""
+          : `
+            <div class="table-wrap character-overview__table-wrap" role="region" aria-label="Resumen de personajes">
+              <table class="combat-table character-overview-table">
+                <colgroup>
+                  <col style="width: 9rem" />
+                  <col style="width: 5.5rem" />
+                  <col style="width: 4.5rem" />
+                  <col style="width: 5.5rem" />
+                  <col style="width: 5.5rem" />
+                  <col style="width: 4.8rem" />
+                  <col style="width: 4.8rem" />
+                  <col style="width: 8.6rem" />
+                  <col style="width: 9.5rem" />
+                  <col style="width: 33rem" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Personaje</th>
+                    <th scope="col">PG max</th>
+                    <th scope="col">CA</th>
+                    <th scope="col">Vel.</th>
+                    <th scope="col">Talla</th>
+                    <th scope="col">
+                      <span class="character-overview__header-tooltip" tabindex="0" data-tooltip="${escapeHtml(passivePerceptionTooltip)}">P.P</span>
+                    </th>
+                    <th scope="col">
+                      <span class="character-overview__header-tooltip" tabindex="0" data-tooltip="${escapeHtml(trapPerceptionTooltip)}">P.T</span>
+                    </th>
+                    <th scope="col">XP</th>
+                    <th scope="col">Carga</th>
+                    <th scope="col">Maestrias</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${characters.map((character) => renderCharacterOverviewRow(character)).join("")}
+                </tbody>
+              </table>
+            </div>
+          `
+      }
     </section>
   `;
 }
@@ -9207,6 +9241,7 @@ function renderCharacterOverviewRow(character) {
       <td>${renderCharacterOverviewField(character.id, "speed", character.speed || "", "text", "30 ft")}</td>
       <td>${renderCharacterOverviewField(character.id, "size", character.size || "", "text", "Mediano")}</td>
       <td>${escapeHtml(String(getCharacterPassivePerception(character)))}</td>
+      <td>${renderCharacterOverviewField(character.id, "trapPerception", character.trapPerception ?? 0, "number")}</td>
       <td>
         <div class="character-overview__stack">
           ${renderCharacterOverviewSplitProgressBar(
@@ -9426,7 +9461,7 @@ function getCharacterSkillThemeStyle(skillDefinition) {
 
 function renderCharacterSkillSummary(character) {
   if (!state.characterSkillDefinitions.length) {
-    return `<span class="character-overview__value">Sin skills</span>`;
+    return `<span class="character-overview__value">Sin maestrias</span>`;
   }
 
   return `
@@ -9438,7 +9473,7 @@ function renderCharacterSkillSummary(character) {
         return `
           <div class="character-skill-summary__item" style="${themeStyle}">
             <div class="character-skill-summary__meta">
-              <strong>${escapeHtml(skillDefinition.name || "Skill")}</strong>
+              <strong>${escapeHtml(skillDefinition.name || "Maestria")}</strong>
               <small>${escapeHtml(progress.level > 0 ? progress.label : "Sin rango")}</small>
             </div>
             <div class="character-skill-summary__bar">
@@ -9454,12 +9489,12 @@ function renderCharacterSkillSummary(character) {
 function renderCharacterHeaderAside(character) {
   return `
     <div class="character-sheet__header-side">
+      ${renderCharacterCarryLoadCard(character)}
       <div class="character-header-support">
-        ${renderCharacterCarryLoadCard(character)}
-        ${renderCharacterExperienceControls(character)}
-      </div>
-      <div class="character-experience-panel">
-        ${renderCharacterExperienceBar(character)}
+        <div class="character-experience-panel">
+          ${renderCharacterExperienceBar(character)}
+        </div>
+        ${renderCharacterExperienceControls(character, { sheetLayout: true })}
       </div>
     </div>
   `;
@@ -9486,24 +9521,29 @@ function renderCharacterCarryLoadCard(character) {
 }
 
 function renderCharacterSkillConfigSection() {
+  const masterySettingsTitle = isEnglishInterface() ? "Masteries Settings" : "Configuracion de maestrias";
+  const masterySettingsDescription = isEnglishInterface()
+    ? "This list and its XP gains are shared by all characters."
+    : "Esta lista y sus ganancias de XP se comparten entre todos los personajes.";
+
   return `
     <section class="detail-section character-skill-config">
       <div class="character-skill-config__header">
         <div>
-          <h4>Skills comunes</h4>
-          <p>Esta lista y sus ganancias de XP se comparten entre todos los personajes.</p>
+          <h4>${escapeHtml(masterySettingsTitle)}</h4>
+          <p>${escapeHtml(masterySettingsDescription)}</p>
         </div>
       </div>
       <div class="character-skill-config__actions">
         <button class="toolbar-button toolbar-button--subtle" type="button" data-action="add-character-skill-definition">
-          Anadir skill
+          Anadir maestria
         </button>
       </div>
       <div class="character-skill-config__list">
         ${
           state.characterSkillDefinitions.length > 0
             ? state.characterSkillDefinitions.map((skillDefinition) => renderCharacterSkillConfigRow(skillDefinition)).join("")
-            : `<div class="empty-state empty-state--compact">No hay skills comunes configuradas.</div>`
+            : `<div class="empty-state empty-state--compact">No hay maestrias comunes configuradas.</div>`
         }
       </div>
     </section>
@@ -9513,19 +9553,22 @@ function renderCharacterSkillConfigSection() {
 function renderCharacterSkillConfigRow(skillDefinition) {
   const hasIntermediateGains = normalizeStoredCharacterSkillGains(skillDefinition.intermediateGains, []).length > 0;
   const themeStyle = getCharacterSkillThemeStyle(skillDefinition);
+  const isCookingSkill = cleanText(skillDefinition.id) === "skill-cocina" || cleanText(skillDefinition.name).toLowerCase() === "cocina";
+  const cookingInputStyle = isCookingSkill ? ' style="width:7.2rem;max-width:7.2rem;min-width:7.2rem;"' : "";
   const localizedSkillName = isEnglishInterface()
-    ? translateUiString(skillDefinition.name || "Skill")
-    : (skillDefinition.name || "Skill");
+    ? translateUiString(skillDefinition.name || "Maestria")
+    : (skillDefinition.name || "Maestria");
 
   return `
     <div class="character-skill-config__row ${hasIntermediateGains ? "character-skill-config__row--with-intermediate" : ""}" style="${themeStyle}">
       <label class="character-skill-config__field character-skill-config__field--name">
-        <span>Skill</span>
+        <span>Maestria</span>
         <input
-          class="filter-input character-skill-config__input"
+          class="filter-input character-skill-config__input${isCookingSkill ? " character-skill-config__input--cooking" : ""}"
           type="text"
+          ${cookingInputStyle}
           value="${escapeHtml(localizedSkillName)}"
-          placeholder="Nueva skill"
+          placeholder="Nueva maestria"
           data-character-skill-definition-field="name"
           data-character-skill-definition-id="${escapeHtml(skillDefinition.id)}"
         />
@@ -9590,13 +9633,18 @@ function renderCharacterSpellbookSection(character) {
   const visibleSpellSlots = getVisibleCharacterSpellSlots(character);
   const spellbookAbilities = normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities);
   const abilityCount = getMeaningfulCharacterSpellbookAbilityRows(spellbookAbilities).length;
+  const spellbookTitle = isEnglishInterface() ? "Spells and Abilities" : "Hechizos y habilidades";
+  const spellbookToggleLabel = isEnglishInterface()
+    ? (isOpen ? "Hide spells and abilities" : "Show spells and abilities")
+    : (isOpen ? "Ocultar hechizos y habilidades" : "Mostrar hechizos y habilidades");
+  const modifierLabel = isEnglishInterface() ? "Modifier" : "Modificador";
 
   return `
     <section class="detail-section character-spellbook" data-character-spell-menu>
       <div class="character-section-toggle character-section-toggle--spellbook">
         <div class="character-section-toggle__click" data-action="toggle-character-spellbook">
           <div class="character-spellbook__heading">
-            <span>Hechizos y habilidades</span>
+            <span>${escapeHtml(spellbookTitle)}</span>
             <div class="character-spellbook__summary">
               <strong>${escapeHtml(String(preparedCount))} preparados</strong>
               <small>${escapeHtml(String(spellCount))} totales</small>
@@ -9608,7 +9656,7 @@ function renderCharacterSpellbookSection(character) {
           type="button"
           data-action="toggle-character-spellbook"
           aria-expanded="${isOpen}"
-          aria-label="${isOpen ? "Ocultar hechizos y habilidades" : "Mostrar hechizos y habilidades"}"
+          aria-label="${escapeHtml(spellbookToggleLabel)}"
         >
           <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
         </button>
@@ -9624,8 +9672,8 @@ function renderCharacterSpellbookSection(character) {
                 </div>
                 <div class="character-spellbook__slots">
                   <div class="character-spellbook__slots-grid character-spellbook__slots-grid--meta">
-                    <label class="character-spellbook__slot-field">
-                      <span>Modificador</span>
+                    <label class="character-spellbook__slot-field character-spellbook__slot-field--meta character-spellbook__slot-field--modifier">
+                      <span>${escapeHtml(modifierLabel)}</span>
                       <input
                         class="filter-input character-spellbook__slot-input"
                         type="text"
@@ -9635,7 +9683,7 @@ function renderCharacterSpellbookSection(character) {
                         data-character-field="spellAttackModifier"
                       />
                     </label>
-                    <label class="character-spellbook__slot-field">
+                    <label class="character-spellbook__slot-field character-spellbook__slot-field--meta character-spellbook__slot-field--dc">
                       <span>CD</span>
                       <input
                         class="filter-input character-spellbook__slot-input"
@@ -9947,13 +9995,15 @@ function renderCharacterSpellbookAbilityRow(row) {
 
 function renderCharacterSpellbookAbilityPreview(row) {
   const descriptionHtml = escapeHtml(cleanText(row.description)).replaceAll("\n", "<br />");
+  const previewLabel = isEnglishInterface() ? "ABILITIES" : "Habilidad";
+  const unnamedLabel = isEnglishInterface() ? "Unnamed ability" : "Habilidad sin nombre";
 
   return `
     <div class="character-spellbook__preview character-spellbook__preview--ability" role="tooltip">
       <div class="character-spellbook__preview-card character-spellbook__preview-card--ability">
         <div class="character-ability-preview">
-          <p class="eyebrow">Habilidad</p>
-          <h3>${escapeHtml(row.name || "Habilidad sin nombre")}</h3>
+          <p class="eyebrow">${escapeHtml(previewLabel)}</p>
+          <h3>${escapeHtml(row.name || unnamedLabel)}</h3>
           <p>${descriptionHtml}</p>
         </div>
       </div>
@@ -9963,13 +10013,20 @@ function renderCharacterSpellbookAbilityPreview(row) {
 
 function renderCharacterSkillSection(character) {
   const isExpanded = state.characterSkillsExpanded;
+  const campaignMasteriesTitle = isEnglishInterface() ? "Campaign Masteries" : "Maestrias de campaña";
+  const campaignMasteriesSummary = isEnglishInterface()
+    ? "Summary view of current progress and level."
+    : "Vista resumida de progreso y nivel actual.";
+  const campaignMasteriesDetail = isEnglishInterface()
+    ? "Set this character's level and progress in the shared masteries."
+    : "Configura nivel y progreso de este personaje en las maestrias comunes.";
 
   return `
     <section class="detail-section character-skill-tracks">
       <div class="character-skill-tracks__header">
         <div class="character-skill-tracks__summary" data-action="toggle-character-skills-view">
-          <h4>Skills de campana</h4>
-          <p>${isExpanded ? "Configura nivel y progreso de este personaje en las skills comunes." : "Vista resumida de progreso y nivel actual."}</p>
+          <h4>${escapeHtml(campaignMasteriesTitle)}</h4>
+          <p>${escapeHtml(isExpanded ? campaignMasteriesDetail : campaignMasteriesSummary)}</p>
         </div>
         <button
           class="character-skill-tracks__toggle"
@@ -9984,7 +10041,7 @@ function renderCharacterSkillSection(character) {
         ${
           state.characterSkillDefinitions.length > 0
             ? state.characterSkillDefinitions.map((skillDefinition) => renderCharacterSkillRow(character, skillDefinition)).join("")
-            : `<div class="empty-state empty-state--compact">No hay skills comunes configuradas.</div>`
+            : `<div class="empty-state empty-state--compact">No hay maestrias comunes configuradas.</div>`
         }
       </div>
     </section>
@@ -10190,9 +10247,10 @@ function renderCharacterInventorySection(character) {
 
 function renderCharacterCurrencyPill(character, currency) {
   const row = character.inventory.find((entry) => cleanText(entry.name).toUpperCase() === currency.name);
+  const currencyDescription = getCharacterCurrencyDescription(currency);
 
   return `
-    <label class="character-currency-pill character-currency-pill--${currency.icon}" title="${currency.name}">
+    <label class="character-currency-pill character-currency-pill--${currency.icon}" title="${escapeHtml(currencyDescription)}">
       <span class="character-currency-pill__icon" aria-hidden="true"></span>
       <strong>${currency.shortLabel}</strong>
       <input
@@ -10201,7 +10259,7 @@ function renderCharacterCurrencyPill(character, currency) {
         inputmode="numeric"
         min="0"
         value="${escapeHtml(String(row?.quantity ?? 0))}"
-        aria-label="${escapeHtml(currency.name)}"
+        aria-label="${escapeHtml(currencyDescription)}"
         data-character-inventory-field="quantity"
         data-character-inventory-row="${escapeHtml(row?.id ?? "")}"
       />
@@ -10331,6 +10389,31 @@ function getCharacterPassivePerception(character) {
   return 10
     + getAbilityModifier(character.abilities.wis ?? 10)
     + (proficientKeys.has("skill:perception") ? proficiencyBonus : 0);
+}
+
+function getCharacterTrapDoorPerception(character) {
+  return Math.max(0, Math.floor(toNumber(character?.trapPerception) || 0));
+}
+
+function getCharacterCurrencyDescription(currency) {
+  const normalizedName = cleanText(currency?.name).toUpperCase();
+  const descriptions = isEnglishInterface()
+    ? {
+      COBRE: "Copper pieces",
+      PLATA: "Silver pieces",
+      ORO: "Gold pieces",
+      ELECTRO: "Electrum pieces",
+      PLATINO: "Platinum pieces"
+    }
+    : {
+      COBRE: "Piezas de cobre",
+      PLATA: "Piezas de plata",
+      ORO: "Piezas de oro",
+      ELECTRO: "Piezas de electro",
+      PLATINO: "Piezas de platino"
+    };
+
+  return descriptions[normalizedName] || cleanText(currency?.name);
 }
 
 function renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus) {
@@ -10762,6 +10845,8 @@ function renderCharacterExperienceBar(character, options = {}) {
     `;
   }
 
+  const levelUpDisabled = getExperiencePointsToNextLevel(character) <= 0;
+
   return `
     <section class="${baseClassName}" style="${fillStyle}" aria-label="Progreso de experiencia de ${escapeHtml(character.name || "personaje")}">
       <div class="character-experience__fields">
@@ -10776,17 +10861,15 @@ function renderCharacterExperienceBar(character, options = {}) {
             readonly
           />
         </label>
-        <label class="character-experience__field">
-          <span>XP</span>
-          <input
-            class="character-experience__input"
-            type="number"
-            inputmode="numeric"
-            value="${escapeHtml(String(character.experiencePoints ?? progress.levelExperiencePoints))}"
-            data-character-field="experiencePoints"
-            aria-label="Experiencia"
-          />
-        </label>
+        <button
+          class="toolbar-button toolbar-button--combat character-experience__level-up"
+          type="button"
+          data-action="award-character-level-up"
+          data-character-id="${escapeHtml(character.id)}"
+          ${levelUpDisabled ? "disabled" : ""}
+        >
+          LVL UP !
+        </button>
       </div>
       <div class="character-experience__progress">
         <div class="character-experience__track" aria-hidden="true">
@@ -10821,6 +10904,7 @@ function renderCharacterExperienceControls(character, options = {}) {
   const compact = options.compact === true;
   const combatInline = options.combatInline === true;
   const npcOnly = options.npcOnly === true;
+  const sheetLayout = options.sheetLayout === true;
   const draftValue = getCharacterXpDraftValue(character.id);
   const xpToNextLevel = getExperiencePointsToNextLevel(character);
   const levelUpDisabled = xpToNextLevel <= 0;
@@ -10854,6 +10938,33 @@ function renderCharacterExperienceControls(character, options = {}) {
           ${levelUpDisabled ? "disabled" : ""}
         >
           ${levelUpLabel}
+        </button>
+      </div>
+    `;
+  }
+
+  if (sheetLayout) {
+    return `
+      <div class="${controlClassName} character-xp-controls--sheet">
+        <input
+          class="cell-input character-xp-controls__input"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          step="1"
+          value="${escapeHtml(String(draftValue))}"
+          placeholder="XP"
+          data-character-xp-draft="${escapeHtml(character.id)}"
+          aria-label="${escapeHtml(t("xp_adjust_input_aria"))}"
+        />
+        <button
+          class="toolbar-button toolbar-button--subtle character-xp-controls__button"
+          type="button"
+          data-action="award-character-xp"
+          data-character-id="${escapeHtml(character.id)}"
+          aria-label="${escapeHtml(t("xp_adjust_add_aria"))}"
+        >
+          <span class="character-xp-controls__plus" aria-hidden="true">+</span>
         </button>
       </div>
     `;
@@ -11742,6 +11853,7 @@ function createDefaultCharacter(overrides = {}) {
     tempHp: 0,
     speed: "30 ft",
     initiativeBonus: 0,
+    trapPerception: 0,
     conditions: "",
     stand: "",
     notes: "",
@@ -11835,7 +11947,7 @@ function updateCharacterField(key, rawValue, normalize = true) {
 }
 
 function updateCharacterFieldForId(characterId, key, rawValue, normalize = true) {
-  const numberFields = new Set(["level", "experiencePoints", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus", "spellAttackModifier", "spellSaveDc"]);
+  const numberFields = new Set(["level", "experiencePoints", "armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus", "trapPerception", "spellAttackModifier", "spellSaveDc"]);
 
   state.characters = state.characters.map((character) => {
     if (character.id !== characterId) {
@@ -12137,7 +12249,7 @@ function getDefaultCharacterSkillDefinitions() {
 function createDefaultCharacterSkillDefinition(overrides = {}) {
   return normalizeStoredCharacterSkillDefinition({
     id: createStableId("skill-def"),
-    name: "Nueva skill",
+    name: "Nueva maestria",
     color: getNextCharacterSkillColor(state.characterSkillDefinitions),
     successGains: [2],
     intermediateGains: [],
@@ -18106,6 +18218,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     tempHp: normalizeStoredNonNegativeNumber(character.tempHp),
     speed: cleanText(character.speed) || "30 ft",
     initiativeBonus: normalizeStoredNumber(character.initiativeBonus),
+    trapPerception: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.trapPerception)) || 0)),
     conditions: cleanText(character.conditions),
     stand: normalizeStoredStandLabel(character.stand),
     notes: cleanText(character.notes),
@@ -18296,7 +18409,7 @@ function normalizeLegacyCharacterSkillTrack(skillTrack) {
 
   return {
     id,
-    name: name || "Nueva skill",
+    name: name || "Nueva maestria",
     color: canonicalConfig?.color ?? normalizeStoredCharacterSkillColor(
       skillTrack.color,
       getDefaultCharacterSkillColorForIdentity(id, name)
@@ -18316,7 +18429,7 @@ function normalizeStoredCharacterSkillDefinition(definition) {
     return null;
   }
 
-  const name = cleanText(definition.name) || "Nueva skill";
+  const name = cleanText(definition.name) || "Nueva maestria";
   const id = cleanText(definition.id) || createCharacterSkillDefinitionId(name) || createStableId("skill-def");
   const canonicalConfig = getCharacterSkillCanonicalConfig(id, name);
 
