@@ -3911,7 +3911,7 @@ function renderFileMenu() {
           ? `
             <div class="file-menu__popover" role="menu">
               <button class="file-menu__item" type="button" role="menuitem" data-action="open-menu-hub">
-                Volver
+                ${escapeHtml(t("options_back"))}
               </button>
               ${
                 activeCampaignFileName
@@ -5204,7 +5204,7 @@ function renderCombatAddPickerBackButton() {
   return `
     <button class="combat-encounter-picker__back" type="button" data-action="back-combat-add-menu">
       <span aria-hidden="true"><</span>
-      Volver
+      ${escapeHtml(t("options_back"))}
     </button>
   `;
 }
@@ -5267,26 +5267,19 @@ function renderCombatEncounterOption(encounter) {
 
 function renderEncounterInventorySection() {
   const activeEncounter = getActiveEncounter();
-  const totalCreatures = state.encounters.reduce((total, encounter) => total + encounter.rows.length, 0);
-  const folderCount = state.encounterFolders.length;
 
   return `
-    <section class="panel encounter-inventory">
+    <section class="encounter-inventory">
       <div class="encounter-inventory__bar">
+        <p class="eyebrow encounter-inventory__title">Editor de encuentros</p>
         <button
           class="toolbar-button toolbar-button--accent encounter-inventory__toggle"
           type="button"
           data-action="toggle-encounter-inventory"
           aria-expanded="${state.encounterInventoryOpen}"
         >
-          Editor de encuentros
-          <span aria-hidden="true">${state.encounterInventoryOpen ? "^" : "v"}</span>
+          ${escapeHtml(translateUiString(state.encounterInventoryOpen ? "Ocultar inventario" : "Mostrar inventario"))}
         </button>
-        <div class="section-meta">
-          <span>${folderCount} carpetas</span>
-          <span>${state.encounters.length} encuentros</span>
-          <span>${totalCreatures} filas</span>
-        </div>
       </div>
       ${state.encounterInventoryOpen ? renderEncounterInventoryPanel(activeEncounter) : ""}
     </section>
@@ -5676,20 +5669,21 @@ function renderBestiary() {
   const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
 
   return `
-    ${renderEncounterInventorySection()}
-
     <section class="panel panel--table compendium-panel bestiary-showcase bestiary-showcase--hearth">
-      <div class="section-heading">
-        ${renderScreenHeadingIdentity("bestiary", t("bestiary_eyebrow"), t("bestiary_title"))}
+      <div class="section-heading section-heading--bestiary">
+        ${renderScreenHeadingIdentity("bestiary", "", t("bestiary_title"))}
         <div class="section-heading__side">
-          <div class="section-meta">
+          <div class="section-meta bestiary-showcase__meta">
             ${renderRepositoryCsvPicker("bestiary")}
             <span>${getBestiaryStatusLabel()}</span>
             <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
             <span>${escapeHtml(t("bestiary_total", { count: state.bestiary.length }))}</span>
           </div>
         </div>
+        <p class="eyebrow bestiary-heading__eyebrow">${escapeHtml(t("bestiary_eyebrow"))}</p>
       </div>
+
+      ${renderEncounterInventorySection()}
 
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
