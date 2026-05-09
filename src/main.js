@@ -1,5 +1,8 @@
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import {
+  buildArcanumCompositeKey,
+  buildBestiaryCompositeKey,
+  buildItemCompositeKey,
   compareSpellCastingSpeed,
   formatSpellLevel,
   getBestiaryInitials,
@@ -233,7 +236,17 @@ const defaultRepositoryCsvPaths = {
   items: DEFAULT_ITEMS_CSV_RELATIVE_PATH,
   arcanum: DEFAULT_SPELLS_CSV_RELATIVE_PATH
 };
+const BESTIARY_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:bestiary-custom-image-map`;
+const ITEMS_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:items-custom-image-map`;
+const ARCANUM_CUSTOM_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:arcanum-custom-map`;
+const REPOSITORY_CSV_UPLOAD_DB_NAME = "mimic-dice-repository-csv";
+const REPOSITORY_CSV_UPLOAD_STORE_NAME = "uploads";
 const defaultDataCsvFiles = Object.values(defaultRepositoryCsvPaths);
+const blankRepositoryCsvUploads = Object.freeze({
+  bestiary: null,
+  items: null,
+  arcanum: null
+});
 const blankContentSourceMeta = {
   detectedLanguage: CONTENT_LANGUAGE_EN,
   translationMode: CONTENT_TRANSLATION_MODE_ORIGINAL,
@@ -255,6 +268,7 @@ let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 const notificationTimeouts = new Map();
 let tableRollAudioContext = null;
+let repositoryCsvUploadDatabasePromise = null;
 resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
 const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
@@ -282,6 +296,10 @@ const state = {
   includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(initialCampaignMeta.includeNpcInCombatExperience),
   soundSettings: normalizeStoredSoundSettings(initialCampaignMeta.soundSettings),
   repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(initialCampaignMeta.repositoryCsvPaths),
+  repositoryCsvUploads: { ...blankRepositoryCsvUploads },
+  customBestiaryImageMap: loadBestiaryCustomImageMap(),
+  customItemImageMap: loadItemCustomImageMap(),
+  customArcanumMap: loadArcanumCustomMap(),
   dataCsvFiles: [...defaultDataCsvFiles],
   contentSourceMeta: {
     bestiary: { ...blankContentSourceMeta },
@@ -1481,6 +1499,11 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "pick-repository-csv") {
+    triggerRepositoryCsvInputPicker(actionButton.dataset.repositoryCsv);
+    return;
+  }
+
   if (action === "create-encounter") {
     createEncounter();
     render({
@@ -2127,6 +2150,11 @@ function handleClick(event) {
 
 function handleChange(event) {
   const target = event.target;
+
+  if (target.matches("[data-repository-csv-input]")) {
+    handleRepositoryCsvFileSelection(target);
+    return;
+  }
 
   if (target.matches("[data-repository-csv]")) {
     updateRepositoryCsvPath(target.dataset.repositoryCsv, target.value);
@@ -4227,9 +4255,9 @@ function normalizeStoredOptionsMenuSection(value) {
 function normalizeStoredRepositoryCsvPaths(value) {
   const source = isPlainObject(value) ? value : {};
   return {
-    bestiary: normalizeDataCsvRelativePath(source.bestiary) || defaultRepositoryCsvPaths.bestiary,
-    items: normalizeDataCsvRelativePath(source.items) || defaultRepositoryCsvPaths.items,
-    arcanum: normalizeDataCsvRelativePath(source.arcanum) || defaultRepositoryCsvPaths.arcanum
+    bestiary: normalizeRepositoryCsvPath(source.bestiary) || defaultRepositoryCsvPaths.bestiary,
+    items: normalizeRepositoryCsvPath(source.items) || defaultRepositoryCsvPaths.items,
+    arcanum: normalizeRepositoryCsvPath(source.arcanum) || defaultRepositoryCsvPaths.arcanum
   };
 }
 
@@ -5672,14 +5700,13 @@ function renderBestiary() {
     <section class="panel panel--table compendium-panel bestiary-showcase bestiary-showcase--hearth">
       <div class="section-heading section-heading--bestiary">
         ${renderScreenHeadingIdentity("bestiary", "", t("bestiary_title"))}
-        <div class="section-heading__side">
-          <div class="section-meta bestiary-showcase__meta">
-            ${renderRepositoryCsvPicker("bestiary")}
-            <span>${getBestiaryStatusLabel()}</span>
-            <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
-            <span>${escapeHtml(t("bestiary_total", { count: state.bestiary.length }))}</span>
-          </div>
+      <div class="section-heading__side">
+        <div class="section-meta bestiary-showcase__meta">
+          ${renderRepositoryCsvPicker("bestiary")}
+          <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
+          <span>${escapeHtml(t("bestiary_total", { count: state.bestiary.length }))}</span>
         </div>
+      </div>
         <p class="eyebrow bestiary-heading__eyebrow">${escapeHtml(t("bestiary_eyebrow"))}</p>
       </div>
 
@@ -5713,7 +5740,6 @@ function renderItems() {
         ${renderScreenHeadingIdentity("items", t("items_eyebrow"), t("items_title"))}
         <div class="section-meta">
           ${renderRepositoryCsvPicker("items")}
-          <span>${getItemStatusLabel()}</span>
           <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
           <span>${escapeHtml(t("bestiary_total", { count: state.items.length }))}</span>
         </div>
@@ -5747,7 +5773,6 @@ function renderArcanum() {
         ${renderScreenHeadingIdentity("arcanum", t("arcanum_eyebrow"), t("arcanum_title"))}
         <div class="section-meta">
           ${renderRepositoryCsvPicker("arcanum")}
-          <span>${getArcanumStatusLabel()}</span>
           <span>${escapeHtml(t("bestiary_visible", { count: filteredEntries.length }))}</span>
           <span>${escapeHtml(t("bestiary_total", { count: state.arcanum.length }))}</span>
         </div>
@@ -5774,19 +5799,25 @@ function renderArcanum() {
 
 function renderRepositoryCsvPicker(repositoryKey) {
   const selectedPath = state.repositoryCsvPaths[repositoryKey] ?? defaultRepositoryCsvPaths[repositoryKey] ?? "";
-  const options = getRepositoryCsvOptions(selectedPath);
+  const displayName = getActiveRepositoryCsvDisplayName(repositoryKey);
+  const displayPath = getActiveRepositoryCsvDisplayPath(repositoryKey) || getRepositoryCsvDisplayPath(selectedPath);
 
   return `
-    <label class="repository-csv-picker">
-      <span>${escapeHtml(t("csv_loader_label"))}</span>
-      <select data-repository-csv="${escapeHtml(repositoryKey)}" aria-label="${escapeHtml(t("csv_loader_label"))}">
-        ${options.map((relativePath) => `
-          <option value="${escapeHtml(relativePath)}" ${relativePath === selectedPath ? "selected" : ""}>
-            ${escapeHtml(getFileNameFromPath(relativePath))}
-          </option>
-        `).join("")}
-      </select>
-    </label>
+    <div class="repository-csv-picker repository-csv-picker--dialog">
+      <label class="repository-csv-picker__button repository-csv-picker__button--file">
+        <input
+          class="repository-csv-picker__input"
+          type="file"
+          accept=".csv,text/csv"
+          data-repository-csv-input="${escapeHtml(repositoryKey)}"
+          aria-label="${escapeHtml(t("csv_loader_label"))}"
+        />
+        ${escapeHtml(t("csv_loader_label"))}
+      </label>
+      <div class="repository-csv-picker__file" title="${escapeHtml(displayPath)}">
+        ${escapeHtml(displayName)}
+      </div>
+    </div>
   `;
 }
 
@@ -15233,8 +15264,295 @@ async function loadDataCsvFileOptions() {
   }
 }
 
+function getRepositoryCsvUpload(repositoryKey) {
+  return isPlainObject(state.repositoryCsvUploads) ? state.repositoryCsvUploads[repositoryKey] ?? null : null;
+}
+
+function getImportedRepositoryRelativePath(repositoryKey, fileName = "") {
+  const normalizedRepositoryKey = cleanText(repositoryKey).toLowerCase();
+  const baseName = cleanText(fileName).replace(/\\/g, "/").split("/").pop() || `${normalizedRepositoryKey}.csv`;
+  const sanitizedBaseName = baseName
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || `${normalizedRepositoryKey}.csv`;
+  const fileNameWithExtension = /\.csv$/i.test(sanitizedBaseName) ? sanitizedBaseName : `${sanitizedBaseName}.csv`;
+
+  return `data/imported/${normalizedRepositoryKey}/${fileNameWithExtension}`;
+}
+
+function isUploadedRepositoryCsvPath(value) {
+  return cleanText(value).toLowerCase().startsWith("uploaded:");
+}
+
+function encodeUploadedRepositoryCsvPath(repositoryKey, fileName = "") {
+  const normalizedRepositoryKey = cleanText(repositoryKey).toLowerCase();
+  const baseName = cleanText(fileName).replace(/\\/g, "/").split("/").pop() || `${normalizedRepositoryKey}.csv`;
+  const sanitizedBaseName = baseName
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || `${normalizedRepositoryKey}.csv`;
+  const fileNameWithExtension = /\.csv$/i.test(sanitizedBaseName) ? sanitizedBaseName : `${sanitizedBaseName}.csv`;
+
+  return normalizedRepositoryKey ? `uploaded:${normalizedRepositoryKey}:${fileNameWithExtension}` : "";
+}
+
+function decodeUploadedRepositoryCsvPath(value) {
+  const normalizedValue = cleanText(value);
+
+  if (!isUploadedRepositoryCsvPath(normalizedValue)) {
+    return null;
+  }
+
+  const [, repositoryKey = "", ...fileNameParts] = normalizedValue.split(":");
+  return {
+    repositoryKey: cleanText(repositoryKey).toLowerCase(),
+    fileName: fileNameParts.join(":")
+  };
+}
+
+function canUseRepositoryCsvUploadDatabase() {
+  return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
+}
+
+function openRepositoryCsvUploadDatabase() {
+  if (!canUseRepositoryCsvUploadDatabase()) {
+    return Promise.resolve(null);
+  }
+
+  if (!repositoryCsvUploadDatabasePromise) {
+    repositoryCsvUploadDatabasePromise = new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(REPOSITORY_CSV_UPLOAD_DB_NAME, 1);
+
+      request.onupgradeneeded = () => {
+        const database = request.result;
+
+        if (!database.objectStoreNames.contains(REPOSITORY_CSV_UPLOAD_STORE_NAME)) {
+          database.createObjectStore(REPOSITORY_CSV_UPLOAD_STORE_NAME, {
+            keyPath: "path"
+          });
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Repository CSV upload database unavailable."));
+    }).catch(() => null);
+  }
+
+  return repositoryCsvUploadDatabasePromise;
+}
+
+async function saveRepositoryCsvUploadRecord(record) {
+  if (!canUseRepositoryCsvUploadDatabase() || !isPlainObject(record) || !cleanText(record.path) || !record.text) {
+    return false;
+  }
+
+  const database = await openRepositoryCsvUploadDatabase();
+
+  if (!database) {
+    return false;
+  }
+
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(REPOSITORY_CSV_UPLOAD_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(REPOSITORY_CSV_UPLOAD_STORE_NAME);
+    const request = store.put({
+      path: cleanText(record.path),
+      repositoryKey: cleanText(record.repositoryKey).toLowerCase(),
+      name: cleanText(record.name),
+      text: String(record.text),
+      savedAt: new Date().toISOString()
+    });
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error("Repository CSV upload save failed."));
+  }).catch(() => {});
+
+  return true;
+}
+
+async function loadRepositoryCsvUploadRecord(pathValue) {
+  if (!canUseRepositoryCsvUploadDatabase() || !isUploadedRepositoryCsvPath(pathValue)) {
+    return null;
+  }
+
+  const database = await openRepositoryCsvUploadDatabase();
+
+  if (!database) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const transaction = database.transaction(REPOSITORY_CSV_UPLOAD_STORE_NAME, "readonly");
+    const store = transaction.objectStore(REPOSITORY_CSV_UPLOAD_STORE_NAME);
+    const request = store.get(cleanText(pathValue));
+
+    request.onsuccess = () => resolve(isPlainObject(request.result) ? request.result : null);
+    request.onerror = () => resolve(null);
+  });
+}
+
+function setRepositoryCsvUpload(repositoryKey, upload) {
+  state.repositoryCsvUploads = {
+    ...state.repositoryCsvUploads,
+    [repositoryKey]: upload
+  };
+}
+
+async function ensureRepositoryCsvUploadLoaded(repositoryKey, pathValue) {
+  const normalizedPath = cleanText(pathValue);
+  const activeUpload = getRepositoryCsvUpload(repositoryKey);
+
+  if (activeUpload?.text && cleanText(activeUpload.path) === normalizedPath) {
+    return activeUpload;
+  }
+
+  const storedUpload = await loadRepositoryCsvUploadRecord(normalizedPath);
+
+  if (!storedUpload?.text) {
+    return null;
+  }
+
+  const upload = {
+    path: normalizedPath,
+    name: cleanText(storedUpload.name) || decodeUploadedRepositoryCsvPath(normalizedPath)?.fileName || "CSV",
+    text: String(storedUpload.text)
+  };
+
+  setRepositoryCsvUpload(repositoryKey, upload);
+  return upload;
+}
+
+function getRepositoryCsvOverridesSaveData() {
+  const overrides = {};
+
+  Object.keys(defaultRepositoryCsvPaths).forEach((repositoryKey) => {
+    const activePath = getRepositoryCsvPath(repositoryKey);
+
+    if (activePath === defaultRepositoryCsvPaths[repositoryKey]) {
+      return;
+    }
+
+    const upload = getRepositoryCsvUpload(repositoryKey);
+    const override = {
+      path: activePath,
+      name: cleanText(upload?.name) || getFileNameFromPath(getRepositoryCsvDisplayPath(activePath))
+    };
+
+    if (isUploadedRepositoryCsvPath(activePath) && upload?.text) {
+      override.text = String(upload.text);
+    }
+
+    overrides[repositoryKey] = override;
+  });
+
+  return overrides;
+}
+
+function normalizeStoredRepositoryCsvOverrides(value) {
+  const source = isPlainObject(value) ? value : {};
+
+  return Object.fromEntries(
+    Object.keys(defaultRepositoryCsvPaths).flatMap((repositoryKey) => {
+      const entry = isPlainObject(source[repositoryKey]) ? source[repositoryKey] : null;
+      const normalizedPath = normalizeRepositoryCsvPath(entry?.path);
+
+      if (!entry || !normalizedPath || normalizedPath === defaultRepositoryCsvPaths[repositoryKey]) {
+        return [];
+      }
+
+      return [[repositoryKey, {
+        path: normalizedPath,
+        name: cleanText(entry.name) || getFileNameFromPath(getRepositoryCsvDisplayPath(normalizedPath)),
+        text: isUploadedRepositoryCsvPath(normalizedPath) ? String(entry.text || "") : ""
+      }]];
+    })
+  );
+}
+
+function getActiveRepositoryCsvDisplayPath(repositoryKey) {
+  const upload = getRepositoryCsvUpload(repositoryKey);
+  return cleanText(upload?.name) || getRepositoryCsvDisplayPath(getRepositoryCsvPath(repositoryKey));
+}
+
+function getActiveRepositoryCsvDisplayName(repositoryKey) {
+  const displayPath = getActiveRepositoryCsvDisplayPath(repositoryKey);
+  return getFileNameFromPath(displayPath) || displayPath || "CSV";
+}
+
+function triggerRepositoryCsvInputPicker(repositoryKey) {
+  const input = app.querySelector(`[data-repository-csv-input="${repositoryKey}"]`);
+
+  if (!input) {
+    return;
+  }
+
+  input.click();
+}
+
+function isExternalRepositoryCsvPath(value) {
+  return cleanText(value).toLowerCase().startsWith("external:");
+}
+
+function encodeExternalRepositoryCsvPath(filePath) {
+  const normalizedPath = cleanText(filePath).replace(/\\/g, "/");
+  return normalizedPath && /\.csv$/i.test(normalizedPath) ? `external:${normalizedPath}` : "";
+}
+
+function decodeExternalRepositoryCsvPath(value) {
+  return isExternalRepositoryCsvPath(value)
+    ? cleanText(value).slice("external:".length)
+    : "";
+}
+
+function normalizeRepositoryCsvPath(value) {
+  const uploadedPath = decodeUploadedRepositoryCsvPath(value);
+
+  if (uploadedPath?.repositoryKey && uploadedPath.fileName) {
+    return encodeUploadedRepositoryCsvPath(uploadedPath.repositoryKey, uploadedPath.fileName);
+  }
+
+  const externalPath = decodeExternalRepositoryCsvPath(value) || (looksLikeAbsoluteCsvPath(value) ? cleanText(value) : "");
+
+  if (externalPath) {
+    return encodeExternalRepositoryCsvPath(externalPath);
+  }
+
+  return normalizeDataCsvRelativePath(value);
+}
+
+function looksLikeAbsoluteCsvPath(value) {
+  const normalizedPath = cleanText(value).replace(/\\/g, "/");
+  return /^[a-z]:\//i.test(normalizedPath) && /\.csv$/i.test(normalizedPath);
+}
+
+function getRepositoryCsvDisplayPath(value) {
+  if (isUploadedRepositoryCsvPath(value)) {
+    return decodeUploadedRepositoryCsvPath(value)?.fileName || "CSV";
+  }
+
+  if (isExternalRepositoryCsvPath(value)) {
+    return decodeExternalRepositoryCsvPath(value);
+  }
+
+  return normalizeDataCsvRelativePath(value);
+}
+
+function getRepositoryCsvDisplayName(value) {
+  const displayPath = getRepositoryCsvDisplayPath(value);
+  return getFileNameFromPath(displayPath) || displayPath || "CSV";
+}
+
+function getRepositoryStatusDisplay(repositoryKey) {
+  const meta = state.contentSourceMeta[repositoryKey] ?? blankContentSourceMeta;
+  const modeLabel = getContentTranslationModeLabel(meta.translationMode, state.contentLanguage);
+
+  return `${getActiveRepositoryCsvDisplayName(repositoryKey)} - ${modeLabel}`;
+}
+
 function getRepositoryCsvPath(repositoryKey) {
-  return normalizeDataCsvRelativePath(state.repositoryCsvPaths[repositoryKey])
+  return normalizeRepositoryCsvPath(state.repositoryCsvPaths[repositoryKey])
     || defaultRepositoryCsvPaths[repositoryKey]
     || "";
 }
@@ -15244,9 +15562,11 @@ function updateRepositoryCsvPath(repositoryKey, relativePath) {
     return;
   }
 
+  const normalizedPath = normalizeRepositoryCsvPath(relativePath);
+
   state.repositoryCsvPaths = {
     ...state.repositoryCsvPaths,
-    [repositoryKey]: normalizeDataCsvRelativePath(relativePath) || defaultRepositoryCsvPaths[repositoryKey]
+    [repositoryKey]: normalizedPath || defaultRepositoryCsvPaths[repositoryKey]
   };
   saveCampaignMeta();
 
@@ -15271,6 +15591,369 @@ function updateRepositoryCsvPath(repositoryKey, relativePath) {
   }
 }
 
+async function openRepositoryCsvPicker(repositoryKey) {
+  if (!defaultRepositoryCsvPaths[repositoryKey]) {
+    return;
+  }
+
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.pickRepositoryCsv !== "function") {
+    return;
+  }
+
+  try {
+    const result = await desktopApi.pickRepositoryCsv(repositoryKey);
+
+    if (result?.canceled || !result?.filePath) {
+      return;
+    }
+
+    updateRepositoryCsvPath(repositoryKey, encodeExternalRepositoryCsvPath(result.filePath));
+    render();
+  } catch {
+    // Keep current CSV if desktop picker fails.
+  }
+}
+
+async function handleRepositoryCsvFileSelection(input) {
+  const repositoryKey = cleanText(input?.dataset?.repositoryCsvInput);
+  const file = input?.files?.[0] ?? null;
+
+  if (!defaultRepositoryCsvPaths[repositoryKey] || !file) {
+    if (input) {
+      input.value = "";
+    }
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const desktopApi = getDesktopCampaignApi();
+    const importedRelativePath = getImportedRepositoryRelativePath(repositoryKey, file.name);
+    const uploadedPath = encodeUploadedRepositoryCsvPath(repositoryKey, file.name);
+    const uploadRecord = {
+      repositoryKey,
+      path: uploadedPath,
+      name: cleanText(file.name) || "custom.csv",
+      text
+    };
+
+    await saveRepositoryCsvUploadRecord(uploadRecord);
+
+    if (typeof desktopApi?.writeAssetText === "function") {
+      try {
+        await desktopApi.writeAssetText(importedRelativePath, text);
+        setRepositoryCsvUpload(repositoryKey, null);
+        updateRepositoryCsvPath(repositoryKey, importedRelativePath);
+        await loadDataCsvFileOptions();
+        render();
+        return;
+      } catch {
+        // Fall back to in-memory upload override when desktop import fails.
+      }
+    }
+
+    setRepositoryCsvUpload(repositoryKey, uploadRecord);
+    updateRepositoryCsvPath(repositoryKey, uploadedPath);
+    render();
+  } catch {
+    // Ignore invalid file reads and keep current source.
+  } finally {
+    if (input) {
+      input.value = "";
+    }
+  }
+}
+
+function normalizeCsvHeaderKey(value) {
+  return cleanText(value)
+    .replace(/\uFEFF/g, "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "")
+    .toLowerCase();
+}
+
+const BESTIARY_CSV_HEADER_ALIASES = Object.freeze({
+  Name: ["name", "nombre"],
+  Source: ["source", "fuente"],
+  Page: ["page", "pagina"],
+  Size: ["size", "talla"],
+  Type: ["type", "tipo"],
+  Alignment: ["alignment", "alineacion", "alineamiento"],
+  AC: ["ac", "armourclass", "armorclass", "ca", "clasdearmadura"],
+  HP: ["hp", "hitpoints", "puntosdevida", "pv", "pg"],
+  Speed: ["speed", "velocidad"],
+  Senses: ["senses", "sentidos"],
+  Languages: ["languages", "idiomas"],
+  CR: ["cr", "challengerating", "challenge", "vd"],
+  Environment: ["environment", "entorno"],
+  "Saving Throws": ["savingthrows", "salvaciones", "tiradassalvacion"],
+  Skills: ["skills", "habilidades"],
+  "Damage Vulnerabilities": ["damagevulnerabilities", "vulnerabilidadesaldano"],
+  "Damage Resistances": ["damageresistances", "resistenciasaldano"],
+  "Damage Immunities": ["damageimmunities", "inmunidadesaldano"],
+  "Condition Immunities": ["conditionimmunities", "inmunidadesacondiciones", "inmunidadesaestados"],
+  Traits: ["traits", "rasgos"],
+  Actions: ["actions", "acciones"],
+  "Bonus Actions": ["bonusactions", "accionesbonus", "accionesadicionales"],
+  Reactions: ["reactions", "reacciones"],
+  "Legendary Actions": ["legendaryactions", "accioneslegendarias"],
+  "Mythic Actions": ["mythicactions", "accionesmiticas"],
+  "Lair Actions": ["lairactions", "accionesdeguarida"],
+  "Regional Effects": ["regionaleffects", "efectosregionales"],
+  Treasure: ["treasure", "tesoro"],
+  Strength: ["strength", "fuerza", "str"],
+  Dexterity: ["dexterity", "destreza", "dex"],
+  Constitution: ["constitution", "constitucion", "con"],
+  Intelligence: ["intelligence", "inteligencia", "int"],
+  Wisdom: ["wisdom", "sabiduria", "wis"],
+  Charisma: ["charisma", "carisma", "cha"]
+});
+
+const BESTIARY_CSV_HEADER_LOOKUP = Object.freeze(
+  Object.fromEntries(
+    Object.entries(BESTIARY_CSV_HEADER_ALIASES)
+      .flatMap(([canonicalKey, aliases]) => aliases.map((alias) => [alias, canonicalKey]))
+  )
+);
+
+function normalizeBestiaryCsvRows(rows) {
+  return rows.map((row) => {
+    const normalizedRow = {};
+
+    Object.entries(isPlainObject(row) ? row : {}).forEach(([rawKey, value]) => {
+      const canonicalKey = BESTIARY_CSV_HEADER_LOOKUP[normalizeCsvHeaderKey(rawKey)] || rawKey;
+
+      if (!(canonicalKey in normalizedRow) || cleanText(normalizedRow[canonicalKey]) === "") {
+        normalizedRow[canonicalKey] = value;
+      }
+    });
+
+    return normalizedRow;
+  });
+}
+
+function buildBestiaryImageNameIndex(imageMap) {
+  const nameIndex = new Map();
+
+  Object.entries(isPlainObject(imageMap) ? imageMap : {}).forEach(([key, value]) => {
+    const normalizedKey = cleanText(key).toLowerCase();
+    let namePart = "";
+
+    if (normalizedKey.includes("||")) {
+      [namePart] = normalizedKey.split("||");
+    } else if (normalizedKey.includes("|")) {
+      [namePart] = normalizedKey.split("|");
+    }
+
+    if (!namePart) {
+      return;
+    }
+
+    const entries = nameIndex.get(namePart) ?? [];
+    entries.push(value);
+    nameIndex.set(namePart, entries);
+  });
+
+  return nameIndex;
+}
+
+function buildItemImageNameIndex(imageMap) {
+  return buildBestiaryImageNameIndex(imageMap);
+}
+
+function buildArcanumEntryNameIndex(entryMap) {
+  const nameIndex = new Map();
+
+  Object.entries(isPlainObject(entryMap) ? entryMap : {}).forEach(([key, value]) => {
+    const normalizedKey = cleanText(key).toLowerCase();
+    let namePart = "";
+
+    if (normalizedKey.includes("||")) {
+      [namePart] = normalizedKey.split("||");
+    } else if (normalizedKey.includes("|")) {
+      [namePart] = normalizedKey.split("|");
+    }
+
+    if (!namePart) {
+      return;
+    }
+
+    const entries = nameIndex.get(namePart) ?? [];
+    entries.push(value);
+    nameIndex.set(namePart, entries);
+  });
+
+  return nameIndex;
+}
+
+function buildReusableBestiaryImageMap(rows, baseImageMap, previousCustomMap = {}) {
+  const nextCustomMap = isPlainObject(previousCustomMap) ? { ...previousCustomMap } : {};
+  const nameIndex = buildBestiaryImageNameIndex(baseImageMap);
+
+  rows.forEach((row) => {
+    const name = cleanText(row.Name);
+    const source = cleanText(row.Source);
+    const directKey = `${name}||${source}`.toLowerCase();
+    const compositeKey = buildBestiaryCompositeKey(name, source).toLowerCase();
+    const slugKey = `${slugify(name)}--${slugify(source)}`.toLowerCase();
+
+    if (!name) {
+      return;
+    }
+
+    if (baseImageMap[directKey] || baseImageMap[compositeKey] || baseImageMap[slugKey] || nextCustomMap[directKey]) {
+      return;
+    }
+
+    const nameMatches = nameIndex.get(name.toLowerCase()) ?? [];
+
+    if (nameMatches.length === 1) {
+      nextCustomMap[directKey] = nameMatches[0];
+      return;
+    }
+
+    nextCustomMap[directKey] = nextCustomMap[directKey] ?? {};
+  });
+
+  return nextCustomMap;
+}
+
+function buildReusableItemImageMap(rows, baseImageMap, previousCustomMap = {}) {
+  const nextCustomMap = isPlainObject(previousCustomMap) ? { ...previousCustomMap } : {};
+  const nameIndex = buildItemImageNameIndex(baseImageMap);
+
+  rows.forEach((row) => {
+    const name = cleanText(row.Name);
+    const source = cleanText(row.Source);
+    const directKey = `${name}||${source}`.toLowerCase();
+    const compositeKey = buildItemCompositeKey(name, source).toLowerCase();
+    const slugKey = `${slugify(name)}--${slugify(source)}`.toLowerCase();
+
+    if (!name) {
+      return;
+    }
+
+    if (baseImageMap[directKey] || baseImageMap[compositeKey] || baseImageMap[slugKey] || nextCustomMap[directKey]) {
+      return;
+    }
+
+    const nameMatches = nameIndex.get(name.toLowerCase()) ?? [];
+
+    if (nameMatches.length === 1) {
+      nextCustomMap[directKey] = nameMatches[0];
+      return;
+    }
+
+    nextCustomMap[directKey] = nextCustomMap[directKey] ?? {};
+  });
+
+  return nextCustomMap;
+}
+
+function buildReusableArcanumMap(rows, previousCustomMap = {}) {
+  const nextCustomMap = isPlainObject(previousCustomMap) ? { ...previousCustomMap } : {};
+  const nameIndex = buildArcanumEntryNameIndex(nextCustomMap);
+
+  rows.forEach((row) => {
+    const name = cleanText(row.Name);
+    const source = cleanText(row.Source);
+    const level = cleanText(row.Level);
+    const directKey = `${name}||${source}||${level}`.toLowerCase();
+    const compositeKey = buildArcanumCompositeKey(name, source, level).toLowerCase();
+    const slugKey = `${slugify(name)}--${slugify(source)}--${slugify(level)}`.toLowerCase();
+
+    if (!name) {
+      return;
+    }
+
+    if (nextCustomMap[directKey] || nextCustomMap[compositeKey] || nextCustomMap[slugKey]) {
+      return;
+    }
+
+    const nameMatches = nameIndex.get(name.toLowerCase()) ?? [];
+
+    if (nameMatches.length === 1) {
+      nextCustomMap[directKey] = nameMatches[0];
+      return;
+    }
+
+    nextCustomMap[directKey] = nextCustomMap[directKey] ?? {};
+  });
+
+  return nextCustomMap;
+}
+
+function loadStoredCompendiumCustomMap(storageKey) {
+  if (typeof window === "undefined" || usesDesktopFileOnlyPersistence()) {
+    return {};
+  }
+
+  try {
+    const parsedValue = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+    return isPlainObject(parsedValue) ? parsedValue : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredCompendiumCustomMap(storageKey, value) {
+  try {
+    if (typeof window !== "undefined" && !usesDesktopFileOnlyPersistence()) {
+      window.localStorage.setItem(storageKey, JSON.stringify(value));
+    }
+  } catch {
+    // Ignore local persistence errors.
+  }
+}
+
+function loadBestiaryCustomImageMap() {
+  return loadStoredCompendiumCustomMap(BESTIARY_CUSTOM_IMAGE_MAP_STORAGE_KEY);
+}
+
+function saveBestiaryCustomImageMap(imageMap) {
+  state.customBestiaryImageMap = isPlainObject(imageMap) ? { ...imageMap } : {};
+  saveStoredCompendiumCustomMap(BESTIARY_CUSTOM_IMAGE_MAP_STORAGE_KEY, state.customBestiaryImageMap);
+
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.writeAssetText === "function") {
+    desktopApi.writeAssetText("data/BestiaryImages.custom.json", `${JSON.stringify(state.customBestiaryImageMap, null, 2)}\n`).catch(() => {});
+  }
+}
+
+function loadItemCustomImageMap() {
+  return loadStoredCompendiumCustomMap(ITEMS_CUSTOM_IMAGE_MAP_STORAGE_KEY);
+}
+
+function saveItemCustomImageMap(imageMap) {
+  state.customItemImageMap = isPlainObject(imageMap) ? { ...imageMap } : {};
+  saveStoredCompendiumCustomMap(ITEMS_CUSTOM_IMAGE_MAP_STORAGE_KEY, state.customItemImageMap);
+
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.writeAssetText === "function") {
+    desktopApi.writeAssetText("data/ItemsImages.custom.json", `${JSON.stringify(state.customItemImageMap, null, 2)}\n`).catch(() => {});
+  }
+}
+
+function loadArcanumCustomMap() {
+  return loadStoredCompendiumCustomMap(ARCANUM_CUSTOM_MAP_STORAGE_KEY);
+}
+
+function saveArcanumCustomMap(arcanumMap) {
+  state.customArcanumMap = isPlainObject(arcanumMap) ? { ...arcanumMap } : {};
+  saveStoredCompendiumCustomMap(ARCANUM_CUSTOM_MAP_STORAGE_KEY, state.customArcanumMap);
+
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.writeAssetText === "function") {
+    desktopApi.writeAssetText("data/Spells.custom.json", `${JSON.stringify(state.customArcanumMap, null, 2)}\n`).catch(() => {});
+  }
+}
+
 function reloadCompendiumContent() {
   resetBestiaryVirtualScroll();
   resetItemVirtualScroll();
@@ -15285,8 +15968,16 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
   const baseRows = parseCsv(csvText);
   const detectedLanguage = detectCsvContentLanguage(baseRows, kind);
   const targetLanguage = normalizeStoredContentLanguage(state.contentLanguage);
+  const isUploadedCsv = cleanText(relativePath).toLowerCase().startsWith("uploaded:");
+  const isDefaultRepositoryCsv = Object.values(defaultRepositoryCsvPaths)
+    .some((defaultPath) => normalizeDataCsvRelativePath(defaultPath) === normalizeDataCsvRelativePath(relativePath));
+  const canUseBundledSpanishSidecar = !isExternalRepositoryCsvPath(relativePath)
+    && !isUploadedCsv
+    && isDefaultRepositoryCsv
+    && targetLanguage === CONTENT_LANGUAGE_ES
+    && detectedLanguage === CONTENT_LANGUAGE_EN;
 
-  if (targetLanguage !== CONTENT_LANGUAGE_ES || detectedLanguage === CONTENT_LANGUAGE_ES) {
+  if (detectedLanguage === targetLanguage) {
     return {
       rows: baseRows,
       meta: {
@@ -15294,6 +15985,18 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
         translationMode: CONTENT_TRANSLATION_MODE_ORIGINAL,
         sidecarPath: "",
         message: ""
+      }
+    };
+  }
+
+  if (!canUseBundledSpanishSidecar) {
+    return {
+      rows: translateCompendiumRows(baseRows, kind, targetLanguage),
+      meta: {
+        detectedLanguage,
+        translationMode: CONTENT_TRANSLATION_MODE_GLOSSARY,
+        sidecarPath: "",
+        message: "Compendium source language differs from current data language; local glossary applied."
       }
     };
   }
@@ -15331,11 +16034,19 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
 }
 
 function getLocalizedCsvRelativePath(relativePath, language) {
+  if (isExternalRepositoryCsvPath(relativePath) || cleanText(relativePath).toLowerCase().startsWith("uploaded:")) {
+    return "";
+  }
+
   const normalizedPath = normalizeDataCsvRelativePath(relativePath);
   return normalizedPath.replace(/\.csv$/i, `.${language}.csv`);
 }
 
 function getDataAssetUrl(relativePath) {
+  if (isExternalRepositoryCsvPath(relativePath)) {
+    return "";
+  }
+
   const normalizedPath = normalizeDataCsvRelativePath(relativePath);
 
   if (!normalizedPath) {
@@ -15362,6 +16073,35 @@ function normalizeDataCsvRelativePath(value) {
   return /\.csv$/i.test(withDataPrefix) ? withDataPrefix : "";
 }
 
+async function loadRepositoryCsvText(pathValue, repositoryKey = "") {
+  const upload = repositoryKey ? getRepositoryCsvUpload(repositoryKey) : null;
+
+  if (upload?.text && (!pathValue || cleanText(upload.path) === cleanText(pathValue) || isUploadedRepositoryCsvPath(pathValue))) {
+    return upload.text;
+  }
+
+  if (repositoryKey && isUploadedRepositoryCsvPath(pathValue)) {
+    const restoredUpload = await ensureRepositoryCsvUploadLoaded(repositoryKey, pathValue);
+
+    if (restoredUpload?.text) {
+      return restoredUpload.text;
+    }
+  }
+
+  if (isExternalRepositoryCsvPath(pathValue)) {
+    const desktopApi = getDesktopCampaignApi();
+    const externalPath = decodeExternalRepositoryCsvPath(pathValue);
+
+    if (typeof desktopApi?.readRepositoryCsvText !== "function" || !externalPath) {
+      throw new Error("Desktop CSV reader not available.");
+    }
+
+    return desktopApi.readRepositoryCsvText(externalPath);
+  }
+
+  return loadTextAsset(getDataAssetUrl(pathValue), pathValue);
+}
+
 async function loadBestiary() {
   state.bestiaryStatus = "loading";
   state.bestiaryMessage = "";
@@ -15370,15 +16110,24 @@ async function loadBestiary() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("bestiary");
-    const [text, imageMap] = await Promise.all([
-      loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath),
-      loadBestiaryImages()
+    const [text, imageMap, persistedCustomMap] = await Promise.all([
+      loadRepositoryCsvText(csvRelativePath, "bestiary"),
+      loadBestiaryImages(),
+      loadBestiaryPersistedCustomImageMap()
     ]);
     const { rows, meta } = await getLocalizedCompendiumRows("bestiary", text, csvRelativePath);
+    const normalizedRows = normalizeBestiaryCsvRows(rows);
+    const reusableCustomMap = buildReusableBestiaryImageMap(normalizedRows, imageMap, persistedCustomMap);
+    const mergedImageMap = {
+      ...imageMap,
+      ...reusableCustomMap
+    };
 
-    state.bestiaryImageMap = imageMap;
+    saveBestiaryCustomImageMap(reusableCustomMap);
+
+    state.bestiaryImageMap = mergedImageMap;
     state.contentSourceMeta.bestiary = meta;
-    state.bestiary = rows.map((row, index) => normalizeBestiaryEntry(row, index, imageMap, {
+    state.bestiary = normalizedRows.map((row, index) => normalizeBestiaryEntry(row, index, mergedImageMap, {
       isPackagedDesktopApp: isPackagedDesktopApp()
     }));
     hydrateBestiaryStaticOptions();
@@ -15394,8 +16143,8 @@ async function loadBestiary() {
     state.bestiaryDebugInfo = await resolveAssetLoadDebugInfo(error, {
       label: "Bestiario",
       assetUrl: getDataAssetUrl(csvRelativePath),
-      desktopRelativePath: csvRelativePath,
-      loaderMode: "desktopApi.readAssetText -> fetch"
+      desktopRelativePath: getRepositoryCsvDisplayPath(csvRelativePath),
+      loaderMode: isExternalRepositoryCsvPath(csvRelativePath) ? "desktopApi.readRepositoryCsvText" : "desktopApi.readAssetText -> fetch"
     });
     render();
   }
@@ -15409,15 +16158,23 @@ async function loadItems() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("items");
-    const [text, imageMap] = await Promise.all([
-      loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath),
-      loadItemImages()
+    const [text, imageMap, persistedCustomMap] = await Promise.all([
+      loadRepositoryCsvText(csvRelativePath, "items"),
+      loadItemImages(),
+      loadItemPersistedCustomImageMap()
     ]);
     const { rows, meta } = await getLocalizedCompendiumRows("items", text, csvRelativePath);
+    const reusableCustomMap = buildReusableItemImageMap(rows, imageMap, persistedCustomMap);
+    const mergedImageMap = {
+      ...imageMap,
+      ...reusableCustomMap
+    };
 
-    state.itemImageMap = imageMap;
+    saveItemCustomImageMap(reusableCustomMap);
+
+    state.itemImageMap = mergedImageMap;
     state.contentSourceMeta.items = meta;
-    state.items = rows.map((row, index) => normalizeItemEntry(row, index, imageMap));
+    state.items = rows.map((row, index) => normalizeItemEntry(row, index, mergedImageMap));
     resetItemVirtualScroll();
     state.itemStatus = "ready";
     state.itemDebugInfo = null;
@@ -15430,8 +16187,8 @@ async function loadItems() {
     state.itemDebugInfo = await resolveAssetLoadDebugInfo(error, {
       label: "Items",
       assetUrl: getDataAssetUrl(csvRelativePath),
-      desktopRelativePath: csvRelativePath,
-      loaderMode: "desktopApi.readAssetText -> fetch"
+      desktopRelativePath: getRepositoryCsvDisplayPath(csvRelativePath),
+      loaderMode: isExternalRepositoryCsvPath(csvRelativePath) ? "desktopApi.readRepositoryCsvText" : "desktopApi.readAssetText -> fetch"
     });
     render();
   }
@@ -15445,8 +16202,12 @@ async function loadArcanum() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("arcanum");
-    const text = await loadTextAsset(getDataAssetUrl(csvRelativePath), csvRelativePath);
+    const text = await loadRepositoryCsvText(csvRelativePath, "arcanum");
     const { rows, meta } = await getLocalizedCompendiumRows("arcanum", text, csvRelativePath);
+    const persistedCustomMap = await loadArcanumPersistedCustomMap();
+    const reusableCustomMap = buildReusableArcanumMap(rows, persistedCustomMap);
+
+    saveArcanumCustomMap(reusableCustomMap);
 
     state.contentSourceMeta.arcanum = meta;
     state.arcanum = rows.map((row, index) => normalizeSpellEntry(row, index));
@@ -15462,8 +16223,8 @@ async function loadArcanum() {
     state.arcanumDebugInfo = await resolveAssetLoadDebugInfo(error, {
       label: "Arcanum",
       assetUrl: getDataAssetUrl(csvRelativePath),
-      desktopRelativePath: csvRelativePath,
-      loaderMode: "desktopApi.readAssetText -> fetch"
+      desktopRelativePath: getRepositoryCsvDisplayPath(csvRelativePath),
+      loaderMode: isExternalRepositoryCsvPath(csvRelativePath) ? "desktopApi.readRepositoryCsvText" : "desktopApi.readAssetText -> fetch"
     });
     render();
   }
@@ -15473,8 +16234,35 @@ async function loadBestiaryImages() {
   return loadJsonAsset(BESTIARY_IMAGES_PATH, "data/BestiaryImages.json");
 }
 
+async function loadBestiaryPersistedCustomImageMap() {
+  const customImageMap = await loadJsonAsset(getDataAssetUrl("data/BestiaryImages.custom.json"), "data/BestiaryImages.custom.json");
+
+  return {
+    ...customImageMap,
+    ...loadBestiaryCustomImageMap()
+  };
+}
+
 async function loadItemImages() {
   return loadJsonAsset(ITEMS_IMAGES_PATH, "data/ItemsImages.json");
+}
+
+async function loadItemPersistedCustomImageMap() {
+  const customImageMap = await loadJsonAsset(getDataAssetUrl("data/ItemsImages.custom.json"), "data/ItemsImages.custom.json");
+
+  return {
+    ...customImageMap,
+    ...loadItemCustomImageMap()
+  };
+}
+
+async function loadArcanumPersistedCustomMap() {
+  const customMap = await loadJsonAsset(getDataAssetUrl("data/Spells.custom.json"), "data/Spells.custom.json");
+
+  return {
+    ...customMap,
+    ...loadArcanumCustomMap()
+  };
 }
 
 function getItemEntryByName(name) {
@@ -16395,7 +17183,7 @@ function getBestiaryStatusLabel() {
     return t("read_error");
   }
 
-  return t("active_csv", { path: getRepositoryStatusPath("bestiary") });
+  return t("active_csv", { path: getRepositoryStatusDisplay("bestiary") });
 }
 function getItemStatusLabel() {
   if (state.itemStatus === "loading") {
@@ -16406,7 +17194,7 @@ function getItemStatusLabel() {
     return t("read_error");
   }
 
-  return t("active_csv", { path: getRepositoryStatusPath("items") });
+  return t("active_csv", { path: getRepositoryStatusDisplay("items") });
 }
 
 function getArcanumStatusLabel() {
@@ -16418,7 +17206,7 @@ function getArcanumStatusLabel() {
     return t("read_error");
   }
 
-  return t("active_csv", { path: getRepositoryStatusPath("arcanum") });
+  return t("active_csv", { path: getRepositoryStatusDisplay("arcanum") });
 }
 
 function getRepositoryStatusPath(repositoryKey) {
@@ -17473,6 +18261,7 @@ function createCampaignSavePayload(options = {}) {
     combatTracker: getCombatTrackerSaveData({
       includeBattleTimer: true
     }),
+    repositoryCsvOverrides: getRepositoryCsvOverridesSaveData(),
     ui: {
       activeScreen: state.activeScreen,
       activeEncounterId: state.activeEncounterId,
@@ -17543,7 +18332,8 @@ function normalizeCampaignSave(value) {
     contentLanguage: normalizeStoredContentLanguage(ui.contentLanguage),
     includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(ui.includeNpcInCombatExperience),
     soundSettings: normalizeStoredSoundSettings(ui.soundSettings),
-    repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths)
+    repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths),
+    repositoryCsvOverrides: normalizeStoredRepositoryCsvOverrides(value.repositoryCsvOverrides)
   };
 }
 
@@ -17596,6 +18386,24 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.includeNpcInCombatExperience = campaign.includeNpcInCombatExperience;
   state.soundSettings = campaign.soundSettings;
   state.repositoryCsvPaths = campaign.repositoryCsvPaths;
+  state.repositoryCsvUploads = { ...blankRepositoryCsvUploads };
+  Object.entries(campaign.repositoryCsvOverrides ?? {}).forEach(([repositoryKey, override]) => {
+    if (!defaultRepositoryCsvPaths[repositoryKey] || !isPlainObject(override)) {
+      return;
+    }
+
+    if (isUploadedRepositoryCsvPath(override.path) && override.text) {
+      const uploadRecord = {
+        repositoryKey,
+        path: override.path,
+        name: cleanText(override.name) || decodeUploadedRepositoryCsvPath(override.path)?.fileName || "custom.csv",
+        text: String(override.text)
+      };
+
+      setRepositoryCsvUpload(repositoryKey, uploadRecord);
+      saveRepositoryCsvUploadRecord(uploadRecord).catch(() => {});
+    }
+  });
   resetTransientCampaignUiState();
   state.combatants = campaign.combatTracker.combatants;
   state.filters = campaign.combatTracker.filters;

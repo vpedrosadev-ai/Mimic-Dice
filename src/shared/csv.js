@@ -1,4 +1,10 @@
 export function parseCsv(csvText) {
+  const wrappedSpreadsheetRows = parseWrappedSpreadsheetCsvExport(csvText);
+
+  if (wrappedSpreadsheetRows) {
+    return wrappedSpreadsheetRows;
+  }
+
   const delimiter = detectCsvDelimiter(csvText);
   const rows = [];
   const currentRow = [];
@@ -105,6 +111,59 @@ function detectCsvDelimiter(csvText) {
     .sort((left, right) => right[1] - left[1])[0] ?? [",", 0];
 
   return bestScore > 0 ? bestDelimiter : ",";
+}
+
+function parseWrappedSpreadsheetCsvExport(csvText) {
+  const lines = String(csvText ?? "").split(/\r?\n/);
+  const [headerLine = ""] = lines;
+
+  if (!isWrappedSpreadsheetCsvHeader(headerLine)) {
+    return null;
+  }
+
+  const headerScore = countWrappedSpreadsheetLineTokens(headerLine);
+  const minimumStartScore = Math.max(3, Math.floor(headerScore * 0.6));
+  const repairedHeaderLine = repairWrappedSpreadsheetLine(headerLine, { isHeader: true });
+  const rows = lines
+    .slice(1)
+    .filter((line) => countWrappedSpreadsheetLineTokens(line) >= minimumStartScore)
+    .map((line) => repairWrappedSpreadsheetLine(line))
+    .map((line) => parseCsv(`${repairedHeaderLine}\n${line}`)[0])
+    .filter(Boolean);
+
+  return rows.length > 0 ? rows : null;
+}
+
+function isWrappedSpreadsheetCsvHeader(line) {
+  const text = String(line ?? "");
+
+  return /^"[^"\r\n]+,""[^"\r\n]+/.test(text)
+    && /;+\s*$/.test(text)
+    && countWrappedSpreadsheetLineTokens(text) >= 3;
+}
+
+function countWrappedSpreadsheetLineTokens(line) {
+  return (String(line ?? "").match(/,""/g) || []).length;
+}
+
+function repairWrappedSpreadsheetLine(line, options = {}) {
+  const { isHeader = false } = options;
+  let repairedLine = String(line ?? "").replace(/;+$/, "");
+
+  if (repairedLine.startsWith("\"")) {
+    repairedLine = repairedLine.slice(1);
+  }
+
+  if (isHeader && repairedLine.endsWith("\"")) {
+    repairedLine = repairedLine.slice(0, -1);
+  }
+
+  repairedLine = repairedLine
+    .replace(/";"/g, ";")
+    .replace(/""/g, "\"");
+
+  repairedLine = `\"${repairedLine}`.replace(/^"([^",\n]*),/, "\"$1\",");
+  return repairedLine;
 }
 
 function countDelimitersOutsideQuotes(line, delimiters) {

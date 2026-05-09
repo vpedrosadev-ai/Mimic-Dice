@@ -228,6 +228,18 @@ const TERM_TRANSLATIONS = [
   ["unconscious", "inconsciente"]
 ];
 
+const REVERSE_EXACT_TRANSLATIONS = new Map(
+  Array.from(EXACT_TRANSLATIONS.entries()).map(([english, spanish]) => [spanish.toLowerCase(), english])
+);
+
+const REVERSE_PHRASE_TRANSLATIONS = [...PHRASE_TRANSLATIONS]
+  .map(([english, spanish]) => [spanish, english])
+  .sort((left, right) => right[0].length - left[0].length);
+
+const REVERSE_TERM_TRANSLATIONS = [...TERM_TRANSLATIONS]
+  .map(([english, spanish]) => [spanish, english])
+  .sort((left, right) => right[0].length - left[0].length);
+
 const FIELD_TRANSLATION_BY_KIND = {
   bestiary: [
     "Name",
@@ -383,17 +395,20 @@ export function detectCsvContentLanguage(rows, kind) {
 }
 
 export function translateCompendiumRows(rows, kind, targetLanguage) {
-  if (targetLanguage !== "es") {
+  const fields = FIELD_TRANSLATION_BY_KIND[kind] ?? [];
+
+  if (!["es", "en"].includes(targetLanguage)) {
     return rows;
   }
 
-  const fields = FIELD_TRANSLATION_BY_KIND[kind] ?? [];
   return rows.map((row) => {
     const nextRow = { ...row };
 
     for (const field of fields) {
       if (typeof nextRow[field] === "string") {
-        nextRow[field] = translateDndTextToSpanish(nextRow[field]);
+        nextRow[field] = targetLanguage === "es"
+          ? translateDndTextToSpanish(nextRow[field])
+          : translateDndTextToEnglish(nextRow[field]);
       }
     }
 
@@ -476,8 +491,34 @@ export function translateDndTextToSpanish(value) {
   return translated;
 }
 
+export function translateDndTextToEnglish(value) {
+  const text = cleanText(value);
+
+  if (!text) {
+    return text;
+  }
+
+  const exact = REVERSE_EXACT_TRANSLATIONS.get(text.toLowerCase());
+
+  if (exact) {
+    return exact;
+  }
+
+  let translated = text;
+
+  for (const [source, target] of [...REVERSE_PHRASE_TRANSLATIONS, ...REVERSE_TERM_TRANSLATIONS]) {
+    translated = translated.replace(getTranslationPattern(source), target);
+  }
+
+  return translated;
+}
+
 export function getContentTranslationModeLabel(mode, language) {
-  if (language !== "es") {
+  if (language === "en") {
+    if (mode === CONTENT_TRANSLATION_MODE_GLOSSARY) {
+      return "EN glossary";
+    }
+
     return "EN";
   }
 

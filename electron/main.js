@@ -64,6 +64,27 @@ function requirePathExists(targetPath) {
   }
 }
 
+function resolveWritableAssetRoot() {
+  return resolveDesktopAssetDirectory() || path.join(PROJECT_ROOT, "public");
+}
+
+function resolveWritableAssetPath(relativePath) {
+  const assetRoot = path.resolve(resolveWritableAssetRoot());
+  const normalizedRelativePath = String(relativePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const resolvedPath = path.resolve(assetRoot, normalizedRelativePath);
+  const normalizedRoot = `${assetRoot}${path.sep}`;
+
+  if (resolvedPath !== assetRoot && !resolvedPath.startsWith(normalizedRoot)) {
+    throw new Error("Asset path outside allowed directory.");
+  }
+
+  return {
+    assetRoot,
+    resolvedPath,
+    normalizedRelativePath
+  };
+}
+
 function getMimeTypeForAsset(filePath) {
   switch (path.extname(filePath).toLowerCase()) {
     case ".csv":
@@ -303,6 +324,50 @@ ipcMain.handle("campaign:load", async (event) => {
     directory,
     name: getCampaignNameFromFilePath(filePath),
     payload: JSON.parse(rawValue)
+  };
+});
+
+ipcMain.handle("repository-csv:pick", async (event, { repositoryKey = "" } = {}) => {
+  const assetDirectory = resolveDesktopAssetDirectory();
+  const defaultDirectory = assetDirectory
+    ? path.join(assetDirectory, "data")
+    : path.join(PROJECT_ROOT, "public", "data");
+  const normalizedRepositoryKey = String(repositoryKey || "").trim().toLowerCase();
+  const repositoryTitleByKey = {
+    bestiary: "Seleccionar CSV del bestiario",
+    items: "Seleccionar CSV de items",
+    arcanum: "Seleccionar CSV del arcanum"
+  };
+  const result = await dialog.showOpenDialog(getDialogWindow(event), {
+    title: repositoryTitleByKey[normalizedRepositoryKey] || "Seleccionar archivo CSV",
+    defaultPath: defaultDirectory,
+    properties: ["openFile"],
+    filters: [
+      { name: "CSV", extensions: ["csv"] },
+      { name: "Todos los archivos", extensions: ["*"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return {
+      canceled: true,
+      filePath: ""
+    };
+  }
+
+  return {
+    canceled: false,
+    filePath: path.resolve(result.filePaths[0])
+  };
+});
+
+ipcMain.handle("asset:write-text", async (_event, { relativePath = "", content = "" } = {}) => {
+  const { resolvedPath, normalizedRelativePath } = resolveWritableAssetPath(relativePath);
+  await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+  await fs.writeFile(resolvedPath, String(content), "utf8");
+  return {
+    ok: true,
+    relativePath: normalizedRelativePath
   };
 });
 

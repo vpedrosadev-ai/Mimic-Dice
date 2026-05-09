@@ -1,0 +1,97 @@
+MIMIC DICE - HOW TO BUILD THE DESKTOP ZIP
+
+This project already has a script that creates a Windows .zip with the desktop executable inside.
+
+MAIN ZIP BUILD
+
+This is the command you want:
+
+PowerShell:
+npm.cmd run electron:build:editable-zip
+
+
+FULL STEP BY STEP
+
+1. Open PowerShell.
+
+2. Go to the project folder:
+cd "C:\Users\Vicky\Desktop\GIT_PROJECTS\Mimic Dice"
+
+3. Install dependencies once if needed:
+npm.cmd install
+
+4. Build the web app + Electron zip:
+npm.cmd run electron:build:editable-zip
+
+
+OUTPUT FILE
+
+When build finishes, the zip is generated here:
+
+dist-electron\Mimic-Dice-editable-0.1.0-x64.zip
+
+
+WHAT IS INSIDE THAT ZIP
+
+Inside the zip you will find the desktop app executable:
+
+Mimic Dice.exe
+
+The zip also includes external resources used by the desktop version, like:
+
+- app-assets\data
+- app-assets\images
+- campaigns
+
+
+HOW TO TEST THE RESULT
+
+1. Unzip the file.
+2. Open the extracted folder.
+3. Run:
+Mimic Dice.exe
+
+
+IMPORTANT NOTES
+
+- This build is for Windows x64.
+- The script first runs the Vite build, then packages Electron.
+- Generated files go to:
+dist-electron
+- If old builds are there, a new build will still be created in the same folder.
+
+
+USEFUL ALTERNATIVE
+
+If you want the portable .exe build instead of the editable .zip, use:
+
+npm.cmd run electron:build:portable
+
+That generates:
+
+dist-electron\Mimic-Dice-portable-0.1.0-x64.exe
+
+
+COMMON PROBLEMS
+
+1. "npm" or "node" not recognized
+- Install Node.js first.
+
+2. Build fails because dependencies are missing
+- Run:
+npm.cmd install
+
+3. Build succeeds but app does not open
+- Unzip completely before launching the .exe.
+- Do not run the executable from inside the zip preview.
+
+4. You want a fresh web build before packaging
+- Optional:
+npm.cmd run build
+- Then run:
+npm.cmd run electron:build:editable-zip
+
+
+RECOMMENDED COMMAND IF YOU ONLY WANT THE ZIP
+
+npm.cmd run electron:build:editable-zip

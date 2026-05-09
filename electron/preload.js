@@ -142,6 +142,16 @@ async function listDesktopAssetFiles(relativeDirectory = "data", extension = ".c
     .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
 
+async function readRepositoryCsvText(filePath) {
+  const normalizedPath = path.resolve(String(filePath || ""));
+
+  if (!normalizedPath || !/\.csv$/i.test(normalizedPath)) {
+    throw new Error("Invalid CSV file path");
+  }
+
+  return fs.promises.readFile(normalizedPath, "utf8");
+}
+
 contextBridge.exposeInMainWorld("mimicDice", {
   platform: process.platform,
   isPackaged: !Boolean(process.env.VITE_DEV_SERVER_URL),
@@ -151,6 +161,9 @@ contextBridge.exposeInMainWorld("mimicDice", {
   hasExternalAssetDirectory: Boolean(getDesktopAssetDirectory()),
   getDesktopDebugInfo: () => getDesktopDebugInfo(),
   readAssetText: (relativePath) => readDesktopAssetText(relativePath),
+  writeAssetText: (relativePath, content) => ipcRenderer.invoke("asset:write-text", { relativePath, content }),
+  pickRepositoryCsv: (repositoryKey) => ipcRenderer.invoke("repository-csv:pick", { repositoryKey }),
+  readRepositoryCsvText: (filePath) => readRepositoryCsvText(filePath),
   listAssetFiles: (relativeDirectory, extension) => listDesktopAssetFiles(relativeDirectory, extension),
   saveCampaign: (payload, fileName, filePath = "") => ipcRenderer.invoke("campaign:save", { payload, fileName, filePath }),
   saveCampaignAs: (payload, fileName, options = {}) => ipcRenderer.invoke("campaign:save-as", {
