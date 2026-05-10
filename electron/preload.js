@@ -164,6 +164,7 @@ contextBridge.exposeInMainWorld("mimicDice", {
   writeAssetText: (relativePath, content) => ipcRenderer.invoke("asset:write-text", { relativePath, content }),
   pickRepositoryCsv: (repositoryKey) => ipcRenderer.invoke("repository-csv:pick", { repositoryKey }),
   readRepositoryCsvText: (filePath) => readRepositoryCsvText(filePath),
+  writeRepositoryCsvText: (pathValue, content) => ipcRenderer.invoke("repository-csv:write", { pathValue, content }),
   listAssetFiles: (relativeDirectory, extension) => listDesktopAssetFiles(relativeDirectory, extension),
   saveCampaign: (payload, fileName, filePath = "") => ipcRenderer.invoke("campaign:save", { payload, fileName, filePath }),
   saveCampaignAs: (payload, fileName, options = {}) => ipcRenderer.invoke("campaign:save-as", {
@@ -172,6 +173,14 @@ contextBridge.exposeInMainWorld("mimicDice", {
     ...options
   }),
   loadCampaign: () => ipcRenderer.invoke("campaign:load"),
+  saveJsonFile: (payload, fileName, title = "Guardar JSON") => ipcRenderer.invoke("data-exchange:save-json", {
+    payload,
+    fileName,
+    title
+  }),
+  loadJsonFile: (title = "Importar JSON") => ipcRenderer.invoke("data-exchange:load-json", {
+    title
+  }),
   onCampaignSaveBeforeClose: (callback) => {
     const listener = (_event, requestId) => callback(requestId);
     ipcRenderer.on("campaign:save-before-close", listener);

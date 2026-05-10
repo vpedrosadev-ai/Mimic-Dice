@@ -201,6 +201,19 @@ function sanitizeCampaignFileName(fileName) {
   return `${withoutExtension}${CAMPAIGN_EXTENSION}`;
 }
 
+function sanitizeJsonFileName(fileName, fallbackBaseName = "mimic-dice-export") {
+  const baseName = path.basename(String(fileName || fallbackBaseName));
+  const withoutExtension = baseName
+    .replace(/\.json$/i, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || fallbackBaseName;
+
+  return `${withoutExtension}.json`;
+}
+
 async function ensureCampaignSaveDirectory() {
   const directory = getCampaignSaveDirectory();
   await fs.mkdir(directory, { recursive: true });
@@ -211,8 +224,58 @@ function getSaveDialogDefaultPath(directory, fileName) {
   return path.join(directory, sanitizeCampaignFileName(fileName));
 }
 
+function getJsonSaveDialogDefaultPath(directory, fileName) {
+  return path.join(directory, sanitizeJsonFileName(fileName));
+}
+
 function getDialogWindow(event) {
   return BrowserWindow.fromWebContents(event.sender) ?? undefined;
+}
+
+function isExternalRepositoryCsvPath(pathValue) {
+  return String(pathValue || "").trim().toLowerCase().startsWith("external:");
+}
+
+function decodeExternalRepositoryCsvPath(pathValue) {
+  return isExternalRepositoryCsvPath(pathValue)
+    ? String(pathValue || "").trim().slice("external:".length)
+    : "";
+}
+
+function resolveWritableRepositoryCsvPath(pathValue) {
+  const normalizedPathValue = String(pathValue || "").trim();
+
+  if (!normalizedPathValue) {
+    throw new Error("Missing repository CSV path.");
+  }
+
+  const externalPath = decodeExternalRepositoryCsvPath(normalizedPathValue);
+
+  if (externalPath) {
+    const resolvedPath = path.resolve(externalPath);
+
+    if (!/\.csv$/i.test(resolvedPath)) {
+      throw new Error("Repository CSV path must point to a .csv file.");
+    }
+
+    return {
+      resolvedPath,
+      pathValue: normalizedPathValue,
+      isExternal: true
+    };
+  }
+
+  const { resolvedPath, normalizedRelativePath } = resolveWritableAssetPath(normalizedPathValue);
+
+  if (!/\.csv$/i.test(resolvedPath)) {
+    throw new Error("Repository CSV path must point to a .csv file.");
+  }
+
+  return {
+    resolvedPath,
+    pathValue: normalizedRelativePath,
+    isExternal: false
+  };
 }
 
 async function writeCampaignFile(filePath, payload, options = {}) {
@@ -327,6 +390,73 @@ ipcMain.handle("campaign:load", async (event) => {
   };
 });
 
+ipcMain.handle("data-exchange:save-json", async (event, {
+  title = "Guardar JSON",
+  fileName = "mimic-dice-export.json",
+  payload = null
+} = {}) => {
+  const directory = await ensureCampaignSaveDirectory();
+  const result = await dialog.showSaveDialog(getDialogWindow(event), {
+    title: String(title || "Guardar JSON"),
+    defaultPath: getJsonSaveDialogDefaultPath(directory, fileName),
+    filters: [
+      { name: "JSON", extensions: ["json"] }
+    ]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return {
+      canceled: true,
+      directory
+    };
+  }
+
+  const selectedDirectory = path.dirname(result.filePath);
+  await fs.mkdir(selectedDirectory, { recursive: true });
+  const safeFileName = sanitizeJsonFileName(path.basename(result.filePath));
+  const filePath = path.join(selectedDirectory, safeFileName);
+  await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+
+  return {
+    canceled: false,
+    directory: selectedDirectory,
+    fileName: path.basename(filePath),
+    filePath
+  };
+});
+
+ipcMain.handle("data-exchange:load-json", async (event, {
+  title = "Importar JSON"
+} = {}) => {
+  const directory = await ensureCampaignSaveDirectory();
+  const result = await dialog.showOpenDialog(getDialogWindow(event), {
+    title: String(title || "Importar JSON"),
+    defaultPath: directory,
+    properties: ["openFile"],
+    filters: [
+      { name: "JSON", extensions: ["json"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return {
+      canceled: true,
+      directory
+    };
+  }
+
+  const [filePath] = result.filePaths;
+  const rawValue = await fs.readFile(filePath, "utf8");
+
+  return {
+    canceled: false,
+    directory,
+    fileName: path.basename(filePath),
+    filePath,
+    payload: JSON.parse(rawValue)
+  };
+});
+
 ipcMain.handle("repository-csv:pick", async (event, { repositoryKey = "" } = {}) => {
   const assetDirectory = resolveDesktopAssetDirectory();
   const defaultDirectory = assetDirectory
@@ -368,6 +498,16 @@ ipcMain.handle("asset:write-text", async (_event, { relativePath = "", content =
   return {
     ok: true,
     relativePath: normalizedRelativePath
+  };
+});
+
+ipcMain.handle("repository-csv:write", async (_event, { pathValue = "", content = "" } = {}) => {
+  const { resolvedPath } = resolveWritableRepositoryCsvPath(pathValue);
+  await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+  await fs.writeFile(resolvedPath, String(content), "utf8");
+  return {
+    ok: true,
+    filePath: resolvedPath
   };
 });
 

@@ -257,6 +257,88 @@ const blankContentSourceMeta = {
   sidecarPath: "",
   message: ""
 };
+const DATA_EXCHANGE_EXPORT_SCHEMA = "mimic-dice-selection-export";
+const DATA_EXCHANGE_EXPORT_VERSION = 1;
+const DATA_EXCHANGE_CATEGORY_CHARACTERS = "characters";
+const DATA_EXCHANGE_CATEGORY_ENCOUNTERS = "encounters";
+const COMPENDIUM_CREATION_FIELDS = Object.freeze({
+  bestiary: [
+    { key: "Name", label: "Nombre", required: true },
+    { key: "Source", label: "Fuente" },
+    { key: "Page", label: "Pagina" },
+    { key: "Size", label: "Tamano" },
+    { key: "Type", label: "Tipo" },
+    { key: "Alignment", label: "Alineamiento" },
+    { key: "AC", label: "CA" },
+    { key: "HP", label: "PG" },
+    { key: "Speed", label: "Velocidad" },
+    { key: "Strength", label: "FUE", type: "number" },
+    { key: "Dexterity", label: "DES", type: "number" },
+    { key: "Constitution", label: "CON", type: "number" },
+    { key: "Intelligence", label: "INT", type: "number" },
+    { key: "Wisdom", label: "SAB", type: "number" },
+    { key: "Charisma", label: "CAR", type: "number" },
+    { key: "Saving Throws", label: "Salvaciones" },
+    { key: "Skills", label: "Habilidades" },
+    { key: "Damage Vulnerabilities", label: "Vulnerabilidades" },
+    { key: "Damage Resistances", label: "Resistencias" },
+    { key: "Damage Immunities", label: "Inmunidades de dano" },
+    { key: "Condition Immunities", label: "Inmunidades de estado" },
+    { key: "Senses", label: "Sentidos" },
+    { key: "Languages", label: "Idiomas" },
+    { key: "CR", label: "CR" },
+    { key: "Environment", label: "Entorno" },
+    { key: "Treasure", label: "Tesoro" },
+    { key: "Traits", label: "Rasgos", type: "textarea" },
+    { key: "Actions", label: "Acciones", type: "textarea" },
+    { key: "Bonus Actions", label: "Acciones bonus", type: "textarea" },
+    { key: "Reactions", label: "Reacciones", type: "textarea" },
+    { key: "Legendary Actions", label: "Acciones legendarias", type: "textarea" },
+    { key: "Mythic Actions", label: "Acciones miticas", type: "textarea" },
+    { key: "Lair Actions", label: "Acciones de guarida", type: "textarea" },
+    { key: "Regional Effects", label: "Efectos regionales", type: "textarea" }
+  ],
+  items: [
+    { key: "Name", label: "Nombre", required: true },
+    { key: "Source", label: "Fuente" },
+    { key: "Page", label: "Pagina" },
+    { key: "Rarity", label: "Rareza" },
+    { key: "Type", label: "Tipo" },
+    { key: "Attunement", label: "Sintonizacion" },
+    { key: "Damage", label: "Dano" },
+    { key: "Properties", label: "Propiedades" },
+    { key: "Mastery", label: "Maestria" },
+    { key: "Weight", label: "Peso" },
+    { key: "Value", label: "Valor" },
+    { key: "Text", label: "Descripcion", type: "textarea" }
+  ],
+  arcanum: [
+    { key: "Name", label: "Nombre", required: true },
+    { key: "Source", label: "Fuente" },
+    { key: "Page", label: "Pagina" },
+    { key: "Level", label: "Nivel" },
+    { key: "Casting Time", label: "Tiempo de lanzamiento" },
+    { key: "Duration", label: "Duracion" },
+    { key: "School", label: "Escuela" },
+    { key: "Range", label: "Alcance" },
+    { key: "Components", label: "Componentes" },
+    { key: "Classes", label: "Clases" },
+    { key: "Optional/Variant Classes", label: "Clases opcionales" },
+    { key: "Subclasses", label: "Subclases" },
+    { key: "Text", label: "Descripcion", type: "textarea" },
+    { key: "At Higher Levels", label: "A niveles superiores", type: "textarea" }
+  ]
+});
+const COMPENDIUM_KIND_LABELS = Object.freeze({
+  bestiary: "criatura",
+  items: "objeto",
+  arcanum: "hechizo"
+});
+const COMPENDIUM_REPOSITORY_LABELS = Object.freeze({
+  bestiary: "Bestiario",
+  items: "Items",
+  arcanum: "Arcanum"
+});
 
 const app = document.querySelector("#app");
 let battleTimerInterval = null;
@@ -316,10 +398,21 @@ const state = {
   fileMenuOpen: false,
   optionsMenuOpen: false,
   optionsMenuSection: OPTIONS_MENU_SECTION_GENERAL,
+  importExportDialogOpen: false,
+  importExportDialogCategory: "",
+  importExportDialogMode: "",
+  importExportDialogError: "",
+  importExportCharacterIds: new Set(),
+  importExportEncounterIds: new Set(),
+  importExportEncounterFolderIds: new Set(),
   campaignSaveNameDialogOpen: false,
   campaignSaveNameDialogMode: "",
   campaignSaveNameDialogValue: "",
   campaignSaveNameDialogError: "",
+  compendiumCreateDialogOpen: false,
+  compendiumCreateKind: "",
+  compendiumCreateDraft: {},
+  compendiumCreateError: "",
   characterSpellbookAbilityDescriptionDialogOpen: false,
   characterSpellbookAbilityDescriptionDialogRowId: "",
   characterSpellbookAbilityDescriptionDialogValue: "",
@@ -525,7 +618,7 @@ registerCampaignCloseAutosave();
 render();
 queueInitialDataLoad();
 
-function handleClick(event) {
+async function handleClick(event) {
   const screenButton = event.target.closest("[data-screen]");
 
   if (screenButton) {
@@ -865,6 +958,82 @@ function handleClick(event) {
   }
 
   const { action } = actionButton.dataset;
+
+  if (action === "open-character-import-export") {
+    openImportExportDialog(DATA_EXCHANGE_CATEGORY_CHARACTERS);
+    render();
+    return;
+  }
+
+  if (action === "open-encounter-import-export") {
+    openImportExportDialog(DATA_EXCHANGE_CATEGORY_ENCOUNTERS);
+    render();
+    return;
+  }
+
+  if (action === "dismiss-import-export-dialog") {
+    closeImportExportDialog();
+    render();
+    return;
+  }
+
+  if (action === "set-import-export-mode") {
+    setImportExportDialogMode(actionButton.dataset.importExportMode);
+    render();
+    return;
+  }
+
+  if (action === "toggle-import-export-character") {
+    toggleImportExportCharacterSelection(actionButton.dataset.characterId);
+    render();
+    return;
+  }
+
+  if (action === "toggle-import-export-encounter") {
+    toggleImportExportEncounterSelection(actionButton.dataset.encounterId);
+    render();
+    return;
+  }
+
+  if (action === "toggle-import-export-encounter-folder") {
+    toggleImportExportEncounterFolderSelection(actionButton.dataset.encounterFolderId);
+    render();
+    return;
+  }
+
+  if (action === "select-all-import-export-characters") {
+    toggleAllImportExportCharacters();
+    render();
+    return;
+  }
+
+  if (action === "select-all-import-export-encounters") {
+    toggleAllImportExportEncounters();
+    render();
+    return;
+  }
+
+  if (action === "confirm-import-export") {
+    await confirmImportExportDialog();
+    return;
+  }
+
+  if (action === "open-create-compendium-entity") {
+    openCompendiumCreateDialog(actionButton.dataset.repositoryKey);
+    render();
+    return;
+  }
+
+  if (action === "dismiss-compendium-create-dialog") {
+    closeCompendiumCreateDialog();
+    render();
+    return;
+  }
+
+  if (action === "save-compendium-entity") {
+    await saveCompendiumEntityFromDialog();
+    return;
+  }
 
   if (action === "toggle-file-menu") {
     const nextOpenState = !(state.menuHubOpen || state.fileMenuOpen);
@@ -2163,6 +2332,30 @@ function handleClick(event) {
 function handleChange(event) {
   const target = event.target;
 
+  if (target.matches("[data-import-export-character-checkbox]")) {
+    toggleImportExportCharacterSelection(target.dataset.importExportCharacterCheckbox);
+    render({
+      focusSelector: `[data-import-export-character-checkbox="${target.dataset.importExportCharacterCheckbox}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-import-export-encounter-checkbox]")) {
+    toggleImportExportEncounterSelection(target.dataset.importExportEncounterCheckbox);
+    render({
+      focusSelector: `[data-import-export-encounter-checkbox="${target.dataset.importExportEncounterCheckbox}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-import-export-encounter-folder-checkbox]")) {
+    toggleImportExportEncounterFolderSelection(target.dataset.importExportEncounterFolderCheckbox);
+    render({
+      focusSelector: `[data-import-export-encounter-folder-checkbox="${target.dataset.importExportEncounterFolderCheckbox}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-repository-csv-input]")) {
     handleRepositoryCsvFileSelection(target);
     return;
@@ -2585,6 +2778,11 @@ function handleInput(event) {
   if (target.matches("[data-campaign-save-name-input]")) {
     state.campaignSaveNameDialogValue = target.value;
     state.campaignSaveNameDialogError = "";
+    return;
+  }
+
+  if (target.matches("[data-compendium-create-field]")) {
+    updateCompendiumCreateDraftField(target.dataset.compendiumCreateField, target.value);
     return;
   }
 
@@ -3700,6 +3898,1020 @@ function renderCampaignSaveNameDialog() {
   `;
 }
 
+function normalizeDataExchangeCategory(value) {
+  const normalizedValue = cleanText(value).toLowerCase();
+  return [DATA_EXCHANGE_CATEGORY_CHARACTERS, DATA_EXCHANGE_CATEGORY_ENCOUNTERS].includes(normalizedValue)
+    ? normalizedValue
+    : "";
+}
+
+function getCompendiumCreateFields(kind) {
+  return COMPENDIUM_CREATION_FIELDS[kind] ?? [];
+}
+
+function createBlankCompendiumDraft(kind) {
+  return Object.fromEntries(getCompendiumCreateFields(kind).map((field) => [field.key, ""]));
+}
+
+function openImportExportDialog(category) {
+  const normalizedCategory = normalizeDataExchangeCategory(category);
+
+  if (!normalizedCategory) {
+    return;
+  }
+
+  state.importExportDialogOpen = true;
+  state.importExportDialogCategory = normalizedCategory;
+  state.importExportDialogMode = "menu";
+  state.importExportDialogError = "";
+  state.importExportCharacterIds = new Set(
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS && state.activeCharacterId
+      ? [state.activeCharacterId]
+      : []
+  );
+  state.importExportEncounterIds = new Set(
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS
+      ? [...state.selectedEncounterIds]
+      : []
+  );
+  state.importExportEncounterFolderIds = new Set(
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS
+      ? [...state.selectedEncounterFolderIds]
+      : []
+  );
+
+  if (
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS
+    && state.importExportEncounterIds.size === 0
+    && state.importExportEncounterFolderIds.size === 0
+    && state.activeEncounterId
+  ) {
+    state.importExportEncounterIds.add(state.activeEncounterId);
+  }
+}
+
+function closeImportExportDialog() {
+  state.importExportDialogOpen = false;
+  state.importExportDialogCategory = "";
+  state.importExportDialogMode = "";
+  state.importExportDialogError = "";
+  state.importExportCharacterIds = new Set();
+  state.importExportEncounterIds = new Set();
+  state.importExportEncounterFolderIds = new Set();
+}
+
+function setImportExportDialogMode(mode) {
+  const normalizedMode = cleanText(mode).toLowerCase();
+
+  if (!["menu", "export", "import"].includes(normalizedMode)) {
+    return;
+  }
+
+  state.importExportDialogMode = normalizedMode;
+  state.importExportDialogError = "";
+}
+
+function toggleImportExportCharacterSelection(characterId) {
+  const normalizedCharacterId = cleanText(characterId);
+
+  if (!normalizedCharacterId) {
+    return;
+  }
+
+  const nextIds = new Set(state.importExportCharacterIds);
+
+  if (nextIds.has(normalizedCharacterId)) {
+    nextIds.delete(normalizedCharacterId);
+  } else {
+    nextIds.add(normalizedCharacterId);
+  }
+
+  state.importExportCharacterIds = nextIds;
+  state.importExportDialogError = "";
+}
+
+function toggleImportExportEncounterSelection(encounterId) {
+  const normalizedEncounterId = cleanText(encounterId);
+
+  if (!normalizedEncounterId) {
+    return;
+  }
+
+  const nextIds = new Set(state.importExportEncounterIds);
+
+  if (nextIds.has(normalizedEncounterId)) {
+    nextIds.delete(normalizedEncounterId);
+  } else {
+    nextIds.add(normalizedEncounterId);
+  }
+
+  state.importExportEncounterIds = nextIds;
+  state.importExportDialogError = "";
+}
+
+function toggleImportExportEncounterFolderSelection(folderId) {
+  const normalizedFolderId = cleanText(folderId);
+  const nextIds = new Set(state.importExportEncounterFolderIds);
+
+  if (nextIds.has(normalizedFolderId)) {
+    nextIds.delete(normalizedFolderId);
+  } else {
+    nextIds.add(normalizedFolderId);
+  }
+
+  state.importExportEncounterFolderIds = nextIds;
+  state.importExportDialogError = "";
+}
+
+function toggleAllImportExportCharacters() {
+  const allCharacterIds = state.characters.map((character) => character.id).filter(Boolean);
+  state.importExportCharacterIds = state.importExportCharacterIds.size === allCharacterIds.length
+    ? new Set()
+    : new Set(allCharacterIds);
+  state.importExportDialogError = "";
+}
+
+function toggleAllImportExportEncounters() {
+  const allEncounterIds = state.encounters.map((encounter) => encounter.id).filter(Boolean);
+  const allFolderIds = state.encounterFolders.map((folder) => folder.id).filter(Boolean);
+  const allSelected =
+    state.importExportEncounterIds.size === allEncounterIds.length
+    && state.importExportEncounterFolderIds.size === allFolderIds.length;
+
+  state.importExportEncounterIds = allSelected ? new Set() : new Set(allEncounterIds);
+  state.importExportEncounterFolderIds = allSelected ? new Set() : new Set(allFolderIds);
+  state.importExportDialogError = "";
+}
+
+function getImportExportSelectionCount() {
+  if (state.importExportDialogCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
+    return state.importExportCharacterIds.size;
+  }
+
+  if (state.importExportDialogCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS) {
+    const { folders, encounters } = getSelectedEncounterExportBundle();
+    return folders.length + encounters.length;
+  }
+
+  return 0;
+}
+
+function getSelectedEncounterExportBundle() {
+  const selectedFolderIds = new Set(
+    [...state.importExportEncounterFolderIds].filter((folderId) => state.encounterFolders.some((folder) => folder.id === folderId))
+  );
+  const selectedEncounterIds = new Set(
+    [...state.importExportEncounterIds].filter((encounterId) => state.encounters.some((encounter) => encounter.id === encounterId))
+  );
+
+  state.encounters.forEach((encounter) => {
+    if (selectedFolderIds.has(encounter.folderId ?? "")) {
+      selectedEncounterIds.add(encounter.id);
+    }
+  });
+
+  state.encounters.forEach((encounter) => {
+    if (selectedEncounterIds.has(encounter.id) && cleanText(encounter.folderId)) {
+      selectedFolderIds.add(cleanText(encounter.folderId));
+    }
+  });
+
+  return {
+    folders: state.encounterFolders
+      .filter((folder) => selectedFolderIds.has(folder.id))
+      .map((folder) => normalizeStoredEncounterFolder(folder))
+      .filter(Boolean),
+    encounters: state.encounters
+      .filter((encounter) => selectedEncounterIds.has(encounter.id))
+      .map((encounter) => normalizeStoredEncounter(encounter))
+      .filter(Boolean)
+  };
+}
+
+function createSelectionExportBasePayload(category) {
+  return {
+    schema: DATA_EXCHANGE_EXPORT_SCHEMA,
+    version: DATA_EXCHANGE_EXPORT_VERSION,
+    app: "Mimic Dice",
+    exportedAt: new Date().toISOString(),
+    campaign: {
+      name: cleanText(state.campaignName) || "Campana"
+    },
+    category
+  };
+}
+
+function createCharacterSelectionExportPayload() {
+  const selectedCharacterIds = new Set(state.importExportCharacterIds);
+
+  return {
+    ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_CHARACTERS),
+    characterSkills: {
+      definitions: state.characterSkillDefinitions
+    },
+    characters: getCharactersSaveData().filter((character) => selectedCharacterIds.has(character.id))
+  };
+}
+
+function createEncounterSelectionExportPayload() {
+  const { folders, encounters } = getSelectedEncounterExportBundle();
+
+  return {
+    ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_ENCOUNTERS),
+    encounterInventory: {
+      folders,
+      systemFolderExpanded: true,
+      encounters
+    }
+  };
+}
+
+function buildSelectionExportFileName(category) {
+  const campaignSlug = slugify(cleanText(state.campaignName) || "campana") || "campana";
+  const categorySlug = category === DATA_EXCHANGE_CATEGORY_CHARACTERS ? "personajes" : "encuentros";
+  return `${campaignSlug}-${categorySlug}.json`;
+}
+
+async function saveJsonDataFile(payload, fileName, title) {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.saveJsonFile === "function") {
+    return desktopApi.saveJsonFile(payload, fileName, title);
+  }
+
+  downloadJsonFile(payload, fileName);
+  return {
+    canceled: false,
+    fileName
+  };
+}
+
+async function pickBrowserJsonPayload() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0] ?? null;
+
+      if (!file) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        const text = await file.text();
+        resolve(JSON.parse(text));
+      } catch {
+        resolve(null);
+      }
+    }, { once: true });
+    input.click();
+  });
+}
+
+async function loadJsonDataFile(title) {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.loadJsonFile === "function") {
+    const result = await desktopApi.loadJsonFile(title);
+    return result?.canceled ? null : result?.payload ?? null;
+  }
+
+  return pickBrowserJsonPayload();
+}
+
+async function confirmImportExportDialog() {
+  const category = normalizeDataExchangeCategory(state.importExportDialogCategory);
+  const mode = cleanText(state.importExportDialogMode).toLowerCase();
+
+  if (!category || !mode || mode === "menu") {
+    state.importExportDialogError = "Elige una accion antes de continuar.";
+    render();
+    return;
+  }
+
+  if (mode === "export") {
+    await exportSelectionData(category);
+    return;
+  }
+
+  await importSelectionData(category);
+}
+
+async function exportSelectionData(category) {
+  const selectionCount = getImportExportSelectionCount();
+
+  if (selectionCount === 0) {
+    state.importExportDialogError = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+      ? "Selecciona al menos un personaje."
+      : "Selecciona al menos una carpeta o un encuentro.";
+    render();
+    return;
+  }
+
+  const payload = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+    ? createCharacterSelectionExportPayload()
+    : createEncounterSelectionExportPayload();
+  const fileName = buildSelectionExportFileName(category);
+  const title = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+    ? "Exportar personajes"
+    : "Exportar encuentros";
+
+  try {
+    const result = await saveJsonDataFile(payload, fileName, title);
+
+    if (result?.canceled) {
+      return;
+    }
+
+    closeImportExportDialog();
+    pushNotification({
+      title: "Exportacion completada",
+      message: category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+        ? `${payload.characters.length} personajes exportados.`
+        : `${payload.encounterInventory.encounters.length} encuentros exportados.`
+    });
+    render();
+  } catch {
+    state.importExportDialogError = "No se pudo exportar la seleccion.";
+    render();
+  }
+}
+
+async function importSelectionData(expectedCategory) {
+  try {
+    const payload = await loadJsonDataFile(
+      expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS
+        ? "Importar personajes"
+        : "Importar encuentros"
+    );
+
+    if (!payload) {
+      return;
+    }
+
+    const payloadCategory = normalizeDataExchangeCategory(payload?.category);
+
+    if (payloadCategory !== expectedCategory) {
+      state.importExportDialogError = expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS
+        ? "Ese JSON no contiene personajes exportados por Mimic Dice."
+        : "Ese JSON no contiene encuentros exportados por Mimic Dice.";
+      render();
+      return;
+    }
+
+    if (expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
+      importCharactersFromPayload(payload);
+    } else {
+      importEncountersFromPayload(payload);
+    }
+
+    closeImportExportDialog();
+    render();
+  } catch {
+    state.importExportDialogError = "No se pudo importar el JSON seleccionado.";
+    render();
+  }
+}
+
+function rekeyImportedCharacter(character, skillDefinitions) {
+  return normalizeStoredCharacter({
+    ...character,
+    id: createStableId("character"),
+    classEntries: ensureCharacterClassEntryCount(character.classEntries, character.isMulticlass ? 2 : 1).map((entry) => ({
+      ...entry,
+      id: createStableId("character-class")
+    })),
+    spells: normalizeStoredCharacterSpells(character.spells).map((entry) => ({
+      ...entry,
+      id: createStableId("character-spell")
+    })),
+    spellbookAbilities: normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities).map((entry) => ({
+      ...entry,
+      id: createStableId("character-spellbook-ability")
+    })),
+    inventory: normalizeStoredCharacterInventory(character.inventory).map((entry) => ({
+      ...entry,
+      id: createStableId("character-item")
+    }))
+  }, skillDefinitions);
+}
+
+function importCharactersFromPayload(payload) {
+  const importedDefinitions = normalizeStoredCharacterSkillDefinitions(payload?.characterSkills?.definitions, payload?.characters);
+  const mergedDefinitions = dedupeCharacterSkillDefinitions([
+    ...state.characterSkillDefinitions,
+    ...importedDefinitions
+  ]);
+  const importedCharacters = normalizeStoredCharacters(payload?.characters, mergedDefinitions)
+    .map((character) => rekeyImportedCharacter(character, mergedDefinitions))
+    .filter(Boolean);
+
+  if (importedCharacters.length === 0) {
+    throw new Error("No characters in payload.");
+  }
+
+  state.characterSkillDefinitions = mergedDefinitions;
+  state.characters = [...importedCharacters, ...state.characters];
+  state.activeCharacterId = importedCharacters[0]?.id ?? state.activeCharacterId;
+  state.selectedCharacterIds = new Set(importedCharacters[0]?.id ? [importedCharacters[0].id] : []);
+  saveCharacterSkillDefinitions();
+  saveCharacters();
+  pushNotification({
+    title: "Importacion completada",
+    message: `${importedCharacters.length} personajes anadidos.`
+  });
+}
+
+function importEncountersFromPayload(payload) {
+  const normalizedInventory = normalizeStoredEncounterInventory(payload?.encounterInventory);
+  const folderIdMap = new Map();
+  const importedFolders = normalizedInventory.folders.map((folder) => {
+    const nextId = createStableId("encounter-folder");
+    folderIdMap.set(folder.id, nextId);
+    return normalizeStoredEncounterFolder({
+      ...folder,
+      id: nextId,
+      isExpanded: true
+    });
+  }).filter(Boolean);
+  const importedEncounters = normalizedInventory.encounters.map((encounter) => normalizeStoredEncounter({
+    ...encounter,
+    id: createStableId("encounter"),
+    folderId: folderIdMap.get(encounter.folderId) ?? "",
+    rows: Array.isArray(encounter.rows)
+      ? encounter.rows.map((row) => ({
+        ...row,
+        id: createStableId("encounter-row")
+      }))
+      : []
+  })).filter(Boolean);
+
+  if (importedFolders.length === 0 && importedEncounters.length === 0) {
+    throw new Error("No encounters in payload.");
+  }
+
+  state.encounterFolders = [...state.encounterFolders, ...importedFolders];
+  state.encounters = [...state.encounters, ...importedEncounters];
+  state.activeEncounterId = importedEncounters[0]?.id ?? state.activeEncounterId;
+  state.activeEncounterFolderId = importedEncounters[0]?.folderId ?? importedFolders[0]?.id ?? state.activeEncounterFolderId;
+  state.selectedEncounterIds = new Set();
+  state.selectedEncounterFolderIds = new Set();
+  saveEncounterInventory();
+  pushNotification({
+    title: "Importacion completada",
+    message: `${importedEncounters.length} encuentros anadidos.`
+  });
+}
+
+function openCompendiumCreateDialog(kind) {
+  if (!COMPENDIUM_CREATION_FIELDS[kind]) {
+    return;
+  }
+
+  state.compendiumCreateDialogOpen = true;
+  state.compendiumCreateKind = kind;
+  state.compendiumCreateDraft = createBlankCompendiumDraft(kind);
+  state.compendiumCreateError = "";
+}
+
+function closeCompendiumCreateDialog() {
+  state.compendiumCreateDialogOpen = false;
+  state.compendiumCreateKind = "";
+  state.compendiumCreateDraft = {};
+  state.compendiumCreateError = "";
+}
+
+function updateCompendiumCreateDraftField(key, value) {
+  const normalizedKey = cleanText(key);
+
+  if (!normalizedKey) {
+    return;
+  }
+
+  state.compendiumCreateDraft = {
+    ...state.compendiumCreateDraft,
+    [normalizedKey]: value
+  };
+  state.compendiumCreateError = "";
+}
+
+function getCompendiumCsvHeaders(kind) {
+  return getCompendiumCreateFields(kind).map((field) => field.key);
+}
+
+function buildCompendiumDraftRow(kind) {
+  const headers = getCompendiumCsvHeaders(kind);
+  return Object.fromEntries(headers.map((header) => [header, cleanText(state.compendiumCreateDraft[header])]));
+}
+
+function validateCompendiumDraft(kind, row) {
+  const requiredFields = getCompendiumCreateFields(kind).filter((field) => field.required);
+  const missingField = requiredFields.find((field) => !cleanText(row[field.key]));
+
+  if (missingField) {
+    return `${missingField.label} es obligatorio.`;
+  }
+
+  return "";
+}
+
+function extractCsvHeaders(csvText, fallbackHeaders = []) {
+  const text = String(csvText || "");
+  let current = "";
+  let inQuotes = false;
+  const cells = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const nextCharacter = text[index + 1];
+
+    if (character === "\"") {
+      if (inQuotes && nextCharacter === "\"") {
+        current += "\"";
+        index += 1;
+        continue;
+      }
+
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && character === ",") {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+
+    if (!inQuotes && (character === "\n" || character === "\r")) {
+      cells.push(current);
+
+      if (character === "\r" && nextCharacter === "\n") {
+        index += 1;
+      }
+
+      return cells.map((cell) => cell.replace(/^\uFEFF/, ""));
+    }
+
+    current += character;
+  }
+
+  if (current || cells.length > 0) {
+    cells.push(current);
+  }
+
+  return cells.length > 0 ? cells.map((cell) => cell.replace(/^\uFEFF/, "")) : [...fallbackHeaders];
+}
+
+function escapeCsvCell(value) {
+  const normalizedValue = String(value ?? "");
+  return `"${normalizedValue.replace(/"/g, "\"\"")}"`;
+}
+
+function serializeCsvRows(headers, rows, lineBreak = "\n") {
+  const safeHeaders = Array.isArray(headers) && headers.length > 0 ? headers : [];
+  const lines = [
+    safeHeaders.map((header) => escapeCsvCell(header)).join(","),
+    ...rows.map((row) => safeHeaders.map((header) => escapeCsvCell(row?.[header] ?? "")).join(","))
+  ];
+  return `${lines.join(lineBreak)}${lineBreak}`;
+}
+
+async function loadRepositoryCsvRawText(repositoryKey) {
+  const pathValue = getRepositoryCsvPath(repositoryKey);
+  const desktopApi = getDesktopCampaignApi();
+
+  if (isUploadedRepositoryCsvPath(pathValue)) {
+    const upload = await ensureRepositoryCsvUploadLoaded(repositoryKey, pathValue);
+    return String(upload?.text || "");
+  }
+
+  if (isExternalRepositoryCsvPath(pathValue)) {
+    const externalPath = decodeExternalRepositoryCsvPath(pathValue);
+
+    if (typeof desktopApi?.readRepositoryCsvText !== "function" || !externalPath) {
+      throw new Error("External CSV reader unavailable.");
+    }
+
+    return desktopApi.readRepositoryCsvText(externalPath);
+  }
+
+  return loadTextAsset(getDataAssetUrl(pathValue), pathValue);
+}
+
+async function writeRepositoryCsvRawText(repositoryKey, content) {
+  const pathValue = getRepositoryCsvPath(repositoryKey);
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.writeRepositoryCsvText === "function" && !isUploadedRepositoryCsvPath(pathValue)) {
+    return desktopApi.writeRepositoryCsvText(pathValue, content);
+  }
+
+  const baseDisplayName = getActiveRepositoryCsvDisplayName(repositoryKey).replace(/\.csv$/i, "") || `${repositoryKey}-custom`;
+  const uploadFileName = `${baseDisplayName}.csv`;
+  const uploadPath = encodeUploadedRepositoryCsvPath(repositoryKey, uploadFileName);
+  const uploadRecord = {
+    repositoryKey,
+    path: uploadPath,
+    name: uploadFileName,
+    text: String(content)
+  };
+
+  await saveRepositoryCsvUploadRecord(uploadRecord);
+  setRepositoryCsvUpload(repositoryKey, uploadRecord);
+  state.repositoryCsvPaths = {
+    ...state.repositoryCsvPaths,
+    [repositoryKey]: uploadPath
+  };
+  saveCampaignMeta();
+
+  return {
+    ok: true,
+    filePath: uploadPath
+  };
+}
+
+async function reloadCompendiumRepository(repositoryKey) {
+  if (repositoryKey === "bestiary") {
+    await loadBestiary();
+    return;
+  }
+
+  if (repositoryKey === "items") {
+    await loadItems();
+    return;
+  }
+
+  if (repositoryKey === "arcanum") {
+    await loadArcanum();
+  }
+}
+
+function selectCompendiumEntryAfterCreate(repositoryKey, row) {
+  if (repositoryKey === "bestiary") {
+    state.bestiarySelectedId = buildBestiaryCompositeKey(row.Name, row.Source);
+    resetBestiaryVirtualScroll();
+    return;
+  }
+
+  if (repositoryKey === "items") {
+    state.itemSelectedId = buildItemCompositeKey(row.Name, row.Source);
+    resetItemVirtualScroll();
+    return;
+  }
+
+  if (repositoryKey === "arcanum") {
+    state.arcanumSelectedId = buildArcanumCompositeKey(row.Name, row.Source, row.Level);
+    resetArcanumVirtualScroll();
+  }
+}
+
+async function saveCompendiumEntityFromDialog() {
+  const repositoryKey = cleanText(state.compendiumCreateKind);
+  const row = buildCompendiumDraftRow(repositoryKey);
+  const validationError = validateCompendiumDraft(repositoryKey, row);
+
+  if (validationError) {
+    state.compendiumCreateError = validationError;
+    render();
+    return;
+  }
+
+  try {
+    const currentText = await loadRepositoryCsvRawText(repositoryKey);
+    const parsedRows = parseCsv(currentText);
+    const lineBreak = currentText.includes("\r\n") ? "\r\n" : "\n";
+    const headers = extractCsvHeaders(currentText, getCompendiumCsvHeaders(repositoryKey));
+    const normalizedRows = parsedRows.map((entry) => Object.fromEntries(headers.map((header) => [header, String(entry?.[header] ?? "")])));
+    const nextText = serializeCsvRows(headers, [...normalizedRows, row], lineBreak);
+
+    await writeRepositoryCsvRawText(repositoryKey, nextText);
+    await reloadCompendiumRepository(repositoryKey);
+    selectCompendiumEntryAfterCreate(repositoryKey, row);
+    closeCompendiumCreateDialog();
+    pushNotification({
+      title: "Entidad creada",
+      message: `${COMPENDIUM_KIND_LABELS[repositoryKey] || "Entidad"} anadida a ${COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "repositorio"}.`
+    });
+    render();
+  } catch (error) {
+    const message = getErrorMessage(error);
+    state.compendiumCreateError = message
+      ? `No se pudo guardar la entidad en el CSV activo. ${message}`
+      : "No se pudo guardar la entidad en el CSV activo.";
+    render();
+  }
+}
+
+function renderImportExportDialog() {
+  if (!state.importExportDialogOpen) {
+    return "";
+  }
+
+  const category = normalizeDataExchangeCategory(state.importExportDialogCategory);
+  const title = category === DATA_EXCHANGE_CATEGORY_CHARACTERS ? "Personajes" : "Encuentros";
+  const mode = cleanText(state.importExportDialogMode).toLowerCase() || "menu";
+  const selectionCount = getImportExportSelectionCount();
+
+  return `
+    <div class="campaign-save-dialog data-exchange-dialog" role="presentation">
+      <button
+        class="campaign-save-dialog__backdrop"
+        type="button"
+        data-action="dismiss-import-export-dialog"
+        aria-label="Cerrar dialogo de importacion y exportacion"
+      ></button>
+      <section
+        class="campaign-save-dialog__panel data-exchange-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="data-exchange-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">Importar / Exportar</p>
+        <h2 class="campaign-save-dialog__title" id="data-exchange-dialog-title">${escapeHtml(title)}</h2>
+        <p class="campaign-save-dialog__text">
+          ${escapeHtml(
+            mode === "menu"
+              ? `Elige si quieres exportar o importar ${title.toLowerCase()}.`
+              : mode === "export"
+                ? `Selecciona que ${title.toLowerCase()} quieres exportar.`
+                : `Selecciona un JSON exportado por Mimic Dice para importar ${title.toLowerCase()}.`
+          )}
+        </p>
+        ${
+          mode === "menu"
+            ? renderImportExportModePicker()
+            : mode === "export"
+              ? renderImportExportSelectionPanel(category)
+              : renderImportExportImportPanel(category)
+        }
+        ${
+          state.importExportDialogError
+            ? `<p class="campaign-save-dialog__error">${escapeHtml(state.importExportDialogError)}</p>`
+            : ""
+        }
+        <div class="campaign-save-dialog__actions">
+          <button class="toolbar-button" type="button" data-action="${mode === "menu" ? "dismiss-import-export-dialog" : "set-import-export-mode"}" ${mode === "menu" ? "" : 'data-import-export-mode="menu"'}>
+            ${mode === "menu" ? "Cerrar" : "Volver"}
+          </button>
+          ${
+            mode === "menu"
+              ? ""
+              : `
+                <button
+                  class="toolbar-button toolbar-button--accent"
+                  type="button"
+                  data-action="confirm-import-export"
+                  ${mode === "export" && selectionCount === 0 ? "disabled" : ""}
+                >
+                  ${mode === "import" ? "Importar JSON" : "Exportar JSON"}
+                </button>
+              `
+          }
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderImportExportModePicker() {
+  return `
+    <div class="data-exchange-dialog__mode-grid">
+      <button class="data-exchange-dialog__mode-card" type="button" data-action="set-import-export-mode" data-import-export-mode="export">
+        <strong>Exportar</strong>
+        <span>Crear un JSON con seleccion actual.</span>
+      </button>
+      <button class="data-exchange-dialog__mode-card" type="button" data-action="set-import-export-mode" data-import-export-mode="import">
+        <strong>Importar</strong>
+        <span>Cargar un JSON exportado antes.</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderImportExportSelectionPanel(category) {
+  if (category === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
+    return renderCharacterExportSelectionPanel();
+  }
+
+  return renderEncounterExportSelectionPanel();
+}
+
+function renderCharacterExportSelectionPanel() {
+  return `
+    <div class="data-exchange-dialog__selection-panel">
+      <div class="data-exchange-dialog__selection-toolbar">
+        <span>${state.importExportCharacterIds.size} seleccionados</span>
+        <button class="filter-clear" type="button" data-action="select-all-import-export-characters">
+          ${state.importExportCharacterIds.size === state.characters.length && state.characters.length > 0 ? "Vaciar seleccion" : "Seleccionar todos"}
+        </button>
+      </div>
+      <div class="data-exchange-dialog__list" role="list">
+        ${
+          state.characters.length > 0
+            ? state.characters.map((character) => `
+              <label class="data-exchange-dialog__list-item" role="listitem">
+                <input
+                  type="checkbox"
+                  data-import-export-character-checkbox="${escapeHtml(character.id)}"
+                  ${state.importExportCharacterIds.has(character.id) ? "checked" : ""}
+                />
+                <div>
+                  <strong>${escapeHtml(character.name || "Personaje")}</strong>
+                  <span>${escapeHtml(character.className || character.species || "Ficha de personaje")}</span>
+                </div>
+              </label>
+            `).join("")
+            : `<div class="empty-state empty-state--compact">No hay personajes para exportar.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderEncounterExportSelectionPanel() {
+  const exportBundle = getSelectedEncounterExportBundle();
+
+  return `
+    <div class="data-exchange-dialog__selection-panel">
+      <div class="data-exchange-dialog__selection-toolbar">
+        <span>${exportBundle.folders.length} carpetas | ${exportBundle.encounters.length} encuentros</span>
+        <button class="filter-clear" type="button" data-action="select-all-import-export-encounters">
+          ${
+            state.importExportEncounterIds.size === state.encounters.length
+            && state.importExportEncounterFolderIds.size === state.encounterFolders.length
+            && (state.encounters.length > 0 || state.encounterFolders.length > 0)
+              ? "Vaciar seleccion"
+              : "Seleccionar todos"
+          }
+        </button>
+      </div>
+      <div class="data-exchange-dialog__list" role="list">
+        ${
+          state.encounterFolders.length === 0 && state.encounters.length === 0
+            ? `<div class="empty-state empty-state--compact">No hay encuentros para exportar.</div>`
+            : `
+              ${state.encounterFolders.map((folder) => `
+                <div class="data-exchange-dialog__encounter-group" role="listitem">
+                  <label class="data-exchange-dialog__list-item data-exchange-dialog__list-item--folder">
+                    <input
+                      type="checkbox"
+                      data-import-export-encounter-folder-checkbox="${escapeHtml(folder.id)}"
+                      ${state.importExportEncounterFolderIds.has(folder.id) ? "checked" : ""}
+                    />
+                    <div>
+                      <strong>${escapeHtml(folder.name || "Carpeta")}</strong>
+                      <span>${getEncountersByFolder(folder.id).length} encuentros</span>
+                    </div>
+                  </label>
+                  ${
+                    getEncountersByFolder(folder.id).map((encounter) => `
+                      <label class="data-exchange-dialog__list-item data-exchange-dialog__list-item--child">
+                        <input
+                          type="checkbox"
+                          data-import-export-encounter-checkbox="${escapeHtml(encounter.id)}"
+                          ${state.importExportEncounterIds.has(encounter.id) ? "checked" : ""}
+                        />
+                        <div>
+                          <strong>${escapeHtml(encounter.name || "Encuentro")}</strong>
+                          <span>${escapeHtml(getEncounterSummaryLabel(encounter))}</span>
+                        </div>
+                      </label>
+                    `).join("")
+                  }
+                </div>
+              `).join("")}
+              ${
+                getEncountersByFolder("").length > 0
+                  ? `
+                    <div class="data-exchange-dialog__encounter-group" role="listitem">
+                      <p class="data-exchange-dialog__group-label">Sin carpeta</p>
+                      ${getEncountersByFolder("").map((encounter) => `
+                        <label class="data-exchange-dialog__list-item data-exchange-dialog__list-item--child">
+                          <input
+                            type="checkbox"
+                            data-import-export-encounter-checkbox="${escapeHtml(encounter.id)}"
+                            ${state.importExportEncounterIds.has(encounter.id) ? "checked" : ""}
+                          />
+                          <div>
+                            <strong>${escapeHtml(encounter.name || "Encuentro")}</strong>
+                            <span>${escapeHtml(getEncounterSummaryLabel(encounter))}</span>
+                          </div>
+                        </label>
+                      `).join("")}
+                    </div>
+                  `
+                  : ""
+              }
+            `
+        }
+      </div>
+    </div>
+  `;
+}
+
+function getEncounterSummaryLabel(encounter) {
+  const summary = getEncounterSummary(encounter);
+  return `${summary.units} unidades | CR ${formatCrNumber(summary.totalCr)}`;
+}
+
+function renderImportExportImportPanel(category) {
+  return `
+    <div class="data-exchange-dialog__import-panel">
+      <div class="empty-state empty-state--compact">
+        ${
+          category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+            ? "Se abrira el explorador para elegir un JSON de personajes exportado antes."
+            : "Se abrira el explorador para elegir un JSON de encuentros exportado antes."
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderCompendiumCreateDialog() {
+  if (!state.compendiumCreateDialogOpen || !COMPENDIUM_CREATION_FIELDS[state.compendiumCreateKind]) {
+    return "";
+  }
+
+  const repositoryKey = state.compendiumCreateKind;
+  const nounLabel = COMPENDIUM_KIND_LABELS[repositoryKey] || "entidad";
+  const repositoryLabel = COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "repositorio";
+
+  return `
+    <div class="campaign-save-dialog compendium-create-dialog" role="presentation">
+      <button
+        class="campaign-save-dialog__backdrop"
+        type="button"
+        data-action="dismiss-compendium-create-dialog"
+        aria-label="Cerrar formulario de creacion"
+      ></button>
+      <section
+        class="campaign-save-dialog__panel compendium-create-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="compendium-create-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">Crear ${escapeHtml(nounLabel)}</p>
+        <h2 class="campaign-save-dialog__title" id="compendium-create-dialog-title">${escapeHtml(repositoryLabel)}</h2>
+        <p class="campaign-save-dialog__text">Guardar escribira una nueva fila en el CSV activo de ${escapeHtml(repositoryLabel)}.</p>
+        <div class="compendium-create-dialog__grid">
+          ${getCompendiumCreateFields(repositoryKey).map((field) => renderCompendiumCreateField(field)).join("")}
+        </div>
+        ${
+          state.compendiumCreateError
+            ? `<p class="campaign-save-dialog__error">${escapeHtml(state.compendiumCreateError)}</p>`
+            : ""
+        }
+        <div class="campaign-save-dialog__actions">
+          <button class="toolbar-button" type="button" data-action="dismiss-compendium-create-dialog">
+            Cancelar
+          </button>
+          <button class="toolbar-button toolbar-button--accent" type="button" data-action="save-compendium-entity">
+            Guardar
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderCompendiumCreateField(field) {
+  const value = cleanText(state.compendiumCreateDraft[field.key]);
+  const isTextArea = field.type === "textarea";
+  const inputClass = isTextArea
+    ? "campaign-save-dialog__input compendium-create-dialog__textarea"
+    : "campaign-save-dialog__input";
+
+  return `
+    <label class="campaign-save-dialog__field compendium-create-dialog__field ${isTextArea ? "compendium-create-dialog__field--full" : ""}">
+      <span>${escapeHtml(field.label)}${field.required ? " *" : ""}</span>
+      ${
+        isTextArea
+          ? `
+            <textarea
+              class="${inputClass}"
+              data-compendium-create-field="${escapeHtml(field.key)}"
+            >${escapeHtml(value)}</textarea>
+          `
+          : `
+            <input
+              class="${inputClass}"
+              type="${field.type === "number" ? "number" : "text"}"
+              value="${escapeHtml(value)}"
+              data-compendium-create-field="${escapeHtml(field.key)}"
+            />
+          `
+      }
+    </label>
+  `;
+}
+
 function renderCharacterSpellbookAbilityDescriptionDialog() {
   if (!state.characterSpellbookAbilityDescriptionDialogOpen) {
     return "";
@@ -3850,8 +5062,10 @@ function render(focusState = null) {
       ${renderCharacterOverviewHeaderTooltipOverlay()}
       ${renderBootOverlay()}
       ${renderOptionsDialog()}
+      ${renderImportExportDialog()}
       ${renderCampaignSaveNameDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
+      ${renderCompendiumCreateDialog()}
       ${renderMulticlassLevelUpDialog()}
     </div>
   `;
@@ -5389,16 +6603,21 @@ function renderEncounterInventoryPanel(activeEncounter) {
     <div class="encounter-inventory__panel">
       <aside class="encounter-list" aria-label="Encuentros guardados">
         <div class="encounter-list__header">
-          <div>
+          <div class="encounter-list__header-main">
             <p class="eyebrow">Listas guardadas</p>
             <h3>Encuentros</h3>
+            <div class="encounter-list__actions encounter-list__actions--stacked">
+              <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-encounter-folder">
+                Nueva carpeta
+              </button>
+              <button class="toolbar-button" type="button" data-action="create-encounter">
+                Nuevo encuentro
+              </button>
+            </div>
           </div>
-          <div class="encounter-list__actions">
-            <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-encounter-folder">
-              Nueva carpeta
-            </button>
-            <button class="toolbar-button" type="button" data-action="create-encounter">
-              Nuevo encuentro
+          <div class="encounter-list__header-side">
+            <button class="toolbar-button" type="button" data-action="open-encounter-import-export">
+              Importar / Exportar
             </button>
           </div>
         </div>
@@ -5791,6 +7010,11 @@ function renderBestiary() {
       </div>
 
       ${renderEncounterInventorySection()}
+      <div class="compendium-create-row compendium-create-row--bestiary">
+        <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="bestiary">
+          Crear criatura
+        </button>
+      </div>
 
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
@@ -5826,6 +7050,11 @@ function renderItems() {
       </div>
 
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("items_filters_label"))}">
+        <div class="compendium-create-row compendium-create-row--toolbar">
+          <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="items">
+            Crear objeto
+          </button>
+        </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
           <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-item-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
@@ -5859,6 +7088,11 @@ function renderArcanum() {
       </div>
 
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("arcanum_filters_label"))}">
+        <div class="compendium-create-row compendium-create-row--toolbar">
+          <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="arcanum">
+            Crear hechizo
+          </button>
+        </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
           ${renderArcanumConcentrationFilterButton()}
@@ -5921,12 +7155,12 @@ function renderItemsContent(filteredEntries, selectedEntry) {
   }
 
   if (state.itemStatus === "error") {
-    return renderAssetLoadErrorState(state.itemMessage || "No se pudo leer Items.csv.", state.itemDebugInfo);
+    return renderAssetLoadErrorState(state.itemMessage || "No se pudo leer el CSV de objetos.", state.itemDebugInfo);
   }
 
   return `
     <div class="bestiary-layout">
-      <div class="bestiary-list" role="list" aria-label="Items del catalogo" data-item-list-root>
+      <div class="bestiary-list" role="list" aria-label="Objetos del catalogo" data-item-list-root>
         ${renderItemList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
       <aside class="bestiary-detail panel panel--inner" data-item-detail-root>
@@ -8188,6 +9422,9 @@ function renderCharactersScreen() {
         <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-character" ${activeCharacter ? "" : "disabled"}>
           Eliminar
         </button>
+        <button class="toolbar-button" type="button" data-action="open-character-import-export">
+          Importar / Exportar
+        </button>
         <button
           class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
           type="button"
@@ -10414,7 +11651,7 @@ function renderCharacterInventoryRow(row) {
           class="filter-input character-inventory__input${matchedItem ? " character-inventory__input--linked" : ""}"
           type="search"
           value="${escapeHtml(row.name)}"
-          placeholder="${isCurrencyRow ? "" : "Busca un item del catalogo"}"
+          placeholder="${isCurrencyRow ? "" : "Busca un objeto del catalogo"}"
           data-character-inventory-name="${escapeHtml(row.id)}"
           ${isCurrencyRow ? "readonly" : ""}
         />
@@ -16675,7 +17912,7 @@ function renderItemAttunementFilterButton() {
       type="button"
       data-action="toggle-item-attunement-filter"
       aria-pressed="${Boolean(value)}"
-      title="Filtrar por items con o sin sintonizacion"
+      title="Filtrar por objetos con o sin sintonizacion"
     >
       ${label}
     </button>
@@ -16693,7 +17930,7 @@ function renderItemQueryField() {
           class="filter-input filter-input--wide"
           type="search"
           value="${escapeHtml(state.itemFilters.query)}"
-          placeholder="${escapeHtml(t("arcanum_search_placeholder"))}"
+          placeholder="${escapeHtml(t("items_search_placeholder"))}"
           data-item-query
         />
         ${renderItemSortButton("name", "Ordenar por nombre")}
@@ -16701,7 +17938,7 @@ function renderItemQueryField() {
       ${
         state.showItemQuerySuggestions && suggestions.length > 0
           ? `
-            <div class="bestiary-query__popover" role="listbox" aria-label="Sugerencias de item">
+            <div class="bestiary-query__popover" role="listbox" aria-label="Sugerencias de objeto">
               ${suggestions.map((value) => `
                 <button
                   class="bestiary-query__option"
@@ -16880,7 +18117,7 @@ function renderArcanumQueryField() {
           class="filter-input filter-input--wide"
           type="search"
           value="${escapeHtml(state.arcanumFilters.query)}"
-          placeholder="${escapeHtml(t("items_search_placeholder"))}"
+          placeholder="${escapeHtml(t("arcanum_search_placeholder"))}"
           data-arcanum-query
         />
         ${renderArcanumSortButton("name", "Ordenar por nombre")}
