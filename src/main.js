@@ -64,6 +64,9 @@ import {
 import { getVirtualStartIndex, getVirtualWindow } from "./shared/virtualList.js";
 import * as XLSX from "xlsx";
 import appIconUrl from "../build-resources/icon.png";
+import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
+import combatHitDiceIconUrl from "./assets/buttons-icons/Dados_golpe.png";
+import combatShieldIconUrl from "./assets/buttons-icons/Shield.png";
 import combatSoundUrl from "./assets/sound-effects/combate.mp3";
 import longRestSoundUrl from "./assets/sound-effects/descanso.mp3";
 import diceRollSoundUrl from "./assets/sound-effects/dice_roll.mp3";
@@ -231,6 +234,7 @@ const arcanumFilterLabels = {
   class: "clases",
   castingTime: "velocidades"
 };
+let activeCharacterOverviewHeaderTooltipElement = null;
 const defaultRepositoryCsvPaths = {
   bestiary: DEFAULT_BESTIARY_CSV_RELATIVE_PATH,
   items: DEFAULT_ITEMS_CSV_RELATIVE_PATH,
@@ -1456,6 +1460,14 @@ function handleClick(event) {
 
   if (action === "adjust-area-pg-temp") {
     applyAreaPgTempAdjustment();
+    render();
+    return;
+  }
+
+  if (action === "adjust-area-xp") {
+    applyAreaExperienceAdjustment();
+    saveCharacters();
+    saveCombatTrackerState();
     render();
     return;
   }
@@ -3086,6 +3098,10 @@ async function handlePaste(event) {
 function handleScroll(event) {
   const target = event.target;
 
+  if (activeCharacterOverviewHeaderTooltipElement) {
+    syncCharacterOverviewHeaderTooltipPosition();
+  }
+
   if (state.activeCombatSpellbookCombatantId) {
     scheduleActiveCombatSpellbookPopoverSync();
   }
@@ -3148,9 +3164,16 @@ function handleWindowResize() {
   updateArcanumListViewport(true);
   scheduleActiveCombatSpellbookPopoverSync();
   scheduleActiveCombatSpellPreviewSync();
+  syncCharacterOverviewHeaderTooltipPosition();
 }
 
 function handleMouseOver(event) {
+  const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
+
+  if (overviewTooltipTrigger) {
+    showCharacterOverviewHeaderTooltip(overviewTooltipTrigger);
+  }
+
   const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
@@ -3169,6 +3192,18 @@ function handleMouseOver(event) {
 }
 
 function handleMouseOut(event) {
+  const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
+
+  if (overviewTooltipTrigger) {
+    if (event.relatedTarget && overviewTooltipTrigger.contains(event.relatedTarget)) {
+      return;
+    }
+
+    if (!event.relatedTarget?.closest?.("[data-character-overview-tooltip]")) {
+      hideCharacterOverviewHeaderTooltip();
+    }
+  }
+
   const previewTrigger = event.target.closest("[data-combat-preview-key]");
   const previewOverlay = event.target.closest("[data-combat-spell-preview-overlay]");
 
@@ -3209,6 +3244,12 @@ function handleMouseOut(event) {
 }
 
 function handleFocusIn(event) {
+  const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
+
+  if (overviewTooltipTrigger) {
+    showCharacterOverviewHeaderTooltip(overviewTooltipTrigger);
+  }
+
   const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
@@ -3227,6 +3268,18 @@ function handleFocusIn(event) {
 }
 
 function handleFocusOut(event) {
+  const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
+
+  if (overviewTooltipTrigger) {
+    if (event.relatedTarget && overviewTooltipTrigger.contains(event.relatedTarget)) {
+      return;
+    }
+
+    if (!event.relatedTarget?.closest?.("[data-character-overview-tooltip]")) {
+      hideCharacterOverviewHeaderTooltip();
+    }
+  }
+
   const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
@@ -3755,6 +3808,18 @@ function renderMulticlassLevelUpDialog() {
   `;
 }
 
+function renderCharacterOverviewHeaderTooltipOverlay() {
+  return `
+    <div
+      class="character-overview-floating-tooltip"
+      data-character-overview-floating-tooltip
+      role="tooltip"
+      aria-hidden="true"
+      hidden
+    ></div>
+  `;
+}
+
 function render(focusState = null) {
   cancelScheduledRender();
 
@@ -3782,6 +3847,7 @@ function render(focusState = null) {
       </main>
       ${renderNotifications()}
       ${renderCombatSpellPreviewOverlay()}
+      ${renderCharacterOverviewHeaderTooltipOverlay()}
       ${renderBootOverlay()}
       ${renderOptionsDialog()}
       ${renderCampaignSaveNameDialog()}
@@ -3827,6 +3893,8 @@ function render(focusState = null) {
   syncTopbarNavigationMetrics();
   scheduleActiveCombatSpellbookPopoverSync();
   scheduleActiveCombatSpellPreviewSync();
+  activeCharacterOverviewHeaderTooltipElement = null;
+  hideCharacterOverviewHeaderTooltip();
 
   saveCombatTrackerState();
 }
@@ -4663,6 +4731,16 @@ function renderCombatTracker() {
               >
                 <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("temp")}</span>
               </button>
+              <button
+                class="mini-action mini-action--xp"
+                type="button"
+                data-action="adjust-area-xp"
+                data-tooltip="Experiencia"
+                ${state.selectedIds.size === 0 ? "disabled" : ""}
+                aria-label="Aplicar experiencia a filas seleccionadas"
+              >
+                <span class="mini-action__icon" aria-hidden="true"><img src="${escapeHtml(combatAreaXpIconUrl)}" alt="" decoding="async" /></span>
+              </button>
             </div>
           </div>
           <button
@@ -5298,18 +5376,10 @@ function renderEncounterInventorySection() {
 
   return `
     <section class="encounter-inventory">
-      <div class="encounter-inventory__bar">
-        <p class="eyebrow encounter-inventory__title">Editor de encuentros</p>
-        <button
-          class="toolbar-button toolbar-button--accent encounter-inventory__toggle"
-          type="button"
-          data-action="toggle-encounter-inventory"
-          aria-expanded="${state.encounterInventoryOpen}"
-        >
-          ${escapeHtml(translateUiString(state.encounterInventoryOpen ? "Ocultar inventario" : "Mostrar inventario"))}
-        </button>
-      </div>
       ${state.encounterInventoryOpen ? renderEncounterInventoryPanel(activeEncounter) : ""}
+      <div class="encounter-inventory__bar">
+        <p class="eyebrow encounter-inventory__title">${escapeHtml(translateUiString("Repositorio de enemigos"))}</p>
+      </div>
     </section>
   `;
 }
@@ -5700,6 +5770,17 @@ function renderBestiary() {
     <section class="panel panel--table compendium-panel bestiary-showcase bestiary-showcase--hearth">
       <div class="section-heading section-heading--bestiary">
         ${renderScreenHeadingIdentity("bestiary", "", t("bestiary_title"))}
+        <div class="encounter-inventory__heading encounter-inventory__heading--inline">
+          <p class="eyebrow bestiary-heading__eyebrow">${escapeHtml(translateUiString("Editor de encuentros"))}</p>
+          <button
+            class="toolbar-button toolbar-button--accent encounter-inventory__toggle"
+            type="button"
+            data-action="toggle-encounter-inventory"
+            aria-expanded="${state.encounterInventoryOpen}"
+          >
+            ${escapeHtml(translateUiString(state.encounterInventoryOpen ? "Ocultar inventario" : "Mostrar inventario"))}
+          </button>
+        </div>
       <div class="section-heading__side">
         <div class="section-meta bestiary-showcase__meta">
           ${renderRepositoryCsvPicker("bestiary")}
@@ -5707,7 +5788,6 @@ function renderBestiary() {
           <span>${escapeHtml(t("bestiary_total", { count: state.bestiary.length }))}</span>
         </div>
       </div>
-        <p class="eyebrow bestiary-heading__eyebrow">${escapeHtml(t("bestiary_eyebrow"))}</p>
       </div>
 
       ${renderEncounterInventorySection()}
@@ -6668,10 +6748,7 @@ function renderDataCell(combatant, column, isDead) {
               aria-pressed="${isCombatantShieldEquipped(combatant) ? "true" : "false"}"
               aria-label="Equipar o desequipar un escudo"
             >
-              <svg class="combat-shield-toggle__icon" viewBox="0 0 48 54" aria-hidden="true">
-                <path d="M24 3 42 9v14.7c0 11.8-7 22-18 27.3C13 45.7 6 35.5 6 23.7V9l18-6Z" />
-              </svg>
-              <span>+2</span>
+              <img class="combat-shield-toggle__icon combat-shield-toggle__icon--image" src="${escapeHtml(combatShieldIconUrl)}" alt="" decoding="async" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -6714,7 +6791,7 @@ function renderDataCell(combatant, column, isDead) {
                 data-edit-key="pgTemp"
                 aria-label="PG TEMP de ${escapeHtml(combatant.nombre || combatant.id)}"
               />
-              <span class="resource-cell__temp-label"><span>PG</span><span>TEMP</span></span>
+              ${renderCombatResourceIcon(getCombatMiniActionIconUrl("temp"), "Vida temporal", "combat-resource-icon--temp")}
             </div>
           </div>
           <div class="resource-cell__actions-row">
@@ -6777,7 +6854,7 @@ function renderDataCell(combatant, column, isDead) {
                       data-edit-key="hitDice"
                       aria-label="Dados de golpe de ${escapeHtml(combatant.nombre || combatant.id)}"
                     />
-                    <span class="resource-cell__temp-label resource-cell__hit-dice-label"><span>DADOS</span><span>GOLPE</span></span>
+                    ${renderCombatResourceIcon(combatHitDiceIconUrl, isEnglishInterface() ? "HIT DICE" : "Dados de golpe", "combat-resource-icon--hit-dice")}
                   </div>
                 `
                 : ""
@@ -6888,6 +6965,20 @@ function getLinkedCharacterForCombatant(combatant) {
   }
 
   return state.characters.find((character) => cleanText(character.name).toLowerCase() === normalizedName) ?? null;
+}
+
+function renderCombatResourceIcon(iconUrl, tooltip, extraClassName = "") {
+  const classes = ["combat-resource-icon"];
+
+  if (extraClassName) {
+    classes.push(extraClassName);
+  }
+
+  return `
+    <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--side-right ${classes.join(" ")}" data-tooltip="${escapeHtml(tooltip)}" tabindex="0">
+      <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" aria-hidden="true" />
+    </span>
+  `;
 }
 
 function renderCombatSpellbookControl(combatant, linkedCharacter) {
@@ -9220,10 +9311,10 @@ function renderCharactersOverviewPanel(characters) {
                     <th scope="col">Vel.</th>
                     <th scope="col">Talla</th>
                     <th scope="col">
-                      <span class="character-overview__header-tooltip" tabindex="0" data-tooltip="${escapeHtml(passivePerceptionTooltip)}">P.P</span>
+                      <span class="character-overview__header-tooltip" tabindex="0" data-character-overview-tooltip="${escapeHtml(passivePerceptionTooltip)}">P.P</span>
                     </th>
                     <th scope="col">
-                      <span class="character-overview__header-tooltip" tabindex="0" data-tooltip="${escapeHtml(trapPerceptionTooltip)}">P.T</span>
+                      <span class="character-overview__header-tooltip" tabindex="0" data-character-overview-tooltip="${escapeHtml(trapPerceptionTooltip)}">P.T</span>
                     </th>
                     <th scope="col">XP</th>
                     <th scope="col">Carga</th>
@@ -14771,6 +14862,36 @@ function applyAreaPgTempAdjustment() {
   state.areaDamage = "";
 }
 
+function applyAreaExperienceAdjustment() {
+  const amount = Number(state.areaDamage);
+
+  if (!Number.isFinite(amount) || amount <= 0 || state.selectedIds.size === 0) {
+    return;
+  }
+
+  const characterIds = state.combatants
+    .filter((combatant) => state.selectedIds.has(combatant.id))
+    .map((combatant) => {
+      if (cleanText(combatant.side).toLowerCase() !== "allies") {
+        return "";
+      }
+
+      const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+      return linkedCharacter ? cleanText(linkedCharacter.id) : "";
+    })
+    .filter(Boolean);
+
+  if (characterIds.length === 0) {
+    state.areaDamage = "";
+    return;
+  }
+
+  [...new Set(characterIds)].forEach((characterId) => {
+    addExperienceToCharacters([characterId], Math.max(0, Math.floor(amount)));
+  });
+  state.areaDamage = "";
+}
+
 function applyReviveExhaustion(previousCombatants = []) {
   const previousCombatantsById = new Map(previousCombatants.map((combatant) => [combatant.id, combatant]));
 
@@ -18810,6 +18931,68 @@ function syncActiveCombatSpellPreviewPosition() {
 
   preview.style.setProperty("--combat-spell-preview-left", `${Math.round(left)}px`);
   preview.style.setProperty("--combat-spell-preview-top", `${Math.round(top)}px`);
+}
+
+function showCharacterOverviewHeaderTooltip(trigger) {
+  if (!trigger) {
+    return;
+  }
+
+  activeCharacterOverviewHeaderTooltipElement = trigger;
+  const overlay = app.querySelector("[data-character-overview-floating-tooltip]");
+
+  if (!overlay) {
+    return;
+  }
+
+  overlay.textContent = cleanText(trigger.dataset.characterOverviewTooltip);
+  overlay.hidden = false;
+  overlay.setAttribute("aria-hidden", "false");
+  syncCharacterOverviewHeaderTooltipPosition();
+}
+
+function hideCharacterOverviewHeaderTooltip() {
+  activeCharacterOverviewHeaderTooltipElement = null;
+  const overlay = app.querySelector("[data-character-overview-floating-tooltip]");
+
+  if (!overlay) {
+    return;
+  }
+
+  overlay.hidden = true;
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.textContent = "";
+  overlay.style.removeProperty("--character-overview-tooltip-left");
+  overlay.style.removeProperty("--character-overview-tooltip-top");
+}
+
+function syncCharacterOverviewHeaderTooltipPosition() {
+  if (typeof window === "undefined" || !activeCharacterOverviewHeaderTooltipElement) {
+    return;
+  }
+
+  const overlay = app.querySelector("[data-character-overview-floating-tooltip]");
+
+  if (!overlay || overlay.hidden) {
+    return;
+  }
+
+  const triggerRect = activeCharacterOverviewHeaderTooltipElement.getBoundingClientRect();
+  const overlayRect = overlay.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const padding = 12;
+  let left = triggerRect.left + (triggerRect.width / 2) - (overlayRect.width / 2);
+  let top = triggerRect.top - overlayRect.height - 8;
+
+  left = Math.max(padding, Math.min(left, viewportWidth - overlayRect.width - padding));
+
+  if (top < padding) {
+    top = Math.min(viewportHeight - overlayRect.height - padding, triggerRect.bottom + 8);
+  }
+
+  overlay.style.setProperty("--character-overview-tooltip-left", `${Math.round(left)}px`);
+  overlay.style.setProperty("--character-overview-tooltip-top", `${Math.round(top)}px`);
 }
 
 function pushNotification({ title = "Notificación", message = "", tone = "info", durationMs = 5200, imageUrl = "" } = {}) {
