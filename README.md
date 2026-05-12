@@ -56,6 +56,20 @@ Mimic-Dice-portable-0.1.0-x64.exe
 
 Si en tu Windows local alguna build de Electron da guerra con permisos de firma o symlinks, la ruta mas fiable para distribuirla sigue siendo GitHub Actions.
 
+Build editable de Windows en `.zip`:
+
+```powershell
+npm run electron:build:editable-zip
+```
+
+Build editable de macOS en `.zip`:
+
+```bash
+npm run electron:build:editable-mac-zip
+```
+
+La build de macOS debe lanzarse desde macOS. Windows y macOS generan binarios distintos, asi que se distribuyen como artefactos separados. En macOS los assets editables se escriben en la carpeta de usuario de la app para evitar permisos del bundle `.app`.
+
 ## Descargar y probar en otro PC
 
 La forma mas sencilla para alguien que no tenga Node, npm o entorno de desarrollo es usar la build portable ya empaquetada.

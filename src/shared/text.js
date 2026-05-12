@@ -5,6 +5,13 @@ export function cleanText(value) {
     .trim();
 }
 
+export function normalizeSearchText(value) {
+  return cleanText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 export function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")

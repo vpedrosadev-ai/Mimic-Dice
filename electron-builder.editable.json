@@ -39,5 +39,17 @@
     ],
     "icon": "build-resources/icon.ico",
     "signAndEditExecutable": false
+  },
+  "mac": {
+    "target": [
+      {
+        "target": "zip",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      }
+    ],
+    "category": "public.app-category.games"
   }
 }

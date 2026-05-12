@@ -11,6 +11,7 @@ import {
 import { isPlainObject, toNumber } from "../shared/numberUtils.js";
 import {
   cleanText,
+  normalizeSearchText,
   parseLeadingNumber,
   shortenLabel,
   slugify,
@@ -62,7 +63,7 @@ export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) 
   const crLabel = cr || "Sin CR";
   const crBaseLabel = extractCrBaseLabel(cr);
   const compositeKey = buildBestiaryCompositeKey(name, source);
-  const searchText = [
+  const searchText = normalizeSearchText([
     name,
     source,
     type,
@@ -80,15 +81,13 @@ export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) 
     mythicActions,
     lairActions,
     regionalEffects
-  ]
-    .join(" ")
-    .toLowerCase();
+  ].join(" "));
 
   return {
     id: compositeKey || `bestiary-${index + 1}`,
     compositeKey,
     name,
-    nameLower: name.toLowerCase(),
+    nameLower: normalizeSearchText(name),
     source,
     sourceFullName,
     page,
@@ -156,7 +155,7 @@ export function normalizeItemEntry(row, index, imageMap = {}) {
   const weightNumber = parseItemWeight(weight);
   const sizeLabel = getItemSizeLabel(weightNumber, name, type);
   const imageUrl = resolveItemImageAsset(name, source, imageMap);
-  const searchText = [
+  const searchText = normalizeSearchText([
     name,
     source,
     rarity,
@@ -169,15 +168,13 @@ export function normalizeItemEntry(row, index, imageMap = {}) {
     sizeLabel,
     value,
     text
-  ]
-    .join(" ")
-    .toLowerCase();
+  ].join(" "));
 
   return {
     id: compositeKey || `item-${index + 1}`,
     compositeKey,
     name,
-    nameLower: name.toLowerCase(),
+    nameLower: normalizeSearchText(name),
     source,
     page,
     rarity,
@@ -240,7 +237,7 @@ export function normalizeSpellEntry(row, index) {
   const sourceLabel = page ? `${sourceFullName} p.${page}` : sourceFullName || "Sin fuente";
   const schoolLine = [levelLabel, school].filter(Boolean).join(" | ");
   const compositeKey = buildArcanumCompositeKey(name, source, level);
-  const searchText = [
+  const searchText = normalizeSearchText([
     name,
     source,
     sourceFullName,
@@ -255,15 +252,13 @@ export function normalizeSpellEntry(row, index) {
     subclasses,
     text,
     atHigherLevels
-  ]
-    .join(" ")
-    .toLowerCase();
+  ].join(" "));
 
   return {
     id: compositeKey || `arcanum-${index + 1}`,
     compositeKey,
     name,
-    nameLower: name.toLowerCase(),
+    nameLower: normalizeSearchText(name),
     source,
     sourceFullName,
     page,

@@ -9,15 +9,15 @@
 - Cambios hechos despues: se extrajo render puro de compendios a `src/screens/compendiums/detailRender.js` para fichas seleccionadas y `src/screens/compendiums/listRender.js` para filas/listas virtualizadas. Ambos reciben dependencias desde `main.js` y no leen `state` directamente.
 - Cambios hechos despues: se agrego idioma de contenido CSV independiente del idioma de interfaz. `Opciones` permite EN/ES para contenido, y Bestiario/Items/Arcanum recargan sus CSV al cambiarlo.
 - Cambios hechos despues: cada repositorio de compendio tiene selector de CSV antes de la chip `CSV activo`. En desktop se listan `.csv` desde `data/` usando `window.mimicDice.listAssetFiles`; en web queda fallback a los CSV canonicos.
-- Contrato de traduccion: la app intenta cargar sidecar `Nombre.es.csv` si el CSV base esta en ingles y el contenido pedido es ES. Si no existe sidecar, aplica glosario local en `src/data/contentTranslation.js`. Esto es fallback, no traduccion completa de prosa larga arbitraria.
-- Cambios hechos despues: los CSV canonicos del proyecto ya tienen sidecars generados `public/data/Bestiary.es.csv`, `public/data/Items.es.csv` y `public/data/Spells.es.csv`. Se regeneran con `npm run translate:default-csvs`.
+- Contrato de traduccion: la app intenta cargar sidecar `Nombre_ES.csv` si el CSV base esta en ingles y el contenido pedido es ES. Si no existe sidecar, aplica glosario local en `src/data/contentTranslation.js`. Esto es fallback, no traduccion completa de prosa larga arbitraria.
+- Cambios hechos despues: los CSV canonicos del proyecto ya tienen sidecars generados `public/data/Bestiary_ES.csv`, `public/data/Items_ES.csv` y `public/data/Spells_ES.csv`. Se regeneran con `npm run translate:default-csvs`.
 - Cambios hechos despues: `parseCsv()` detecta `,`, `;` o tab en cabecera; la carga de sidecars ES remapea cabeceras traducidas a las claves canonicas, mezcla contenido localizado sobre el CSV base y rechaza sidecars demasiado incompatibles para no dejar compendios con nombres vacios.
 - Cambios hechos despues: nueva pantalla `Diario` integrada en navegacion y guardado de campana. Guarda notas enriquecidas, titulo, fechas reales, fechas de Harptos y contenido HTML con imagenes pegadas desde portapapeles.
 - Cambios hechos despues: `Diario` usa persistencia local web en `mimic-dice:diary:v1` cuando no se trabaja en modo desktop solo-fichero, y tambien viaja dentro del save de campana junto a personajes, encuentros, tablas y combate.
 - Documentacion actualizada: `PROJECT_CONTEXT.md`, `CURRENT_STATE.md`, `SESSION_HANDOFF.md` y `src/screens/README.md` reflejan la nueva estructura y el orden de lectura recomendado.
 - Verificacion corrida: `npm run build` OK tras la extraccion.
 - Riesgos activos: no hay suite automatica formal; `npm run build` valida bundle, pero conviene hacer smoke manual de Bestiario, Items, Arcanum, pantalla de personajes, tablas y guardado desktop si se empaqueta.
-- Siguiente paso recomendado: extraer toolbar/filtros de Bestiario/Items/Arcanum a `src/screens/compendiums/filterRender.js`, dejando en `src/main.js` estado, seleccion, handlers y llamadas de orquestacion. Para mejorar calidad de ES, crear sidecars `.es.csv` reales para datasets principales o ampliar `contentTranslation.js` por dominios.
+- Siguiente paso recomendado: extraer toolbar/filtros de Bestiario/Items/Arcanum a `src/screens/compendiums/filterRender.js`, dejando en `src/main.js` estado, seleccion, handlers y llamadas de orquestacion. Para mejorar calidad de ES, crear sidecars `_ES.csv` reales para datasets principales o ampliar `contentTranslation.js` por dominios.
 
 ## Handoff anterior
 

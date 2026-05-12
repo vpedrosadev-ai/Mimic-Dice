@@ -43,7 +43,7 @@ Notas:
 - `src/config/appConstants.js`: constantes de runtime, rutas de assets, claves de storage, versionado desktop y tamanos de virtualizacion.
 - `src/data/uiText.js`: textos de interfaz ES/EN y tablas de traduccion.
 - `src/data/compendiumEntries.js`: normalizacion de filas CSV, claves, fuentes, rarezas, tamanos, imagenes y metadatos de Bestiario/Items/Arcanum.
-- `src/data/contentTranslation.js`: deteccion de idioma de CSV y traduccion local EN->ES por glosario. Prioriza sidecar completo `Nombre.es.csv` si existe en `data/`.
+- `src/data/contentTranslation.js`: deteccion de idioma de CSV y traduccion local EN->ES por glosario. Prioriza sidecar completo `Nombre_ES.csv` si existe en `data/`.
 - `src/data/gameConstants.js`: datos estaticos de reglas internas: atributos, progresion de personaje/skills, monedas, XP por CR, tags de combate y filas de navegacion superior.
 - `src/data/itemTypeGroups.js`: jerarquia y deteccion de tipos agregados de items.
 - `src/shared/compendiumLayout.js`: sincronizacion de alturas compartida por Bestiario, Items y Arcanum.
@@ -95,13 +95,13 @@ Fuente de verdad: `src/navigation/screens.js`.
 Datos estaticos cargados en runtime:
 
 - `public/data/Bestiary.csv`
-- `public/data/Bestiary.es.csv`
+- `public/data/Bestiary_ES.csv`
 - `public/data/BestiaryImages.json`
 - `public/data/Items.csv`
-- `public/data/Items.es.csv`
+- `public/data/Items_ES.csv`
 - `public/data/ItemsImages.json`
 - `public/data/Spells.csv`
-- `public/data/Spells.es.csv`
+- `public/data/Spells_ES.csv`
 
 Persistencia local web:
 
@@ -161,10 +161,10 @@ Persistencia desktop:
 - `src/shared/virtualList.js` centraliza el calculo de `startIndex`, `endIndex`, padding y alto total de listas virtualizadas.
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
 - `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js` son la primera extraccion real de render de pantalla; reciben dependencias desde `src/main.js` para no acoplarse directamente al `state` global.
-- Idioma de contenido CSV es independiente del idioma de interfaz. El cambio de contenido recarga Bestiario/Items/Arcanum. Para traduccion completa de CSV nuevos, convencion optima: colocar junto al CSV base un sidecar con mismo esquema y sufijo `.es.csv`, por ejemplo `BestiaryExtra.csv` + `BestiaryExtra.es.csv`.
-- Los CSV canonicos del proyecto ya tienen sidecars por defecto `*.es.csv` generados con las mismas cabeceras inglesas para no romper normalizacion en runtime.
-- Si el CSV detectado esta en ingles y no hay sidecar `.es.csv`, la app aplica `src/data/contentTranslation.js` como fallback de glosario. Es util para campos estructurados y frases comunes, pero no sustituye una traduccion humana/modelo para textos largos arbitrarios.
-- Si un sidecar `.es.csv` llega con cabeceras traducidas, columnas parciales o separador `;`, runtime intenta remapearlo y mezclarlo sobre el CSV base; si sigue siendo incompatible, cae a glosario local sin dejar compendios vacios.
+- Idioma de contenido CSV es independiente del idioma de interfaz. El cambio de contenido recarga Bestiario/Items/Arcanum. Para traduccion completa de CSV nuevos, convencion optima: colocar junto al CSV base un sidecar con mismo esquema y sufijo `_ES.csv`, por ejemplo `BestiaryExtra.csv` + `BestiaryExtra_ES.csv`.
+- Los CSV canonicos del proyecto ya tienen sidecars por defecto `*_ES.csv` generados con las mismas cabeceras inglesas para no romper normalizacion en runtime.
+- Si el CSV detectado esta en ingles y no hay sidecar `_ES.csv`, la app aplica `src/data/contentTranslation.js` como fallback de glosario. Es util para campos estructurados y frases comunes, pero no sustituye una traduccion humana/modelo para textos largos arbitrarios.
+- Si un sidecar `_ES.csv` llega con cabeceras traducidas, columnas parciales o separador `;`, runtime intenta remapearlo y mezclarlo sobre el CSV base; si sigue siendo incompatible, cae a glosario local sin dejar compendios vacios.
 - En desktop, `electron/preload.js` expone `listAssetFiles("data", ".csv")` para poblar selectores de CSV del directorio `data/`. En web/dev sin listado de carpeta, se muestran al menos los CSV canonicos.
 
 ## High-Noise Paths To Ignore By Default

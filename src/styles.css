@@ -3089,6 +3089,15 @@ table {
   align-items: center;
 }
 
+.bestiary-query__controls {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.bestiary-create-button {
+  margin-left: 0.35rem;
+  white-space: nowrap;
+}
+
 .arcanum-query__controls {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }

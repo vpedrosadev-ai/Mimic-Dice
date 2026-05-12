@@ -22,7 +22,7 @@ for (const dataset of DATASETS) {
 
 async function generateSidecar({ fileName, kind }) {
   const sourcePath = path.join(DATA_DIRECTORY, fileName);
-  const sidecarPath = sourcePath.replace(/\.csv$/i, ".es.csv");
+  const sidecarPath = sourcePath.replace(/\.csv$/i, "_ES.csv");
   const sourceText = await fs.readFile(sourcePath, "utf8");
   const rows = parseCsv(sourceText);
   const translatedRows = translateCompendiumRows(rows, kind, "es");

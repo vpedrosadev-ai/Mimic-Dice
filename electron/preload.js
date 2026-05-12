@@ -66,10 +66,13 @@ function getDesktopDebugInfo() {
   ];
   const requiredFiles = [
     "data/Bestiary.csv",
+    "data/Bestiary_ES.csv",
     "data/BestiaryImages.json",
     "data/Items.csv",
+    "data/Items_ES.csv",
     "data/ItemsImages.json",
-    "data/Spells.csv"
+    "data/Spells.csv",
+    "data/Spells_ES.csv"
   ];
 
   return {
@@ -94,52 +97,11 @@ function getDesktopDebugInfo() {
 }
 
 async function readDesktopAssetText(relativePath) {
-  const assetDirectory = getDesktopAssetDirectory();
-
-  if (!assetDirectory) {
-    throw new Error("Desktop asset directory not available");
-  }
-
-  const normalizedRelativePath = String(relativePath || "").replace(/^[\\/]+/, "");
-
-  if (!normalizedRelativePath) {
-    throw new Error("Missing asset path");
-  }
-
-  const resolvedPath = path.resolve(assetDirectory, normalizedRelativePath);
-  const normalizedAssetDirectory = `${path.resolve(assetDirectory)}${path.sep}`;
-
-  if (resolvedPath !== path.resolve(assetDirectory) && !resolvedPath.startsWith(normalizedAssetDirectory)) {
-    throw new Error("Asset path outside allowed directory");
-  }
-
-  return fs.promises.readFile(resolvedPath, "utf8");
+  return ipcRenderer.invoke("asset:read-text", { relativePath });
 }
 
 async function listDesktopAssetFiles(relativeDirectory = "data", extension = ".csv") {
-  const assetDirectory = getDesktopAssetDirectory() || path.join(process.cwd(), "public");
-
-  if (!assetDirectory) {
-    return [];
-  }
-
-  const normalizedRelativeDirectory = String(relativeDirectory || "data").replace(/^[\\/]+/, "");
-  const resolvedDirectory = path.resolve(assetDirectory, normalizedRelativeDirectory);
-  const normalizedAssetDirectory = `${path.resolve(assetDirectory)}${path.sep}`;
-
-  if (resolvedDirectory !== path.resolve(assetDirectory) && !resolvedDirectory.startsWith(normalizedAssetDirectory)) {
-    throw new Error("Asset directory outside allowed root");
-  }
-
-  const entries = await fs.promises.readdir(resolvedDirectory, { withFileTypes: true });
-  const normalizedExtension = String(extension || "").toLowerCase();
-
-  return entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((fileName) => !normalizedExtension || fileName.toLowerCase().endsWith(normalizedExtension))
-    .map((fileName) => `${normalizedRelativeDirectory.replace(/\\/g, "/").replace(/\/+$/, "")}/${fileName}`)
-    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+  return ipcRenderer.invoke("asset:list-files", { relativeDirectory, extension });
 }
 
 async function readRepositoryCsvText(filePath) {

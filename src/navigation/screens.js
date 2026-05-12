@@ -1,7 +1,7 @@
 export const screens = [
   {
     id: "combat-tracker",
-    label: "Combat Tracker",
+    label: "Combat",
     shortLabel: "Combate",
     icon: `
       <svg viewBox="0 0 24 24" aria-hidden="true">

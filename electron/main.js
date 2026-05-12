@@ -65,7 +65,49 @@ function requirePathExists(targetPath) {
 }
 
 function resolveWritableAssetRoot() {
+  if (process.platform === "darwin" && app.isPackaged) {
+    return path.join(app.getPath("userData"), "app-assets");
+  }
+
   return resolveDesktopAssetDirectory() || path.join(PROJECT_ROOT, "public");
+}
+
+function getReadableAssetRoots() {
+  return [
+    resolveWritableAssetRoot(),
+    resolveDesktopAssetDirectory(),
+    path.join(PROJECT_ROOT, "public")
+  ]
+    .filter(Boolean)
+    .map((candidatePath) => path.resolve(candidatePath))
+    .filter((candidatePath, index, roots) => roots.indexOf(candidatePath) === index);
+}
+
+function resolveReadableAssetPath(relativePath) {
+  const normalizedRelativePath = String(relativePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+
+  if (!normalizedRelativePath) {
+    throw new Error("Missing asset path.");
+  }
+
+  for (const assetRoot of getReadableAssetRoots()) {
+    const resolvedPath = path.resolve(assetRoot, normalizedRelativePath);
+    const normalizedRoot = `${assetRoot}${path.sep}`;
+
+    if (resolvedPath !== assetRoot && !resolvedPath.startsWith(normalizedRoot)) {
+      continue;
+    }
+
+    if (requirePathExists(resolvedPath)) {
+      return {
+        assetRoot,
+        resolvedPath,
+        normalizedRelativePath
+      };
+    }
+  }
+
+  throw new Error("Asset not found.");
 }
 
 function resolveWritableAssetPath(relativePath) {
@@ -112,17 +154,6 @@ function getMimeTypeForAsset(filePath) {
 }
 
 async function handleDesktopAssetRequest(request) {
-  const assetDirectory = resolveDesktopAssetDirectory();
-
-  if (!assetDirectory) {
-    return new Response("Desktop asset directory not available.", {
-      status: 404,
-      headers: {
-        "content-type": "text/plain; charset=utf-8"
-      }
-    });
-  }
-
   const requestUrl = new URL(request.url);
   const normalizedRelativePath = decodeURIComponent(requestUrl.pathname || "/").replace(/^\/+/, "");
 
@@ -135,20 +166,8 @@ async function handleDesktopAssetRequest(request) {
     });
   }
 
-  const resolvedAssetDirectory = path.resolve(assetDirectory);
-  const resolvedAssetPath = path.resolve(assetDirectory, normalizedRelativePath);
-  const normalizedRoot = `${resolvedAssetDirectory}${path.sep}`;
-
-  if (resolvedAssetPath !== resolvedAssetDirectory && !resolvedAssetPath.startsWith(normalizedRoot)) {
-    return new Response("Asset path outside allowed directory.", {
-      status: 403,
-      headers: {
-        "content-type": "text/plain; charset=utf-8"
-      }
-    });
-  }
-
   try {
+    const { resolvedPath: resolvedAssetPath } = resolveReadableAssetPath(normalizedRelativePath);
     const data = await fs.readFile(resolvedAssetPath);
 
     return new Response(data, {
@@ -499,6 +518,40 @@ ipcMain.handle("asset:write-text", async (_event, { relativePath = "", content =
     ok: true,
     relativePath: normalizedRelativePath
   };
+});
+
+ipcMain.handle("asset:read-text", async (_event, { relativePath = "" } = {}) => {
+  const { resolvedPath } = resolveReadableAssetPath(relativePath);
+  return fs.readFile(resolvedPath, "utf8");
+});
+
+ipcMain.handle("asset:list-files", async (_event, { relativeDirectory = "data", extension = ".csv" } = {}) => {
+  const normalizedRelativeDirectory = String(relativeDirectory || "data").replace(/^[\\/]+/, "").replace(/\\/g, "/");
+  const normalizedExtension = String(extension || "").toLowerCase();
+  const filePaths = new Set();
+
+  for (const assetRoot of getReadableAssetRoots()) {
+    const resolvedDirectory = path.resolve(assetRoot, normalizedRelativeDirectory);
+    const normalizedRoot = `${assetRoot}${path.sep}`;
+
+    if (resolvedDirectory !== assetRoot && !resolvedDirectory.startsWith(normalizedRoot)) {
+      continue;
+    }
+
+    try {
+      const entries = await fs.readdir(resolvedDirectory, { withFileTypes: true });
+
+      entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name)
+        .filter((fileName) => !normalizedExtension || fileName.toLowerCase().endsWith(normalizedExtension))
+        .forEach((fileName) => filePaths.add(`${normalizedRelativeDirectory.replace(/\/+$/, "")}/${fileName}`));
+    } catch {
+      // Ignore missing asset roots/directories.
+    }
+  }
+
+  return [...filePaths].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 });
 
 ipcMain.handle("repository-csv:write", async (_event, { pathValue = "", content = "" } = {}) => {

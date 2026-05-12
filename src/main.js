@@ -7,6 +7,7 @@ import {
   formatSpellLevel,
   getBestiaryInitials,
   getBestiarySourceFullName,
+  getSpellCastingSpeed,
   getItemRarityClass,
   getItemRarityRank,
   getItemSizeLabelFromWeight,
@@ -55,6 +56,7 @@ import {
   cleanText,
   escapeHtml,
   escapeRegExp,
+  normalizeSearchText,
   parseLeadingNumber,
   shortenLabel,
   slugify,
@@ -7010,11 +7012,6 @@ function renderBestiary() {
       </div>
 
       ${renderEncounterInventorySection()}
-      <div class="compendium-create-row compendium-create-row--bestiary">
-        <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="bestiary">
-          Crear criatura
-        </button>
-      </div>
 
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
@@ -7052,7 +7049,7 @@ function renderItems() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("items_filters_label"))}">
         <div class="compendium-create-row compendium-create-row--toolbar">
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="items">
-            Crear objeto
+            ${escapeHtml(t("create_item"))}
           </button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
@@ -7090,7 +7087,7 @@ function renderArcanum() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("arcanum_filters_label"))}">
         <div class="compendium-create-row compendium-create-row--toolbar">
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="arcanum">
-            Crear hechizo
+            ${escapeHtml(t("create_spell"))}
           </button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
@@ -11130,7 +11127,7 @@ function getVisibleCharacterSpellSlots(character) {
 function getCharacterSpellSuggestions(rowId) {
   const character = getActiveCharacter();
   const row = character?.spells.find((entry) => entry.id === rowId);
-  const query = cleanText(row?.name).toLowerCase();
+  const query = normalizeSearchText(row?.name);
 
   if (!query || state.arcanumStatus !== "ready") {
     return [];
@@ -11969,7 +11966,7 @@ function renderCharacterClassLevelField(rowId, value) {
 function getCharacterInventorySuggestions(rowId) {
   const character = getActiveCharacter();
   const row = character?.inventory.find((entry) => entry.id === rowId);
-  const query = cleanText(row?.name).toLowerCase();
+  const query = normalizeSearchText(row?.name);
 
   if (!query || state.itemStatus !== "ready" || isCharacterCurrencyRow(row?.name)) {
     return [];
@@ -12525,7 +12522,7 @@ function getActiveTurnCombatantId(turnOrder = getCombatTurnOrder()) {
 }
 
 function getCombatNameSuggestions(combatant) {
-  const query = cleanText(combatant.nombre).toLowerCase();
+  const query = normalizeSearchText(combatant.nombre);
 
   if (!query) {
     return [];
@@ -12547,7 +12544,7 @@ function getCombatNameSuggestions(combatant) {
     : [];
 
   const characterSuggestions = state.characters
-    .filter((character) => cleanText(character.name).toLowerCase().includes(query))
+    .filter((character) => normalizeSearchText(character.name).includes(query))
     .sort((left, right) => cleanText(left.name).localeCompare(cleanText(right.name), "es", { sensitivity: "base" }))
     .slice(0, 5)
     .map((character) => ({
@@ -12739,7 +12736,7 @@ function matchesBestiaryFilters(entry, overrides = {}) {
     ...state.bestiaryFilters,
     ...overrides
   };
-  const query = cleanText(filters.query).toLowerCase();
+  const query = normalizeSearchText(filters.query);
   const source = Array.isArray(filters.source) ? filters.source : [];
   const type = Array.isArray(filters.type) ? filters.type : [];
   const environment = Array.isArray(filters.environment) ? filters.environment : [];
@@ -12773,7 +12770,7 @@ function matchesItemFilters(entry, overrides = {}) {
     ...state.itemFilters,
     ...overrides
   };
-  const query = cleanText(filters.query).toLowerCase();
+  const query = normalizeSearchText(filters.query);
   const source = Array.isArray(filters.source) ? filters.source : [];
   const rarity = Array.isArray(filters.rarity) ? filters.rarity : [];
   const type = Array.isArray(filters.type) ? filters.type : [];
@@ -12811,7 +12808,7 @@ function matchesArcanumFilters(entry, overrides = {}) {
     ...state.arcanumFilters,
     ...overrides
   };
-  const query = cleanText(filters.query).toLowerCase();
+  const query = normalizeSearchText(filters.query);
   const source = Array.isArray(filters.source) ? filters.source : [];
   const level = Array.isArray(filters.level) ? filters.level : [];
   const school = Array.isArray(filters.school) ? filters.school : [];
@@ -12839,7 +12836,7 @@ function matchesArcanumFilters(entry, overrides = {}) {
     return false;
   }
 
-  if (castingTime.length > 0 && !castingTime.includes(entry.castingSpeed)) {
+  if (castingTime.length > 0 && !castingTime.includes(entry.castingTime)) {
     return false;
   }
 
@@ -15127,7 +15124,7 @@ function getEncounterRowAcValue(row, bestiaryEntry = getEncounterRowBestiaryEntr
 }
 
 function getEncounterCreatureSuggestions() {
-  const query = cleanText(state.encounterSearchQuery).toLowerCase();
+  const query = normalizeSearchText(state.encounterSearchQuery);
 
   if (!query || state.bestiaryStatus !== "ready") {
     return [];
@@ -16614,7 +16611,7 @@ async function loadDataCsvFileOptions() {
     const files = await desktopApi.listAssetFiles("data", ".csv");
     state.dataCsvFiles = [...new Set([...defaultDataCsvFiles, ...files.map(normalizeDataCsvRelativePath)])]
       .filter(Boolean)
-      .filter((relativePath) => !/\.es\.csv$/i.test(relativePath))
+      .filter((relativePath) => !/(\.es|_ES)\.csv$/i.test(relativePath))
       .sort((left, right) => getFileNameFromPath(left).localeCompare(getFileNameFromPath(right), "es", { sensitivity: "base" }));
     render();
   } catch {
@@ -17147,14 +17144,37 @@ function buildArcanumEntryNameIndex(entryMap) {
   return nameIndex;
 }
 
-function buildReusableBestiaryImageMap(rows, baseImageMap, previousCustomMap = {}) {
+function getImageMapDirectKey(name, source) {
+  return `${cleanText(name)}||${cleanText(source)}`.toLowerCase();
+}
+
+function findCompendiumImageMapEntry(imageMap, name, source, buildCompositeKey) {
+  const directKey = getImageMapDirectKey(name, source);
+  const compositeKey = buildCompositeKey(name, source).toLowerCase();
+  const slugKey = `${slugify(name)}--${slugify(source)}`.toLowerCase();
+
+  return imageMap?.[directKey] ?? imageMap?.[compositeKey] ?? imageMap?.[slugKey] ?? null;
+}
+
+function isUsableCompendiumImageMapEntry(entry) {
+  if (typeof entry === "string") {
+    return cleanText(entry).length > 0;
+  }
+
+  return isPlainObject(entry) && (
+    cleanText(entry.imageUrl).length > 0
+    || cleanText(entry.tokenUrl).length > 0
+  );
+}
+
+function buildReusableBestiaryImageMap(rows, baseImageMap, previousCustomMap = {}, imageSourceRows = []) {
   const nextCustomMap = isPlainObject(previousCustomMap) ? { ...previousCustomMap } : {};
   const nameIndex = buildBestiaryImageNameIndex(baseImageMap);
 
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const name = cleanText(row.Name);
     const source = cleanText(row.Source);
-    const directKey = `${name}||${source}`.toLowerCase();
+    const directKey = getImageMapDirectKey(name, source);
     const compositeKey = buildBestiaryCompositeKey(name, source).toLowerCase();
     const slugKey = `${slugify(name)}--${slugify(source)}`.toLowerCase();
 
@@ -17162,7 +17182,24 @@ function buildReusableBestiaryImageMap(rows, baseImageMap, previousCustomMap = {
       return;
     }
 
-    if (baseImageMap[directKey] || baseImageMap[compositeKey] || baseImageMap[slugKey] || nextCustomMap[directKey]) {
+    if (
+      baseImageMap[directKey]
+      || baseImageMap[compositeKey]
+      || baseImageMap[slugKey]
+      || isUsableCompendiumImageMapEntry(nextCustomMap[directKey])
+    ) {
+      return;
+    }
+
+    const sourceRow = Array.isArray(imageSourceRows) ? imageSourceRows[index] : null;
+    const sourceName = cleanText(sourceRow?.Name);
+    const sourceSource = cleanText(sourceRow?.Source) || source;
+    const sourceMatch = sourceName
+      ? findCompendiumImageMapEntry(baseImageMap, sourceName, sourceSource, buildBestiaryCompositeKey)
+      : null;
+
+    if (sourceMatch) {
+      nextCustomMap[directKey] = sourceMatch;
       return;
     }
 
@@ -17179,14 +17216,14 @@ function buildReusableBestiaryImageMap(rows, baseImageMap, previousCustomMap = {
   return nextCustomMap;
 }
 
-function buildReusableItemImageMap(rows, baseImageMap, previousCustomMap = {}) {
+function buildReusableItemImageMap(rows, baseImageMap, previousCustomMap = {}, imageSourceRows = []) {
   const nextCustomMap = isPlainObject(previousCustomMap) ? { ...previousCustomMap } : {};
   const nameIndex = buildItemImageNameIndex(baseImageMap);
 
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const name = cleanText(row.Name);
     const source = cleanText(row.Source);
-    const directKey = `${name}||${source}`.toLowerCase();
+    const directKey = getImageMapDirectKey(name, source);
     const compositeKey = buildItemCompositeKey(name, source).toLowerCase();
     const slugKey = `${slugify(name)}--${slugify(source)}`.toLowerCase();
 
@@ -17194,7 +17231,24 @@ function buildReusableItemImageMap(rows, baseImageMap, previousCustomMap = {}) {
       return;
     }
 
-    if (baseImageMap[directKey] || baseImageMap[compositeKey] || baseImageMap[slugKey] || nextCustomMap[directKey]) {
+    if (
+      baseImageMap[directKey]
+      || baseImageMap[compositeKey]
+      || baseImageMap[slugKey]
+      || isUsableCompendiumImageMapEntry(nextCustomMap[directKey])
+    ) {
+      return;
+    }
+
+    const sourceRow = Array.isArray(imageSourceRows) ? imageSourceRows[index] : null;
+    const sourceName = cleanText(sourceRow?.Name);
+    const sourceSource = cleanText(sourceRow?.Source) || source;
+    const sourceMatch = sourceName
+      ? findCompendiumImageMapEntry(baseImageMap, sourceName, sourceSource, buildItemCompositeKey)
+      : null;
+
+    if (sourceMatch) {
+      nextCustomMap[directKey] = sourceMatch;
       return;
     }
 
@@ -17338,6 +17392,7 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
   if (detectedLanguage === targetLanguage) {
     return {
       rows: baseRows,
+      imageSourceRows: [],
       meta: {
         detectedLanguage,
         translationMode: CONTENT_TRANSLATION_MODE_ORIGINAL,
@@ -17350,6 +17405,7 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
   if (!canUseBundledSpanishSidecar) {
     return {
       rows: translateCompendiumRows(baseRows, kind, targetLanguage),
+      imageSourceRows: detectedLanguage === CONTENT_LANGUAGE_EN && targetLanguage === CONTENT_LANGUAGE_ES ? baseRows : [],
       meta: {
         detectedLanguage,
         translationMode: CONTENT_TRANSLATION_MODE_GLOSSARY,
@@ -17371,6 +17427,7 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
 
     return {
       rows: mergeCompendiumTranslationRows(baseRows, sidecarRows, kind),
+      imageSourceRows: baseRows,
       meta: {
         detectedLanguage,
         translationMode: CONTENT_TRANSLATION_MODE_SIDECAR,
@@ -17381,6 +17438,7 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
   } catch {
     return {
       rows: translateCompendiumRows(baseRows, kind, targetLanguage),
+      imageSourceRows: detectedLanguage === CONTENT_LANGUAGE_EN && targetLanguage === CONTENT_LANGUAGE_ES ? baseRows : [],
       meta: {
         detectedLanguage,
         translationMode: CONTENT_TRANSLATION_MODE_GLOSSARY,
@@ -17397,7 +17455,9 @@ function getLocalizedCsvRelativePath(relativePath, language) {
   }
 
   const normalizedPath = normalizeDataCsvRelativePath(relativePath);
-  return normalizedPath.replace(/\.csv$/i, `.${language}.csv`);
+  return language === CONTENT_LANGUAGE_ES
+    ? normalizedPath.replace(/\.csv$/i, "_ES.csv")
+    : normalizedPath.replace(/_ES\.csv$/i, ".csv");
 }
 
 function getDataAssetUrl(relativePath) {
@@ -17473,9 +17533,10 @@ async function loadBestiary() {
       loadBestiaryImages(),
       loadBestiaryPersistedCustomImageMap()
     ]);
-    const { rows, meta } = await getLocalizedCompendiumRows("bestiary", text, csvRelativePath);
+    const { rows, imageSourceRows, meta } = await getLocalizedCompendiumRows("bestiary", text, csvRelativePath);
     const normalizedRows = normalizeBestiaryCsvRows(rows);
-    const reusableCustomMap = buildReusableBestiaryImageMap(normalizedRows, imageMap, persistedCustomMap);
+    const normalizedImageSourceRows = normalizeBestiaryCsvRows(imageSourceRows);
+    const reusableCustomMap = buildReusableBestiaryImageMap(normalizedRows, imageMap, persistedCustomMap, normalizedImageSourceRows);
     const mergedImageMap = {
       ...imageMap,
       ...reusableCustomMap
@@ -17521,8 +17582,8 @@ async function loadItems() {
       loadItemImages(),
       loadItemPersistedCustomImageMap()
     ]);
-    const { rows, meta } = await getLocalizedCompendiumRows("items", text, csvRelativePath);
-    const reusableCustomMap = buildReusableItemImageMap(rows, imageMap, persistedCustomMap);
+    const { rows, imageSourceRows, meta } = await getLocalizedCompendiumRows("items", text, csvRelativePath);
+    const reusableCustomMap = buildReusableItemImageMap(rows, imageMap, persistedCustomMap, imageSourceRows);
     const mergedImageMap = {
       ...imageMap,
       ...reusableCustomMap
@@ -17624,7 +17685,7 @@ async function loadArcanumPersistedCustomMap() {
 }
 
 function getItemEntryByName(name) {
-  const normalizedName = cleanText(name).toLowerCase();
+  const normalizedName = normalizeSearchText(name);
 
   if (!normalizedName) {
     return null;
@@ -17638,7 +17699,7 @@ function getItemEntryByName(name) {
 }
 
 function getArcanumEntryByName(name) {
-  const normalizedName = cleanText(name).toLowerCase();
+  const normalizedName = normalizeSearchText(name);
 
   if (!normalizedName) {
     return null;
@@ -17752,7 +17813,7 @@ function renderBestiaryQueryField() {
   return `
     <div class="toolbar-field toolbar-field--search bestiary-query" data-bestiary-query-menu>
       <span>${escapeHtml(t("bestiary_search_label"))}</span>
-      <div class="bestiary-filter__controls">
+      <div class="bestiary-filter__controls bestiary-query__controls">
         <input
           class="filter-input filter-input--wide"
           type="search"
@@ -17761,6 +17822,14 @@ function renderBestiaryQueryField() {
           data-bestiary-query
         />
         ${renderBestiarySortButton("name", "Ordenar por nombre")}
+        <button
+          class="toolbar-button bestiary-create-button"
+          type="button"
+          data-action="open-create-compendium-entity"
+          data-repository-key="bestiary"
+        >
+          ${escapeHtml(t("create_creature"))}
+        </button>
       </div>
       ${
         state.showBestiaryQuerySuggestions && suggestions.length > 0
@@ -18236,7 +18305,7 @@ function getBestiaryEntriesForFilterOptions(key) {
 }
 
 function getVisibleBestiaryFilterOptions(key) {
-  const search = cleanText(state.bestiaryFilterSearch[key]).toLowerCase();
+  const search = normalizeSearchText(state.bestiaryFilterSearch[key]);
   const cacheKey = `${key}::${search}::${getBestiaryCacheKey(overridesBestiaryFilters({ [key]: [] }), false)}`;
   const cachedOptions = bestiaryRenderCache.visibleOptions.get(cacheKey);
 
@@ -18251,7 +18320,7 @@ function getVisibleBestiaryFilterOptions(key) {
       return true;
     }
 
-    return value.toLowerCase().includes(search) || displayValue.includes(search);
+    return normalizeSearchText(value).includes(search) || normalizeSearchText(displayValue).includes(search);
   });
 
   bestiaryRenderCache.visibleOptions.set(cacheKey, visibleOptions);
@@ -18273,7 +18342,7 @@ function getBestiaryFilterSummary(key, label) {
 }
 
 function getBestiaryNameSuggestions() {
-  const query = cleanText(state.bestiaryFilters.query).toLowerCase();
+  const query = normalizeSearchText(state.bestiaryFilters.query);
 
   if (!query) {
     return [];
@@ -18291,7 +18360,7 @@ function getBestiaryNameSuggestions() {
       .filter((entry) => matchesBestiaryFilters(entry, { query: "" }))
       .filter((entry) => entry.nameLower.includes(query))
       .map((entry) => entry.name)
-    : bestiaryRenderCache.staticOptions.names.filter((name) => name.toLowerCase().includes(query));
+    : bestiaryRenderCache.staticOptions.names.filter((name) => normalizeSearchText(name).includes(query));
 
   const suggestions = [...new Set(suggestionSource)].slice(0, 12);
 
@@ -18308,7 +18377,7 @@ function overridesBestiaryFilters(overrides = {}) {
 
 function getBestiaryCacheKey(filters, includeSort = true) {
   const parts = [
-    cleanText(filters.query).toLowerCase(),
+    normalizeSearchText(filters.query),
     [...(filters.type ?? [])].sort().join("|"),
     [...(filters.environment ?? [])].sort().join("|"),
     [...(filters.crBase ?? [])].sort().join("|"),
@@ -18355,7 +18424,7 @@ function getItemEntriesForFilterOptions(key) {
 }
 
 function getVisibleItemFilterOptions(key) {
-  const search = cleanText(state.itemFilterSearch[key]).toLowerCase();
+  const search = normalizeSearchText(state.itemFilterSearch[key]);
 
   return getItemFilterOptions(key).filter((value) => {
     const displayValue = getItemFilterDisplayValue(key, value).toLowerCase();
@@ -18364,7 +18433,7 @@ function getVisibleItemFilterOptions(key) {
       return true;
     }
 
-    return value.toLowerCase().includes(search) || displayValue.includes(search);
+    return normalizeSearchText(value).includes(search) || normalizeSearchText(displayValue).includes(search);
   });
 }
 
@@ -18383,7 +18452,7 @@ function getItemFilterSummary(key, label) {
 }
 
 function getItemNameSuggestions() {
-  const query = cleanText(state.itemFilters.query).toLowerCase();
+  const query = normalizeSearchText(state.itemFilters.query);
 
   if (!query) {
     return [];
@@ -18459,7 +18528,7 @@ function getArcanumFilterOptions(key) {
       }
 
       if (key === "castingTime") {
-        return [entry.castingSpeed];
+        return [entry.castingTime];
       }
 
       return [entry[key]];
@@ -18472,7 +18541,7 @@ function getArcanumEntriesForFilterOptions(key) {
 }
 
 function getVisibleArcanumFilterOptions(key) {
-  const search = cleanText(state.arcanumFilterSearch[key]).toLowerCase();
+  const search = normalizeSearchText(state.arcanumFilterSearch[key]);
 
   return getArcanumFilterOptions(key).filter((value) => {
     const displayValue = getArcanumFilterDisplayValue(key, value).toLowerCase();
@@ -18481,7 +18550,7 @@ function getVisibleArcanumFilterOptions(key) {
       return true;
     }
 
-    return value.toLowerCase().includes(search) || displayValue.includes(search);
+    return normalizeSearchText(value).includes(search) || normalizeSearchText(displayValue).includes(search);
   });
 }
 
@@ -18500,7 +18569,7 @@ function getArcanumFilterSummary(key, label) {
 }
 
 function getArcanumNameSuggestions() {
-  const query = cleanText(state.arcanumFilters.query).toLowerCase();
+  const query = normalizeSearchText(state.arcanumFilters.query);
 
   if (!query) {
     return [];
@@ -18957,7 +19026,8 @@ function compareArcanumFilterValues(key, left, right) {
   }
 
   if (key === "castingTime") {
-    return compareSpellCastingSpeed(left, right);
+    return compareSpellCastingSpeed(getSpellCastingSpeed(left), getSpellCastingSpeed(right))
+      || left.localeCompare(right, "es", { numeric: true, sensitivity: "base" });
   }
 
   if (key === "source") {
