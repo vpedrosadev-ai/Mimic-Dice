@@ -7,6 +7,7 @@
     "output": "dist-electron",
     "buildResources": "build-resources"
   },
+  "afterPack": "scripts/apply-windows-exe-icon.cjs",
   "files": [
     "dist/**/*",
     "!dist/data/**/*",
