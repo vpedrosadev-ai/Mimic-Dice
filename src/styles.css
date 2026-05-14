@@ -10895,44 +10895,83 @@ body.is-table-resizing * {
 }
 
 .item-row__rarity-pill {
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #111018;
+  border-color: var(--item-rarity-border, rgba(240, 200, 121, 0.24));
+  background:
+    radial-gradient(circle at 18% 12%, var(--item-rarity-glow, rgba(255, 255, 255, 0.18)), transparent 42%),
+    linear-gradient(135deg, var(--item-rarity-bg-strong, rgba(240, 200, 121, 0.22)), var(--item-rarity-bg, rgba(240, 200, 121, 0.1)));
+  color: var(--text);
   font-weight: 800;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 0 18px var(--item-rarity-shadow, rgba(240, 200, 121, 0.06));
 }
 
 .item-row__rarity-pill--none,
 .item-row__rarity-pill--sin-rareza {
-  background: #d8dde2;
+  --item-rarity-border: rgba(126, 145, 170, 0.4);
+  --item-rarity-bg: rgba(126, 145, 170, 0.18);
+  --item-rarity-bg-strong: rgba(126, 145, 170, 0.32);
+  --item-rarity-glow: rgba(210, 222, 238, 0.2);
+  --item-rarity-shadow: rgba(126, 145, 170, 0.12);
 }
 
 .item-row__rarity-pill--common {
-  background: #f2f4f7;
+  --item-rarity-border: rgba(214, 220, 228, 0.38);
+  --item-rarity-bg: rgba(180, 190, 204, 0.16);
+  --item-rarity-bg-strong: rgba(214, 220, 228, 0.28);
+  --item-rarity-glow: rgba(255, 255, 255, 0.18);
+  --item-rarity-shadow: rgba(214, 220, 228, 0.1);
 }
 
 .item-row__rarity-pill--uncommon {
-  background: #53d46f;
+  --item-rarity-border: rgba(88, 168, 86, 0.48);
+  --item-rarity-bg: rgba(88, 168, 86, 0.2);
+  --item-rarity-bg-strong: rgba(112, 212, 109, 0.34);
+  --item-rarity-glow: rgba(165, 255, 158, 0.22);
+  --item-rarity-shadow: rgba(88, 168, 86, 0.18);
 }
 
 .item-row__rarity-pill--rare {
-  background: #4aa3ff;
+  --item-rarity-border: rgba(89, 152, 230, 0.5);
+  --item-rarity-bg: rgba(89, 152, 230, 0.22);
+  --item-rarity-bg-strong: rgba(123, 176, 255, 0.36);
+  --item-rarity-glow: rgba(165, 205, 255, 0.24);
+  --item-rarity-shadow: rgba(89, 152, 230, 0.2);
 }
 
 .item-row__rarity-pill--very-rare {
-  background: #b46cff;
+  --item-rarity-border: rgba(136, 86, 206, 0.54);
+  --item-rarity-bg: rgba(136, 86, 206, 0.24);
+  --item-rarity-bg-strong: rgba(170, 108, 255, 0.38);
+  --item-rarity-glow: rgba(210, 174, 255, 0.24);
+  --item-rarity-shadow: rgba(136, 86, 206, 0.22);
 }
 
 .item-row__rarity-pill--legendary {
-  background: #ffb23f;
+  --item-rarity-border: rgba(226, 161, 62, 0.56);
+  --item-rarity-bg: rgba(226, 161, 62, 0.24);
+  --item-rarity-bg-strong: rgba(255, 190, 86, 0.42);
+  --item-rarity-glow: rgba(255, 229, 158, 0.28);
+  --item-rarity-shadow: rgba(226, 161, 62, 0.24);
 }
 
 .item-row__rarity-pill--artifact {
-  background: #ff5b5f;
+  --item-rarity-border: rgba(181, 48, 69, 0.58);
+  --item-rarity-bg: rgba(181, 48, 69, 0.28);
+  --item-rarity-bg-strong: rgba(235, 72, 98, 0.42);
+  --item-rarity-glow: rgba(255, 156, 168, 0.26);
+  --item-rarity-shadow: rgba(181, 48, 69, 0.24);
 }
 
 .item-row__rarity-pill--unknown,
 .item-row__rarity-pill--unknown-magic,
 .item-row__rarity-pill--varies {
-  background: #aeb7c2;
+  --item-rarity-border: rgba(113, 132, 158, 0.44);
+  --item-rarity-bg: rgba(113, 132, 158, 0.2);
+  --item-rarity-bg-strong: rgba(145, 168, 198, 0.32);
+  --item-rarity-glow: rgba(200, 220, 242, 0.2);
+  --item-rarity-shadow: rgba(113, 132, 158, 0.14);
 }
 
 .item-detail__header .eyebrow {
@@ -11110,85 +11149,95 @@ body.is-table-resizing * {
 }
 
 .pill.item-row__rarity-pill {
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #111018;
+  border-color: var(--item-rarity-border, rgba(240, 200, 121, 0.24));
+  background:
+    radial-gradient(circle at 18% 12%, var(--item-rarity-glow, rgba(255, 255, 255, 0.18)), transparent 42%),
+    linear-gradient(135deg, var(--item-rarity-bg-strong, rgba(240, 200, 121, 0.22)), var(--item-rarity-bg, rgba(240, 200, 121, 0.1)));
+  color: var(--text);
   font-weight: 800;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 0 18px var(--item-rarity-shadow, rgba(240, 200, 121, 0.06));
 }
 
 .pill.item-row__rarity-pill--none,
 .pill.item-row__rarity-pill--sin-rareza {
-  background: #d8dde2;
+  --item-rarity-border: rgba(126, 145, 170, 0.4);
+  --item-rarity-bg: rgba(126, 145, 170, 0.18);
+  --item-rarity-bg-strong: rgba(126, 145, 170, 0.32);
+  --item-rarity-glow: rgba(210, 222, 238, 0.2);
+  --item-rarity-shadow: rgba(126, 145, 170, 0.12);
 }
 
 .pill.item-row__rarity-pill--common {
-  background: #f2f4f7;
+  --item-rarity-border: rgba(214, 220, 228, 0.38);
+  --item-rarity-bg: rgba(180, 190, 204, 0.16);
+  --item-rarity-bg-strong: rgba(214, 220, 228, 0.28);
+  --item-rarity-glow: rgba(255, 255, 255, 0.18);
+  --item-rarity-shadow: rgba(214, 220, 228, 0.1);
 }
 
 .pill.item-row__rarity-pill--uncommon {
-  background: #53d46f;
+  --item-rarity-border: rgba(88, 168, 86, 0.48);
+  --item-rarity-bg: rgba(88, 168, 86, 0.2);
+  --item-rarity-bg-strong: rgba(112, 212, 109, 0.34);
+  --item-rarity-glow: rgba(165, 255, 158, 0.22);
+  --item-rarity-shadow: rgba(88, 168, 86, 0.18);
 }
 
 .pill.item-row__rarity-pill--rare {
-  background: #4aa3ff;
+  --item-rarity-border: rgba(89, 152, 230, 0.5);
+  --item-rarity-bg: rgba(89, 152, 230, 0.22);
+  --item-rarity-bg-strong: rgba(123, 176, 255, 0.36);
+  --item-rarity-glow: rgba(165, 205, 255, 0.24);
+  --item-rarity-shadow: rgba(89, 152, 230, 0.2);
 }
 
 .pill.item-row__rarity-pill--very-rare {
-  background: #b46cff;
+  --item-rarity-border: rgba(136, 86, 206, 0.54);
+  --item-rarity-bg: rgba(136, 86, 206, 0.24);
+  --item-rarity-bg-strong: rgba(170, 108, 255, 0.38);
+  --item-rarity-glow: rgba(210, 174, 255, 0.24);
+  --item-rarity-shadow: rgba(136, 86, 206, 0.22);
 }
 
 .pill.item-row__rarity-pill--legendary {
-  background: #ffb23f;
+  --item-rarity-border: rgba(226, 161, 62, 0.56);
+  --item-rarity-bg: rgba(226, 161, 62, 0.24);
+  --item-rarity-bg-strong: rgba(255, 190, 86, 0.42);
+  --item-rarity-glow: rgba(255, 229, 158, 0.28);
+  --item-rarity-shadow: rgba(226, 161, 62, 0.24);
 }
 
 .pill.item-row__rarity-pill--artifact {
-  background: #ff5b5f;
+  --item-rarity-border: rgba(181, 48, 69, 0.58);
+  --item-rarity-bg: rgba(181, 48, 69, 0.28);
+  --item-rarity-bg-strong: rgba(235, 72, 98, 0.42);
+  --item-rarity-glow: rgba(255, 156, 168, 0.26);
+  --item-rarity-shadow: rgba(181, 48, 69, 0.24);
 }
 
 .pill.item-row__rarity-pill--unknown,
 .pill.item-row__rarity-pill--unknown-magic,
 .pill.item-row__rarity-pill--varies {
-  background: #aeb7c2;
+  --item-rarity-border: rgba(113, 132, 158, 0.44);
+  --item-rarity-bg: rgba(113, 132, 158, 0.2);
+  --item-rarity-bg-strong: rgba(145, 168, 198, 0.32);
+  --item-rarity-glow: rgba(200, 220, 242, 0.2);
+  --item-rarity-shadow: rgba(113, 132, 158, 0.14);
 }
 
 .item-filter__option--rarity {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #111018;
+  border-color: var(--item-rarity-border, rgba(240, 200, 121, 0.24));
+  background:
+    radial-gradient(circle at 18% 12%, var(--item-rarity-glow, rgba(255, 255, 255, 0.18)), transparent 42%),
+    linear-gradient(135deg, var(--item-rarity-bg-strong, rgba(240, 200, 121, 0.22)), var(--item-rarity-bg, rgba(240, 200, 121, 0.1)));
+  color: var(--text);
   font-weight: 800;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--none,
-.item-filter__option--rarity.item-row__rarity-pill--sin-rareza {
-  background: #d8dde2;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--common {
-  background: #f2f4f7;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--uncommon {
-  background: #53d46f;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--rare {
-  background: #4aa3ff;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--very-rare {
-  background: #b46cff;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--legendary {
-  background: #ffb23f;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--artifact {
-  background: #ff5b5f;
-}
-
-.item-filter__option--rarity.item-row__rarity-pill--unknown,
-.item-filter__option--rarity.item-row__rarity-pill--unknown-magic,
-.item-filter__option--rarity.item-row__rarity-pill--varies {
-  background: #aeb7c2;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 14px var(--item-rarity-shadow, rgba(240, 200, 121, 0.06));
 }
 
 .bestiary-detail {

@@ -581,6 +581,7 @@ const {
 } = createCompendiumDetailRenderers({
   t,
   getArcanumSpellLinkData,
+  getItemAttunementLabel,
   getItemSourceDescription,
   isItemTypeTokenFilterActive
 });
@@ -595,6 +596,7 @@ const {
   getArcanumVirtualWindow,
   getBestiaryVirtualWindow,
   getCachedBestiaryRowHtml,
+  getItemAttunementLabel,
   getItemMostSpecificTypeLabel,
   getItemRarityClass,
   getItemVirtualWindow
@@ -5603,6 +5605,12 @@ function getSystemTableKind(table) {
   }
 
   return "";
+}
+
+function getItemAttunementLabel() {
+  return normalizeStoredContentLanguage(state.contentLanguage) === CONTENT_LANGUAGE_EN
+    ? "Attunement"
+    : "Sintonizacion";
 }
 
 function getLocalizedSystemTableTemplate(kind, language = state.contentLanguage) {
@@ -12934,11 +12942,11 @@ function matchesBestiaryFilters(entry, overrides = {}) {
     return false;
   }
 
-  if (type.length > 0 && !type.includes(entry.type)) {
+  if (type.length > 0 && !type.some((value) => getBestiaryTypeFilterValue(value) === getBestiaryTypeFilterValue(entry.type))) {
     return false;
   }
 
-  if (environment.length > 0 && !environment.some((value) => entry.environmentTokens.includes(value))) {
+  if (environment.length > 0 && !environment.some((value) => entry.environmentTokens.some((token) => getBestiaryEnvironmentFilterValue(token) === getBestiaryEnvironmentFilterValue(value)))) {
     return false;
   }
 
@@ -12968,7 +12976,7 @@ function matchesItemFilters(entry, overrides = {}) {
     return false;
   }
 
-  if (rarity.length > 0 && !rarity.includes(entry.rarityLabel)) {
+  if (rarity.length > 0 && !rarity.some((value) => normalizeItemRarityFilterValue(value) === normalizeItemRarityFilterValue(entry.rarityLabel))) {
     return false;
   }
 
@@ -18464,11 +18472,15 @@ function getBestiaryFilterOptions(key) {
   return [...new Set(
     getBestiaryEntriesForFilterOptions(key).flatMap((entry) => {
       if (key === "environment") {
-        return entry.environmentTokens;
+        return entry.environmentTokens.map((value) => getBestiaryEnvironmentFilterValue(value));
       }
 
       if (key === "crBase") {
         return [entry.crBaseLabel];
+      }
+
+      if (key === "type") {
+        return [getBestiaryTypeFilterValue(entry.type)].filter(Boolean);
       }
 
       return [entry[key]];
@@ -18601,7 +18613,7 @@ function getItemFilterOptions(key) {
   }
 
   return [...new Set(
-    getItemEntriesForFilterOptions(key).map((entry) => key === "rarity" ? entry.rarityLabel : entry[key]).filter(Boolean)
+    getItemEntriesForFilterOptions(key).map((entry) => key === "rarity" ? normalizeItemRarityFilterValue(entry.rarityLabel) : entry[key]).filter(Boolean)
   )].sort((left, right) => compareItemFilterValues(key, left, right));
 }
 
@@ -18682,11 +18694,11 @@ function resetBestiaryRenderCache() {
 
 function hydrateBestiaryStaticOptions() {
   bestiaryRenderCache.staticOptions.type = [...new Set(
-    state.bestiary.map((entry) => entry.type).filter(Boolean)
+    state.bestiary.map((entry) => getBestiaryTypeFilterValue(entry.type)).filter(Boolean)
   )].sort((left, right) => compareBestiaryFilterValues("type", left, right));
 
   bestiaryRenderCache.staticOptions.environment = [...new Set(
-    state.bestiary.flatMap((entry) => entry.environmentTokens).filter(Boolean)
+    state.bestiary.flatMap((entry) => entry.environmentTokens.map((value) => getBestiaryEnvironmentFilterValue(value))).filter(Boolean)
   )].sort((left, right) => compareBestiaryFilterValues("environment", left, right));
 
   bestiaryRenderCache.staticOptions.crBase = [...new Set(
@@ -18872,6 +18884,40 @@ function getBestiaryFilterDisplayValue(key, value) {
   return value;
 }
 
+function getBestiaryTypeFilterValue(value) {
+  const baseType = cleanText(value).replace(/\s*\([^)]*\)\s*$/u, "").trim();
+  const normalizedType = normalizeSearchText(baseType);
+
+  if (!baseType || normalizedType === "rezumar") {
+    return "";
+  }
+
+  if (normalizedType.startsWith("enjambre")) {
+    return "Enjambre";
+  }
+
+  if (normalizedType.startsWith("celestial")) {
+    return "Celestial";
+  }
+
+  if (normalizedType === "no muertos" || normalizedType === "no-muertos") {
+    return "No-muerto";
+  }
+
+  return baseType;
+}
+
+function getBestiaryEnvironmentFilterValue(value) {
+  const baseEnvironment = cleanText(value).replace(/\s*\([^)]*\)\s*$/u, "").trim();
+  const normalizedEnvironment = normalizeSearchText(baseEnvironment);
+
+  if (["urbano", "urbana", "urbanos"].includes(normalizedEnvironment)) {
+    return "URBANO";
+  }
+
+  return baseEnvironment;
+}
+
 function compareItemFilterValues(key, left, right) {
   if (key === "type") {
     const leftGroupIndex = getItemTypeGroupIndex(left);
@@ -18903,6 +18949,10 @@ function compareItemFilterValues(key, left, right) {
 }
 
 function getItemFilterDisplayValue(key, value) {
+  if (key === "rarity") {
+    return normalizeItemRarityFilterValue(value);
+  }
+
   if (key === "type") {
     if (isItemTypeTokenFilterValue(value)) {
       return decodeItemTypeTokenFilterValue(value);
@@ -18911,7 +18961,7 @@ function getItemFilterDisplayValue(key, value) {
     const group = ITEM_TYPE_GROUPS.find((item) => item.value === value);
 
     if (group) {
-      return group.label;
+      return getItemTypeGroupLabel(group);
     }
 
     return formatItemTypeFilterDisplay(value);
@@ -18930,6 +18980,23 @@ function getItemFilterDisplayValue(key, value) {
   }
 
   return value;
+}
+
+function normalizeItemRarityFilterValue(value) {
+  const rarity = cleanText(value);
+  const normalizedRarity = normalizeSearchText(rarity);
+
+  if (["variable", "extrano", "ninguno"].includes(normalizedRarity)) {
+    return "DESCONOCIDA";
+  }
+
+  return rarity;
+}
+
+function getItemTypeGroupLabel(group) {
+  return normalizeStoredContentLanguage(state.contentLanguage) === CONTENT_LANGUAGE_ES
+    ? cleanText(group.labelEs) || group.label
+    : group.label;
 }
 
 function getItemSourceDescription(entry) {
@@ -18961,7 +19028,8 @@ function getItemTypeFilterValueFromToken(token) {
     return "";
   }
 
-  const group = ITEM_TYPE_GROUPS.find((item) => item.label.localeCompare(normalizedToken, "es", { sensitivity: "base" }) === 0);
+  const group = ITEM_TYPE_GROUPS.find((item) => getItemTypeGroupLabel(item).localeCompare(normalizedToken, "es", { sensitivity: "base" }) === 0
+    || item.label.localeCompare(normalizedToken, "es", { sensitivity: "base" }) === 0);
 
   if (group) {
     return group.value;

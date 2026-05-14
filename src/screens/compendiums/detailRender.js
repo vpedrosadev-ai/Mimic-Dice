@@ -3,7 +3,7 @@ import { statKeys } from "../../data/gameConstants.js";
 import { formatModifier, getAbilityModifier } from "../../shared/dndRules.js";
 import { cleanText, escapeHtml } from "../../shared/text.js";
 
-export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, getItemSourceDescription, isItemTypeTokenFilterActive }) {
+export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, getItemAttunementLabel, getItemSourceDescription, isItemTypeTokenFilterActive }) {
   function renderItemDetail(entry) {
     const media = renderItemDetailMedia(entry);
     const kpis = renderItemKpis(entry);
@@ -321,7 +321,7 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
       renderItemKpi("Valor", entry.value ? entry.valueShort : ""),
       renderItemKpi("Peso", entry.weight ? entry.weightShort : ""),
       renderItemKpi("Talla", entry.sizeLabel),
-      renderItemKpi("Attunement", entry.attunement ? entry.attunementShort : "")
+      renderItemKpi(getItemAttunementLabel(), entry.attunement ? entry.attunementShort : "")
     ].filter(Boolean).join("");
   }
 

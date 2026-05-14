@@ -6,13 +6,14 @@ export function createCompendiumListRenderers({
   getArcanumVirtualWindow,
   getBestiaryVirtualWindow,
   getCachedBestiaryRowHtml,
+  getItemAttunementLabel,
   getItemMostSpecificTypeLabel,
   getItemRarityClass,
   getItemVirtualWindow
 }) {
   function renderItemRow(entry, isSelected) {
     const attunementChip = entry.requiresAttunement
-      ? `<span class="pill item-row__attunement-pill">${escapeHtml(translateUiString("Sintonizacion"))}</span>`
+      ? `<span class="pill item-row__attunement-pill">${escapeHtml(getItemAttunementLabel())}</span>`
       : "";
     const itemStats = [
       entry.value ? `${t("list_price")}: ${entry.valueLabel}` : "",
