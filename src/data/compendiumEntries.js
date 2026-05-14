@@ -19,6 +19,46 @@ import {
   uniqueSortedStrings
 } from "../shared/text.js";
 
+const SPANISH_SPELL_LEVEL_WORDS = new Map([
+  ["primer", 1],
+  ["primero", 1],
+  ["segundo", 2],
+  ["tercer", 3],
+  ["tercero", 3],
+  ["cuarto", 4],
+  ["quinto", 5],
+  ["sexto", 6],
+  ["septimo", 7],
+  ["septimo", 7],
+  ["octavo", 8],
+  ["noveno", 9]
+]);
+
+const EXCLUDED_ARCANUM_CLASS_FILTER_TOKENS = new Set([
+  "wizard",
+  "sorcerer",
+  "azafran y grasa; y se consume mediante el hechizo)",
+  "espolvoreado sobre el duplicado y consumido por el hechizo)",
+  "recortes de unas u otra pieza del cuerpo de esa criatura colocada dentro de la nieve o el hielo; y rubi en polvo por valor de 1.500 po",
+  "vidrio o una varilla de cristal; y tres alfileres de plata)"
+]);
+
+const ITEM_RARITY_DEFINITIONS = [
+  { key: "none", rank: 0, glyph: "IT", labels: { en: "None", es: "Sin rareza" }, aliases: ["none", "sin rareza"] },
+  { key: "common", rank: 1, glyph: "CO", labels: { en: "Common", es: "Com\u00fan" }, aliases: ["common", "comun"] },
+  { key: "uncommon", rank: 2, glyph: "UN", labels: { en: "Uncommon", es: "Poco com\u00fan" }, aliases: ["uncommon", "poco comun"] },
+  { key: "rare", rank: 3, glyph: "RA", labels: { en: "Rare", es: "Raro" }, aliases: ["rare", "raro"] },
+  { key: "very-rare", rank: 4, glyph: "VR", labels: { en: "Very Rare", es: "Muy raro" }, aliases: ["very rare", "very-rare", "muy raro"] },
+  { key: "legendary", rank: 5, glyph: "LE", labels: { en: "Legendary", es: "Legendario" }, aliases: ["legendary", "legendario"] },
+  { key: "artifact", rank: 6, glyph: "AR", labels: { en: "Artifact", es: "Artefacto" }, aliases: ["artifact", "artefacto"] },
+  { key: "unknown", rank: 7, glyph: "UN", labels: { en: "Unknown", es: "Desconocida" }, aliases: ["unknown", "desconocida", "desconocido"] },
+  { key: "unknown-magic", rank: 8, glyph: "UM", labels: { en: "Unknown (Magic)", es: "Desconocida (m\u00e1gica)" }, aliases: ["unknown magic", "unknown (magic)", "desconocida magica", "desconocido magico"] },
+  { key: "varies", rank: 9, glyph: "VA", labels: { en: "Varies", es: "Variable" }, aliases: ["varies", "variable", "varia"] }
+];
+const ITEM_RARITY_BY_ALIAS = new Map(ITEM_RARITY_DEFINITIONS.flatMap((definition) => (
+  definition.aliases.map((alias) => [normalizeSearchText(alias).replace(/[-_]+/g, " "), definition])
+)));
+
 export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
@@ -133,7 +173,7 @@ export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) 
   };
 }
 
-export function normalizeItemEntry(row, index, imageMap = {}) {
+export function normalizeItemEntry(row, index, imageMap = {}, options = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
   const page = cleanText(row.Page);
@@ -147,7 +187,7 @@ export function normalizeItemEntry(row, index, imageMap = {}) {
   const value = cleanText(row.Value);
   const text = cleanText(row.Text);
   const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
-  const rarityLabel = formatItemRarity(rarity);
+  const rarityLabel = formatItemRarity(rarity, options);
   const requiresAttunement = Boolean(attunement);
   const typeLine = [type, requiresAttunement ? "Requiere attunement" : ""].filter(Boolean).join(" | ");
   const compositeKey = buildItemCompositeKey(name, source);
@@ -227,7 +267,9 @@ export function normalizeSpellEntry(row, index) {
     ...splitList(classes),
     ...splitList(optionalClasses)
   ]);
-  const classFilterTokens = uniqueSortedStrings(classTokens.map(getArcanumParentheticalBase));
+  const classFilterTokens = uniqueSortedStrings(classTokens
+    .map(getArcanumParentheticalBase)
+    .filter(isValidArcanumClassFilterToken));
   const levelValue = parseSpellLevel(level);
   const levelLabel = formatSpellLevel(level);
   const levelShort = formatSpellLevelShort(level);
@@ -327,17 +369,28 @@ export function buildArcanumCompositeKey(name, source, level) {
 
 export function parseSpellLevel(level) {
   const normalizedLevel = cleanText(level).toLowerCase();
+  const normalizedSearchLevel = normalizeSearchText(normalizedLevel);
 
   if (!normalizedLevel) {
     return 99;
   }
 
-  if (normalizedLevel.includes("cantrip") || normalizedLevel.includes("truco")) {
+  if (normalizedSearchLevel.includes("cantrip") || normalizedSearchLevel.includes("truco")) {
     return 0;
   }
 
   const match = normalizedLevel.match(/\d+/);
-  return match ? Number(match[0]) : 99;
+  if (match) {
+    return Number(match[0]);
+  }
+
+  for (const [word, value] of SPANISH_SPELL_LEVEL_WORDS.entries()) {
+    if (normalizedSearchLevel.includes(word)) {
+      return value;
+    }
+  }
+
+  return 99;
 }
 
 export function formatSpellLevel(level) {
@@ -370,17 +423,17 @@ export function formatSpellLevelShort(level) {
 }
 
 export function getSpellCastingSpeed(castingTime) {
-  const normalizedCastingTime = cleanText(castingTime).toLowerCase();
+  const normalizedCastingTime = normalizeSearchText(castingTime);
 
-  if (normalizedCastingTime.includes("bonus")) {
+  if (normalizedCastingTime.includes("bonus") || normalizedCastingTime.includes("adicional")) {
     return "Bonus";
   }
 
-  if (normalizedCastingTime.includes("reaction")) {
+  if (normalizedCastingTime.includes("reaction") || normalizedCastingTime.includes("reaccion")) {
     return "Reaction";
   }
 
-  if (normalizedCastingTime.includes("action")) {
+  if (normalizedCastingTime.includes("action") || normalizedCastingTime.includes("accion")) {
     return "Action";
   }
 
@@ -403,6 +456,12 @@ export function getArcanumParentheticalBase(value) {
     .replace(/\s*\([^)]*\)\s*/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isValidArcanumClassFilterToken(value) {
+  const normalizedValue = normalizeSearchText(value);
+
+  return Boolean(normalizedValue) && !EXCLUDED_ARCANUM_CLASS_FILTER_TOKENS.has(normalizedValue);
 }
 
 export function hasConcentrationDuration(duration) {
@@ -479,11 +538,16 @@ export function findImageMapValue(imageMap, key) {
   return "";
 }
 
-export function formatItemRarity(rarity) {
+export function formatItemRarity(rarity, options = {}) {
   const normalized = cleanText(rarity);
+  const definition = getItemRarityDefinition(normalized);
 
   if (!normalized) {
     return "Sin rareza";
+  }
+
+  if (definition) {
+    return definition.labels[options.contentLanguage === "es" ? "es" : "en"];
   }
 
   return normalized
@@ -493,26 +557,16 @@ export function formatItemRarity(rarity) {
 }
 
 export function getItemRarityRank(rarity) {
-  const normalized = cleanText(rarity).toLowerCase();
-  const rarityOrder = {
-    "none": 0,
-    "common": 1,
-    "uncommon": 2,
-    "rare": 3,
-    "very rare": 4,
-    "legendary": 5,
-    "artifact": 6,
-    "unknown": 7,
-    "unknown (magic)": 8,
-    "varies": 9,
-    "sin rareza": 10
-  };
-
-  return rarityOrder[normalized] ?? 99;
+  return getItemRarityDefinition(rarity)?.rank ?? 99;
 }
 
 export function getItemRarityGlyph(rarity) {
+  const definition = getItemRarityDefinition(rarity);
   const normalized = cleanText(rarity).toLowerCase();
+
+  if (definition) {
+    return definition.glyph;
+  }
 
   if (!normalized || normalized === "none") {
     return "IT";
@@ -527,13 +581,18 @@ export function getItemRarityGlyph(rarity) {
 }
 
 export function getItemRarityClass(rarity) {
-  const normalized = slugify(rarity);
+  const normalized = getItemRarityDefinition(rarity)?.key ?? slugify(rarity);
 
   if (!normalized) {
     return "item-row__rarity-pill--unknown";
   }
 
   return `item-row__rarity-pill--${normalized}`;
+}
+
+function getItemRarityDefinition(rarity) {
+  const normalized = normalizeSearchText(rarity).replace(/[-_]+/g, " ");
+  return ITEM_RARITY_BY_ALIAS.get(normalized) ?? null;
 }
 
 export function parseItemValue(value) {

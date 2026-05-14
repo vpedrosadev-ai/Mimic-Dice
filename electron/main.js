@@ -12,6 +12,7 @@ const CAMPAIGN_EXTENSION = ".mimic-campaign.json";
 const CAMPAIGN_CLOSE_SAVE_TIMEOUT_MS = 1800;
 const DESKTOP_ASSET_PROTOCOL = "mimic-assets";
 const campaignCloseStateByWebContentsId = new Map();
+let activeCampaignFilePath = "";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: DESKTOP_ASSET_PROTOCOL,
@@ -220,6 +221,10 @@ function sanitizeCampaignFileName(fileName) {
   return `${withoutExtension}${CAMPAIGN_EXTENSION}`;
 }
 
+function getActiveCampaignFilePath() {
+  return activeCampaignFilePath ? path.resolve(activeCampaignFilePath) : "";
+}
+
 function sanitizeJsonFileName(fileName, fallbackBaseName = "mimic-dice-export") {
   const baseName = path.basename(String(fileName || fallbackBaseName));
   const withoutExtension = baseName
@@ -237,6 +242,64 @@ async function ensureCampaignSaveDirectory() {
   const directory = getCampaignSaveDirectory();
   await fs.mkdir(directory, { recursive: true });
   return directory;
+}
+
+function getCandidateCampaignFileNames(fileName) {
+  return [
+    path.basename(String(fileName || "")),
+    sanitizeCampaignFileName(fileName)
+  ]
+    .filter(Boolean)
+    .filter((candidateName, index, candidateNames) => candidateNames.indexOf(candidateName) === index);
+}
+
+async function findCampaignFilesByName(directory, candidateNames) {
+  const matches = [];
+
+  async function walk(currentDirectory) {
+    let entries = [];
+
+    try {
+      entries = await fs.readdir(currentDirectory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentDirectory, entry.name);
+
+      if (entry.isDirectory()) {
+        await walk(entryPath);
+        continue;
+      }
+
+      if (entry.isFile() && candidateNames.includes(entry.name)) {
+        matches.push(entryPath);
+      }
+    }
+  }
+
+  await walk(directory);
+  return matches;
+}
+
+async function resolveCampaignOverwritePath(fileName, rawFilePath = "") {
+  if (rawFilePath) {
+    return path.resolve(String(rawFilePath));
+  }
+
+  const activeFilePath = getActiveCampaignFilePath();
+
+  if (activeFilePath) {
+    return activeFilePath;
+  }
+
+  const directory = await ensureCampaignSaveDirectory();
+  const matches = await findCampaignFilesByName(directory, getCandidateCampaignFileNames(fileName));
+
+  return matches.length === 1 ? matches[0] : "";
 }
 
 function getSaveDialogDefaultPath(directory, fileName) {
@@ -327,22 +390,49 @@ function setCampaignCloseState(webContentsId, patch) {
   });
 }
 
-ipcMain.handle("campaign:save", async (_event, { fileName, filePath: rawFilePath, payload } = {}) => {
-  const requestedFilePath = rawFilePath ? path.resolve(String(rawFilePath)) : "";
+ipcMain.handle("campaign:save", async (event, { fileName, filePath: rawFilePath, payload, silent = false } = {}) => {
+  const requestedFilePath = await resolveCampaignOverwritePath(fileName, rawFilePath);
   let directory = "";
   let filePath = "";
 
   if (requestedFilePath) {
     directory = path.dirname(requestedFilePath);
     await fs.mkdir(directory, { recursive: true });
-    filePath = path.join(directory, sanitizeCampaignFileName(path.basename(requestedFilePath)));
+    filePath = requestedFilePath;
   } else {
     directory = await ensureCampaignSaveDirectory();
-    const safeFileName = sanitizeCampaignFileName(fileName);
-    filePath = path.join(directory, safeFileName);
+
+    if (silent) {
+      return {
+        canceled: true,
+        directory,
+        reason: "missing-overwrite-target"
+      };
+    }
+
+    const result = await dialog.showSaveDialog(getDialogWindow(event), {
+      title: "Guardar campaÃ±a",
+      defaultPath: getSaveDialogDefaultPath(directory, fileName),
+      filters: [
+        { name: "CampaÃ±as de Mimic Dice", extensions: ["json"] },
+        { name: "JSON", extensions: ["json"] }
+      ]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return {
+        canceled: true,
+        directory
+      };
+    }
+
+    directory = path.dirname(result.filePath);
+    await fs.mkdir(directory, { recursive: true });
+    filePath = path.join(directory, sanitizeCampaignFileName(path.basename(result.filePath)));
   }
 
-  const savedPayload = await writeCampaignFile(filePath, payload);
+  const savedPayload = await writeCampaignFile(filePath, payload, { deriveNameFromFile: !requestedFilePath });
+  activeCampaignFilePath = filePath;
 
   return getCampaignSaveResult(filePath, directory, savedPayload);
 });
@@ -370,6 +460,7 @@ ipcMain.handle("campaign:save-as", async (event, { fileName, payload, deriveName
   const safeFileName = sanitizeCampaignFileName(path.basename(result.filePath));
   const filePath = path.join(selectedDirectory, safeFileName);
   const savedPayload = await writeCampaignFile(filePath, payload, { deriveNameFromFile });
+  activeCampaignFilePath = filePath;
 
   return {
     canceled: false,
@@ -398,6 +489,7 @@ ipcMain.handle("campaign:load", async (event) => {
 
   const [filePath] = result.filePaths;
   const rawValue = await fs.readFile(filePath, "utf8");
+  activeCampaignFilePath = filePath;
 
   return {
     canceled: false,

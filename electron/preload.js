@@ -128,7 +128,12 @@ contextBridge.exposeInMainWorld("mimicDice", {
   readRepositoryCsvText: (filePath) => readRepositoryCsvText(filePath),
   writeRepositoryCsvText: (pathValue, content) => ipcRenderer.invoke("repository-csv:write", { pathValue, content }),
   listAssetFiles: (relativeDirectory, extension) => listDesktopAssetFiles(relativeDirectory, extension),
-  saveCampaign: (payload, fileName, filePath = "") => ipcRenderer.invoke("campaign:save", { payload, fileName, filePath }),
+  saveCampaign: (payload, fileName, filePath = "", options = {}) => ipcRenderer.invoke("campaign:save", {
+    payload,
+    fileName,
+    filePath,
+    ...options
+  }),
   saveCampaignAs: (payload, fileName, options = {}) => ipcRenderer.invoke("campaign:save-as", {
     payload,
     fileName,

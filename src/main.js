@@ -28,7 +28,7 @@ import {
   mergeCompendiumTranslationRows,
   translateCompendiumRows
 } from "./data/contentTranslation.js";
-import { getLocalizedSystemTableDefinitions, initialTableDefinitions } from "./data/tablesSeedData.js";
+import { getLocalizedSystemTableDefinitions, getLocalizedSystemTableFolders, initialTableDefinitions, initialTableFolders } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
 import { getCombatMiniActionIconUrl, getCombatSpellbookIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "./assets/combatIcons.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
@@ -229,6 +229,9 @@ const blankArcanumFilterSearch = {
   class: "",
   castingTime: ""
 };
+const excludedArcanumLevelFilterValues = new Set([
+  "Genio (TCE) Brujo"
+]);
 const arcanumFilterLabels = {
   source: "fuentes",
   level: "niveles",
@@ -547,8 +550,8 @@ const state = {
   }
 };
 
-const localizedSystemTablesEs = getLocalizedSystemTableDefinitions(APP_LANGUAGE_ES);
-const localizedSystemTablesEn = getLocalizedSystemTableDefinitions(APP_LANGUAGE_EN);
+const localizedSystemTablesEs = getLocalizedSystemTableDefinitions(CONTENT_LANGUAGE_ES);
+const localizedSystemTablesEn = getLocalizedSystemTableDefinitions(CONTENT_LANGUAGE_EN);
 const localizedStatusTableEs = localizedSystemTablesEs.find((table) => cleanText(table.name).toLowerCase().includes("estado")) ?? localizedSystemTablesEs[0];
 const localizedStatusTableEn = localizedSystemTablesEn.find((table) => cleanText(table.name).toLowerCase().includes("condition")) ?? localizedSystemTablesEn[0];
 const combatStatusEsToEnMap = new Map(
@@ -557,6 +560,10 @@ const combatStatusEsToEnMap = new Map(
 const combatStatusEnToEsMap = new Map(
   localizedStatusTableEn.rows.map((row, index) => [normalizeTranslationKey(cleanText(row[0]).toLowerCase()), cleanText(localizedStatusTableEs.rows[index]?.[0] || row[0])])
 );
+let lootTableItemMatchCache = {
+  items: null,
+  index: new Map()
+};
 
 synchronizeLanguageSpecificSystemData({ syncCombatants: true });
 
@@ -1093,7 +1100,10 @@ async function handleClick(event) {
 
   if (action === "set-content-language") {
     state.contentLanguage = normalizeStoredContentLanguage(actionButton.dataset.contentLanguage);
+    synchronizeLanguageSpecificSystemData({ syncCombatants: true });
     saveCampaignMeta();
+    saveCombatTrackerState();
+    saveTablesState();
     reloadCompendiumContent();
     return;
   }
@@ -1285,6 +1295,11 @@ async function handleClick(event) {
 
   if (action === "roll-table") {
     startTableRoll(actionButton.dataset.tableId);
+    return;
+  }
+
+  if (action === "open-loot-table-item") {
+    openItemFromLootTable(actionButton.dataset.itemName);
     return;
   }
 
@@ -5167,7 +5182,7 @@ function renderScreenButton(screen, extraClassName = "") {
       data-tooltip="${escapeHtml(buttonLabel)}"
       aria-pressed="${screen.id === state.activeScreen}"
       aria-label="${escapeHtml(buttonLabel)}"
-      title="${escapeHtml(screen.label)}"
+      title="${escapeHtml(buttonLabel)}"
     >
       <span class="nav__icon">
         ${
@@ -5558,8 +5573,19 @@ function getSystemTableKind(table) {
     return "";
   }
 
+  const tableId = cleanText(table.id).toLowerCase();
   const tableName = cleanText(table.name).toLowerCase();
   const firstColumnLabel = cleanText(Array.isArray(table.columns) ? table.columns[0]?.label : "").toLowerCase();
+
+  if (tableId.startsWith("loot-table-")) {
+    return tableId;
+  }
+
+  const lootTableMatch = normalizeSearchText(tableName).match(/^(?:table|tabla)\s+([a-i])$/i);
+
+  if (lootTableMatch) {
+    return `loot-table-${lootTableMatch[1].toLowerCase()}`;
+  }
 
   if (
     tableName === "tabla estados"
@@ -5579,8 +5605,8 @@ function getSystemTableKind(table) {
   return "";
 }
 
-function getLocalizedSystemTableTemplate(kind, language = state.appLanguage) {
-  const normalizedLanguage = normalizeStoredAppLanguage(language);
+function getLocalizedSystemTableTemplate(kind, language = state.contentLanguage) {
+  const normalizedLanguage = normalizeStoredContentLanguage(language);
   return getLocalizedSystemTableDefinitions(normalizedLanguage).find((table) => getSystemTableKind(table) === kind) ?? null;
 }
 
@@ -5617,10 +5643,14 @@ function getCanonicalCombatStatusName(statusName) {
     return `Agotamiento ${level}`;
   }
 
+  if (normalizedStatus === "domido") {
+    return "Dormido";
+  }
+
   return combatStatusEnToEsMap.get(normalizedStatus) || rawStatus;
 }
 
-function translateCombatStatusNameForLanguage(statusName, language = state.appLanguage) {
+function translateCombatStatusNameForLanguage(statusName, language = state.contentLanguage) {
   const rawStatus = cleanText(statusName);
   const normalizedLanguage = normalizeStoredAppLanguage(language);
   const exhaustionMatch = rawStatus.match(/^(agotamiento|exhaustion)(?:\s+(\d+))?$/i);
@@ -5632,6 +5662,10 @@ function translateCombatStatusNameForLanguage(statusName, language = state.appLa
 
   const normalizedStatus = normalizeTranslationKey(rawStatus.toLowerCase());
 
+  if (normalizedStatus === "domido") {
+    return normalizedLanguage === APP_LANGUAGE_EN ? "Sleeping" : "Dormido";
+  }
+
   if (normalizedLanguage === APP_LANGUAGE_EN) {
     return combatStatusEsToEnMap.get(normalizedStatus) || rawStatus;
   }
@@ -5640,6 +5674,17 @@ function translateCombatStatusNameForLanguage(statusName, language = state.appLa
 }
 
 function synchronizeLanguageSpecificSystemData({ syncCombatants = false } = {}) {
+  const dataLanguage = normalizeStoredContentLanguage(state.contentLanguage);
+
+  state.tableFolders = state.tableFolders.map((folder) => {
+    if (folder.id !== "table-folder-loot-tables") {
+      return folder;
+    }
+
+    const template = getLocalizedSystemTableFolders(dataLanguage).find((entry) => entry.id === folder.id);
+    return template ? { ...folder, name: template.name } : folder;
+  });
+
   state.tables = state.tables.map((table) => {
     const kind = getSystemTableKind(table);
 
@@ -5647,7 +5692,7 @@ function synchronizeLanguageSpecificSystemData({ syncCombatants = false } = {}) 
       return table;
     }
 
-    const template = getLocalizedSystemTableTemplate(kind, state.appLanguage);
+    const template = getLocalizedSystemTableTemplate(kind, dataLanguage);
     return template ? applyLocalizedSystemTableTemplate(table, template) : table;
   });
 
@@ -5662,7 +5707,7 @@ function synchronizeLanguageSpecificSystemData({ syncCombatants = false } = {}) 
       return combatant;
     }
 
-    const nextStatuses = currentStatuses.map((entry) => translateCombatStatusNameForLanguage(entry, state.appLanguage));
+    const nextStatuses = currentStatuses.map((entry) => translateCombatStatusNameForLanguage(entry, dataLanguage));
 
     return normalizeCombatant({
       ...combatant,
@@ -6992,14 +7037,14 @@ function renderBestiary() {
       <div class="section-heading section-heading--bestiary">
         ${renderScreenHeadingIdentity("bestiary", "", t("bestiary_title"))}
         <div class="encounter-inventory__heading encounter-inventory__heading--inline">
-          <p class="eyebrow bestiary-heading__eyebrow">${escapeHtml(translateUiString("Editor de encuentros"))}</p>
+          <p class="eyebrow bestiary-heading__eyebrow">${escapeHtml(t("bestiary_encounter_editor"))}</p>
           <button
             class="toolbar-button toolbar-button--accent encounter-inventory__toggle"
             type="button"
             data-action="toggle-encounter-inventory"
             aria-expanded="${state.encounterInventoryOpen}"
           >
-            ${escapeHtml(translateUiString(state.encounterInventoryOpen ? "Ocultar inventario" : "Mostrar inventario"))}
+            ${escapeHtml(t(state.encounterInventoryOpen ? "bestiary_hide_inventory" : "bestiary_show_inventory"))}
           </button>
         </div>
       <div class="section-heading__side">
@@ -10297,6 +10342,7 @@ function renderTableColumnHeader(tableId, column, index, columnCount) {
 function renderTableRow(table, row, rowIndex) {
   const isRollingRow = state.rollingTableId === table.id && state.rollingTableRowId === row.id;
   const isRolledRow = state.rolledTableId === table.id && state.rolledTableRowId === row.id;
+  const isLootTable = getSystemTableKind(table).startsWith("loot-table-");
 
   return `
     <tr class="tables-data-table__row ${isRollingRow ? "is-rolling" : ""} ${isRolledRow ? "is-rolled" : ""}" data-table-row-id="${escapeHtml(row.id)}" data-table-owner-id="${escapeHtml(table.id)}">
@@ -10330,22 +10376,160 @@ function renderTableRow(table, row, rowIndex) {
       ${table.columns.map((column, columnIndex) => {
         const cellValue = row.cells[column.id] ?? "";
         const columnKind = getTableColumnKind(column, columnIndex);
+        const linkedContent = isLootTable && columnKind !== "number"
+          ? renderLootTableCellContent(cellValue)
+          : "";
 
         return `
           <td class="tables-data-table__cell tables-data-table__cell--${columnKind}">
-            <textarea
-              class="tables-data-table__cell-input tables-data-table__cell-input--${columnKind}"
-              rows="${getTableTextareaRows(table.columns.length, columnKind)}"
-              data-table-cell="${escapeHtml(column.id)}"
-              data-table-id="${escapeHtml(table.id)}"
-              data-table-row-id="${escapeHtml(row.id)}"
-              data-table-column-id="${escapeHtml(column.id)}"
-            >${escapeHtml(cellValue)}</textarea>
+            ${
+              linkedContent
+                ? `<div class="tables-data-table__cell-text tables-data-table__cell-text--${columnKind}">${linkedContent}</div>`
+                : `
+                  <textarea
+                    class="tables-data-table__cell-input tables-data-table__cell-input--${columnKind}"
+                    rows="${getTableTextareaRows(table.columns.length, columnKind)}"
+                    data-table-cell="${escapeHtml(column.id)}"
+                    data-table-id="${escapeHtml(table.id)}"
+                    data-table-row-id="${escapeHtml(row.id)}"
+                    data-table-column-id="${escapeHtml(column.id)}"
+                  >${escapeHtml(cellValue)}</textarea>
+                `
+            }
           </td>
         `;
       }).join("")}
     </tr>
   `;
+}
+
+function renderLootTableCellContent(value) {
+  const text = cleanText(value);
+  const matches = getLootTableItemNameMatches(text);
+
+  if (!text || matches.length === 0) {
+    return "";
+  }
+
+  let cursor = 0;
+  const chunks = [];
+
+  matches.forEach((match) => {
+    if (match.start > cursor) {
+      chunks.push(escapeHtml(text.slice(cursor, match.start)));
+    }
+
+    chunks.push(`
+      <button
+        class="tables-data-table__item-link"
+        type="button"
+        data-action="open-loot-table-item"
+        data-item-name="${escapeHtml(match.itemName)}"
+        title="Abrir ${escapeHtml(match.itemName)} en objetos"
+      >${escapeHtml(text.slice(match.start, match.end))}</button>
+    `);
+    cursor = match.end;
+  });
+
+  if (cursor < text.length) {
+    chunks.push(escapeHtml(text.slice(cursor)));
+  }
+
+  return chunks.join("");
+}
+
+function getLootTableItemNameMatches(text) {
+  const sourceText = cleanText(text);
+
+  if (!sourceText || state.itemStatus !== "ready" || state.items.length === 0) {
+    return [];
+  }
+
+  const normalizedSource = normalizeSearchText(sourceText);
+  const sourceWords = new Set(normalizedSource.match(/[a-z0-9]+/g) ?? []);
+  const candidateIndex = getLootTableItemCandidateIndex();
+  const candidates = [...new Map(
+    [...sourceWords]
+      .flatMap((word) => candidateIndex.get(word) ?? [])
+      .map((candidate) => [candidate.normalizedName, candidate])
+  ).values()];
+  const ranges = [];
+
+  candidates.forEach((candidate) => {
+    let start = normalizedSource.indexOf(candidate.normalizedName);
+
+    while (start >= 0) {
+      const end = start + candidate.normalizedName.length;
+      const overlaps = ranges.some((range) => start < range.end && end > range.start);
+
+      if (!overlaps && isLootTableItemMatchBoundary(normalizedSource, start, end)) {
+        ranges.push({ start, end, itemName: candidate.itemName });
+      }
+
+      start = normalizedSource.indexOf(candidate.normalizedName, end);
+    }
+  });
+
+  return ranges.sort((left, right) => left.start - right.start);
+}
+
+function getLootTableItemCandidateIndex() {
+  if (lootTableItemMatchCache.items === state.items) {
+    return lootTableItemMatchCache.index;
+  }
+
+  const uniqueCandidates = new Map();
+
+  state.items.forEach((item) => {
+    const itemName = cleanText(item.name);
+    const normalizedName = normalizeSearchText(itemName);
+    const firstWord = normalizedName.match(/[a-z0-9]+/u)?.[0] ?? "";
+
+    if (!itemName || normalizedName.length < 3 || !firstWord) {
+      return;
+    }
+
+    uniqueCandidates.set(normalizedName, { itemName, normalizedName, firstWord });
+  });
+
+  const index = new Map();
+  uniqueCandidates.forEach((candidate) => {
+    const bucket = index.get(candidate.firstWord) ?? [];
+    bucket.push(candidate);
+    index.set(candidate.firstWord, bucket);
+  });
+  index.forEach((bucket) => bucket.sort((left, right) => right.normalizedName.length - left.normalizedName.length));
+  lootTableItemMatchCache = { items: state.items, index };
+  return index;
+}
+
+function isLootTableItemMatchBoundary(text, start, end) {
+  const before = start > 0 ? text[start - 1] : "";
+  const after = end < text.length ? text[end] : "";
+  return !/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after);
+}
+
+function openItemFromLootTable(itemName) {
+  const normalizedItemName = cleanText(itemName);
+
+  if (!normalizedItemName) {
+    return;
+  }
+
+  const matchedItem = state.items.find((item) => normalizeSearchText(item.name) === normalizeSearchText(normalizedItemName)) ?? null;
+  resetItemVirtualScroll();
+  state.activeScreen = "items";
+  state.itemFilters = {
+    ...blankItemFilters,
+    query: matchedItem?.name || normalizedItemName
+  };
+  state.itemFilterSearch = { ...blankItemFilterSearch };
+  state.activeItemFilterKey = "";
+  state.showItemQuerySuggestions = false;
+  state.itemSelectedId = matchedItem?.id || "";
+  render({
+    focusSelector: "[data-item-query]"
+  });
 }
 
 function renderTableColGroup(table) {
@@ -17593,7 +17777,9 @@ async function loadItems() {
 
     state.itemImageMap = mergedImageMap;
     state.contentSourceMeta.items = meta;
-    state.items = rows.map((row, index) => normalizeItemEntry(row, index, mergedImageMap));
+    state.items = rows.map((row, index) => normalizeItemEntry(row, index, mergedImageMap, {
+      contentLanguage: state.contentLanguage
+    }));
     resetItemVirtualScroll();
     state.itemStatus = "ready";
     state.itemDebugInfo = null;
@@ -18533,7 +18719,9 @@ function getArcanumFilterOptions(key) {
 
       return [entry[key]];
     }).filter(Boolean)
-  )].sort((left, right) => compareArcanumFilterValues(key, left, right));
+  )]
+    .filter((value) => key !== "level" || !excludedArcanumLevelFilterValues.has(value))
+    .sort((left, right) => compareArcanumFilterValues(key, left, right));
 }
 
 function getArcanumEntriesForFilterOptions(key) {
@@ -19320,7 +19508,12 @@ async function saveCampaignToDesktop(options = {}) {
     || state.campaignFileName
     || getCampaignFileName(payload.campaign.name);
   const hasExistingCampaignFile = Boolean(filePath || state.campaignFileName);
-  const shouldSaveAs = options.saveAs || (!hasExistingCampaignFile && !options.silent);
+  const shouldSaveAs = options.saveAs === true || !hasExistingCampaignFile;
+
+  if (!hasExistingCampaignFile && options.silent && !options.saveAs) {
+    return null;
+  }
+
   const saveAction = shouldSaveAs ? desktopApi.saveCampaignAs : desktopApi.saveCampaign;
 
   if (typeof saveAction !== "function") {
@@ -19330,7 +19523,7 @@ async function saveCampaignToDesktop(options = {}) {
   campaignSaveInProgress = (
     shouldSaveAs
       ? saveAction(payload, fileName, { deriveNameFromFile: true, filePath })
-      : saveAction(payload, fileName, filePath)
+      : saveAction(payload, fileName, filePath, { silent: options.silent === true })
   )
     .then((result) => {
       if (result?.canceled) {
@@ -21561,7 +21754,7 @@ function saveTablesState() {
 
 function getDefaultTablesState() {
   return normalizeStoredTablesState({
-    folders: [],
+    folders: initialTableFolders,
     systemFolderExpanded: true,
     tables: initialTableDefinitions,
     activeTableFolderId: "",
@@ -21586,9 +21779,14 @@ function getTablesSaveData() {
 function normalizeStoredTablesState(value) {
   const source = isPlainObject(value) ? value : {};
   const hasExplicitTables = Array.isArray(value) || Array.isArray(source.tables);
-  const folders = Array.isArray(source.folders)
-    ? source.folders.map((folder) => normalizeStoredTableFolder(folder)).filter(Boolean)
-    : [];
+  const rawFolders = Array.isArray(source.folders)
+    ? source.folders
+    : hasExplicitTables
+      ? []
+      : initialTableFolders;
+  const folders = rawFolders
+    .map((folder) => normalizeStoredTableFolder(folder))
+    .filter(Boolean);
   const rawTables = Array.isArray(value)
     ? value
     : Array.isArray(source.tables)
@@ -21597,12 +21795,49 @@ function normalizeStoredTablesState(value) {
   let tables = rawTables
     .map((table, index) => normalizeStoredTable(table, index))
     .filter(Boolean);
+  tables = deduplicateStoredSystemTables(tables);
 
   if (!hasExplicitTables && tables.length === 0) {
     tables = initialTableDefinitions
       .map((table, index) => normalizeStoredTable(table, index))
       .filter(Boolean);
   }
+
+  const existingFolderIds = new Set(folders.map((folder) => folder.id));
+  initialTableFolders.forEach((folder) => {
+    if (existingFolderIds.has(folder.id)) {
+      return;
+    }
+
+    const normalizedFolder = normalizeStoredTableFolder(folder);
+
+    if (normalizedFolder) {
+      folders.push(normalizedFolder);
+      existingFolderIds.add(normalizedFolder.id);
+    }
+  });
+
+  const existingTableIds = new Set(tables.map((table) => table.id));
+  const existingSystemKinds = new Set(tables.map((table) => getSystemTableKind(table)).filter(Boolean));
+  initialTableDefinitions.forEach((table, index) => {
+    const systemKind = getSystemTableKind(table);
+
+    if (existingTableIds.has(table.id) || (systemKind && existingSystemKinds.has(systemKind))) {
+      return;
+    }
+
+    const normalizedTable = normalizeStoredTable(table, tables.length + index);
+
+    if (normalizedTable) {
+      tables.push(normalizedTable);
+      existingTableIds.add(normalizedTable.id);
+      const normalizedKind = getSystemTableKind(normalizedTable);
+
+      if (normalizedKind) {
+        existingSystemKinds.add(normalizedKind);
+      }
+    }
+  });
 
   const tableIds = new Set(tables.map((table) => table.id));
   const folderIds = new Set(folders.map((folder) => folder.id));
@@ -21630,6 +21865,25 @@ function normalizeStoredTablesState(value) {
     activeTableId,
     openTableIds
   };
+}
+
+function deduplicateStoredSystemTables(tables) {
+  const seenKinds = new Set();
+
+  return tables.filter((table) => {
+    const kind = getSystemTableKind(table);
+
+    if (kind !== "status" && kind !== "wild-magic") {
+      return true;
+    }
+
+    if (seenKinds.has(kind)) {
+      return false;
+    }
+
+    seenKinds.add(kind);
+    return true;
+  });
 }
 
 function loadDiaryState() {

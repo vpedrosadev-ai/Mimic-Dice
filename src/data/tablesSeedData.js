@@ -1,5 +1,10 @@
+import {
+  getLocalizedLootTableDefinitions,
+  getLocalizedLootTableFolders
+} from "./lootTablesSeedData.js";
+
 const STATUS_ROWS_ES = [
-  ["Dormir", "Permaneces inconsciente hasta que el conjuro termina, hasta que reciba dano o hasta que alguien la zarandee para despertarla."],
+  ["Dormido", "Permaneces inconsciente hasta que el conjuro termina, hasta que reciba dano o hasta que alguien la zarandee para despertarla."],
   ["Envenenado", "La criatura tiene desventaja en las tiradas de ataque y en las pruebas de caracteristica."],
   ["Derribado", "Solo puede moverse arrastrandose, salvo que se levante. Tiene desventaja en sus ataques; los ataques contra ella tienen ventaja a 5 pies o menos y desventaja desde mas lejos."],
   ["Agarrado", "Velocidad 0."],
@@ -243,6 +248,7 @@ const WILD_MAGIC_ROWS_ES = [
 function buildStatusTable(language = "es") {
   const isEnglish = language === "en";
   return {
+    id: "table-system-status",
     name: isEnglish ? "Conditions Table" : "Tabla Estados",
     columns: isEnglish ? ["Condition", "Effect"] : ["Estado", "Efecto"],
     rows: isEnglish ? STATUS_ROWS_EN : STATUS_ROWS_ES
@@ -252,6 +258,7 @@ function buildStatusTable(language = "es") {
 function buildWildMagicTable(language = "es") {
   const isEnglish = language === "en";
   return {
+    id: "table-system-wild-magic",
     name: isEnglish ? "Wild Magic Table" : "Tabla Magia Salvaje",
     columns: isEnglish ? ["Number", "Effect"] : ["Numero", "Efecto"],
     rows: isEnglish ? WILD_MAGIC_ROWS_EN : WILD_MAGIC_ROWS_ES
@@ -263,8 +270,15 @@ export function getLocalizedSystemTableDefinitions(language = "es") {
 
   return [
     buildStatusTable(normalizedLanguage),
-    buildWildMagicTable(normalizedLanguage)
+    buildWildMagicTable(normalizedLanguage),
+    ...getLocalizedLootTableDefinitions(normalizedLanguage)
   ];
 }
 
+export function getLocalizedSystemTableFolders(language = "es") {
+  const normalizedLanguage = language === "en" ? "en" : "es";
+  return getLocalizedLootTableFolders(normalizedLanguage);
+}
+
+export const initialTableFolders = getLocalizedSystemTableFolders("es");
 export const initialTableDefinitions = getLocalizedSystemTableDefinitions("es");

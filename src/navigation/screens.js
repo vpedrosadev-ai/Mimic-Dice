@@ -22,7 +22,7 @@ export const screens = [
   {
     id: "items",
     label: "Items",
-    shortLabel: "Items",
+    shortLabel: "Objetos",
     icon: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 2 5 6v5c0 4.7 3.2 8.9 7 11 3.8-2.1 7-6.3 7-11V6l-7-4Zm0 2.3 4.9 2.8v4c0 3.3-2 6.3-4.9 8-2.9-1.7-4.9-4.7-4.9-8v-4L12 4.3Zm-1 3.2h2v3h3v2h-3v3h-2v-3H8v-2h3v-3Z" />

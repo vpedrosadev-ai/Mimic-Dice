@@ -265,7 +265,6 @@ table {
   z-index: 90;
   display: grid;
   gap: 0.35rem;
-  width: min(16rem, 88vw);
   padding: 0.45rem;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
@@ -276,6 +275,14 @@ table {
     0 20px 48px rgba(0, 0, 0, 0.42),
     inset 0 0 0 1px rgba(80, 50, 28, 0.7);
   font-size: 1.3rem;
+}
+
+.file-menu__popover {
+  width: min(27rem, 92vw);
+}
+
+.options-menu__popover {
+  width: min(19rem, 88vw);
 }
 
 .file-menu__status {
@@ -295,8 +302,9 @@ table {
 
 .file-menu__status-name {
   color: var(--text);
-  font-size: 1.18rem;
+  font-size: 0.98rem;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .file-menu__status-date {
@@ -572,7 +580,7 @@ table {
 .options-dialog__panel {
   position: relative;
   z-index: 1;
-  width: min(54rem, 100%);
+  width: min(68rem, 100%);
   padding: 1rem;
   border: 1px solid rgba(186, 138, 71, 0.38);
   border-radius: 18px;
@@ -588,7 +596,7 @@ table {
 
 .options-dialog__layout {
   display: grid;
-  grid-template-columns: minmax(11.5rem, 13rem) minmax(0, 1fr);
+  grid-template-columns: minmax(13rem, 15.5rem) minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
 }
@@ -2067,6 +2075,11 @@ table {
   align-items: center;
   grid-column: 1;
   grid-row: 1;
+}
+
+.section-heading--bestiary .section-heading__icon {
+  width: 4.55rem;
+  height: 4.55rem;
 }
 
 .section-heading--bestiary .section-heading__side {
@@ -7374,6 +7387,42 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .tables-data-table__cell-input--wide {
   min-height: 4.8rem;
+}
+
+.tables-data-table__cell-text {
+  width: 100%;
+  min-height: 4.8rem;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(58, 37, 21, 0.74), rgba(23, 15, 11, 0.95)),
+    rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  box-shadow:
+    inset 0 0 0 1px rgba(80, 51, 28, 0.62),
+    inset 0 1px 0 rgba(255, 229, 182, 0.04);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.28;
+  white-space: pre-wrap;
+}
+
+.tables-data-table__item-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  cursor: pointer;
+}
+
+.tables-data-table__item-link:hover,
+.tables-data-table__item-link:focus-visible {
+  color: var(--text);
 }
 
 .tables-data-table__empty-add {

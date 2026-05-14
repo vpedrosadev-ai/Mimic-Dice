@@ -70,7 +70,7 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
         <p class="eyebrow">${escapeHtml(t("spell_selected"))}</p>
         <div class="arcanum-detail__title-row">
           <h3>${escapeHtml(entry.name)}</h3>
-          <p class="bestiary-detail__label arcanum-detail__level-title">${escapeHtml(entry.levelValue === 99 ? "NIVEL ?" : `NIVEL ${entry.levelValue}`)}</p>
+          <p class="bestiary-detail__label arcanum-detail__level-title">${escapeHtml(getArcanumDetailLevelTitle(entry))}</p>
         </div>
         <p class="bestiary-detail__source">${escapeHtml(entry.sourceLabel)}</p>
       </div>
@@ -111,6 +111,14 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
         ${escapeHtml(t("arcanum_empty_detail"))}
       </div>
     `;
+  }
+
+  function getArcanumDetailLevelTitle(entry) {
+    if (entry.levelValue === 0) {
+      return "TRUCO";
+    }
+
+    return entry.levelValue === 99 ? "NIVEL ?" : `NIVEL ${entry.levelValue}`;
   }
 
   function renderBestiaryDetail(entry) {
