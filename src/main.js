@@ -432,6 +432,7 @@ const state = {
   combatants: initialCombatTrackerState.combatants,
   filters: initialCombatTrackerState.filters,
   sort: initialCombatTrackerState.sort,
+  combatSearchQuery: initialCombatTrackerState.combatSearchQuery,
   activeFilterKey: "",
   combatFilterDrafts: { ...blankCombatFilterDrafts },
   selectedIds: new Set(),
@@ -439,6 +440,7 @@ const state = {
   nextId: initialCombatTrackerState.nextId,
   inlineAdjustments: initialCombatTrackerState.inlineAdjustments,
   areaDamage: initialCombatTrackerState.areaDamage,
+  combatAreaTargetPicker: getDefaultCombatAreaTargetPickerState(),
   isCombatActive: initialCombatTrackerState.isCombatActive,
   activeTurnCombatantId: initialCombatTrackerState.activeTurnCombatantId,
   combatRound: initialCombatTrackerState.combatRound,
@@ -528,8 +530,11 @@ const state = {
   diaryFolders: initialDiaryState.folders,
   systemDiaryFolderExpanded: initialDiaryState.systemFolderExpanded,
   diaryNotes: initialDiaryState.notes,
+  diaryTagColors: initialDiaryState.tagColors,
   activeDiaryFolderId: initialDiaryState.activeDiaryFolderId,
   activeDiaryNoteId: initialDiaryState.activeNoteId,
+  diarySearchQuery: "",
+  showDiarySearchSuggestions: false,
   diaryCalendarSectionCollapsed: {
     real: false,
     harptos: false
@@ -547,8 +552,14 @@ const state = {
     x: 0,
     y: 0,
     value: ""
-  }
+  },
+  combatTurnRoundEditorOpen: false,
+  combatTurnRoundDraft: "",
+  combatTurnJumpMenuOpen: false
 };
+
+let activeDiaryMentionContext = null;
+let activeDiaryTagColorPicker = null;
 
 const localizedSystemTablesEs = getLocalizedSystemTableDefinitions(CONTENT_LANGUAGE_ES);
 const localizedSystemTablesEn = getLocalizedSystemTableDefinitions(CONTENT_LANGUAGE_EN);
@@ -659,6 +670,11 @@ async function handleClick(event) {
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
+  const clickedDiarySearch = event.target.closest("[data-diary-search-menu]");
+  const clickedDiaryMentionRoot = event.target.closest("[data-diary-mention-root]");
+  const clickedCombatTurnRoundMenu = event.target.closest("[data-combat-turn-round-menu]");
+  const clickedCombatTurnJumpMenu = event.target.closest("[data-combat-turn-jump-menu]");
+  const clickedCombatAreaTargetMenu = event.target.closest("[data-combat-area-target-menu]");
   const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
   const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
@@ -671,6 +687,34 @@ async function handleClick(event) {
   const clickedOptionsMenu = event.target.closest("[data-options-menu]");
   const clickedCharacterSkillConfig = event.target.closest("[data-character-skill-config-menu]");
   const ctrlOrMetaPressed = event.ctrlKey || event.metaKey;
+  const clickedDiaryTag = event.target.closest("[data-diary-tag-filter]");
+  const clickedDiaryMentionLink = event.target.closest("[data-diary-mention-link]");
+
+  if (clickedDiaryTag) {
+    event.preventDefault();
+    state.diarySearchQuery = cleanText(clickedDiaryTag.dataset.diaryTagFilter);
+    state.showDiarySearchSuggestions = false;
+    render({
+      focusSelector: "[data-diary-search]"
+    });
+    return;
+  }
+
+  if (clickedDiaryMentionLink) {
+    const diaryEditor = clickedDiaryMentionLink.closest("[data-diary-editor]");
+
+    if (diaryEditor && !ctrlOrMetaPressed) {
+      return;
+    }
+
+    event.preventDefault();
+    openDiaryMentionTarget(
+      clickedDiaryMentionLink.dataset.diaryMentionKind,
+      clickedDiaryMentionLink.dataset.diaryMentionId,
+      clickedDiaryMentionLink.dataset.diaryMentionName
+    );
+    return;
+  }
 
   if (ctrlOrMetaPressed) {
     const clickedInventoryName = event.target.closest("[data-character-inventory-name]");
@@ -868,6 +912,46 @@ async function handleClick(event) {
 
   if (state.showEncounterSearchSuggestions && !clickedEncounterSearch) {
     state.showEncounterSearchSuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showDiarySearchSuggestions && !clickedDiarySearch) {
+    state.showDiarySearchSuggestions = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (activeDiaryMentionContext && !clickedDiaryMentionRoot) {
+    hideDiaryMentionSuggestions();
+  }
+
+  if (state.combatTurnRoundEditorOpen && !clickedCombatTurnRoundMenu) {
+    state.combatTurnRoundEditorOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.combatTurnJumpMenuOpen && !clickedCombatTurnJumpMenu) {
+    state.combatTurnJumpMenuOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.combatAreaTargetPicker.mode && !clickedCombatAreaTargetMenu) {
+    closeCombatAreaTargetPicker();
 
     if (!actionButton) {
       render();
@@ -1600,6 +1684,35 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-combat-turn-round-editor") {
+    state.combatTurnRoundEditorOpen = !state.combatTurnRoundEditorOpen;
+    state.combatTurnJumpMenuOpen = false;
+    state.combatTurnRoundDraft = String(getCombatRound());
+    render({
+      focusSelector: state.combatTurnRoundEditorOpen ? "[data-combat-turn-round-input]" : null
+    });
+    return;
+  }
+
+  if (action === "apply-combat-turn-round") {
+    setCombatTurnRound(state.combatTurnRoundDraft);
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-turn-jump-menu") {
+    state.combatTurnJumpMenuOpen = !state.combatTurnJumpMenuOpen;
+    state.combatTurnRoundEditorOpen = false;
+    render();
+    return;
+  }
+
+  if (action === "jump-combat-turn-to") {
+    jumpCombatTurnTo(actionButton.dataset.combatantId);
+    render();
+    return;
+  }
+
   if (action === "focus-combatant-row") {
     selectCombatTurnToken(actionButton.dataset.combatantId, {
       additive: event.ctrlKey || event.metaKey || event.getModifierState?.("Control") || event.getModifierState?.("Meta")
@@ -1635,27 +1748,49 @@ async function handleClick(event) {
   }
 
   if (action === "adjust-area-pg-act") {
-    applyAreaPgActAdjustment(actionButton.dataset.mode);
+    openCombatAreaTargetPicker(actionButton.dataset.mode);
     render();
     return;
   }
 
   if (action === "adjust-area-necrotic") {
-    applyAreaNecroticAdjustment();
+    openCombatAreaTargetPicker("necrotic");
     render();
     return;
   }
 
   if (action === "adjust-area-pg-temp") {
-    applyAreaPgTempAdjustment();
+    openCombatAreaTargetPicker("temp");
     render();
     return;
   }
 
   if (action === "adjust-area-xp") {
-    applyAreaExperienceAdjustment();
-    saveCharacters();
-    saveCombatTrackerState();
+    openCombatAreaTargetPicker("xp");
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-area-target") {
+    toggleCombatAreaTargetSelection(actionButton.dataset.combatantId);
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-area-half") {
+    toggleCombatAreaTargetHalfSelection(actionButton.dataset.combatantId);
+    render();
+    return;
+  }
+
+  if (action === "cancel-combat-area-targets") {
+    closeCombatAreaTargetPicker();
+    render();
+    return;
+  }
+
+  if (action === "apply-combat-area-targets") {
+    applyCombatAreaTargetPicker();
     render();
     return;
   }
@@ -2159,6 +2294,37 @@ async function handleClick(event) {
     render({
       focusSelector: `[data-diary-title="${state.activeDiaryNoteId}"]`
     });
+    return;
+  }
+
+  if (action === "select-diary-search-suggestion") {
+    state.showDiarySearchSuggestions = false;
+    selectDiaryNote(actionButton.dataset.diaryNoteId);
+    render({
+      focusSelector: `[data-diary-title="${actionButton.dataset.diaryNoteId}"]`
+    });
+    return;
+  }
+
+  if (action === "insert-diary-mention") {
+    event.preventDefault();
+    insertDiaryMention(
+      actionButton.dataset.diaryMentionKind,
+      actionButton.dataset.diaryMentionId,
+      actionButton.dataset.diaryMentionName
+    );
+    return;
+  }
+
+  if (action === "insert-diary-tag-token") {
+    event.preventDefault();
+    insertDiaryEditorToken("#");
+    return;
+  }
+
+  if (action === "insert-diary-mention-token") {
+    event.preventDefault();
+    insertDiaryEditorToken("@");
     return;
   }
 
@@ -2832,7 +2998,7 @@ function handleInput(event) {
   }
 
   if (target.matches("[data-diary-editor]")) {
-    updateActiveDiaryNoteContentHtml(target.innerHTML);
+    handleDiaryEditorInput(target);
     return;
   }
 
@@ -3042,6 +3208,22 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-combat-turn-round-input]")) {
+    state.combatTurnRoundDraft = target.value;
+    return;
+  }
+
+  if (target.matches("[data-combat-search]")) {
+    state.combatSearchQuery = target.value;
+    saveCombatTrackerState();
+    render({
+      focusSelector: "[data-combat-search]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
   if (target.matches("[data-edit-id][data-edit-key]")) {
     updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value, false);
     saveCombatTrackerState();
@@ -3162,6 +3344,17 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-diary-search]")) {
+    state.diarySearchQuery = target.value;
+    state.showDiarySearchSuggestions = cleanText(target.value).length > 0;
+    render({
+      focusSelector: "[data-diary-search]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
   if (target.matches("[data-encounter-units]")) {
     updateEncounterRowUnits(target.dataset.encounterUnits, target.value, false);
     render({
@@ -3241,6 +3434,24 @@ function handleKeydown(event) {
     return;
   }
 
+  if (target.matches("[data-combat-turn-round-input]") && event.key === "Enter") {
+    event.preventDefault();
+    setCombatTurnRound(target.value);
+    render();
+    return;
+  }
+
+  if (event.key === "Escape" && state.combatAreaTargetPicker.mode) {
+    closeCombatAreaTargetPicker();
+    render();
+    return;
+  }
+
+  if (target.matches("[data-diary-editor]") && event.key === "Escape") {
+    hideDiaryMentionSuggestions();
+    return;
+  }
+
   if (target.matches("[data-bestiary-query]") && event.key === "Enter") {
     state.showBestiaryQuerySuggestions = false;
     render({
@@ -3277,6 +3488,25 @@ function handleKeydown(event) {
 
     render({
       focusSelector: "[data-encounter-search]"
+    });
+  }
+
+  if (target.matches("[data-diary-search]") && event.key === "Enter") {
+    event.preventDefault();
+    const [firstMatch] = getDiarySearchMatches();
+
+    if (firstMatch) {
+      state.showDiarySearchSuggestions = false;
+      selectDiaryNote(firstMatch.id);
+      render({
+        focusSelector: `[data-diary-title="${firstMatch.id}"]`
+      });
+      return;
+    }
+
+    state.showDiarySearchSuggestions = false;
+    render({
+      focusSelector: "[data-diary-search]"
     });
   }
 }
@@ -3668,6 +3898,14 @@ function handlePointerDown(event) {
 }
 
 function handleContextMenu(event) {
+  const diaryTag = event.target.closest("[data-diary-tag-filter]");
+
+  if (diaryTag) {
+    event.preventDefault();
+    openDiaryTagColorPicker(diaryTag, cleanText(diaryTag.dataset.diaryTagFilter));
+    return;
+  }
+
   const statusToken = event.target.closest("[data-combat-turn-status-remove]");
 
   if (statusToken) {
@@ -5895,6 +6133,9 @@ function renderCombatTracker() {
   const combatActionLabel = state.isCombatActive
     ? "<span>Fin del</span><span>combate</span>"
     : "<span class=\"combat-action-button__single-line\">Combate !</span>";
+  const hasVisibleCombatants = visibleCombatants.length > 0;
+  const areaAmountValue = Number(state.areaDamage);
+  const hasAreaAmount = Number.isFinite(areaAmountValue) && areaAmountValue >= 0;
 
   return `
     <section class="panel panel--table combat-tracker-panel">
@@ -5923,7 +6164,17 @@ function renderCombatTracker() {
       }
 
       <div class="table-toolbar" aria-label="Acciones de tabla">
-        <div class="table-toolbar__group">
+        <div class="table-toolbar__group combat-toolbar__search-row">
+          <input
+            class="filter-input filter-input--wide combat-search-input"
+            type="search"
+            value="${escapeHtml(state.combatSearchQuery)}"
+            placeholder="Filtro buscador"
+            data-combat-search
+            aria-label="Filtro buscador"
+          />
+        </div>
+        <div class="table-toolbar__group combat-toolbar__action-row">
           ${renderCombatEncounterPicker()}
           <button
             class="toolbar-button toolbar-button--danger"
@@ -5942,76 +6193,9 @@ function renderCombatTracker() {
             Eliminar enemigos
           </button>
         </div>
-      <div class="table-toolbar__group">
-          <div
-            class="combat-area-bulk-box area-damage combat-inline-tooltip-anchor combat-inline-tooltip-anchor--panel"
-            data-tooltip="${escapeHtml(t("Aplica un efecto a las filas que esten seleccionadas"))}"
-            data-area-label="${escapeHtml(t("area_effects"))}"
-          >
-            <input
-              class="area-damage__input"
-              type="number"
-              inputmode="numeric"
-              placeholder="${escapeHtml(t("amount_label"))}"
-              value="${escapeHtml(state.areaDamage)}"
-              data-area-damage
-              aria-label="Cantidad para ajustar filas seleccionadas"
-            />
-            <div class="mini-actions area-damage__actions">
-              <button
-                class="mini-action mini-action--damage"
-                type="button"
-                data-action="adjust-area-pg-act"
-                data-mode="damage"
-                data-tooltip="Daño"
-                ${state.selectedIds.size === 0 ? "disabled" : ""}
-                aria-label="Aplicar danio a filas seleccionadas"
-              >
-                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("damage")}</span>
-              </button>
-              <button
-                class="mini-action mini-action--heal"
-                type="button"
-                data-action="adjust-area-pg-act"
-                data-mode="heal"
-                data-tooltip="Curacion"
-                ${state.selectedIds.size === 0 ? "disabled" : ""}
-                aria-label="Aplicar curacion a filas seleccionadas"
-              >
-                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("heal")}</span>
-              </button>
-              <button
-                class="mini-action mini-action--necrotic"
-                type="button"
-                data-action="adjust-area-necrotic"
-                data-tooltip="Necrotico"
-                ${state.selectedIds.size === 0 ? "disabled" : ""}
-                aria-label="Aplicar necrotico a filas seleccionadas"
-              >
-                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span>
-              </button>
-              <button
-                class="mini-action mini-action--temp"
-                type="button"
-                data-action="adjust-area-pg-temp"
-                data-tooltip="Vida temporal"
-                ${state.selectedIds.size === 0 ? "disabled" : ""}
-                aria-label="Aplicar vida temporal a filas seleccionadas"
-              >
-                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("temp")}</span>
-              </button>
-              <button
-                class="mini-action mini-action--xp"
-                type="button"
-                data-action="adjust-area-xp"
-                data-tooltip="Experiencia"
-                ${state.selectedIds.size === 0 ? "disabled" : ""}
-                aria-label="Aplicar experiencia a filas seleccionadas"
-              >
-                <span class="mini-action__icon" aria-hidden="true"><img src="${escapeHtml(combatAreaXpIconUrl)}" alt="" decoding="async" /></span>
-              </button>
-            </div>
-          </div>
+        <div class="table-toolbar__group combat-toolbar__secondary-row">
+          ${renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, hasAreaAmount)}
+
           <button
             class="toolbar-button toolbar-button--combat"
             type="button"
@@ -6187,7 +6371,28 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
           >
             ${escapeHtml(t("Pasar turno"))}
           </button>
-          <span class="round-chip">${escapeHtml(t("round_label"))} ${escapeHtml(String(getCombatRound()))}</span>
+          <div class="combat-turn-panel__menu-wrap" data-combat-turn-jump-menu>
+            <button
+              class="summary-button combat-turn-panel__button"
+              type="button"
+              data-action="toggle-combat-turn-jump-menu"
+              aria-expanded="${state.combatTurnJumpMenuOpen}"
+            >
+              JUMP TURN TO
+            </button>
+            ${state.combatTurnJumpMenuOpen ? renderCombatTurnJumpMenu(turnOrder, activeTurnCombatantId) : ""}
+          </div>
+          <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
+            <button
+              class="round-chip round-chip--button"
+              type="button"
+              data-action="toggle-combat-turn-round-editor"
+              aria-expanded="${state.combatTurnRoundEditorOpen}"
+            >
+              ${escapeHtml(t("round_label"))} ${escapeHtml(String(getCombatRound()))}
+            </button>
+            ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
+          </div>
         </div>
         <div
           class="combat-turn-strip"
@@ -9518,6 +9723,9 @@ function renderDiaryScreen() {
   reconcileDiaryUiState();
   const activeNote = getActiveDiaryNote();
   const folderCount = state.diaryFolders.length;
+  const diaryFolderGroups = getDiaryFolderGroups();
+  const showDiarySearchPopover = state.showDiarySearchSuggestions && cleanText(state.diarySearchQuery).length > 0;
+  const diarySearchMatches = showDiarySearchPopover ? getDiarySearchMatches() : [];
 
   return `
     <section class="panel panel--table diary-screen">
@@ -9540,6 +9748,29 @@ function renderDiaryScreen() {
         <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-diary-note" ${activeNote ? "" : "disabled"}>
           ${escapeHtml(t("diary_delete_note"))}
         </button>
+        <div class="toolbar-field toolbar-field--search bestiary-query diary-search" data-diary-search-menu>
+          <span>${escapeHtml(t("diary_search_label"))}</span>
+          <input
+            class="filter-input filter-input--wide"
+            type="search"
+            value="${escapeHtml(state.diarySearchQuery)}"
+            placeholder="${escapeHtml(t("diary_search_placeholder"))}"
+            data-diary-search
+          />
+          ${
+            showDiarySearchPopover
+              ? `
+                <div class="bestiary-query__popover diary-search__popover" role="listbox" aria-label="${escapeHtml(t("diary_search_results_aria"))}">
+                  ${
+                    diarySearchMatches.length > 0
+                      ? diarySearchMatches.map((note) => renderDiarySearchSuggestion(note)).join("")
+                      : `<p class="bestiary-filter__empty">${escapeHtml(t("diary_search_no_matches"))}</p>`
+                  }
+                </div>
+              `
+              : ""
+          }
+        </div>
       </div>
 
       <div class="diary-layout">
@@ -9553,7 +9784,13 @@ function renderDiaryScreen() {
           <div class="diary-sidebar__list">
             ${
               state.diaryNotes.length > 0 || state.diaryFolders.length > 0
-                ? getDiaryFolderGroups().map((folder) => renderDiaryFolderGroup(folder)).join("")
+                ? diaryFolderGroups.length > 0
+                  ? diaryFolderGroups.map((folder) => renderDiaryFolderGroup(folder)).join("")
+                  : `
+                      <div class="empty-state empty-state--compact">
+                        ${escapeHtml(t("diary_search_no_matches"))}
+                      </div>
+                    `
                 : `
                   <div class="empty-state empty-state--compact">
                     ${escapeHtml(t("diary_empty_list"))}
@@ -9581,6 +9818,281 @@ function renderDiaryScreen() {
         </section>
       </div>
     </section>
+  `;
+}
+
+function renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, hasAreaAmount) {
+  return `
+    <div
+      class="combat-area-bulk-box area-damage combat-inline-tooltip-anchor combat-inline-tooltip-anchor--panel"
+      data-tooltip="Elige valor, pulsa efecto y despues marca objetivos en ventana emergente"
+      data-area-label="${escapeHtml(t("area_effects"))}"
+      data-combat-area-target-menu
+    >
+      <input
+        class="area-damage__input"
+        type="number"
+        inputmode="numeric"
+        placeholder="${escapeHtml(t("amount_label"))}"
+        value="${escapeHtml(state.areaDamage)}"
+        data-area-damage
+        aria-label="Cantidad para efecto en area"
+      />
+      <div class="mini-actions area-damage__actions">
+        <button
+          class="mini-action mini-action--damage"
+          type="button"
+          data-action="adjust-area-pg-act"
+          data-mode="damage"
+          data-tooltip="Daño"
+          ${!hasVisibleCombatants || !hasAreaAmount ? "disabled" : ""}
+          aria-label="Abrir selector de objetivos para daño"
+        >
+          <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("damage")}</span>
+        </button>
+        <button
+          class="mini-action mini-action--heal"
+          type="button"
+          data-action="adjust-area-pg-act"
+          data-mode="heal"
+          data-tooltip="Curacion"
+          ${!hasVisibleCombatants || !hasAreaAmount ? "disabled" : ""}
+          aria-label="Abrir selector de objetivos para curacion"
+        >
+          <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("heal")}</span>
+        </button>
+        <button
+          class="mini-action mini-action--necrotic"
+          type="button"
+          data-action="adjust-area-necrotic"
+          data-tooltip="Necrotico"
+          ${!hasVisibleCombatants || !hasAreaAmount ? "disabled" : ""}
+          aria-label="Abrir selector de objetivos para necrotico"
+        >
+          <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span>
+        </button>
+        <button
+          class="mini-action mini-action--temp"
+          type="button"
+          data-action="adjust-area-pg-temp"
+          data-tooltip="Vida temporal"
+          ${!hasVisibleCombatants || !hasAreaAmount ? "disabled" : ""}
+          aria-label="Abrir selector de objetivos para vida temporal"
+        >
+          <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("temp")}</span>
+        </button>
+        <button
+          class="mini-action mini-action--xp"
+          type="button"
+          data-action="adjust-area-xp"
+          data-tooltip="Experiencia"
+          ${!hasVisibleCombatants || !hasAreaAmount ? "disabled" : ""}
+          aria-label="Abrir selector de objetivos para experiencia"
+        >
+          <span class="mini-action__icon" aria-hidden="true"><img src="${escapeHtml(combatAreaXpIconUrl)}" alt="" decoding="async" /></span>
+        </button>
+      </div>
+      ${state.combatAreaTargetPicker.mode ? renderCombatAreaTargetPicker(visibleCombatants) : ""}
+    </div>
+  `;
+}
+
+function renderCombatAreaTargetPicker(visibleCombatants) {
+  const mode = cleanText(state.combatAreaTargetPicker.mode);
+  const selectedIds = state.combatAreaTargetPicker.selectedIds instanceof Set
+    ? state.combatAreaTargetPicker.selectedIds
+    : new Set();
+  const halfDamageIds = state.combatAreaTargetPicker.halfDamageIds instanceof Set
+    ? state.combatAreaTargetPicker.halfDamageIds
+    : new Set();
+  const targetCombatants = getCombatAreaTargetList(mode, visibleCombatants);
+  const supportsHalfDamage = mode === "damage" || mode === "necrotic";
+  const titleByMode = {
+    damage: "Dano en area",
+    heal: "Curacion en area",
+    necrotic: "Necrotico en area",
+    temp: "Vida temporal en area",
+    xp: "Experiencia en area"
+  };
+  const amountLabelByMode = {
+    damage: `${cleanText(state.areaDamage) || "0"} PG`,
+    heal: `${cleanText(state.areaDamage) || "0"} PG`,
+    necrotic: `${cleanText(state.areaDamage) || "0"} PG`,
+    temp: `${cleanText(state.areaDamage) || "0"} PG temp`,
+    xp: `${cleanText(state.areaDamage) || "0"} PX`
+  };
+  const titleLabel = titleByMode[mode] || "Efecto en area";
+  const titleDetail = amountLabelByMode[mode] || `${cleanText(state.areaDamage) || "0"}`;
+  const subtitle = mode === "xp"
+    ? "Solo aliados con personaje enlazado. Clic tarjeta para marcar."
+    : supportsHalfDamage
+      ? "Clic tarjeta para marcar. HALF = mitad."
+      : "Clic tarjeta para marcar.";
+
+  return `
+    <div class="combat-area-target-picker" role="dialog" aria-label="${escapeHtml(`${titleLabel} ${titleDetail}`)}">
+      <div class="combat-area-target-picker__header">
+        <strong>${escapeHtml(`${titleLabel} · ${titleDetail}`)}</strong>
+        <span>${escapeHtml(subtitle)}</span>
+      </div>
+      <div class="combat-area-target-picker__list">
+        ${targetCombatants.length > 0
+          ? targetCombatants.map((combatant) => renderCombatAreaTargetCard(
+            combatant,
+            selectedIds.has(combatant.id),
+            halfDamageIds.has(combatant.id),
+            supportsHalfDamage
+          )).join("")
+          : '<div class="combat-area-target-picker__empty">No hay objetivos validos.</div>'}
+      </div>
+      <div class="combat-area-target-picker__footer">
+        <button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="cancel-combat-area-targets">
+          Cancel
+        </button>
+        <button
+          class="toolbar-button toolbar-button--accent"
+          type="button"
+          data-action="apply-combat-area-targets"
+          ${selectedIds.size === 0 ? "disabled" : ""}
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function getCombatAreaTargetList(mode, visibleCombatants = getVisibleCombatants()) {
+  const normalizedMode = cleanText(mode);
+  const candidates = Array.isArray(visibleCombatants) ? visibleCombatants : [];
+
+  if (normalizedMode !== "xp") {
+    return candidates;
+  }
+
+  return candidates.filter((combatant) => mapTagToSide(combatant.tag) === "allies" && getLinkedCharacterForCombatant(combatant));
+}
+
+function renderCombatAreaTargetCard(combatant, isSelected, isHalfDamage, supportsHalfDamage) {
+  const tokenUrl = getCombatantTokenUrl(combatant);
+  const standNumber = cleanText(combatant.numPeana) || "-";
+  const sideLabel = cleanText(combatant.tag) || "NEUTRAL";
+  const label = cleanText(combatant.nombre) || "Sin nombre";
+  const initials = getCombatantInitials(combatant);
+
+  return `
+    <div
+      class="combat-area-target-card ${isSelected ? "is-selected" : ""}"
+      data-action="toggle-combat-area-target"
+      data-combatant-id="${escapeHtml(combatant.id)}"
+    >
+      <span class="combat-turn-jump-card__media" aria-hidden="true">
+        ${tokenUrl
+          ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async" />`
+          : `<span class="combat-turn-jump-card__placeholder">${escapeHtml(initials)}</span>`}
+      </span>
+      <span class="combat-turn-jump-card__copy">
+        <strong>${escapeHtml(label)}</strong>
+        <small>Peana ${escapeHtml(standNumber)} | ${escapeHtml(sideLabel)}</small>
+      </span>
+      <span class="combat-area-target-card__checks">
+        ${
+          supportsHalfDamage
+            ? `
+              <label
+                class="combat-area-target-card__check combat-area-target-card__check--half ${isSelected ? "" : "is-disabled"}"
+                data-action="toggle-combat-area-half"
+                data-combatant-id="${escapeHtml(combatant.id)}"
+              >
+                <input
+                  type="checkbox"
+                  data-action="toggle-combat-area-half"
+                  data-combatant-id="${escapeHtml(combatant.id)}"
+                  ${isHalfDamage ? "checked" : ""}
+                  ${isSelected ? "" : "disabled"}
+                />
+                <span
+                  data-action="toggle-combat-area-half"
+                  data-combatant-id="${escapeHtml(combatant.id)}"
+                >
+                  HALF
+                </span>
+              </label>
+            `
+            : ""
+        }
+      </span>
+    </div>
+  `;
+}
+
+function renderCombatTurnRoundEditor() {
+  return `
+    <div class="combat-turn-panel__popover combat-turn-panel__popover--round">
+      <input
+        class="filter-input combat-turn-panel__round-input"
+        type="number"
+        min="1"
+        inputmode="numeric"
+        value="${escapeHtml(state.combatTurnRoundDraft || String(getCombatRound()))}"
+        data-combat-turn-round-input
+        aria-label="Numero de turno"
+      />
+      <button class="toolbar-button toolbar-button--accent" type="button" data-action="apply-combat-turn-round">
+        OK
+      </button>
+    </div>
+  `;
+}
+
+function renderCombatTurnJumpMenu(turnOrder, activeTurnCombatantId) {
+  return `
+    <div class="combat-turn-panel__popover combat-turn-panel__popover--jump" role="listbox" aria-label="Saltar turno a">
+      ${turnOrder.map((combatant) => renderCombatTurnJumpOption(combatant, combatant.id === activeTurnCombatantId)).join("")}
+    </div>
+  `;
+}
+
+function renderCombatTurnJumpOption(combatant, isActive) {
+  const tokenUrl = getCombatantTokenUrl(combatant);
+  const standNumber = cleanText(combatant.numPeana) || "-";
+  const sideLabel = cleanText(combatant.tag) || "NEUTRAL";
+  const label = cleanText(combatant.nombre) || "Sin nombre";
+  const initials = getCombatantInitials(combatant);
+
+  return `
+    <button
+      class="combat-turn-jump-card ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="jump-combat-turn-to"
+      data-combatant-id="${escapeHtml(combatant.id)}"
+    >
+      <span class="combat-turn-jump-card__media" aria-hidden="true">
+        ${tokenUrl
+          ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async" />`
+          : `<span class="combat-turn-jump-card__placeholder">${escapeHtml(initials)}</span>`}
+      </span>
+      <span class="combat-turn-jump-card__copy">
+        <strong>${escapeHtml(label)}</strong>
+        <small>Peana ${escapeHtml(standNumber)} | ${escapeHtml(sideLabel)}</small>
+      </span>
+    </button>
+  `;
+}
+
+function renderDiarySearchSuggestion(note) {
+  const preview = getDiaryNoteSearchPreview(note);
+
+  return `
+    <button
+      class="bestiary-query__option diary-search__option"
+      type="button"
+      data-action="select-diary-search-suggestion"
+      data-diary-note-id="${escapeHtml(note.id)}"
+    >
+      <strong>${escapeHtml(note.title || t("diary_note_untitled"))}</strong>
+      <small>${escapeHtml(preview || getDiaryNoteUpdatedLabel(note.updatedAt))}</small>
+    </button>
   `;
 }
 
@@ -9668,6 +10180,7 @@ function renderDiaryNoteListItem(note) {
   const isActive = note.id === state.activeDiaryNoteId;
   const realSummary = formatDiaryRealDateSummary(note) || t("diary_real_date_empty");
   const harptosSummary = formatDiaryHarptosDateSummary(note) || t("diary_harptos_date_empty");
+  const tags = getDiaryNoteTags(note);
 
   return `
     <button
@@ -9680,12 +10193,15 @@ function renderDiaryNoteListItem(note) {
       <strong>${escapeHtml(note.title || t("diary_note_untitled"))}</strong>
       <small class="diary-note-card__meta-row">${escapeHtml(t("diary_real_date_label"))}: ${escapeHtml(realSummary)}</small>
       <small class="diary-note-card__meta-row">${escapeHtml(t("diary_harptos_date_label"))}: ${escapeHtml(harptosSummary)}</small>
+      ${tags.length > 0 ? `<span class="diary-note-card__tags">${tags.map((tag) => renderDiaryTagSummaryChipHtml(tag)).join("")}</span>` : ""}
       <span>${escapeHtml(getDiaryNoteUpdatedLabel(note.updatedAt))}</span>
     </button>
   `;
 }
 
 function renderDiaryEditor(note) {
+  const contentHtml = normalizeDiaryContentHtml(note.contentHtml);
+
   return `
     <div class="diary-editor">
       <div class="diary-editor__header">
@@ -9724,14 +10240,19 @@ function renderDiaryEditor(note) {
         ${renderDiaryCommandButton("unlink", t("diary_cmd_unlink"))}
         ${renderDiaryCommandButton("insertHorizontalRule", t("diary_cmd_separator"))}
         ${renderDiaryCommandButton("removeFormat", t("diary_cmd_clear"))}
+        ${renderDiaryTokenButton("#", "insert-diary-tag-token", "Write #tag text# to create searchable tag chip. Close tag with second #.")}
+        ${renderDiaryTokenButton("@", "insert-diary-mention-token", "Write @name to search characters, items, or creatures. Pick suggestion to create linked mention.")}
       </div>
 
-      <div
-        class="diary-rich-editor"
-        contenteditable="true"
-        spellcheck="true"
-        data-diary-editor="${escapeHtml(note.id)}"
-      >${note.contentHtml}</div>
+      <div class="diary-rich-editor-shell" data-diary-mention-root>
+        <div
+          class="diary-rich-editor"
+          contenteditable="true"
+          spellcheck="true"
+          data-diary-editor="${escapeHtml(note.id)}"
+        >${contentHtml}</div>
+        <div class="diary-mention-popover" data-diary-mention-popover hidden></div>
+      </div>
     </div>
   `;
 }
@@ -9744,6 +10265,20 @@ function renderDiaryCommandButton(command, label, value = "") {
       data-action="apply-diary-command"
       data-diary-command="${escapeHtml(command)}"
       ${value ? `data-diary-command-value="${escapeHtml(value)}"` : ""}
+    >
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function renderDiaryTokenButton(label, action, tooltip) {
+  return `
+    <button
+      class="toolbar-button toolbar-button--subtle diary-editor__command diary-editor__command--token"
+      type="button"
+      data-action="${escapeHtml(action)}"
+      data-tooltip="${escapeHtml(tooltip)}"
+      aria-label="${escapeHtml(tooltip)}"
     >
       ${escapeHtml(label)}
     </button>
@@ -12313,6 +12848,7 @@ function getVisibleCombatants() {
 
   return [...combatants]
     .filter(matchesFilters)
+    .filter(matchesCombatSearch)
     .sort(compareCombatants);
 }
 
@@ -12872,6 +13408,24 @@ function matchesFilters(combatant) {
 
     return filterValues.includes(getCombatFilterValue(combatant, column.key));
   });
+}
+
+function matchesCombatSearch(combatant) {
+  const search = normalizeSearchText(state.combatSearchQuery);
+
+  if (!search) {
+    return true;
+  }
+
+  const statusText = getCombatantStatusNames(combatant).join(" ");
+  const haystack = normalizeSearchText([
+    cleanText(combatant?.nombre),
+    cleanText(combatant?.tag),
+    statusText,
+    cleanText(combatant?.ubicacion)
+  ].join(" "));
+
+  return haystack.includes(search);
 }
 
 function getCombatFilterValue(combatant, columnKey) {
@@ -15325,8 +15879,7 @@ function getEncounterCreatureSuggestions() {
   return state.bestiary
     .filter((entry) => entry.nameLower.includes(query))
     .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
-      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
-    .slice(0, 12);
+      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }));
 }
 
 function getEncounterSourceOptions(row) {
@@ -15910,15 +16463,23 @@ function startCombatTurns() {
   state.sort = { key: "iniactiva", direction: "desc" };
   state.activeTurnCombatantId = turnOrder[0]?.id ?? "";
   state.combatRound = 1;
+  state.combatTurnRoundDraft = "1";
+  state.combatTurnRoundEditorOpen = false;
+  state.combatTurnJumpMenuOpen = false;
   resetBattleTimer();
   startBattleTimer();
+  saveCombatTrackerState();
 }
 
 function endCombatTurns() {
   state.isCombatActive = false;
   state.activeTurnCombatantId = "";
   state.combatRound = 1;
+  state.combatTurnRoundDraft = "";
+  state.combatTurnRoundEditorOpen = false;
+  state.combatTurnJumpMenuOpen = false;
   pauseBattleTimer();
+  saveCombatTrackerState();
 }
 
 function advanceCombatTurn() {
@@ -15943,6 +16504,29 @@ function advanceCombatTurn() {
   if (nextIndex === 0) {
     state.combatRound = getCombatRound() + 1;
   }
+
+  saveCombatTrackerState();
+}
+
+function setCombatTurnRound(value) {
+  const nextRound = Math.max(1, Math.floor(toNumber(value) || 1));
+  state.combatRound = nextRound;
+  state.combatTurnRoundDraft = String(nextRound);
+  state.combatTurnRoundEditorOpen = false;
+  saveCombatTrackerState();
+}
+
+function jumpCombatTurnTo(combatantId) {
+  const turnOrder = getCombatTurnParticipants();
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!turnOrder.some((combatant) => combatant.id === normalizedCombatantId)) {
+    return;
+  }
+
+  state.activeTurnCombatantId = normalizedCombatantId;
+  state.combatTurnJumpMenuOpen = false;
+  saveCombatTrackerState();
 }
 
 function getCombatRound() {
@@ -16135,6 +16719,7 @@ function applyNecroticAdjustment(id) {
 
     return normalizeCombatant({
       ...combatant,
+      pgAct: toNumber(combatant.pgAct) - amount,
       necrotic: toNumber(combatant.necrotic) + amount
     }, "necrotic");
   });
@@ -16181,30 +16766,179 @@ function applyPgTempAdjustment(id) {
   setInlineAdjustment(id, "pgAct", "");
 }
 
-function applyAreaPgActAdjustment(mode = "damage") {
-  const amount = Number(state.areaDamage);
+function getDefaultCombatAreaTargetPickerState() {
+  return {
+    mode: "",
+    selectedIds: new Set(),
+    halfDamageIds: new Set()
+  };
+}
 
-  if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
+function closeCombatAreaTargetPicker() {
+  state.combatAreaTargetPicker = getDefaultCombatAreaTargetPickerState();
+}
+
+function openCombatAreaTargetPicker(mode) {
+  const normalizedMode = cleanText(mode);
+  const amount = Number(state.areaDamage);
+  const targetCombatants = getCombatAreaTargetList(normalizedMode, getVisibleCombatants());
+
+  if (
+    !normalizedMode
+    || !Number.isFinite(amount)
+    || amount < 0
+    || (normalizedMode === "xp" && amount <= 0)
+    || targetCombatants.length === 0
+  ) {
+    return;
+  }
+
+  state.combatAreaTargetPicker = {
+    mode: normalizedMode,
+    selectedIds: new Set(),
+    halfDamageIds: new Set()
+  };
+}
+
+function toggleCombatAreaTargetSelection(combatantId) {
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (!normalizedCombatantId) {
+    return;
+  }
+
+  const nextSelectedIds = new Set(state.combatAreaTargetPicker.selectedIds ?? []);
+  const nextHalfDamageIds = new Set(state.combatAreaTargetPicker.halfDamageIds ?? []);
+
+  if (nextSelectedIds.has(normalizedCombatantId)) {
+    nextSelectedIds.delete(normalizedCombatantId);
+    nextHalfDamageIds.delete(normalizedCombatantId);
+  } else {
+    nextSelectedIds.add(normalizedCombatantId);
+  }
+
+  state.combatAreaTargetPicker = {
+    ...state.combatAreaTargetPicker,
+    selectedIds: nextSelectedIds,
+    halfDamageIds: nextHalfDamageIds
+  };
+}
+
+function toggleCombatAreaTargetHalfSelection(combatantId) {
+  const normalizedCombatantId = cleanText(combatantId);
+  const selectedIds = new Set(state.combatAreaTargetPicker.selectedIds ?? []);
+
+  if (!normalizedCombatantId || !selectedIds.has(normalizedCombatantId)) {
+    return;
+  }
+
+  const nextHalfDamageIds = new Set(state.combatAreaTargetPicker.halfDamageIds ?? []);
+
+  if (nextHalfDamageIds.has(normalizedCombatantId)) {
+    nextHalfDamageIds.delete(normalizedCombatantId);
+  } else {
+    nextHalfDamageIds.add(normalizedCombatantId);
+  }
+
+  state.combatAreaTargetPicker = {
+    ...state.combatAreaTargetPicker,
+    selectedIds,
+    halfDamageIds: nextHalfDamageIds
+  };
+}
+
+function getCombatAreaTargetConfigs() {
+  const mode = cleanText(state.combatAreaTargetPicker.mode);
+  const selectedIds = new Set(state.combatAreaTargetPicker.selectedIds ?? []);
+  const halfDamageIds = new Set(state.combatAreaTargetPicker.halfDamageIds ?? []);
+
+  return getCombatAreaTargetList(mode, getVisibleCombatants())
+    .filter((combatant) => selectedIds.has(combatant.id))
+    .map((combatant) => ({
+      id: combatant.id,
+      halfDamage: halfDamageIds.has(combatant.id)
+    }));
+}
+
+function getCombatAreaAdjustedAmount(combatant, amount, useHalfDamage = false) {
+  const normalizedAmount = Math.max(0, Number(amount) || 0);
+
+  if (!useHalfDamage) {
+    return normalizedAmount;
+  }
+
+  return isEnemyCombatant(combatant)
+    ? Math.ceil(normalizedAmount / 2)
+    : Math.floor(normalizedAmount / 2);
+}
+
+function applyCombatAreaTargetPicker() {
+  const mode = cleanText(state.combatAreaTargetPicker.mode);
+  const targetConfigs = getCombatAreaTargetConfigs();
+
+  if (!mode || targetConfigs.length === 0) {
+    return;
+  }
+
+  if (mode === "damage" || mode === "heal") {
+    applyAreaPgActAdjustment(mode, targetConfigs);
+    closeCombatAreaTargetPicker();
+    return;
+  }
+
+  if (mode === "necrotic") {
+    applyAreaNecroticAdjustment(targetConfigs);
+    closeCombatAreaTargetPicker();
+    return;
+  }
+
+  if (mode === "temp") {
+    applyAreaPgTempAdjustment(targetConfigs);
+    closeCombatAreaTargetPicker();
+    return;
+  }
+
+  if (mode === "xp") {
+    applyAreaExperienceAdjustment(targetConfigs);
+    closeCombatAreaTargetPicker();
+  }
+}
+
+function applyAreaPgActAdjustment(mode = "damage", targetConfigs = null) {
+  const amount = Number(state.areaDamage);
+  const targets = Array.isArray(targetConfigs) ? targetConfigs : [...state.selectedIds].map((id) => ({ id, halfDamage: false }));
+  const targetConfigById = new Map(targets.map((entry) => [cleanText(entry.id), entry]));
+
+  if (!Number.isFinite(amount) || amount < 0 || targetConfigById.size === 0) {
     return;
   }
 
   const previousCombatants = state.combatants;
   const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
-    if (!state.selectedIds.has(combatant.id)) {
+    const targetConfig = targetConfigById.get(combatant.id);
+
+    if (!targetConfig) {
       return combatant;
     }
 
-    adjustedCombatants.push(combatant);
+    const appliedAmount = mode === "heal"
+      ? amount
+      : getCombatAreaAdjustedAmount(combatant, amount, targetConfig.halfDamage);
+
+    adjustedCombatants.push({
+      combatant,
+      appliedAmount
+    });
 
     if (mode === "heal") {
       return normalizeCombatant({
         ...combatant,
-        pgAct: toNumber(combatant.pgAct) + amount
+        pgAct: toNumber(combatant.pgAct) + appliedAmount
       }, "pgAct");
     }
 
-    let remainingDamage = amount;
+    let remainingDamage = appliedAmount;
     const currentTemp = Math.max(0, toNumber(combatant.pgTemp));
     const tempAfterDamage = Math.max(0, currentTemp - remainingDamage);
     remainingDamage = Math.max(0, remainingDamage - currentTemp);
@@ -16220,29 +16954,44 @@ function applyAreaPgActAdjustment(mode = "damage") {
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   applyReviveExhaustion(previousCombatants);
   notifyCombatantDeaths(previousCombatants);
-  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", amount));
+  adjustedCombatants.forEach(({ combatant, appliedAmount }) => {
+    if (appliedAmount > 0) {
+      queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", appliedAmount);
+    }
+  });
   state.areaDamage = "";
+  saveCombatTrackerState();
 }
 
-function applyAreaNecroticAdjustment() {
+function applyAreaNecroticAdjustment(targetConfigs = null) {
   const amount = Number(state.areaDamage);
+  const targets = Array.isArray(targetConfigs) ? targetConfigs : [...state.selectedIds].map((id) => ({ id, halfDamage: false }));
+  const targetConfigById = new Map(targets.map((entry) => [cleanText(entry.id), entry]));
 
-  if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
+  if (!Number.isFinite(amount) || amount < 0 || targetConfigById.size === 0) {
     return;
   }
 
   const previousCombatants = state.combatants;
   const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
-    if (!state.selectedIds.has(combatant.id)) {
+    const targetConfig = targetConfigById.get(combatant.id);
+
+    if (!targetConfig) {
       return combatant;
     }
 
-    adjustedCombatants.push(combatant);
+    const appliedAmount = getCombatAreaAdjustedAmount(combatant, amount, targetConfig.halfDamage);
+
+    adjustedCombatants.push({
+      combatant,
+      appliedAmount
+    });
 
     return normalizeCombatant({
       ...combatant,
-      necrotic: toNumber(combatant.necrotic) + amount
+      pgAct: toNumber(combatant.pgAct) - appliedAmount,
+      necrotic: toNumber(combatant.necrotic) + appliedAmount
     }, "necrotic");
   });
 
@@ -16250,20 +16999,26 @@ function applyAreaNecroticAdjustment() {
   distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
   applyReviveExhaustion(previousCombatants);
   notifyCombatantDeaths(previousCombatants);
-  adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "necrotic", amount));
+  adjustedCombatants.forEach(({ combatant, appliedAmount }) => {
+    if (appliedAmount > 0) {
+      queueCombatResourceNotification(combatant, "necrotic", appliedAmount);
+    }
+  });
   state.areaDamage = "";
+  saveCombatTrackerState();
 }
 
-function applyAreaPgTempAdjustment() {
+function applyAreaPgTempAdjustment(targetConfigs = null) {
   const amount = Number(state.areaDamage);
+  const targetIds = new Set(Array.isArray(targetConfigs) ? targetConfigs.map((entry) => cleanText(entry.id)) : [...state.selectedIds]);
 
-  if (!Number.isFinite(amount) || amount < 0 || state.selectedIds.size === 0) {
+  if (!Number.isFinite(amount) || amount < 0 || targetIds.size === 0) {
     return;
   }
 
   const adjustedCombatants = [];
   state.combatants = state.combatants.map((combatant) => {
-    if (!state.selectedIds.has(combatant.id)) {
+    if (!targetIds.has(combatant.id)) {
       return combatant;
     }
 
@@ -16286,17 +17041,19 @@ function applyAreaPgTempAdjustment() {
     }
   });
   state.areaDamage = "";
+  saveCombatTrackerState();
 }
 
-function applyAreaExperienceAdjustment() {
+function applyAreaExperienceAdjustment(targetConfigs = null) {
   const amount = Number(state.areaDamage);
+  const targetIds = new Set(Array.isArray(targetConfigs) ? targetConfigs.map((entry) => cleanText(entry.id)) : [...state.selectedIds]);
 
-  if (!Number.isFinite(amount) || amount <= 0 || state.selectedIds.size === 0) {
+  if (!Number.isFinite(amount) || amount <= 0 || targetIds.size === 0) {
     return;
   }
 
   const characterIds = state.combatants
-    .filter((combatant) => state.selectedIds.has(combatant.id))
+    .filter((combatant) => targetIds.has(combatant.id))
     .map((combatant) => {
       if (cleanText(combatant.side).toLowerCase() !== "allies") {
         return "";
@@ -16316,6 +17073,7 @@ function applyAreaExperienceAdjustment() {
     addExperienceToCharacters([characterId], Math.max(0, Math.floor(amount)));
   });
   state.areaDamage = "";
+  saveCombatTrackerState();
 }
 
 function applyReviveExhaustion(previousCombatants = []) {
@@ -18560,7 +19318,7 @@ function getBestiaryNameSuggestions() {
       .map((entry) => entry.name)
     : bestiaryRenderCache.staticOptions.names.filter((name) => normalizeSearchText(name).includes(query));
 
-  const suggestions = [...new Set(suggestionSource)].slice(0, 12);
+  const suggestions = [...new Set(suggestionSource)];
 
   bestiaryRenderCache.suggestions.set(cacheKey, suggestions);
   return suggestions;
@@ -18665,7 +19423,7 @@ function getItemNameSuggestions() {
       .filter((entry) => entry.nameLower.includes(query))
       .map((entry) => entry.name);
 
-  return [...new Set(suggestionSource)].slice(0, 12);
+  return [...new Set(suggestionSource)];
 }
 
 function hasItemConstraintsBesides(excludedKey) {
@@ -18784,7 +19542,7 @@ function getArcanumNameSuggestions() {
       .filter((entry) => entry.nameLower.includes(query))
       .map((entry) => entry.name);
 
-  return [...new Set(suggestionSource)].slice(0, 12);
+  return [...new Set(suggestionSource)];
 }
 
 function hasArcanumConstraintsBesides(excludedKey) {
@@ -19532,6 +20290,7 @@ function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
       combatants: [],
       filters: { ...blankFilters },
       sort: getDefaultCombatSort(),
+      combatSearchQuery: "",
       sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
       newEntitySide: "allies",
       nextId: 1,
@@ -20041,6 +20800,7 @@ function resetTransientCampaignUiState() {
   state.encounterInventoryOpen = false;
   state.selectedIds = new Set();
   state.activeFilterKey = "";
+  state.combatSearchQuery = "";
   state.activeCombatNameSearchId = "";
   state.activeCombatSourceId = "";
   state.combatEncounterPickerOpen = false;
@@ -20060,7 +20820,12 @@ function resetTransientCampaignUiState() {
   state.activeDiaryFolderId = "";
   state.activeCombatStatusMenuId = "";
   state.combatStatusDrafts = {};
+  state.combatTurnRoundEditorOpen = false;
+  state.combatTurnRoundDraft = "";
+  state.combatTurnJumpMenuOpen = false;
+  closeCombatAreaTargetPicker();
   closeCombatTurnQuickMenu();
+  hideDiaryMentionSuggestions();
 }
 
 function applyCampaignSave(campaign, fileResult = null) {
@@ -20097,6 +20862,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.combatants = campaign.combatTracker.combatants;
   state.filters = campaign.combatTracker.filters;
   state.sort = campaign.combatTracker.sort;
+  state.combatSearchQuery = campaign.combatTracker.combatSearchQuery;
   state.newEntitySide = campaign.combatTracker.newEntitySide;
   state.nextId = campaign.combatTracker.nextId;
   state.inlineAdjustments = campaign.combatTracker.inlineAdjustments;
@@ -20123,7 +20889,11 @@ function applyCampaignSave(campaign, fileResult = null) {
   );
   state.diaryFolders = campaign.diary.folders;
   state.systemDiaryFolderExpanded = campaign.diary.systemFolderExpanded;
-  state.diaryNotes = campaign.diary.notes;
+  state.diaryTagColors = campaign.diary.tagColors;
+  state.diaryNotes = campaign.diary.notes.map((note) => ({
+    ...note,
+    contentHtml: normalizeDiaryContentHtml(note.contentHtml)
+  }));
   state.activeDiaryFolderId = campaign.diary.activeDiaryFolderId;
   state.activeDiaryNoteId = campaign.diary.activeNoteId;
   state.tableFolders = campaign.tables.folders;
@@ -21481,6 +22251,7 @@ function normalizeStoredCombatTrackerState(value, defaultState = getDefaultComba
     combatants,
     filters: normalizeStoredCombatFilters(value.filters),
     sort,
+    combatSearchQuery: cleanText(value.combatSearchQuery),
     newEntitySide: normalizeStoredCombatSide(value.newEntitySide),
     nextId,
     inlineAdjustments: normalizeStoredInlineAdjustments(value.inlineAdjustments, combatants),
@@ -21513,6 +22284,7 @@ function getCombatTrackerSaveData(options = {}) {
     combatants: state.combatants,
     filters: state.filters,
     sort: state.sort,
+    combatSearchQuery: state.combatSearchQuery,
     sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
     newEntitySide: state.newEntitySide,
     nextId: state.nextId,
@@ -21541,6 +22313,7 @@ function getDefaultCombatTrackerState() {
     combatants,
     filters: { ...blankFilters },
     sort: getDefaultCombatSort(),
+    combatSearchQuery: "",
     newEntitySide: "allies",
     nextId: normalizeStoredNextCombatantId(initialCombatants.length + 1, combatants),
     inlineAdjustments: normalizeStoredInlineAdjustments({}, combatants),
@@ -21994,6 +22767,7 @@ function getDefaultDiaryState() {
     folders: [],
     systemFolderExpanded: true,
     notes: [createDiaryNote({ title: "Nota 1" })],
+    tagColors: {},
     activeDiaryFolderId: "",
     activeNoteId: ""
   });
@@ -22016,6 +22790,7 @@ function getDiarySaveData() {
     folders,
     systemFolderExpanded: state.systemDiaryFolderExpanded !== false,
     notes,
+    tagColors: normalizeStoredDiaryTagColors(state.diaryTagColors),
     activeDiaryFolderId: folderIds.has(activeDiaryFolderId) ? activeDiaryFolderId : "",
     activeNoteId
   };
@@ -22048,9 +22823,22 @@ function normalizeStoredDiaryState(value) {
     folders,
     systemFolderExpanded: source.systemFolderExpanded !== false,
     notes: fallbackNotes,
+    tagColors: normalizeStoredDiaryTagColors(source.tagColors),
     activeDiaryFolderId,
     activeNoteId
   };
+}
+
+function normalizeStoredDiaryTagColors(value) {
+  if (!isPlainObject(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, color]) => [normalizeDiaryTagKey(key), normalizeDiaryTagColorValue(color)])
+      .filter(([key, color]) => key && color)
+  );
 }
 
 function normalizeStoredDiaryFolder(folder) {
@@ -22098,7 +22886,7 @@ function normalizeStoredDiaryNote(note) {
 
 function normalizeDiaryContentHtml(value) {
   const html = String(value ?? "").trim();
-  return html || "<p></p>";
+  return decorateDiaryContentHtml(html || "<p></p>");
 }
 
 function normalizeDiaryDateMode(value) {
@@ -22350,15 +23138,71 @@ function toggleDiaryCalendarSection(section) {
 }
 
 function getDiaryFolderGroups() {
+  const hasActiveSearch = cleanText(state.diarySearchQuery).length > 0;
+
   return [
     { id: "", name: t("diary_uncategorized_folder"), isExpanded: state.systemDiaryFolderExpanded !== false },
     ...state.diaryFolders
-  ].filter((folder) => folder.id || getDiaryNotesByFolder("").length > 0 || state.diaryFolders.length === 0);
+  ].filter((folder) => folder.id || getDiaryNotesByFolder("").length > 0 || (state.diaryFolders.length === 0 && !hasActiveSearch));
 }
 
 function getDiaryNotesByFolder(folderId = "") {
   const normalizedFolderId = cleanText(folderId);
-  return state.diaryNotes.filter((note) => cleanText(note.folderId) === normalizedFolderId);
+  const normalizedSearch = normalizeSearchText(state.diarySearchQuery);
+
+  return state.diaryNotes.filter((note) => cleanText(note.folderId) === normalizedFolderId
+    && doesDiaryNoteMatchSearch(note, normalizedSearch));
+}
+
+function getDiarySearchMatches() {
+  const normalizedSearch = normalizeSearchText(state.diarySearchQuery);
+
+  if (!normalizedSearch) {
+    return [];
+  }
+
+  return state.diaryNotes.filter((note) => doesDiaryNoteMatchSearch(note, normalizedSearch));
+}
+
+function doesDiaryNoteMatchSearch(note, normalizedSearch = normalizeSearchText(state.diarySearchQuery)) {
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  return getDiaryNoteSearchableText(note).includes(normalizedSearch);
+}
+
+function getDiaryNoteSearchableText(note) {
+  return normalizeSearchText(`${cleanText(note?.title)} ${getDiaryNotePlainText(note)}`);
+}
+
+function getDiaryNotePlainText(note) {
+  return decodeDiaryHtmlEntities(
+    String(note?.contentHtml ?? "")
+      .replace(/<br\s*\/?>/giu, "\n")
+      .replace(/<\/(p|div|li|blockquote|h[1-6])>/giu, "\n")
+      .replace(/<[^>]+>/gu, " ")
+  ).replace(/\s+/gu, " ").trim();
+}
+
+function decodeDiaryHtmlEntities(value) {
+  return String(value ?? "")
+    .replace(/&nbsp;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/&quot;/giu, "\"")
+    .replace(/&#39;/giu, "'");
+}
+
+function getDiaryNoteSearchPreview(note) {
+  const bodyText = cleanText(getDiaryNotePlainText(note));
+
+  if (!bodyText) {
+    return "";
+  }
+
+  return bodyText.length > 120 ? `${bodyText.slice(0, 117)}...` : bodyText;
 }
 
 function reconcileDiaryUiState() {
@@ -22565,6 +23409,750 @@ function insertHtmlAtCursor(html) {
     nextRange.collapse(true);
     selection.removeAllRanges();
     selection.addRange(nextRange);
+  }
+}
+
+function insertDiaryEditorToken(token) {
+  const editor = app.querySelector("[data-diary-editor]");
+
+  if (!editor || typeof document === "undefined") {
+    return;
+  }
+
+  editor.focus();
+  insertHtmlAtCursor(escapeHtml(token));
+  updateActiveDiaryNoteContentHtml(editor.innerHTML);
+
+  if (token === "@") {
+    refreshDiaryMentionSuggestions(editor);
+  } else {
+    hideDiaryMentionSuggestions();
+  }
+}
+
+function handleDiaryEditorInput(editor) {
+  if (tryConvertDiaryExactMention(editor)) {
+    return;
+  }
+
+  if (tryConvertDiaryWrappedTag(editor)) {
+    return;
+  }
+
+  updateActiveDiaryNoteContentHtml(editor.innerHTML);
+  refreshDiaryMentionSuggestions(editor);
+}
+
+function tryConvertDiaryWrappedTag(editor) {
+  const tokenContext = getDiaryEditorWrappedTokenContext(editor, "#");
+
+  if (!tokenContext || tokenContext.query.length === 0) {
+    return false;
+  }
+
+  replaceSelectionRangeWithHtml(
+    tokenContext.range,
+    `${renderDiaryTagChipHtml(tokenContext.query)}&nbsp;`
+  );
+  updateActiveDiaryNoteContentHtml(editor.innerHTML);
+  hideDiaryMentionSuggestions();
+  return true;
+}
+
+function tryConvertDiaryExactMention(editor) {
+  const tokenContext = getDiaryEditorCompletedMentionContext(editor);
+
+  if (!tokenContext || tokenContext.query.length === 0) {
+    return false;
+  }
+
+  const match = findDiaryMentionMatch(tokenContext.query);
+
+  if (!match) {
+    return false;
+  }
+
+  activeDiaryMentionContext = tokenContext;
+  insertDiaryMention(match.kind, match.id, match.name);
+  return true;
+}
+
+function renderDiaryTagChipHtml(tagText) {
+  const normalizedTag = cleanText(tagText).replace(/^#+/u, "").trim();
+
+  if (!normalizedTag) {
+    return escapeHtml(`#${tagText}`);
+  }
+
+  const style = getDiaryTagChipStyle(normalizedTag);
+  const tagKey = normalizeDiaryTagKey(normalizedTag);
+
+  return `<span class="diary-tag-chip" contenteditable="false" tabindex="0" data-diary-tag-filter="${escapeHtml(`#${normalizedTag}`)}" data-diary-tag-key="${escapeHtml(tagKey)}" style="${style}">${escapeHtml(`#${normalizedTag}`)}</span>`;
+}
+
+function renderDiaryTagSummaryChipHtml(tagText) {
+  const normalizedTag = cleanText(tagText).replace(/^#+/u, "").trim();
+
+  if (!normalizedTag) {
+    return "";
+  }
+
+  const style = getDiaryTagChipStyle(normalizedTag);
+  const tagKey = normalizeDiaryTagKey(normalizedTag);
+  return `<span class="diary-tag-chip diary-tag-chip--summary" data-diary-tag-filter="${escapeHtml(`#${normalizedTag}`)}" data-diary-tag-key="${escapeHtml(tagKey)}" style="${style}">${escapeHtml(`#${normalizedTag}`)}</span>`;
+}
+
+function getDiaryNoteTags(note) {
+  if (typeof document === "undefined") {
+    return [];
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = normalizeDiaryContentHtml(note?.contentHtml);
+  const tags = new Map();
+
+  template.content.querySelectorAll(".diary-tag-chip").forEach((chip) => {
+    const label = cleanText(chip.textContent ?? "").replace(/^#+/u, "").trim();
+    const key = normalizeDiaryTagKey(label);
+
+    if (key && label) {
+      tags.set(key, label);
+    }
+  });
+
+  return [...tags.values()];
+}
+
+function getDiaryTagChipStyle(tagText) {
+  const tagKey = normalizeDiaryTagKey(tagText);
+  const customColor = normalizeDiaryTagColorValue(state.diaryTagColors?.[tagKey]);
+
+  if (customColor) {
+    return `--diary-tag-bg:${customColor};--diary-tag-border:${customColor}88;`;
+  }
+
+  const hash = [...cleanText(tagText)].reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const hue = hash % 360;
+  return `--diary-tag-bg:hsla(${hue}, 58%, 40%, 0.92);--diary-tag-border:hsla(${hue}, 72%, 68%, 0.52);`;
+}
+
+function refreshDiaryMentionSuggestions(editor) {
+  const tokenContext = getDiaryEditorTokenContext(editor, "@");
+
+  if (!tokenContext || tokenContext.query.length === 0) {
+    hideDiaryMentionSuggestions();
+    return;
+  }
+
+  const suggestions = getDiaryMentionSuggestions(tokenContext.query);
+
+  if (suggestions.length === 0) {
+    hideDiaryMentionSuggestions();
+    return;
+  }
+
+  activeDiaryMentionContext = tokenContext;
+  renderDiaryMentionSuggestions(editor, suggestions, tokenContext.range);
+}
+
+function getDiaryEditorTokenContext(editor, trigger) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const selection = window.getSelection();
+
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+    return null;
+  }
+
+  const currentRange = selection.getRangeAt(0);
+
+  if (!editor.contains(currentRange.startContainer)) {
+    return null;
+  }
+
+  const tokenState = getDiaryEditorTextTokenState(currentRange, trigger, false);
+
+  if (!tokenState) {
+    return null;
+  }
+
+  return {
+    query: tokenState.query,
+    range: tokenState.range,
+    noteId: cleanText(editor.dataset.diaryEditor),
+    trigger
+  };
+}
+
+function getDiaryEditorWrappedTokenContext(editor, trigger) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const selection = window.getSelection();
+
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+    return null;
+  }
+
+  const currentRange = selection.getRangeAt(0);
+
+  if (!editor.contains(currentRange.startContainer)) {
+    return null;
+  }
+
+  const tokenState = getDiaryEditorTextTokenState(currentRange, trigger, true);
+
+  if (!tokenState || !tokenState.query) {
+    return null;
+  }
+
+  return {
+    query: tokenState.query,
+    range: tokenState.range,
+    noteId: cleanText(editor.dataset.diaryEditor),
+    trigger
+  };
+}
+
+function getDiaryEditorCompletedMentionContext(editor) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const selection = window.getSelection();
+
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+    return null;
+  }
+
+  const currentRange = selection.getRangeAt(0);
+
+  if (!editor.contains(currentRange.startContainer)) {
+    return null;
+  }
+
+  const tokenState = getDiaryEditorTextTokenState(currentRange, "@", false, { requireCompletedDelimiter: true });
+
+  if (!tokenState || !tokenState.query) {
+    return null;
+  }
+
+  return {
+    query: tokenState.query,
+    range: tokenState.range,
+    noteId: cleanText(editor.dataset.diaryEditor),
+    trigger: "@"
+  };
+}
+
+function getDiaryEditorTextTokenState(range, trigger, requireClosingTrigger = false, options = {}) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const startContainer = range.startContainer;
+
+  if (!(startContainer instanceof Text)) {
+    return null;
+  }
+
+  const beforeText = startContainer.textContent?.slice(0, range.startOffset) ?? "";
+  const escapedTrigger = trigger.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = requireClosingTrigger
+    ? new RegExp(`(^|\\s)${escapedTrigger}([^${escapedTrigger}]+)${escapedTrigger}$`, "u")
+    : options.requireCompletedDelimiter
+      ? new RegExp(`(^|\\s)${escapedTrigger}(.+?)(\\s)$`, "u")
+      : new RegExp(`(^|\\s)${escapedTrigger}([^${escapedTrigger}]*)$`, "u");
+  const tokenMatch = beforeText.match(pattern);
+
+  if (!tokenMatch) {
+    return null;
+  }
+
+  const rawQuery = requireClosingTrigger ? tokenMatch[2] ?? "" : tokenMatch[2] ?? "";
+  const tokenQuery = cleanText(rawQuery);
+
+  if (!tokenQuery) {
+    return null;
+  }
+
+  const tokenLength = requireClosingTrigger
+    ? tokenQuery.length + 2
+    : options.requireCompletedDelimiter
+      ? tokenQuery.length + 2
+      : tokenQuery.length + 1;
+  const trailingLength = options.requireCompletedDelimiter ? 1 : 0;
+  const startOffset = range.startOffset - tokenLength;
+  const endOffset = range.startOffset - trailingLength;
+
+  if (startOffset < 0 || endOffset < startOffset) {
+    return null;
+  }
+
+  const tokenRange = document.createRange();
+  tokenRange.setStart(startContainer, startOffset);
+  tokenRange.setEnd(startContainer, endOffset);
+
+  return {
+    query: tokenQuery,
+    range: tokenRange
+  };
+}
+
+function createEditorTextRange(root, startOffset, endOffset) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let currentNode = walker.nextNode();
+  let consumed = 0;
+  let startNode = null;
+  let endNode = null;
+  let startNodeOffset = 0;
+  let endNodeOffset = 0;
+
+  while (currentNode) {
+    const textLength = currentNode.textContent?.length ?? 0;
+    const nextConsumed = consumed + textLength;
+
+    if (!startNode && startOffset <= nextConsumed) {
+      startNode = currentNode;
+      startNodeOffset = Math.max(0, startOffset - consumed);
+    }
+
+    if (!endNode && endOffset <= nextConsumed) {
+      endNode = currentNode;
+      endNodeOffset = Math.max(0, endOffset - consumed);
+      break;
+    }
+
+    consumed = nextConsumed;
+    currentNode = walker.nextNode();
+  }
+
+  if (!startNode || !endNode) {
+    return null;
+  }
+
+  const range = document.createRange();
+  range.setStart(startNode, startNodeOffset);
+  range.setEnd(endNode, endNodeOffset);
+  return range;
+}
+
+function replaceSelectionRangeWithHtml(range, html) {
+  if (!range || typeof document === "undefined" || typeof window === "undefined") {
+    return;
+  }
+
+  range.deleteContents();
+
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const fragment = template.content;
+  const lastNode = fragment.lastChild;
+
+  range.insertNode(fragment);
+
+  if (lastNode) {
+    const selection = window.getSelection();
+    const nextRange = document.createRange();
+    nextRange.setStartAfter(lastNode);
+    nextRange.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(nextRange);
+  }
+}
+
+function getDiaryMentionSuggestions(query) {
+  const normalizedQuery = normalizeSearchText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const characterSuggestions = state.characters
+    .filter((character) => normalizeSearchText(character.name).includes(normalizedQuery))
+    .map((character) => ({
+      kind: "character",
+      id: character.id,
+      name: cleanText(character.name),
+      subtitle: cleanText(character.className || character.species || "Personaje"),
+      imageUrl: cleanText(character.tokenUrl)
+    }));
+
+  const itemSuggestions = state.items
+    .filter((entry) => normalizeSearchText(entry.name).includes(normalizedQuery))
+    .slice(0, 24)
+    .map((entry) => ({
+      kind: "item",
+      id: entry.id,
+      name: cleanText(entry.name),
+      subtitle: cleanText(entry.source || "Objeto"),
+      imageUrl: ""
+    }));
+
+  const bestiarySuggestions = state.bestiary
+    .filter((entry) => normalizeSearchText(entry.name).includes(normalizedQuery))
+    .slice(0, 24)
+    .map((entry) => ({
+      kind: "bestiary",
+      id: entry.id,
+      name: cleanText(entry.name),
+      subtitle: cleanText(getBestiarySourceFullName(entry.source) || entry.source || "Criatura"),
+      imageUrl: cleanText(entry.tokenUrl)
+    }));
+
+  return [...characterSuggestions, ...itemSuggestions, ...bestiarySuggestions]
+    .filter((entry) => entry.name)
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }) || left.kind.localeCompare(right.kind));
+}
+
+function findDiaryMentionMatch(query) {
+  const normalizedQuery = normalizeSearchText(query);
+  return getDiaryMentionSuggestions(query).find((entry) => normalizeSearchText(entry.name) === normalizedQuery) ?? null;
+}
+
+function renderDiaryMentionSuggestions(editor, suggestions, range) {
+  const popover = editor.parentElement?.querySelector("[data-diary-mention-popover]");
+
+  if (!popover || typeof window === "undefined") {
+    return;
+  }
+
+  const editorRect = editor.getBoundingClientRect();
+  const rangeRect = range.getBoundingClientRect();
+  const top = Math.max(0, rangeRect.bottom - editorRect.top + editor.scrollTop + 8);
+  const left = Math.max(0, Math.min(editor.clientWidth - 260, rangeRect.left - editorRect.left + editor.scrollLeft));
+
+  popover.innerHTML = suggestions.map((entry) => `
+    <button
+      class="diary-mention-suggestion"
+      type="button"
+      data-action="insert-diary-mention"
+      data-diary-mention-kind="${escapeHtml(entry.kind)}"
+      data-diary-mention-id="${escapeHtml(entry.id)}"
+      data-diary-mention-name="${escapeHtml(entry.name)}"
+    >
+      <span class="diary-mention-suggestion__media" aria-hidden="true">
+        ${entry.imageUrl
+          ? `<img src="${escapeHtml(entry.imageUrl)}" alt="" loading="lazy" decoding="async" />`
+          : `<span class="diary-mention-suggestion__placeholder">${escapeHtml((entry.name[0] ?? "?").toUpperCase())}</span>`}
+      </span>
+      <span class="diary-mention-suggestion__copy">
+        <strong>@${escapeHtml(entry.name)}</strong>
+        <small>${escapeHtml(entry.kind)} | ${escapeHtml(entry.subtitle)}</small>
+      </span>
+    </button>
+  `).join("");
+  popover.style.top = `${top}px`;
+  popover.style.left = `${left}px`;
+  popover.style.display = "grid";
+  popover.hidden = false;
+}
+
+function hideDiaryMentionSuggestions() {
+  activeDiaryMentionContext = null;
+  const popover = app?.querySelector?.("[data-diary-mention-popover]");
+
+  if (!popover) {
+    return;
+  }
+
+  popover.hidden = true;
+  popover.style.display = "none";
+  popover.innerHTML = "";
+}
+
+function normalizeDiaryTagKey(tagText) {
+  return normalizeSearchText(cleanText(tagText).replace(/^#+/u, ""));
+}
+
+function normalizeDiaryTagColorValue(value) {
+  const normalizedValue = cleanText(value);
+  return /^#[0-9a-f]{6}$/iu.test(normalizedValue) ? normalizedValue.toLowerCase() : "";
+}
+
+function openDiaryTagColorPicker(triggerElement, tagText) {
+  const normalizedTagText = cleanText(tagText).replace(/^#+/u, "");
+  const tagKey = normalizeDiaryTagKey(normalizedTagText);
+
+  if (!tagKey || typeof document === "undefined" || !triggerElement?.getBoundingClientRect) {
+    return;
+  }
+
+  activeDiaryTagColorPicker?.remove();
+  const rect = triggerElement.getBoundingClientRect();
+  const input = document.createElement("input");
+  const closePicker = () => {
+    if (activeDiaryTagColorPicker === input) {
+      activeDiaryTagColorPicker = null;
+    }
+
+    input.remove();
+  };
+
+  input.type = "color";
+  input.className = "diary-tag-color-picker";
+  input.value = normalizeDiaryTagColorValue(state.diaryTagColors?.[tagKey]) || "#8f6236";
+  input.style.position = "fixed";
+  input.style.left = `${Math.max(8, Math.min(window.innerWidth - 44, rect.right + 8))}px`;
+  input.style.top = `${Math.max(8, Math.min(window.innerHeight - 32, rect.top + (rect.height - 28) / 2))}px`;
+  input.addEventListener("input", () => {
+    applyDiaryTagColor(tagKey, input.value);
+  });
+  input.addEventListener("change", () => {
+    applyDiaryTagColor(tagKey, input.value);
+    closePicker();
+  });
+  input.addEventListener("blur", closePicker, { once: true });
+  document.body.appendChild(input);
+  activeDiaryTagColorPicker = input;
+  input.focus();
+  try {
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+    } else {
+      input.click();
+    }
+  } catch {
+    input.click();
+  }
+}
+
+function applyDiaryTagColor(tagKey, colorValue) {
+  const normalizedTagKey = normalizeDiaryTagKey(tagKey);
+  const normalizedColor = normalizeDiaryTagColorValue(colorValue);
+
+  if (!normalizedTagKey || !normalizedColor) {
+    return;
+  }
+
+  state.diaryTagColors = {
+    ...state.diaryTagColors,
+    [normalizedTagKey]: normalizedColor
+  };
+  state.diaryNotes = state.diaryNotes.map((note) => ({
+    ...note,
+    contentHtml: updateDiaryTagStylesInHtml(note.contentHtml)
+  }));
+  saveDiaryState();
+  render();
+}
+
+function updateDiaryTagStylesInHtml(contentHtml) {
+  if (typeof document === "undefined") {
+    return String(contentHtml ?? "");
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = String(contentHtml ?? "");
+  decorateDiaryContentFragment(template.content);
+  return template.innerHTML;
+}
+
+function insertDiaryMention(kind, id, name) {
+  const editor = app.querySelector("[data-diary-editor]");
+
+  if (!editor || !activeDiaryMentionContext?.range) {
+    hideDiaryMentionSuggestions();
+    return;
+  }
+
+  const normalizedKind = cleanText(kind);
+  const normalizedId = cleanText(id);
+  const normalizedName = cleanText(name);
+
+  replaceSelectionRangeWithHtml(
+    activeDiaryMentionContext.range,
+    `${renderDiaryMentionHtml(normalizedKind, normalizedId, normalizedName)}&nbsp;`
+  );
+  updateActiveDiaryNoteContentHtml(editor.innerHTML);
+  hideDiaryMentionSuggestions();
+  editor.focus();
+}
+
+function renderDiaryMentionHtml(kind, id, name) {
+  const normalizedKind = cleanText(kind);
+  const normalizedId = cleanText(id);
+  const normalizedName = cleanText(name);
+
+  return `<span class="diary-mention-link diary-mention-link--${escapeHtml(normalizedKind)}" data-diary-mention-link data-diary-mention-kind="${escapeHtml(normalizedKind)}" data-diary-mention-id="${escapeHtml(normalizedId)}" data-diary-mention-name="${escapeHtml(normalizedName)}">@${escapeHtml(normalizedName)}</span>`;
+}
+
+function decorateDiaryContentHtml(contentHtml) {
+  if (typeof document === "undefined") {
+    return String(contentHtml ?? "").trim() || "<p></p>";
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = String(contentHtml ?? "").trim() || "<p></p>";
+  decorateDiaryContentFragment(template.content);
+  return template.innerHTML.trim() || "<p></p>";
+}
+
+function decorateDiaryContentFragment(fragment) {
+  normalizeDiaryMentionLinksInFragment(fragment);
+  replaceDiaryWrappedTokensInFragment(fragment);
+  normalizeDiaryTagChipsInFragment(fragment);
+}
+
+function normalizeDiaryMentionLinksInFragment(fragment) {
+  fragment.querySelectorAll("[data-diary-mention-link], .diary-mention-link").forEach((link) => {
+    const label = cleanText(link.textContent ?? "").replace(/^@+/u, "").trim();
+    const match = label ? findDiaryMentionMatch(label) : null;
+
+    if (!match) {
+      link.replaceWith(document.createTextNode(cleanText(link.textContent)));
+      return;
+    }
+
+    link.className = `diary-mention-link diary-mention-link--${match.kind}`;
+    link.removeAttribute("contenteditable");
+    link.removeAttribute("href");
+    link.setAttribute("data-diary-mention-link", "");
+    link.setAttribute("data-diary-mention-kind", cleanText(match.kind));
+    link.setAttribute("data-diary-mention-id", cleanText(match.id));
+    link.setAttribute("data-diary-mention-name", cleanText(match.name));
+    link.textContent = `@${cleanText(match.name)}`;
+  });
+}
+
+function replaceDiaryWrappedTokensInFragment(fragment) {
+  const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  let currentNode = walker.nextNode();
+
+  while (currentNode) {
+    textNodes.push(currentNode);
+    currentNode = walker.nextNode();
+  }
+
+  textNodes.forEach((textNode) => {
+    if (!textNode.parentElement) {
+      return;
+    }
+
+    if (textNode.parentElement.closest(".diary-tag-chip, [data-diary-mention-link]")) {
+      return;
+    }
+
+    const sourceText = textNode.textContent ?? "";
+
+    if (!/[#@]/u.test(sourceText)) {
+      return;
+    }
+
+    const replacementHtml = buildDiaryWrappedTokenHtml(sourceText);
+
+    if (!replacementHtml) {
+      return;
+    }
+
+    const template = document.createElement("template");
+    template.innerHTML = replacementHtml;
+    textNode.replaceWith(template.content.cloneNode(true));
+  });
+}
+
+function buildDiaryWrappedTokenHtml(sourceText) {
+  const tokenPattern = /#([^#\n]+)#|@([^@\n]+)@/gu;
+  let lastIndex = 0;
+  let didReplace = false;
+  let html = "";
+
+  for (const match of sourceText.matchAll(tokenPattern)) {
+    const matchText = cleanText(match[0]);
+    const matchIndex = match.index ?? -1;
+
+    if (matchIndex < 0) {
+      continue;
+    }
+
+    html += escapeHtml(sourceText.slice(lastIndex, matchIndex));
+
+    if (matchText.startsWith("#")) {
+      html += renderDiaryTagChipHtml(match[1] ?? "");
+      didReplace = true;
+    } else {
+      const mentionMatch = findDiaryMentionMatch(match[2] ?? "");
+      html += mentionMatch
+        ? renderDiaryMentionHtml(mentionMatch.kind, mentionMatch.id, mentionMatch.name)
+        : escapeHtml(matchText);
+      didReplace = didReplace || Boolean(mentionMatch);
+    }
+
+    lastIndex = matchIndex + matchText.length;
+  }
+
+  if (!didReplace) {
+    return "";
+  }
+
+  html += escapeHtml(sourceText.slice(lastIndex));
+  return html;
+}
+
+function normalizeDiaryTagChipsInFragment(fragment) {
+  fragment.querySelectorAll(".diary-tag-chip").forEach((chip) => {
+    const tagKey = normalizeDiaryTagKey(chip.textContent ?? "");
+    const label = cleanText(chip.textContent ?? "").replace(/^#+/u, "");
+
+    chip.setAttribute("data-diary-tag-key", tagKey);
+    chip.setAttribute("data-diary-tag-filter", `#${label}`);
+    chip.setAttribute("style", getDiaryTagChipStyle(label));
+
+    if (!chip.classList.contains("diary-tag-chip--summary")) {
+      chip.setAttribute("contenteditable", "false");
+      chip.setAttribute("tabindex", "0");
+    }
+  });
+}
+
+function openDiaryMentionTarget(kind, id, name) {
+  const normalizedKind = cleanText(kind);
+  const normalizedId = cleanText(id);
+  const normalizedName = cleanText(name);
+
+  if (normalizedKind === "character") {
+    state.activeScreen = "initiative-board";
+    state.activeCharacterId = normalizedId;
+    state.selectedCharacterIds = new Set(normalizedId ? [normalizedId] : []);
+    render();
+    return;
+  }
+
+  if (normalizedKind === "item") {
+    resetItemVirtualScroll();
+    state.activeScreen = "items";
+    state.itemFilters = {
+      ...blankItemFilters,
+      query: normalizedName
+    };
+    state.itemSelectedId = normalizedId;
+    state.showItemQuerySuggestions = false;
+    render({
+      focusSelector: "[data-item-query]"
+    });
+    return;
+  }
+
+  if (normalizedKind === "bestiary") {
+    resetBestiaryVirtualScroll();
+    state.activeScreen = "bestiary";
+    state.bestiaryFilters = {
+      ...blankBestiaryFilters,
+      query: normalizedName
+    };
+    state.bestiarySelectedId = normalizedId;
+    state.showBestiaryQuerySuggestions = false;
+    render({
+      focusSelector: "[data-bestiary-query]"
+    });
   }
 }
 
@@ -23758,5 +25346,6 @@ function stopBattleTimerInterval() {
   window.clearInterval(battleTimerInterval);
   battleTimerInterval = null;
 }
+
 
 

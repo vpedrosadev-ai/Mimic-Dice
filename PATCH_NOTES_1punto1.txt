@@ -1,0 +1,39 @@
+MIMIC DICE - NOTAS DEL PARCHE PARA LA VERSION 1.1
+
+COMBATE
+
+- El daño necrótico ahora reduce tanto la vida actual como la vida máxima, para que su efecto se refleje correctamente al momento.
+- Se ha añadido un buscador en la pantalla de combate para filtrar criaturas por nombre, bando, estados activos o encuentro.
+- Ahora puedes hacer clic sobre el contador de TURN y elegir manualmente en qué turno estás.
+- Se ha añadido un nuevo botón "JUMP TURN TO" para saltar el turno directamente a cualquier participante de la iniciativa.
+
+EFECTOS EN ÁREA
+
+- Los efectos en área ya no dependen de seleccionar filas antes de lanzarlos.
+- Ahora, al usar daño, curación, daño necrótico, vida temporal o experiencia en área, se abre una ventana para elegir exactamente a quién afecta.
+- En esa ventana puedes seleccionar objetivos de forma más cómoda haciendo clic directamente sobre cada tarjeta.
+
+BESTIARIO, HECHIZOS E ITEMS
+
+- Los buscadores de criaturas, hechizos y objetos muestran ahora listas más cómodas de usar.
+- Si hay muchos resultados, la lista mantiene un tamaño visual limitado y permite seguir viendo el resto con scroll.
+- Los textos de ayuda de estos buscadores se han simplificado para indicar claramente que la búsqueda se hace por nombre.
+- En el editor de encuentros del bestiario, la lista de criaturas también se comporta ya de esta misma forma.
+
+DIARIO
+
+- Se ha añadido un buscador para localizar notas por texto.
+- El buscador no solo muestra en qué notas aparece el texto, sino que además filtra la lista de notas para dejar visibles solo las que coinciden.
+- Puedes escribir etiquetas largas como #DIA DE LLUVIA# y quedarán resaltadas como chips visuales.
+- Al hacer clic sobre una etiqueta, el buscador del diario se rellena automáticamente con ese texto.
+- Al hacer clic derecho sobre una etiqueta, ahora se abre directamente el selector de color.
+- El color elegido para una etiqueta se aplica a todas las apariciones de esa misma etiqueta.
+- Se han añadido botones en la barra del editor para explicar visualmente cómo usar # y @.
+- Puedes mencionar con una @ personajes, objetos o criaturas.
+- Ahora puedes empezar a escribir una mención y elegir una sugerencia para completar más rápido.
+- Las menciones completadas aparecen subrayadas y con click izquierdo te envian a la pantalla de personajes, objetos o bestiario para ver su ficha.
+
+MEJORAS GENERALES
+
+- Se han corregido varios detalles visuales y de comportamiento para que listas, ventanas emergentes y buscadores se sientan más consistentes.
+- Se ha mejorado la comodidad de uso en pantallas con muchos resultados o muchos participantes en combate.
