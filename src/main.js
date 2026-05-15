@@ -266,6 +266,7 @@ const DATA_EXCHANGE_EXPORT_SCHEMA = "mimic-dice-selection-export";
 const DATA_EXCHANGE_EXPORT_VERSION = 1;
 const DATA_EXCHANGE_CATEGORY_CHARACTERS = "characters";
 const DATA_EXCHANGE_CATEGORY_ENCOUNTERS = "encounters";
+const DATA_EXCHANGE_CATEGORY_DIARY = "diary";
 const COMPENDIUM_CREATION_FIELDS = Object.freeze({
   bestiary: [
     { key: "Name", label: "Nombre", required: true },
@@ -410,6 +411,8 @@ const state = {
   importExportCharacterIds: new Set(),
   importExportEncounterIds: new Set(),
   importExportEncounterFolderIds: new Set(),
+  importExportDiaryNoteIds: new Set(),
+  importExportDiaryFolderIds: new Set(),
   campaignSaveNameDialogOpen: false,
   campaignSaveNameDialogMode: "",
   campaignSaveNameDialogValue: "",
@@ -539,6 +542,16 @@ const state = {
     real: false,
     harptos: false
   },
+  diaryHarptosDayNotes: initialDiaryState.harptosDayNotes,
+  diaryHarptosOverviewOpen: false,
+  diaryHarptosOverviewYear: getInitialDiaryHarptosOverviewYear(initialDiaryState),
+  diaryHarptosOverviewPeriodId: getInitialDiaryHarptosOverviewPeriodId(initialDiaryState),
+  diaryHarptosDayNoteDialogOpen: false,
+  diaryHarptosDayNoteDialogYear: HARPTOS_DEFAULT_YEAR,
+  diaryHarptosDayNoteDialogPeriodId: HARPTOS_MONTH_PERIODS[0]?.id ?? "hammer",
+  diaryHarptosDayNoteDialogDay: 1,
+  diaryHarptosDayNoteDialogValue: "",
+  diaryHarptosDayNoteDialogColor: "#d88d5a",
   rollingTableId: "",
   rollingTableRowId: "",
   rolledTableId: "",
@@ -1066,6 +1079,12 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-diary-import-export") {
+    openImportExportDialog(DATA_EXCHANGE_CATEGORY_DIARY);
+    render();
+    return;
+  }
+
   if (action === "dismiss-import-export-dialog") {
     closeImportExportDialog();
     render();
@@ -1096,6 +1115,18 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-import-export-diary-note") {
+    toggleImportExportDiaryNoteSelection(actionButton.dataset.diaryNoteId);
+    render();
+    return;
+  }
+
+  if (action === "toggle-import-export-diary-folder") {
+    toggleImportExportDiaryFolderSelection(actionButton.dataset.diaryFolderId);
+    render();
+    return;
+  }
+
   if (action === "select-all-import-export-characters") {
     toggleAllImportExportCharacters();
     render();
@@ -1104,6 +1135,12 @@ async function handleClick(event) {
 
   if (action === "select-all-import-export-encounters") {
     toggleAllImportExportEncounters();
+    render();
+    return;
+  }
+
+  if (action === "select-all-import-export-diary") {
+    toggleAllImportExportDiary();
     render();
     return;
   }
@@ -2373,6 +2410,38 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-diary-harptos-overview") {
+    toggleDiaryHarptosOverview();
+    render();
+    return;
+  }
+
+  if (action === "set-diary-harptos-overview-period") {
+    state.diaryHarptosOverviewPeriodId = getDiaryHarptosOverviewValidPeriodId(actionButton.dataset.harptosPeriodId);
+    render();
+    return;
+  }
+
+  if (action === "edit-diary-harptos-day-note") {
+    openDiaryHarptosDayNoteDialog(
+      actionButton.dataset.harptosPeriodId,
+      actionButton.dataset.harptosDay,
+      actionButton.dataset.harptosYear
+    );
+    return;
+  }
+
+  if (action === "dismiss-diary-harptos-day-note-dialog") {
+    closeDiaryHarptosDayNoteDialog();
+    render();
+    return;
+  }
+
+  if (action === "confirm-diary-harptos-day-note-dialog") {
+    submitDiaryHarptosDayNoteDialog();
+    return;
+  }
+
   if (action === "filter-item-by-type-token") {
     resetItemVirtualScroll();
     state.activeScreen = "items";
@@ -2537,6 +2606,22 @@ function handleChange(event) {
     toggleImportExportEncounterFolderSelection(target.dataset.importExportEncounterFolderCheckbox);
     render({
       focusSelector: `[data-import-export-encounter-folder-checkbox="${target.dataset.importExportEncounterFolderCheckbox}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-import-export-diary-note-checkbox]")) {
+    toggleImportExportDiaryNoteSelection(target.dataset.importExportDiaryNoteCheckbox);
+    render({
+      focusSelector: `[data-import-export-diary-note-checkbox="${target.dataset.importExportDiaryNoteCheckbox}"]`
+    });
+    return;
+  }
+
+  if (target.matches("[data-import-export-diary-folder-checkbox]")) {
+    toggleImportExportDiaryFolderSelection(target.dataset.importExportDiaryFolderCheckbox);
+    render({
+      focusSelector: `[data-import-export-diary-folder-checkbox="${target.dataset.importExportDiaryFolderCheckbox}"]`
     });
     return;
   }
@@ -2997,6 +3082,26 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-diary-harptos-overview-year]")) {
+    state.diaryHarptosOverviewYear = normalizeDiaryHarptosOverviewYear(target.value);
+    scheduleRender({
+      focusSelector: "[data-diary-harptos-overview-year]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-diary-harptos-day-note-dialog-input]")) {
+    state.diaryHarptosDayNoteDialogValue = target.value;
+    return;
+  }
+
+  if (target.matches("[data-diary-harptos-day-note-dialog-color]")) {
+    state.diaryHarptosDayNoteDialogColor = normalizeDiaryTagColorValue(target.value) || "#d88d5a";
+    return;
+  }
+
   if (target.matches("[data-diary-editor]")) {
     handleDiaryEditorInput(target);
     return;
@@ -3404,6 +3509,12 @@ function handleKeydown(event) {
   if (target.matches("[data-campaign-save-name-input]") && event.key === "Enter") {
     event.preventDefault();
     submitCampaignSaveNameDialog();
+    return;
+  }
+
+  if (target.matches("[data-diary-harptos-day-note-dialog-input]") && event.key === "Enter") {
+    event.preventDefault();
+    submitDiaryHarptosDayNoteDialog();
     return;
   }
 
@@ -4155,9 +4266,81 @@ function renderCampaignSaveNameDialog() {
   `;
 }
 
+function renderDiaryHarptosDayNoteDialog() {
+  if (!state.diaryHarptosDayNoteDialogOpen) {
+    return "";
+  }
+
+  const dateLabel = formatDiaryHarptosDayLabel(
+    state.diaryHarptosDayNoteDialogPeriodId,
+    state.diaryHarptosDayNoteDialogDay,
+    state.diaryHarptosDayNoteDialogYear,
+    { includeYear: true }
+  );
+
+  return `
+    <div class="campaign-save-dialog diary-harptos-day-note-dialog" role="presentation">
+      <div
+        class="campaign-save-dialog__backdrop"
+        data-action="dismiss-diary-harptos-day-note-dialog"
+        aria-hidden="true"
+      ></div>
+      <section
+        class="campaign-save-dialog__panel diary-harptos-day-note-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="diary-harptos-day-note-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">${escapeHtml(t("diary_harptos_overview_button"))}</p>
+        <h2 class="campaign-save-dialog__title" id="diary-harptos-day-note-dialog-title">
+          ${escapeHtml(dateLabel)}
+        </h2>
+        <p class="campaign-save-dialog__text">
+          ${escapeHtml(t("diary_harptos_day_note_dialog_text"))}
+        </p>
+        <label class="campaign-save-dialog__field">
+          <span>${escapeHtml(t("diary_harptos_day_note_dialog_label"))}</span>
+          <input
+            class="campaign-save-dialog__input"
+            type="text"
+            value="${escapeHtml(state.diaryHarptosDayNoteDialogValue)}"
+            data-diary-harptos-day-note-dialog-input
+            placeholder="${escapeHtml(t("diary_harptos_day_note_dialog_placeholder"))}"
+          />
+        </label>
+        <label class="campaign-save-dialog__field">
+          <span>${escapeHtml(t("diary_harptos_day_note_dialog_color"))}</span>
+          <input
+            class="diary-harptos-day-note-dialog__color-input"
+            type="color"
+            value="${escapeHtml(normalizeDiaryTagColorValue(state.diaryHarptosDayNoteDialogColor) || "#d88d5a")}"
+            data-diary-harptos-day-note-dialog-color
+          />
+        </label>
+        <div class="campaign-save-dialog__actions">
+          <button
+            class="summary-button summary-button--ghost"
+            type="button"
+            data-action="dismiss-diary-harptos-day-note-dialog"
+          >
+            ${escapeHtml(t("diary_harptos_day_note_dialog_cancel"))}
+          </button>
+          <button
+            class="summary-button"
+            type="button"
+            data-action="confirm-diary-harptos-day-note-dialog"
+          >
+            ${escapeHtml(t("diary_harptos_day_note_dialog_confirm"))}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function normalizeDataExchangeCategory(value) {
   const normalizedValue = cleanText(value).toLowerCase();
-  return [DATA_EXCHANGE_CATEGORY_CHARACTERS, DATA_EXCHANGE_CATEGORY_ENCOUNTERS].includes(normalizedValue)
+  return [DATA_EXCHANGE_CATEGORY_CHARACTERS, DATA_EXCHANGE_CATEGORY_ENCOUNTERS, DATA_EXCHANGE_CATEGORY_DIARY].includes(normalizedValue)
     ? normalizedValue
     : "";
 }
@@ -4196,6 +4379,16 @@ function openImportExportDialog(category) {
       ? [...state.selectedEncounterFolderIds]
       : []
   );
+  state.importExportDiaryNoteIds = new Set(
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_DIARY && state.activeDiaryNoteId
+      ? [state.activeDiaryNoteId]
+      : []
+  );
+  state.importExportDiaryFolderIds = new Set(
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_DIARY && state.activeDiaryFolderId
+      ? [state.activeDiaryFolderId]
+      : []
+  );
 
   if (
     normalizedCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS
@@ -4204,6 +4397,15 @@ function openImportExportDialog(category) {
     && state.activeEncounterId
   ) {
     state.importExportEncounterIds.add(state.activeEncounterId);
+  }
+
+  if (
+    normalizedCategory === DATA_EXCHANGE_CATEGORY_DIARY
+    && state.importExportDiaryNoteIds.size === 0
+    && state.importExportDiaryFolderIds.size === 0
+    && state.activeDiaryNoteId
+  ) {
+    state.importExportDiaryNoteIds.add(state.activeDiaryNoteId);
   }
 }
 
@@ -4215,6 +4417,8 @@ function closeImportExportDialog() {
   state.importExportCharacterIds = new Set();
   state.importExportEncounterIds = new Set();
   state.importExportEncounterFolderIds = new Set();
+  state.importExportDiaryNoteIds = new Set();
+  state.importExportDiaryFolderIds = new Set();
 }
 
 function setImportExportDialogMode(mode) {
@@ -4300,6 +4504,51 @@ function toggleAllImportExportEncounters() {
   state.importExportDialogError = "";
 }
 
+function toggleImportExportDiaryNoteSelection(noteId) {
+  const normalizedNoteId = cleanText(noteId);
+
+  if (!normalizedNoteId) {
+    return;
+  }
+
+  const nextIds = new Set(state.importExportDiaryNoteIds);
+
+  if (nextIds.has(normalizedNoteId)) {
+    nextIds.delete(normalizedNoteId);
+  } else {
+    nextIds.add(normalizedNoteId);
+  }
+
+  state.importExportDiaryNoteIds = nextIds;
+  state.importExportDialogError = "";
+}
+
+function toggleImportExportDiaryFolderSelection(folderId) {
+  const normalizedFolderId = cleanText(folderId);
+  const nextIds = new Set(state.importExportDiaryFolderIds);
+
+  if (nextIds.has(normalizedFolderId)) {
+    nextIds.delete(normalizedFolderId);
+  } else {
+    nextIds.add(normalizedFolderId);
+  }
+
+  state.importExportDiaryFolderIds = nextIds;
+  state.importExportDialogError = "";
+}
+
+function toggleAllImportExportDiary() {
+  const allNoteIds = state.diaryNotes.map((note) => note.id).filter(Boolean);
+  const allFolderIds = state.diaryFolders.map((folder) => folder.id).filter(Boolean);
+  const allSelected =
+    state.importExportDiaryNoteIds.size === allNoteIds.length
+    && state.importExportDiaryFolderIds.size === allFolderIds.length;
+
+  state.importExportDiaryNoteIds = allSelected ? new Set() : new Set(allNoteIds);
+  state.importExportDiaryFolderIds = allSelected ? new Set() : new Set(allFolderIds);
+  state.importExportDialogError = "";
+}
+
 function getImportExportSelectionCount() {
   if (state.importExportDialogCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
     return state.importExportCharacterIds.size;
@@ -4308,6 +4557,11 @@ function getImportExportSelectionCount() {
   if (state.importExportDialogCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS) {
     const { folders, encounters } = getSelectedEncounterExportBundle();
     return folders.length + encounters.length;
+  }
+
+  if (state.importExportDialogCategory === DATA_EXCHANGE_CATEGORY_DIARY) {
+    const { folders, notes } = getSelectedDiaryExportBundle();
+    return folders.length + notes.length;
   }
 
   return 0;
@@ -4383,9 +4637,30 @@ function createEncounterSelectionExportPayload() {
   };
 }
 
+function createDiarySelectionExportPayload() {
+  const { folders, notes, tagColors, harptosDayNotes } = getSelectedDiaryExportBundle();
+
+  return {
+    ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_DIARY),
+    diary: {
+      folders,
+      systemFolderExpanded: true,
+      notes,
+      tagColors,
+      harptosDayNotes,
+      activeDiaryFolderId: "",
+      activeNoteId: ""
+    }
+  };
+}
+
 function buildSelectionExportFileName(category) {
   const campaignSlug = slugify(cleanText(state.campaignName) || "campana") || "campana";
-  const categorySlug = category === DATA_EXCHANGE_CATEGORY_CHARACTERS ? "personajes" : "encuentros";
+  const categorySlug = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+    ? "personajes"
+    : category === DATA_EXCHANGE_CATEGORY_DIARY
+      ? "diario"
+      : "encuentros";
   return `${campaignSlug}-${categorySlug}.json`;
 }
 
@@ -4466,18 +4741,24 @@ async function exportSelectionData(category) {
   if (selectionCount === 0) {
     state.importExportDialogError = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
       ? "Selecciona al menos un personaje."
-      : "Selecciona al menos una carpeta o un encuentro.";
+      : category === DATA_EXCHANGE_CATEGORY_DIARY
+        ? "Selecciona al menos una carpeta o una nota."
+        : "Selecciona al menos una carpeta o un encuentro.";
     render();
     return;
   }
 
   const payload = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
     ? createCharacterSelectionExportPayload()
-    : createEncounterSelectionExportPayload();
+    : category === DATA_EXCHANGE_CATEGORY_DIARY
+      ? createDiarySelectionExportPayload()
+      : createEncounterSelectionExportPayload();
   const fileName = buildSelectionExportFileName(category);
   const title = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
     ? "Exportar personajes"
-    : "Exportar encuentros";
+    : category === DATA_EXCHANGE_CATEGORY_DIARY
+      ? "Exportar notas"
+      : "Exportar encuentros";
 
   try {
     const result = await saveJsonDataFile(payload, fileName, title);
@@ -4491,7 +4772,9 @@ async function exportSelectionData(category) {
       title: "Exportacion completada",
       message: category === DATA_EXCHANGE_CATEGORY_CHARACTERS
         ? `${payload.characters.length} personajes exportados.`
-        : `${payload.encounterInventory.encounters.length} encuentros exportados.`
+        : category === DATA_EXCHANGE_CATEGORY_DIARY
+          ? `${payload.diary.folders.length} carpetas y ${payload.diary.notes.length} notas exportadas.`
+          : `${payload.encounterInventory.encounters.length} encuentros exportados.`
     });
     render();
   } catch {
@@ -4505,7 +4788,9 @@ async function importSelectionData(expectedCategory) {
     const payload = await loadJsonDataFile(
       expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS
         ? "Importar personajes"
-        : "Importar encuentros"
+        : expectedCategory === DATA_EXCHANGE_CATEGORY_DIARY
+          ? "Importar notas"
+          : "Importar encuentros"
     );
 
     if (!payload) {
@@ -4517,13 +4802,17 @@ async function importSelectionData(expectedCategory) {
     if (payloadCategory !== expectedCategory) {
       state.importExportDialogError = expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS
         ? "Ese JSON no contiene personajes exportados por Mimic Dice."
-        : "Ese JSON no contiene encuentros exportados por Mimic Dice.";
+        : expectedCategory === DATA_EXCHANGE_CATEGORY_DIARY
+          ? "Ese JSON no contiene notas exportadas por Mimic Dice."
+          : "Ese JSON no contiene encuentros exportados por Mimic Dice.";
       render();
       return;
     }
 
     if (expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
       importCharactersFromPayload(payload);
+    } else if (expectedCategory === DATA_EXCHANGE_CATEGORY_DIARY) {
+      importDiaryFromPayload(payload);
     } else {
       importEncountersFromPayload(payload);
     }
@@ -4623,6 +4912,62 @@ function importEncountersFromPayload(payload) {
   pushNotification({
     title: "Importacion completada",
     message: `${importedEncounters.length} encuentros anadidos.`
+  });
+}
+
+function importDiaryFromPayload(payload) {
+  const source = isPlainObject(payload?.diary) ? payload.diary : {};
+  const importedFoldersSource = Array.isArray(source.folders)
+    ? source.folders.map((folder) => normalizeStoredDiaryFolder(folder)).filter(Boolean)
+    : [];
+  const importedNotesSource = Array.isArray(source.notes)
+    ? source.notes.map((note) => normalizeStoredDiaryNote(note)).filter(Boolean)
+    : [];
+  const importedTagColors = normalizeStoredDiaryTagColors(source.tagColors);
+  const importedHarptosDayNotes = normalizeStoredDiaryHarptosDayNotes(source.harptosDayNotes);
+  const folderIdMap = new Map();
+  const importedFolders = importedFoldersSource.map((folder) => {
+    const nextId = createStableId("diary-folder");
+    folderIdMap.set(folder.id, nextId);
+    return normalizeStoredDiaryFolder({
+      ...folder,
+      id: nextId,
+      isExpanded: true
+    });
+  }).filter(Boolean);
+  const importedNotes = importedNotesSource.map((note) => normalizeStoredDiaryNote({
+    ...note,
+    id: createStableId("diary-note"),
+    folderId: folderIdMap.get(note.folderId) ?? ""
+  })).filter(Boolean);
+
+  if (importedFolders.length === 0 && importedNotes.length === 0) {
+    throw new Error("No diary entries in payload.");
+  }
+
+  state.diaryFolders = [...state.diaryFolders, ...importedFolders];
+  state.diaryNotes = [...importedNotes, ...state.diaryNotes];
+  state.diaryTagColors = {
+    ...state.diaryTagColors,
+    ...importedTagColors
+  };
+  state.diaryHarptosDayNotes = {
+    ...state.diaryHarptosDayNotes,
+    ...importedHarptosDayNotes
+  };
+
+  if (importedNotes[0]?.id) {
+    state.activeDiaryNoteId = importedNotes[0].id;
+    state.activeDiaryFolderId = importedNotes[0].folderId ?? "";
+  } else if (importedFolders[0]?.id) {
+    state.activeDiaryFolderId = importedFolders[0].id;
+  }
+
+  reconcileDiaryUiState();
+  saveDiaryState();
+  pushNotification({
+    title: "Importacion completada",
+    message: `${importedFolders.length} carpetas y ${importedNotes.length} notas anadidas.`
   });
 }
 
@@ -4871,7 +5216,11 @@ function renderImportExportDialog() {
   }
 
   const category = normalizeDataExchangeCategory(state.importExportDialogCategory);
-  const title = category === DATA_EXCHANGE_CATEGORY_CHARACTERS ? "Personajes" : "Encuentros";
+  const title = category === DATA_EXCHANGE_CATEGORY_CHARACTERS
+    ? "Personajes"
+    : category === DATA_EXCHANGE_CATEGORY_DIARY
+      ? "Notas"
+      : "Encuentros";
   const mode = cleanText(state.importExportDialogMode).toLowerCase() || "menu";
   const selectionCount = getImportExportSelectionCount();
 
@@ -4889,15 +5238,15 @@ function renderImportExportDialog() {
         aria-modal="true"
         aria-labelledby="data-exchange-dialog-title"
       >
-        <p class="campaign-save-dialog__eyebrow">Importar / Exportar</p>
+        <p class="campaign-save-dialog__eyebrow">${escapeHtml(t("import_export_title"))}</p>
         <h2 class="campaign-save-dialog__title" id="data-exchange-dialog-title">${escapeHtml(title)}</h2>
         <p class="campaign-save-dialog__text">
           ${escapeHtml(
             mode === "menu"
-              ? `Elige si quieres exportar o importar ${title.toLowerCase()}.`
+              ? t("import_export_prompt_menu", { title: title.toLowerCase() })
               : mode === "export"
-                ? `Selecciona que ${title.toLowerCase()} quieres exportar.`
-                : `Selecciona un JSON exportado por Mimic Dice para importar ${title.toLowerCase()}.`
+                ? t("import_export_prompt_export", { title: title.toLowerCase() })
+                : t("import_export_prompt_import", { title: title.toLowerCase() })
           )}
         </p>
         ${
@@ -4914,7 +5263,7 @@ function renderImportExportDialog() {
         }
         <div class="campaign-save-dialog__actions">
           <button class="toolbar-button" type="button" data-action="${mode === "menu" ? "dismiss-import-export-dialog" : "set-import-export-mode"}" ${mode === "menu" ? "" : 'data-import-export-mode="menu"'}>
-            ${mode === "menu" ? "Cerrar" : "Volver"}
+            ${escapeHtml(mode === "menu" ? t("import_export_close") : t("import_export_back"))}
           </button>
           ${
             mode === "menu"
@@ -4926,7 +5275,7 @@ function renderImportExportDialog() {
                   data-action="confirm-import-export"
                   ${mode === "export" && selectionCount === 0 ? "disabled" : ""}
                 >
-                  ${mode === "import" ? "Importar JSON" : "Exportar JSON"}
+                  ${escapeHtml(mode === "import" ? t("import_export_confirm_import") : t("import_export_confirm_export"))}
                 </button>
               `
           }
@@ -4940,12 +5289,12 @@ function renderImportExportModePicker() {
   return `
     <div class="data-exchange-dialog__mode-grid">
       <button class="data-exchange-dialog__mode-card" type="button" data-action="set-import-export-mode" data-import-export-mode="export">
-        <strong>Exportar</strong>
-        <span>Crear un JSON con seleccion actual.</span>
+        <strong>${escapeHtml(t("import_export_mode_export"))}</strong>
+        <span>${escapeHtml(t("import_export_mode_export_desc"))}</span>
       </button>
       <button class="data-exchange-dialog__mode-card" type="button" data-action="set-import-export-mode" data-import-export-mode="import">
-        <strong>Importar</strong>
-        <span>Cargar un JSON exportado antes.</span>
+        <strong>${escapeHtml(t("import_export_mode_import"))}</strong>
+        <span>${escapeHtml(t("import_export_mode_import_desc"))}</span>
       </button>
     </div>
   `;
@@ -4954,6 +5303,10 @@ function renderImportExportModePicker() {
 function renderImportExportSelectionPanel(category) {
   if (category === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
     return renderCharacterExportSelectionPanel();
+  }
+
+  if (category === DATA_EXCHANGE_CATEGORY_DIARY) {
+    return renderDiaryExportSelectionPanel();
   }
 
   return renderEncounterExportSelectionPanel();
@@ -4965,7 +5318,7 @@ function renderCharacterExportSelectionPanel() {
       <div class="data-exchange-dialog__selection-toolbar">
         <span>${state.importExportCharacterIds.size} seleccionados</span>
         <button class="filter-clear" type="button" data-action="select-all-import-export-characters">
-          ${state.importExportCharacterIds.size === state.characters.length && state.characters.length > 0 ? "Vaciar seleccion" : "Seleccionar todos"}
+          ${escapeHtml(state.importExportCharacterIds.size === state.characters.length && state.characters.length > 0 ? t("import_export_clear_selection") : t("import_export_select_all"))}
         </button>
       </div>
       <div class="data-exchange-dialog__list" role="list">
@@ -5003,8 +5356,8 @@ function renderEncounterExportSelectionPanel() {
             state.importExportEncounterIds.size === state.encounters.length
             && state.importExportEncounterFolderIds.size === state.encounterFolders.length
             && (state.encounters.length > 0 || state.encounterFolders.length > 0)
-              ? "Vaciar seleccion"
-              : "Seleccionar todos"
+              ? escapeHtml(t("import_export_clear_selection"))
+              : escapeHtml(t("import_export_select_all"))
           }
         </button>
       </div>
@@ -5072,9 +5425,96 @@ function renderEncounterExportSelectionPanel() {
   `;
 }
 
+function renderDiaryExportSelectionPanel() {
+  const exportBundle = getSelectedDiaryExportBundle();
+
+  return `
+    <div class="data-exchange-dialog__selection-panel">
+      <div class="data-exchange-dialog__selection-toolbar">
+        <span>${exportBundle.folders.length} carpetas | ${exportBundle.notes.length} notas</span>
+        <button class="filter-clear" type="button" data-action="select-all-import-export-diary">
+          ${
+            state.importExportDiaryNoteIds.size === state.diaryNotes.length
+            && state.importExportDiaryFolderIds.size === state.diaryFolders.length
+            && (state.diaryNotes.length > 0 || state.diaryFolders.length > 0)
+              ? escapeHtml(t("import_export_clear_selection"))
+              : escapeHtml(t("import_export_select_all"))
+          }
+        </button>
+      </div>
+      <div class="data-exchange-dialog__list" role="list">
+        ${
+          state.diaryFolders.length === 0 && state.diaryNotes.length === 0
+            ? `<div class="empty-state empty-state--compact">No hay notas para exportar.</div>`
+            : `
+              ${state.diaryFolders.map((folder) => `
+                <div class="data-exchange-dialog__encounter-group" role="listitem">
+                  <label class="data-exchange-dialog__list-item data-exchange-dialog__list-item--folder">
+                    <input
+                      type="checkbox"
+                      data-import-export-diary-folder-checkbox="${escapeHtml(folder.id)}"
+                      ${state.importExportDiaryFolderIds.has(folder.id) ? "checked" : ""}
+                    />
+                    <div>
+                      <strong>${escapeHtml(folder.name || "Carpeta")}</strong>
+                      <span>${getDiaryNotesByFolder(folder.id).length} notas</span>
+                    </div>
+                  </label>
+                  ${
+                    getDiaryNotesByFolder(folder.id).map((note) => `
+                      <label class="data-exchange-dialog__list-item data-exchange-dialog__list-item--child">
+                        <input
+                          type="checkbox"
+                          data-import-export-diary-note-checkbox="${escapeHtml(note.id)}"
+                          ${state.importExportDiaryNoteIds.has(note.id) ? "checked" : ""}
+                        />
+                        <div>
+                          <strong>${escapeHtml(note.title || "Nota")}</strong>
+                          <span>${escapeHtml(getDiaryImportExportSummaryLabel(note))}</span>
+                        </div>
+                      </label>
+                    `).join("")
+                  }
+                </div>
+              `).join("")}
+              ${
+                getDiaryNotesByFolder("").length > 0
+                  ? `
+                    <div class="data-exchange-dialog__encounter-group" role="listitem">
+                      <p class="data-exchange-dialog__group-label">Sin carpeta</p>
+                      ${getDiaryNotesByFolder("").map((note) => `
+                        <label class="data-exchange-dialog__list-item data-exchange-dialog__list-item--child">
+                          <input
+                            type="checkbox"
+                            data-import-export-diary-note-checkbox="${escapeHtml(note.id)}"
+                            ${state.importExportDiaryNoteIds.has(note.id) ? "checked" : ""}
+                          />
+                          <div>
+                            <strong>${escapeHtml(note.title || "Nota")}</strong>
+                            <span>${escapeHtml(getDiaryImportExportSummaryLabel(note))}</span>
+                          </div>
+                        </label>
+                      `).join("")}
+                    </div>
+                  `
+                  : ""
+              }
+            `
+        }
+      </div>
+    </div>
+  `;
+}
+
 function getEncounterSummaryLabel(encounter) {
   const summary = getEncounterSummary(encounter);
   return `${summary.units} unidades | CR ${formatCrNumber(summary.totalCr)}`;
+}
+
+function getDiaryImportExportSummaryLabel(note) {
+  const realSummary = formatDiaryRealDateSummary(note) || "Sin fecha";
+  const tags = getDiaryNoteTags(note);
+  return tags.length > 0 ? `${realSummary} | ${tags.length} tags` : realSummary;
 }
 
 function renderImportExportImportPanel(category) {
@@ -5084,6 +5524,8 @@ function renderImportExportImportPanel(category) {
         ${
           category === DATA_EXCHANGE_CATEGORY_CHARACTERS
             ? "Se abrira el explorador para elegir un JSON de personajes exportado antes."
+            : category === DATA_EXCHANGE_CATEGORY_DIARY
+              ? "Se abrira el explorador para elegir un JSON de notas exportado antes."
             : "Se abrira el explorador para elegir un JSON de encuentros exportado antes."
         }
       </div>
@@ -5321,6 +5763,7 @@ function render(focusState = null) {
       ${renderOptionsDialog()}
       ${renderImportExportDialog()}
       ${renderCampaignSaveNameDialog()}
+      ${renderDiaryHarptosDayNoteDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
       ${renderCompendiumCreateDialog()}
       ${renderMulticlassLevelUpDialog()}
@@ -6378,7 +6821,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
               data-action="toggle-combat-turn-jump-menu"
               aria-expanded="${state.combatTurnJumpMenuOpen}"
             >
-              JUMP TURN TO
+              ${escapeHtml(t("jump_turn_to"))}
             </button>
             ${state.combatTurnJumpMenuOpen ? renderCombatTurnJumpMenu(turnOrder, activeTurnCombatantId) : ""}
           </div>
@@ -6877,7 +7320,7 @@ function renderEncounterInventoryPanel(activeEncounter) {
           </div>
           <div class="encounter-list__header-side">
             <button class="toolbar-button" type="button" data-action="open-encounter-import-export">
-              Importar / Exportar
+              ${escapeHtml(t("import_export_button"))}
             </button>
           </div>
         </div>
@@ -9678,7 +10121,7 @@ function renderCharactersScreen() {
           Eliminar
         </button>
         <button class="toolbar-button" type="button" data-action="open-character-import-export">
-          Importar / Exportar
+          ${escapeHtml(t("import_export_button"))}
         </button>
         <button
           class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
@@ -9739,15 +10182,6 @@ function renderDiaryScreen() {
       </div>
 
       <div class="characters-toolbar diary-screen__toolbar">
-        <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-diary-note">
-          ${escapeHtml(t("diary_new_note"))}
-        </button>
-        <button class="toolbar-button" type="button" data-action="create-diary-folder">
-          ${escapeHtml(t("diary_new_folder"))}
-        </button>
-        <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-diary-note" ${activeNote ? "" : "disabled"}>
-          ${escapeHtml(t("diary_delete_note"))}
-        </button>
         <div class="toolbar-field toolbar-field--search bestiary-query diary-search" data-diary-search-menu>
           <span>${escapeHtml(t("diary_search_label"))}</span>
           <input
@@ -9771,7 +10205,32 @@ function renderDiaryScreen() {
               : ""
           }
         </div>
+        <div class="diary-screen__toolbar-actions">
+          <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-diary-note">
+            ${escapeHtml(t("diary_new_note"))}
+          </button>
+          <button class="toolbar-button" type="button" data-action="create-diary-folder">
+            ${escapeHtml(t("diary_new_folder"))}
+          </button>
+          <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-diary-note" ${activeNote ? "" : "disabled"}>
+            ${escapeHtml(t("diary_delete_note"))}
+          </button>
+          <button class="toolbar-button" type="button" data-action="open-diary-import-export">
+            ${escapeHtml(t("import_export_button"))}
+          </button>
+          <button
+            class="toolbar-button ${state.diaryHarptosOverviewOpen ? "is-active" : ""}"
+            type="button"
+            data-action="toggle-diary-harptos-overview"
+            aria-expanded="${state.diaryHarptosOverviewOpen}"
+          >
+            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(getScreenIconUrl("tables"))}" alt="" decoding="async" /></span>
+            ${escapeHtml(t("diary_harptos_overview_button"))}
+          </button>
+        </div>
       </div>
+
+      ${state.diaryHarptosOverviewOpen ? renderDiaryHarptosOverviewSection() : ""}
 
       <div class="diary-layout">
         <aside class="diary-sidebar panel panel--inner" aria-label="${escapeHtml(t("diary_sidebar_aria"))}">
@@ -9825,7 +10284,7 @@ function renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, has
   return `
     <div
       class="combat-area-bulk-box area-damage combat-inline-tooltip-anchor combat-inline-tooltip-anchor--panel"
-      data-tooltip="Elige valor, pulsa efecto y despues marca objetivos en ventana emergente"
+      data-tooltip="${escapeHtml(t("area_effects_help"))}"
       data-area-label="${escapeHtml(t("area_effects"))}"
       data-combat-area-target-menu
     >
@@ -10240,8 +10699,8 @@ function renderDiaryEditor(note) {
         ${renderDiaryCommandButton("unlink", t("diary_cmd_unlink"))}
         ${renderDiaryCommandButton("insertHorizontalRule", t("diary_cmd_separator"))}
         ${renderDiaryCommandButton("removeFormat", t("diary_cmd_clear"))}
-        ${renderDiaryTokenButton("#", "insert-diary-tag-token", "Write #tag text# to create searchable tag chip. Close tag with second #.")}
-        ${renderDiaryTokenButton("@", "insert-diary-mention-token", "Write @name to search characters, items, or creatures. Pick suggestion to create linked mention.")}
+        ${renderDiaryTokenButton("#", "insert-diary-tag-token", t("diary_tag_button_tooltip"))}
+        ${renderDiaryTokenButton("@", "insert-diary-mention-token", t("diary_mention_button_tooltip"))}
       </div>
 
       <div class="diary-rich-editor-shell" data-diary-mention-root>
@@ -10468,7 +10927,7 @@ function renderDiaryHarptosVisualCalendar(noteId, side, dateValue, monthSelectVa
         <div class="diary-harptos-visual__days">
           ${Array.from({ length: visibleMonth.days }, (_, index) => index + 1).map((day) => `
             <button
-              class="diary-harptos-visual__day ${visibleMonth.id === monthSelectValue && day === dateValue.day ? "is-active" : ""}"
+              class="diary-harptos-visual__day diary-harptos-visual__day--${escapeHtml(getDiaryHarptosSeasonKey(visibleMonth.id, day))} ${visibleMonth.id === monthSelectValue && day === dateValue.day ? "is-active" : ""}"
               type="button"
               data-action="set-diary-harptos-day"
               data-diary-harptos-day="${escapeHtml(noteId)}"
@@ -10506,6 +10965,346 @@ function getHarptosVisibleMonthPeriodId(value) {
   }
 
   return HARPTOS_MONTH_PERIODS[0]?.id ?? HARPTOS_CALENDAR_PERIODS[0]?.id ?? "";
+}
+
+function renderDiaryHarptosOverviewSection() {
+  const periodId = getDiaryHarptosOverviewValidPeriodId(state.diaryHarptosOverviewPeriodId);
+  const period = HARPTOS_PERIODS_BY_ID.get(periodId) ?? HARPTOS_MONTH_PERIODS[0];
+  const overviewYear = normalizeDiaryHarptosOverviewYear(state.diaryHarptosOverviewYear);
+
+  return `
+    <section class="panel panel--inner diary-harptos-overview">
+      <div class="diary-harptos-overview__header">
+        <div>
+          <p class="eyebrow">${escapeHtml(t("diary_harptos_eyebrow"))}</p>
+          <h3>${escapeHtml(t("diary_harptos_overview_title"))}</h3>
+          <p class="diary-harptos-overview__copy">${escapeHtml(t("diary_harptos_overview_subtitle"))}</p>
+        </div>
+      </div>
+      ${renderDiaryHarptosOverviewLegend()}
+      <div class="diary-harptos-overview__controls">
+        <label class="toolbar-field">
+          <span>${escapeHtml(t("diary_harptos_overview_year"))}</span>
+          <input
+            class="filter-input"
+            type="number"
+            min="1"
+            step="1"
+            value="${escapeHtml(String(overviewYear))}"
+            data-diary-harptos-overview-year
+          />
+        </label>
+      </div>
+      <div class="diary-harptos-overview__visual">
+        <details class="diary-harptos-overview__period-picker">
+          <summary class="diary-harptos-overview__period-trigger">
+            ${escapeHtml(formatHarptosPeriodSelectLabel(period))}
+          </summary>
+          <div class="diary-harptos-overview__period-options">
+            ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
+              <button
+                class="diary-harptos-overview__period-chip ${periodEntry.id === periodId ? "is-active" : ""}"
+                type="button"
+                data-action="set-diary-harptos-overview-period"
+                data-harptos-period-id="${escapeHtml(periodEntry.id)}"
+              >
+                ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
+              </button>
+            `).join("")}
+          </div>
+        </details>
+        <div class="diary-harptos-overview__days">
+          ${Array.from({ length: period.days }, (_, index) => renderDiaryHarptosOverviewDayCard(period, overviewYear, index + 1)).join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderDiaryHarptosOverviewDayCard(period, year, day) {
+  const seasonKey = getDiaryHarptosSeasonKey(period.id, day);
+  const markerNotes = getDiaryHarptosReferencedNotesForDay(year, period.id, day);
+  const quickNoteKey = getDiaryHarptosDayNoteStorageKey(year, period.id, day);
+  const quickNote = normalizeDiaryHarptosQuickNote(state.diaryHarptosDayNotes?.[quickNoteKey]);
+  const isSolstice = seasonKey === "transition";
+  const dayLabel = formatDiaryHarptosDayLabel(period.id, day, year);
+  const noteChips = markerNotes.map((note) => ({
+    kind: "note",
+    label: `${t("diary_harptos_overview_note_chip_prefix")}: ${note.title || t("diary_note_untitled")}`
+  }));
+
+  if (quickNote) {
+    noteChips.push({
+      kind: "quick",
+      label: quickNote.label,
+      color: quickNote.color
+    });
+  }
+
+  return `
+    <article
+      class="diary-harptos-overview__day-card diary-harptos-overview__day-card--${escapeHtml(seasonKey)} ${markerNotes.length > 0 ? "has-diary-notes" : ""}"
+      title="${escapeHtml([dayLabel, ...markerNotes.map((note) => note.title || t("diary_note_untitled"))].join(" | "))}"
+    >
+      <div class="diary-harptos-overview__day-top">
+        <strong>
+          <span class="diary-harptos-overview__day-number">${escapeHtml(String(day))}</span>
+          <span class="diary-harptos-overview__day-month">${escapeHtml(period.name)}</span>
+        </strong>
+        ${markerNotes.length > 0 ? `<span class="diary-harptos-overview__marker">${escapeHtml(String(markerNotes.length))}</span>` : ""}
+      </div>
+      ${
+        noteChips.length > 0 || isSolstice
+          ? `
+            <div class="diary-harptos-overview__titles">
+              ${isSolstice ? `<span class="diary-harptos-overview__chip diary-harptos-overview__chip--solstice">${escapeHtml(t("diary_harptos_overview_solstice"))}</span>` : ""}
+              ${noteChips.map((chip) => `<span class="diary-harptos-overview__chip diary-harptos-overview__chip--${escapeHtml(chip.kind)}"${chip.kind === "quick" ? ` style="${escapeHtml(getDiaryHarptosQuickNoteChipStyle(chip.color))}"` : ""}>${escapeHtml(chip.label)}</span>`).join("")}
+            </div>
+          `
+          : ""
+      }
+      <button
+        class="diary-harptos-overview__add-note"
+        type="button"
+        data-action="edit-diary-harptos-day-note"
+        data-harptos-year="${escapeHtml(String(year))}"
+        data-harptos-period-id="${escapeHtml(period.id)}"
+        data-harptos-day="${escapeHtml(String(day))}"
+        aria-label="${escapeHtml(t("diary_harptos_overview_quick_note"))}"
+      >
+        +
+      </button>
+    </article>
+  `;
+}
+
+function renderDiaryHarptosOverviewLegend() {
+  return `
+    <section class="diary-harptos-overview__legend" aria-label="${escapeHtml(t("diary_harptos_overview_legend_title"))}">
+      <strong>${escapeHtml(t("diary_harptos_overview_legend_title"))}</strong>
+      <div class="diary-harptos-overview__legend-grid">
+        ${renderDiaryHarptosLegendItem("winter", t("diary_harptos_overview_legend_winter"))}
+        ${renderDiaryHarptosLegendItem("spring", t("diary_harptos_overview_legend_spring"))}
+        ${renderDiaryHarptosLegendItem("summer", t("diary_harptos_overview_legend_summer"))}
+        ${renderDiaryHarptosLegendItem("autumn", t("diary_harptos_overview_legend_autumn"))}
+        ${renderDiaryHarptosLegendItem("transition", t("diary_harptos_overview_legend_transition"))}
+      </div>
+    </section>
+  `;
+}
+
+function renderDiaryHarptosLegendItem(seasonKey, label) {
+  return `
+    <span class="diary-harptos-overview__legend-item">
+      <span class="diary-harptos-overview__legend-swatch diary-harptos-overview__legend-swatch--${escapeHtml(seasonKey)}" aria-hidden="true"></span>
+      <span>${escapeHtml(label)}</span>
+    </span>
+  `;
+}
+
+function toggleDiaryHarptosOverview() {
+  if (!state.diaryHarptosOverviewOpen) {
+    const activeNote = getActiveDiaryNote();
+    const startDate = activeNote?.harptosStart ? normalizeStoredHarptosDate(activeNote.harptosStart) : null;
+    state.diaryHarptosOverviewYear = startDate?.year ?? state.diaryHarptosOverviewYear ?? HARPTOS_DEFAULT_YEAR;
+    state.diaryHarptosOverviewPeriodId = getDiaryHarptosOverviewValidPeriodId(startDate?.periodId || state.diaryHarptosOverviewPeriodId);
+  }
+
+  state.diaryHarptosOverviewOpen = !state.diaryHarptosOverviewOpen;
+}
+
+function getInitialDiaryHarptosOverviewYear(diaryState) {
+  const activeNote = diaryState?.notes?.find((note) => note.id === diaryState?.activeNoteId) ?? diaryState?.notes?.[0] ?? null;
+  return normalizeDiaryHarptosOverviewYear(activeNote?.harptosStart?.year);
+}
+
+function getInitialDiaryHarptosOverviewPeriodId(diaryState) {
+  const activeNote = diaryState?.notes?.find((note) => note.id === diaryState?.activeNoteId) ?? diaryState?.notes?.[0] ?? null;
+  return getDiaryHarptosOverviewValidPeriodId(activeNote?.harptosStart?.periodId);
+}
+
+function normalizeDiaryHarptosOverviewYear(value) {
+  return Math.max(1, Math.floor(toNumber(value)) || HARPTOS_DEFAULT_YEAR);
+}
+
+function getDiaryHarptosOverviewValidPeriodId(periodId) {
+  const visibleMonthId = getHarptosVisibleMonthPeriodId({ periodId });
+  return HARPTOS_MONTH_PERIODS.some((period) => period.id === visibleMonthId) ? visibleMonthId : HARPTOS_MONTH_PERIODS[0]?.id ?? "hammer";
+}
+
+function formatDiaryHarptosDayLabel(periodId, day, year, options = {}) {
+  const normalizedPeriodId = getDiaryHarptosOverviewValidPeriodId(periodId);
+  const period = HARPTOS_PERIODS_BY_ID.get(normalizedPeriodId) ?? HARPTOS_MONTH_PERIODS[0];
+  const normalizedYear = normalizeDiaryHarptosOverviewYear(year);
+  const normalizedDay = Math.max(1, Math.min(period.days, Math.floor(toNumber(day)) || 1));
+  const baseLabel = `${normalizedDay} ${period.name}`;
+  return options.includeYear ? `${baseLabel}, ${normalizedYear}` : baseLabel;
+}
+
+function normalizeDiaryHarptosDayNoteKey(value) {
+  const normalizedValue = cleanText(value);
+  return /^\d+\|[a-z0-9-]+\|\d+$/i.test(normalizedValue) ? normalizedValue : "";
+}
+
+function normalizeDiaryHarptosQuickNote(value) {
+  if (isPlainObject(value)) {
+    const label = cleanText(value.label);
+    const color = normalizeDiaryTagColorValue(value.color) || "#d88d5a";
+    return label ? { label, color } : null;
+  }
+
+  const label = cleanText(value);
+  return label ? { label, color: "#d88d5a" } : null;
+}
+
+function getDiaryHarptosQuickNoteChipStyle(colorValue) {
+  const accent = normalizeDiaryTagColorValue(colorValue) || "#d88d5a";
+  return [
+    `--diary-harptos-chip-border: ${hexToRgba(accent, 0.5)}`,
+    `--diary-harptos-chip-bg: ${hexToRgba(accent, 0.24)}`,
+    "--diary-harptos-chip-color: #24180f"
+  ].join("; ");
+}
+
+function getDiaryHarptosDayNoteStorageKey(year, periodId, day) {
+  const normalizedYear = normalizeDiaryHarptosOverviewYear(year);
+  const normalizedPeriodId = getDiaryHarptosOverviewValidPeriodId(periodId);
+  const period = HARPTOS_PERIODS_BY_ID.get(normalizedPeriodId) ?? HARPTOS_CALENDAR_PERIODS[0];
+  const normalizedDay = Math.max(1, Math.min(period.days, Math.floor(toNumber(day)) || 1));
+  return `${normalizedYear}|${normalizedPeriodId}|${normalizedDay}`;
+}
+
+function updateDiaryHarptosDayNote(periodId, day, year, value, color = "#d88d5a") {
+  const key = getDiaryHarptosDayNoteStorageKey(year, periodId, day);
+  const nextValue = cleanText(value);
+  const nextColor = normalizeDiaryTagColorValue(color) || "#d88d5a";
+  const nextNotes = {
+    ...state.diaryHarptosDayNotes
+  };
+
+  if (nextValue) {
+    nextNotes[key] = {
+      label: nextValue,
+      color: nextColor
+    };
+  } else {
+    delete nextNotes[key];
+  }
+
+  state.diaryHarptosDayNotes = nextNotes;
+  saveDiaryState();
+}
+
+function openDiaryHarptosDayNoteDialog(periodId, day, year) {
+  const key = getDiaryHarptosDayNoteStorageKey(year, periodId, day);
+  const currentNote = normalizeDiaryHarptosQuickNote(state.diaryHarptosDayNotes?.[key]);
+  state.diaryHarptosDayNoteDialogOpen = true;
+  state.diaryHarptosDayNoteDialogYear = normalizeDiaryHarptosOverviewYear(year);
+  state.diaryHarptosDayNoteDialogPeriodId = getDiaryHarptosOverviewValidPeriodId(periodId);
+  state.diaryHarptosDayNoteDialogDay = Math.max(1, Math.floor(toNumber(day)) || 1);
+  state.diaryHarptosDayNoteDialogValue = currentNote?.label ?? "";
+  state.diaryHarptosDayNoteDialogColor = currentNote?.color ?? "#d88d5a";
+  render({
+    focusSelector: "[data-diary-harptos-day-note-dialog-input]",
+    selectionStart: state.diaryHarptosDayNoteDialogValue.length,
+    selectionEnd: state.diaryHarptosDayNoteDialogValue.length
+  });
+}
+
+function closeDiaryHarptosDayNoteDialog() {
+  state.diaryHarptosDayNoteDialogOpen = false;
+  state.diaryHarptosDayNoteDialogYear = HARPTOS_DEFAULT_YEAR;
+  state.diaryHarptosDayNoteDialogPeriodId = HARPTOS_MONTH_PERIODS[0]?.id ?? "hammer";
+  state.diaryHarptosDayNoteDialogDay = 1;
+  state.diaryHarptosDayNoteDialogValue = "";
+  state.diaryHarptosDayNoteDialogColor = "#d88d5a";
+}
+
+function submitDiaryHarptosDayNoteDialog() {
+  updateDiaryHarptosDayNote(
+    state.diaryHarptosDayNoteDialogPeriodId,
+    state.diaryHarptosDayNoteDialogDay,
+    state.diaryHarptosDayNoteDialogYear,
+    state.diaryHarptosDayNoteDialogValue,
+    state.diaryHarptosDayNoteDialogColor
+  );
+  closeDiaryHarptosDayNoteDialog();
+  render();
+}
+
+function getDiaryHarptosDayOfYear(value) {
+  const normalizedDate = normalizeStoredHarptosDate(value);
+  let dayOfYear = 0;
+
+  for (const period of HARPTOS_CALENDAR_PERIODS) {
+    if (period.id === normalizedDate.periodId) {
+      return dayOfYear + Math.max(1, Math.min(period.days, normalizedDate.day));
+    }
+
+    dayOfYear += period.days;
+  }
+
+  return 1;
+}
+
+function compareDiaryHarptosDates(left, right) {
+  const leftDate = normalizeStoredHarptosDate(left);
+  const rightDate = normalizeStoredHarptosDate(right);
+
+  if (leftDate.year !== rightDate.year) {
+    return leftDate.year - rightDate.year;
+  }
+
+  return getDiaryHarptosDayOfYear(leftDate) - getDiaryHarptosDayOfYear(rightDate);
+}
+
+function doesDiaryNoteReferenceHarptosDay(note, year, periodId, day) {
+  const targetDate = normalizeStoredHarptosDate({ year, periodId, day });
+  const startDate = normalizeStoredHarptosDate(note.harptosStart);
+  const endDate = note.harptosDateMode === "range"
+    ? normalizeStoredHarptosDate(note.harptosEnd, startDate)
+    : { ...startDate };
+  const [rangeStart, rangeEnd] = compareDiaryHarptosDates(startDate, endDate) <= 0
+    ? [startDate, endDate]
+    : [endDate, startDate];
+
+  return compareDiaryHarptosDates(rangeStart, targetDate) <= 0
+    && compareDiaryHarptosDates(targetDate, rangeEnd) <= 0;
+}
+
+function getDiaryHarptosReferencedNotesForDay(year, periodId, day) {
+  return state.diaryNotes.filter((note) => doesDiaryNoteReferenceHarptosDay(note, year, periodId, day));
+}
+
+function getDiaryHarptosSeasonKey(periodId, day) {
+  const targetDate = normalizeStoredHarptosDate({ year: HARPTOS_DEFAULT_YEAR, periodId, day });
+
+  if (isDiaryHarptosDateInRange(targetDate, { periodId: "hammer", day: 1 }, { periodId: "ches", day: 18 })) {
+    return "winter";
+  }
+
+  if (isDiaryHarptosDateInRange(targetDate, { periodId: "ches", day: 20 }, { periodId: "kythorn", day: 19 })) {
+    return "spring";
+  }
+
+  if (isDiaryHarptosDateInRange(targetDate, { periodId: "kythorn", day: 21 }, { periodId: "eleint", day: 20 })) {
+    return "summer";
+  }
+
+  if (isDiaryHarptosDateInRange(targetDate, { periodId: "eleint", day: 21 }, { periodId: "nightal", day: 19 })) {
+    return "autumn";
+  }
+
+  return "transition";
+}
+
+function isDiaryHarptosDateInRange(targetDate, startDate, endDate) {
+  const normalizedTarget = normalizeStoredHarptosDate({ year: HARPTOS_DEFAULT_YEAR, ...targetDate });
+  const normalizedStart = normalizeStoredHarptosDate({ year: HARPTOS_DEFAULT_YEAR, ...startDate });
+  const normalizedEnd = normalizeStoredHarptosDate({ year: HARPTOS_DEFAULT_YEAR, ...endDate });
+
+  return compareDiaryHarptosDates(normalizedStart, normalizedTarget) <= 0
+    && compareDiaryHarptosDates(normalizedTarget, normalizedEnd) <= 0;
 }
 
 function renderTablesScreen() {
@@ -16774,6 +17573,40 @@ function getDefaultCombatAreaTargetPickerState() {
   };
 }
 
+function getSelectedDiaryExportBundle() {
+  const selectedFolderIds = new Set(
+    [...state.importExportDiaryFolderIds].filter((folderId) => state.diaryFolders.some((folder) => folder.id === folderId))
+  );
+  const selectedNoteIds = new Set(
+    [...state.importExportDiaryNoteIds].filter((noteId) => state.diaryNotes.some((note) => note.id === noteId))
+  );
+
+  state.diaryNotes.forEach((note) => {
+    if (selectedFolderIds.has(note.folderId ?? "")) {
+      selectedNoteIds.add(note.id);
+    }
+  });
+
+  state.diaryNotes.forEach((note) => {
+    if (selectedNoteIds.has(note.id) && cleanText(note.folderId)) {
+      selectedFolderIds.add(cleanText(note.folderId));
+    }
+  });
+
+  return {
+    folders: state.diaryFolders
+      .filter((folder) => selectedFolderIds.has(folder.id))
+      .map((folder) => normalizeStoredDiaryFolder(folder))
+      .filter(Boolean),
+    notes: state.diaryNotes
+      .filter((note) => selectedNoteIds.has(note.id))
+      .map((note) => normalizeStoredDiaryNote(note))
+      .filter(Boolean),
+    tagColors: normalizeStoredDiaryTagColors(state.diaryTagColors),
+    harptosDayNotes: normalizeStoredDiaryHarptosDayNotes(state.diaryHarptosDayNotes)
+  };
+}
+
 function closeCombatAreaTargetPicker() {
   state.combatAreaTargetPicker = getDefaultCombatAreaTargetPickerState();
 }
@@ -22768,6 +23601,7 @@ function getDefaultDiaryState() {
     systemFolderExpanded: true,
     notes: [createDiaryNote({ title: "Nota 1" })],
     tagColors: {},
+    harptosDayNotes: {},
     activeDiaryFolderId: "",
     activeNoteId: ""
   });
@@ -22791,6 +23625,7 @@ function getDiarySaveData() {
     systemFolderExpanded: state.systemDiaryFolderExpanded !== false,
     notes,
     tagColors: normalizeStoredDiaryTagColors(state.diaryTagColors),
+    harptosDayNotes: normalizeStoredDiaryHarptosDayNotes(state.diaryHarptosDayNotes),
     activeDiaryFolderId: folderIds.has(activeDiaryFolderId) ? activeDiaryFolderId : "",
     activeNoteId
   };
@@ -22824,9 +23659,22 @@ function normalizeStoredDiaryState(value) {
     systemFolderExpanded: source.systemFolderExpanded !== false,
     notes: fallbackNotes,
     tagColors: normalizeStoredDiaryTagColors(source.tagColors),
+    harptosDayNotes: normalizeStoredDiaryHarptosDayNotes(source.harptosDayNotes),
     activeDiaryFolderId,
     activeNoteId
   };
+}
+
+function normalizeStoredDiaryHarptosDayNotes(value) {
+  if (!isPlainObject(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, note]) => [normalizeDiaryHarptosDayNoteKey(key), normalizeDiaryHarptosQuickNote(note)])
+      .filter(([key, note]) => key && note?.label)
+  );
 }
 
 function normalizeStoredDiaryTagColors(value) {

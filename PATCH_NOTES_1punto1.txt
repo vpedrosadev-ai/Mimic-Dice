@@ -32,6 +32,9 @@ DIARIO
 - Puedes mencionar con una @ personajes, objetos o criaturas.
 - Ahora puedes empezar a escribir una mención y elegir una sugerencia para completar más rápido.
 - Las menciones completadas aparecen subrayadas y con click izquierdo te envian a la pantalla de personajes, objetos o bestiario para ver su ficha.
+- Se ha añadido un boton de importar/exportar notas y carpetas del diario igual que en otras pantallas.
+- Añadido un boton para ver el calendario de Harptos en grande con las estaciones y la posibilidad de poner etiquetas en dias concretos.
+- En el calendario tambien quedan marcados los dias en los que hay una nota de diario asociada.
 
 MEJORAS GENERALES
 
