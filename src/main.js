@@ -33,6 +33,12 @@ import { screens } from "./navigation/screens.js";
 import { getCombatMiniActionIconUrl, getCombatSpellbookIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "./assets/combatIcons.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
 import { getScreenIconUrl } from "./assets/screenIcons.js";
+import moonFullIconUrl from "./assets/moon-icons/luna_llena.png";
+import moonWaxingQuarterIconUrl from "./assets/moon-icons/Cuarto_creciente.png";
+import moonWaxingCrescentIconUrl from "./assets/moon-icons/Luna_creciente.png";
+import moonNewIconUrl from "./assets/moon-icons/Luna_nueva.png";
+import moonWaningCrescentIconUrl from "./assets/moon-icons/Luna_menguante.png";
+import moonWaningQuarterIconUrl from "./assets/moon-icons/Cuarto_menguante.png";
 import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
 import { parseCsv } from "./shared/csv.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
@@ -584,6 +590,130 @@ const combatStatusEsToEnMap = new Map(
 const combatStatusEnToEsMap = new Map(
   localizedStatusTableEn.rows.map((row, index) => [normalizeTranslationKey(cleanText(row[0]).toLowerCase()), cleanText(localizedStatusTableEs.rows[index]?.[0] || row[0])])
 );
+const DIARY_HARPTOS_DAY_NOTE_EMOJIS = Object.freeze([
+  "🌧️", "⛈️", "❄️", "☀️", "🌤️", "🌙", "⭐", "🔥",
+  "🌿", "🍂", "🌸", "🌲", "🍄", "🪨", "🏕️", "🏰",
+  "⚔️", "🛡️", "🏹", "🧭", "🗺️", "🔮", "📜", "🕯️",
+  "📚", "💎", "🪙", "🍺", "🍞", "🍎", "🐉", "🐺",
+  "🦉", "🐴", "🕷️", "🐍", "👑", "🎭", "🎲", "🔔",
+  "❤️", "💀", "☠️", "✨", "💥", "🚪", "🔒", "🧪"
+]);
+const HARPTOS_MOON_PHASE_ICON_URLS = Object.freeze({
+  full: moonFullIconUrl,
+  "waxing-quarter": moonWaxingQuarterIconUrl,
+  "waxing-crescent": moonWaxingCrescentIconUrl,
+  new: moonNewIconUrl,
+  "waning-crescent": moonWaningCrescentIconUrl,
+  "waning-quarter": moonWaningQuarterIconUrl
+});
+const HARPTOS_MOON_PHASE_RULES = Object.freeze({
+  hammer: [
+    { start: 1, end: 8, phase: "full" },
+    { start: 9, end: 11, phase: "waxing-quarter" },
+    { start: 12, end: 15, phase: "waxing-crescent" },
+    { start: 16, end: 18, phase: "new" },
+    { start: 19, end: 22, phase: "waning-crescent" },
+    { start: 23, end: 29, phase: "waning-quarter" },
+    { start: 30, end: 30, phase: "full" }
+  ],
+  alturiak: [
+    { start: 1, end: 6, phase: "full" },
+    { start: 7, end: 9, phase: "waxing-quarter" },
+    { start: 10, end: 13, phase: "waxing-crescent" },
+    { start: 14, end: 16, phase: "new" },
+    { start: 17, end: 20, phase: "waning-crescent" },
+    { start: 21, end: 27, phase: "waning-quarter" },
+    { start: 28, end: 30, phase: "full" }
+  ],
+  ches: [
+    { start: 1, end: 5, phase: "full" },
+    { start: 6, end: 8, phase: "waxing-quarter" },
+    { start: 9, end: 12, phase: "waxing-crescent" },
+    { start: 13, end: 15, phase: "new" },
+    { start: 16, end: 19, phase: "waning-crescent" },
+    { start: 20, end: 26, phase: "waning-quarter" },
+    { start: 27, end: 30, phase: "full" }
+  ],
+  tarsakh: [
+    { start: 1, end: 4, phase: "full" },
+    { start: 5, end: 7, phase: "waxing-quarter" },
+    { start: 8, end: 11, phase: "waxing-crescent" },
+    { start: 12, end: 14, phase: "new" },
+    { start: 15, end: 18, phase: "waning-crescent" },
+    { start: 19, end: 25, phase: "waning-quarter" },
+    { start: 26, end: 30, phase: "full" }
+  ],
+  mirtul: [
+    { start: 1, end: 2, phase: "full" },
+    { start: 3, end: 5, phase: "waxing-quarter" },
+    { start: 6, end: 9, phase: "waxing-crescent" },
+    { start: 10, end: 12, phase: "new" },
+    { start: 13, end: 16, phase: "waning-crescent" },
+    { start: 17, end: 23, phase: "waning-quarter" },
+    { start: 24, end: 30, phase: "full" }
+  ],
+  kythorn: [
+    { start: 1, end: 1, phase: "full" },
+    { start: 2, end: 4, phase: "waxing-quarter" },
+    { start: 5, end: 8, phase: "waxing-crescent" },
+    { start: 9, end: 11, phase: "new" },
+    { start: 12, end: 15, phase: "waning-crescent" },
+    { start: 16, end: 22, phase: "waning-quarter" },
+    { start: 23, end: 30, phase: "full" }
+  ],
+  flamerule: [
+    { start: 1, end: 4, phase: "full" },
+    { start: 5, end: 7, phase: "waxing-quarter" },
+    { start: 8, end: 11, phase: "waxing-crescent" },
+    { start: 12, end: 14, phase: "new" },
+    { start: 15, end: 18, phase: "waning-crescent" },
+    { start: 19, end: 25, phase: "waning-quarter" },
+    { start: 26, end: 30, phase: "full" }
+  ],
+  eleasis: [
+    { start: 1, end: 1, phase: "full" },
+    { start: 2, end: 4, phase: "waxing-quarter" },
+    { start: 5, end: 8, phase: "waxing-crescent" },
+    { start: 9, end: 11, phase: "new" },
+    { start: 12, end: 15, phase: "waning-crescent" },
+    { start: 16, end: 22, phase: "waning-quarter" },
+    { start: 23, end: 30, phase: "full" }
+  ],
+  eleint: [
+    { start: 1, end: 3, phase: "waxing-quarter" },
+    { start: 4, end: 7, phase: "waxing-crescent" },
+    { start: 8, end: 10, phase: "new" },
+    { start: 11, end: 14, phase: "waning-crescent" },
+    { start: 15, end: 21, phase: "waning-quarter" },
+    { start: 22, end: 29, phase: "full" },
+    { start: 30, end: 30, phase: "waxing-quarter" }
+  ],
+  marpenoth: [
+    { start: 1, end: 1, phase: "waxing-quarter" },
+    { start: 2, end: 5, phase: "waxing-crescent" },
+    { start: 6, end: 8, phase: "new" },
+    { start: 9, end: 12, phase: "waning-crescent" },
+    { start: 13, end: 19, phase: "waning-quarter" },
+    { start: 20, end: 27, phase: "full" },
+    { start: 28, end: 30, phase: "waxing-quarter" }
+  ],
+  uktar: [
+    { start: 1, end: 4, phase: "waxing-crescent" },
+    { start: 5, end: 7, phase: "new" },
+    { start: 8, end: 11, phase: "waning-crescent" },
+    { start: 12, end: 18, phase: "waning-quarter" },
+    { start: 19, end: 26, phase: "full" },
+    { start: 27, end: 30, phase: "waxing-quarter" }
+  ],
+  nightal: [
+    { start: 1, end: 3, phase: "waxing-crescent" },
+    { start: 4, end: 6, phase: "new" },
+    { start: 7, end: 10, phase: "waning-crescent" },
+    { start: 11, end: 17, phase: "waning-quarter" },
+    { start: 18, end: 25, phase: "full" },
+    { start: 26, end: 30, phase: "waxing-quarter" }
+  ]
+});
 let lootTableItemMatchCache = {
   items: null,
   index: new Map()
@@ -2343,6 +2473,15 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-harptos-note-from-calendar") {
+    selectDiaryNote(actionButton.dataset.diaryNoteId);
+    render({
+      focusSelector: `[data-diary-title="${actionButton.dataset.diaryNoteId}"]`,
+      scrollIntoView: true
+    });
+    return;
+  }
+
   if (action === "insert-diary-mention") {
     event.preventDefault();
     insertDiaryMention(
@@ -2439,6 +2578,11 @@ async function handleClick(event) {
 
   if (action === "confirm-diary-harptos-day-note-dialog") {
     submitDiaryHarptosDayNoteDialog();
+    return;
+  }
+
+  if (action === "insert-diary-harptos-day-note-emoji") {
+    insertDiaryHarptosDayNoteEmoji(actionButton.dataset.emojiValue);
     return;
   }
 
@@ -4308,6 +4452,27 @@ function renderDiaryHarptosDayNoteDialog() {
             placeholder="${escapeHtml(t("diary_harptos_day_note_dialog_placeholder"))}"
           />
         </label>
+        <details class="diary-harptos-day-note-dialog__emoji-picker">
+          <summary class="toolbar-button diary-harptos-day-note-dialog__emoji-trigger">
+            ${escapeHtml(t("diary_harptos_day_note_dialog_emoji_button"))}
+          </summary>
+          <div class="diary-harptos-day-note-dialog__emoji-panel">
+            <strong>${escapeHtml(t("diary_harptos_day_note_dialog_emoji_title"))}</strong>
+            <div class="diary-harptos-day-note-dialog__emoji-grid">
+              ${DIARY_HARPTOS_DAY_NOTE_EMOJIS.map((emoji) => `
+                <button
+                  class="diary-harptos-day-note-dialog__emoji-option"
+                  type="button"
+                  data-action="insert-diary-harptos-day-note-emoji"
+                  data-emoji-value="${escapeHtml(emoji)}"
+                  aria-label="${escapeHtml(t("diary_harptos_day_note_dialog_emoji_insert", { emoji }))}"
+                >
+                  ${escapeHtml(emoji)}
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        </details>
         <label class="campaign-save-dialog__field">
           <span>${escapeHtml(t("diary_harptos_day_note_dialog_color"))}</span>
           <input
@@ -5782,6 +5947,14 @@ function render(focusState = null) {
 
       if (typeof focusState.selectionStart === "number" && typeof target.setSelectionRange === "function") {
         target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd ?? focusState.selectionStart);
+      }
+
+      if (focusState.scrollIntoView && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest"
+        });
       }
     }
   }
@@ -10892,6 +11065,7 @@ function renderDiaryHarptosVisualCalendar(noteId, side, dateValue, monthSelectVa
   const isFestival = period.kind === "festival";
   const visibleMonthId = getHarptosVisibleMonthPeriodId(dateValue);
   const visibleMonth = HARPTOS_PERIODS_BY_ID.get(visibleMonthId) ?? HARPTOS_MONTH_PERIODS[0];
+  const monthToneClass = getDiaryHarptosMonthToneClass(visibleMonth.id);
 
   return `
     <div class="diary-harptos-visual">
@@ -10905,38 +11079,46 @@ function renderDiaryHarptosVisualCalendar(noteId, side, dateValue, monthSelectVa
             `
             : ""
         }
-        <details class="diary-harptos-visual__month-picker">
-          <summary class="diary-harptos-visual__month-trigger">
-            ${escapeHtml(formatHarptosPeriodSelectLabel(visibleMonth))}
-          </summary>
-          <div class="diary-harptos-visual__month-options">
-            ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
-              <button
-                class="diary-harptos-visual__chip ${periodEntry.id === visibleMonthId ? "is-active" : ""}"
-                type="button"
-                data-action="set-diary-harptos-period"
-                data-diary-harptos-period="${escapeHtml(noteId)}"
-                data-diary-harptos-side="${escapeHtml(side)}"
-                data-harptos-period-id="${escapeHtml(periodEntry.id)}"
-              >
-                ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
-              </button>
-            `).join("")}
-          </div>
-        </details>
+        <div class="toolbar-field diary-harptos-visual__month-field">
+          <span>${escapeHtml(t("diary_harptos_month_label"))}</span>
+          <details class="diary-harptos-visual__month-picker">
+            <summary class="diary-harptos-visual__month-trigger ${escapeHtml(monthToneClass)}">
+              ${escapeHtml(formatHarptosPeriodSelectLabel(visibleMonth))}
+            </summary>
+            <div class="diary-harptos-visual__month-options">
+              ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
+                <button
+                  class="diary-harptos-visual__chip ${escapeHtml(getDiaryHarptosMonthToneClass(periodEntry.id))} ${periodEntry.id === visibleMonthId ? "is-active" : ""}"
+                  type="button"
+                  data-action="set-diary-harptos-period"
+                  data-diary-harptos-period="${escapeHtml(noteId)}"
+                  data-diary-harptos-side="${escapeHtml(side)}"
+                  data-harptos-period-id="${escapeHtml(periodEntry.id)}"
+                >
+                  ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
+                </button>
+              `).join("")}
+            </div>
+          </details>
+        </div>
         <div class="diary-harptos-visual__days">
-          ${Array.from({ length: visibleMonth.days }, (_, index) => index + 1).map((day) => `
-            <button
-              class="diary-harptos-visual__day diary-harptos-visual__day--${escapeHtml(getDiaryHarptosSeasonKey(visibleMonth.id, day))} ${visibleMonth.id === monthSelectValue && day === dateValue.day ? "is-active" : ""}"
-              type="button"
-              data-action="set-diary-harptos-day"
-              data-diary-harptos-day="${escapeHtml(noteId)}"
-              data-diary-harptos-side="${escapeHtml(side)}"
-              data-harptos-day="${day}"
-            >
-              ${day}
-            </button>
-          `).join("")}
+          ${Array.from({ length: visibleMonth.days }, (_, index) => index + 1).map((day) => {
+            const moonPhase = getDiaryHarptosMoonPhase(visibleMonth.id, day);
+            return `
+              <button
+                class="diary-harptos-visual__day diary-harptos-visual__day--${escapeHtml(getDiaryHarptosSeasonKey(visibleMonth.id, day))} ${visibleMonth.id === monthSelectValue && day === dateValue.day ? "is-active" : ""}"
+                type="button"
+                data-action="set-diary-harptos-day"
+                data-diary-harptos-day="${escapeHtml(noteId)}"
+                data-diary-harptos-side="${escapeHtml(side)}"
+                data-harptos-day="${day}"
+                title="${escapeHtml(formatDiaryHarptosDayLabel(visibleMonth.id, day, dateValue.year))}"
+              >
+                <span>${day}</span>
+                ${moonPhase ? `<img class="diary-harptos-visual__moon-icon" src="${escapeHtml(moonPhase.iconUrl)}" alt="${escapeHtml(moonPhase.label)}" decoding="async" />` : ""}
+              </button>
+            `;
+          }).join("")}
         </div>
       </div>
     </div>
@@ -10971,6 +11153,7 @@ function renderDiaryHarptosOverviewSection() {
   const periodId = getDiaryHarptosOverviewValidPeriodId(state.diaryHarptosOverviewPeriodId);
   const period = HARPTOS_PERIODS_BY_ID.get(periodId) ?? HARPTOS_MONTH_PERIODS[0];
   const overviewYear = normalizeDiaryHarptosOverviewYear(state.diaryHarptosOverviewYear);
+  const monthToneClass = getDiaryHarptosMonthToneClass(period.id);
 
   return `
     <section class="panel panel--inner diary-harptos-overview">
@@ -10994,25 +11177,28 @@ function renderDiaryHarptosOverviewSection() {
             data-diary-harptos-overview-year
           />
         </label>
+        <label class="toolbar-field diary-harptos-overview__month-field">
+          <span>${escapeHtml(t("diary_harptos_month_label"))}</span>
+          <details class="diary-harptos-overview__period-picker">
+            <summary class="diary-harptos-overview__period-trigger ${escapeHtml(monthToneClass)}">
+              ${escapeHtml(formatHarptosPeriodSelectLabel(period))}
+            </summary>
+            <div class="diary-harptos-overview__period-options">
+              ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
+                <button
+                  class="diary-harptos-overview__period-chip ${escapeHtml(getDiaryHarptosMonthToneClass(periodEntry.id))} ${periodEntry.id === periodId ? "is-active" : ""}"
+                  type="button"
+                  data-action="set-diary-harptos-overview-period"
+                  data-harptos-period-id="${escapeHtml(periodEntry.id)}"
+                >
+                  ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
+                </button>
+              `).join("")}
+            </div>
+          </details>
+        </label>
       </div>
       <div class="diary-harptos-overview__visual">
-        <details class="diary-harptos-overview__period-picker">
-          <summary class="diary-harptos-overview__period-trigger">
-            ${escapeHtml(formatHarptosPeriodSelectLabel(period))}
-          </summary>
-          <div class="diary-harptos-overview__period-options">
-            ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
-              <button
-                class="diary-harptos-overview__period-chip ${periodEntry.id === periodId ? "is-active" : ""}"
-                type="button"
-                data-action="set-diary-harptos-overview-period"
-                data-harptos-period-id="${escapeHtml(periodEntry.id)}"
-              >
-                ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
-              </button>
-            `).join("")}
-          </div>
-        </details>
         <div class="diary-harptos-overview__days">
           ${Array.from({ length: period.days }, (_, index) => renderDiaryHarptosOverviewDayCard(period, overviewYear, index + 1)).join("")}
         </div>
@@ -11028,9 +11214,12 @@ function renderDiaryHarptosOverviewDayCard(period, year, day) {
   const quickNote = normalizeDiaryHarptosQuickNote(state.diaryHarptosDayNotes?.[quickNoteKey]);
   const isSolstice = seasonKey === "transition";
   const dayLabel = formatDiaryHarptosDayLabel(period.id, day, year);
+  const moonPhase = getDiaryHarptosMoonPhase(period.id, day);
+  const transitionClass = isSolstice ? getDiaryHarptosTransitionClass(period.id, day) : "";
   const noteChips = markerNotes.map((note) => ({
     kind: "note",
-    label: `${t("diary_harptos_overview_note_chip_prefix")}: ${note.title || t("diary_note_untitled")}`
+    label: `${t("diary_harptos_overview_note_chip_prefix")}: ${note.title || t("diary_note_untitled")}`,
+    noteId: note.id
   }));
 
   if (quickNote) {
@@ -11043,7 +11232,7 @@ function renderDiaryHarptosOverviewDayCard(period, year, day) {
 
   return `
     <article
-      class="diary-harptos-overview__day-card diary-harptos-overview__day-card--${escapeHtml(seasonKey)} ${markerNotes.length > 0 ? "has-diary-notes" : ""}"
+      class="diary-harptos-overview__day-card diary-harptos-overview__day-card--${escapeHtml(seasonKey)} ${escapeHtml(transitionClass)} ${markerNotes.length > 0 ? "has-diary-notes" : ""}"
       title="${escapeHtml([dayLabel, ...markerNotes.map((note) => note.title || t("diary_note_untitled"))].join(" | "))}"
     >
       <div class="diary-harptos-overview__day-top">
@@ -11051,14 +11240,17 @@ function renderDiaryHarptosOverviewDayCard(period, year, day) {
           <span class="diary-harptos-overview__day-number">${escapeHtml(String(day))}</span>
           <span class="diary-harptos-overview__day-month">${escapeHtml(period.name)}</span>
         </strong>
-        ${markerNotes.length > 0 ? `<span class="diary-harptos-overview__marker">${escapeHtml(String(markerNotes.length))}</span>` : ""}
+        <div class="diary-harptos-overview__day-badges">
+          ${moonPhase ? `<img class="diary-harptos-overview__moon-icon" src="${escapeHtml(moonPhase.iconUrl)}" alt="${escapeHtml(moonPhase.label)}" title="${escapeHtml(moonPhase.label)}" decoding="async" />` : ""}
+        </div>
       </div>
       ${
         noteChips.length > 0 || isSolstice
           ? `
             <div class="diary-harptos-overview__titles">
-              ${isSolstice ? `<span class="diary-harptos-overview__chip diary-harptos-overview__chip--solstice">${escapeHtml(t("diary_harptos_overview_solstice"))}</span>` : ""}
-              ${noteChips.map((chip) => `<span class="diary-harptos-overview__chip diary-harptos-overview__chip--${escapeHtml(chip.kind)}"${chip.kind === "quick" ? ` style="${escapeHtml(getDiaryHarptosQuickNoteChipStyle(chip.color))}"` : ""}>${escapeHtml(chip.label)}</span>`).join("")}
+              ${noteChips.map((chip) => chip.kind === "note"
+                ? `<button class="diary-harptos-overview__chip diary-harptos-overview__chip--note" type="button" data-action="open-harptos-note-from-calendar" data-diary-note-id="${escapeHtml(chip.noteId)}">${escapeHtml(chip.label)}</button>`
+                : `<button class="diary-harptos-overview__chip diary-harptos-overview__chip--quick" type="button" data-action="edit-diary-harptos-day-note" data-harptos-year="${escapeHtml(String(year))}" data-harptos-period-id="${escapeHtml(period.id)}" data-harptos-day="${escapeHtml(String(day))}" style="${escapeHtml(getDiaryHarptosQuickNoteChipStyle(chip.color))}">${escapeHtml(chip.label)}</button>`).join("")}
             </div>
           `
           : ""
@@ -11087,7 +11279,6 @@ function renderDiaryHarptosOverviewLegend() {
         ${renderDiaryHarptosLegendItem("spring", t("diary_harptos_overview_legend_spring"))}
         ${renderDiaryHarptosLegendItem("summer", t("diary_harptos_overview_legend_summer"))}
         ${renderDiaryHarptosLegendItem("autumn", t("diary_harptos_overview_legend_autumn"))}
-        ${renderDiaryHarptosLegendItem("transition", t("diary_harptos_overview_legend_transition"))}
       </div>
     </section>
   `;
@@ -11139,6 +11330,60 @@ function formatDiaryHarptosDayLabel(periodId, day, year, options = {}) {
   const normalizedDay = Math.max(1, Math.min(period.days, Math.floor(toNumber(day)) || 1));
   const baseLabel = `${normalizedDay} ${period.name}`;
   return options.includeYear ? `${baseLabel}, ${normalizedYear}` : baseLabel;
+}
+
+function getDiaryHarptosMoonPhase(periodId, day) {
+  const normalizedPeriodId = getDiaryHarptosOverviewValidPeriodId(periodId);
+  const normalizedDay = Math.max(1, Math.floor(toNumber(day)) || 1);
+  const phaseRule = (HARPTOS_MOON_PHASE_RULES[normalizedPeriodId] ?? []).find((entry) => normalizedDay >= entry.start && normalizedDay <= entry.end);
+
+  if (!phaseRule) {
+    return null;
+  }
+
+  const iconUrl = HARPTOS_MOON_PHASE_ICON_URLS[phaseRule.phase] ?? "";
+
+  if (!iconUrl) {
+    return null;
+  }
+
+  return {
+    phase: phaseRule.phase,
+    iconUrl,
+    label: t(`diary_harptos_moon_${phaseRule.phase}`)
+  };
+}
+
+function getDiaryHarptosMonthToneClass(periodId) {
+  const normalizedPeriodId = getDiaryHarptosOverviewValidPeriodId(periodId);
+  const toneMap = {
+    hammer: "diary-harptos-season-tone diary-harptos-season-tone--winter",
+    alturiak: "diary-harptos-season-tone diary-harptos-season-tone--winter",
+    ches: "diary-harptos-season-tone diary-harptos-season-tone--winter-spring",
+    tarsakh: "diary-harptos-season-tone diary-harptos-season-tone--spring",
+    mirtul: "diary-harptos-season-tone diary-harptos-season-tone--spring",
+    kythorn: "diary-harptos-season-tone diary-harptos-season-tone--spring-summer",
+    flamerule: "diary-harptos-season-tone diary-harptos-season-tone--summer",
+    eleasis: "diary-harptos-season-tone diary-harptos-season-tone--summer",
+    eleint: "diary-harptos-season-tone diary-harptos-season-tone--summer-autumn",
+    marpenoth: "diary-harptos-season-tone diary-harptos-season-tone--autumn",
+    uktar: "diary-harptos-season-tone diary-harptos-season-tone--autumn",
+    nightal: "diary-harptos-season-tone diary-harptos-season-tone--autumn-winter"
+  };
+
+  return toneMap[normalizedPeriodId] ?? "diary-harptos-season-tone diary-harptos-season-tone--transition";
+}
+
+function getDiaryHarptosTransitionClass(periodId, day) {
+  const normalizedPeriodId = getDiaryHarptosOverviewValidPeriodId(periodId);
+  const normalizedDay = Math.max(1, Math.floor(toNumber(day)) || 1);
+  const classMap = {
+    "ches|19": "diary-harptos-overview__day-card--transition-winter-spring",
+    "kythorn|20": "diary-harptos-overview__day-card--transition-spring-summer",
+    "eleint|21": "diary-harptos-overview__day-card--transition-summer-autumn",
+    "nightal|20": "diary-harptos-overview__day-card--transition-autumn-winter"
+  };
+  return classMap[`${normalizedPeriodId}|${normalizedDay}`] ?? "";
 }
 
 function normalizeDiaryHarptosDayNoteKey(value) {
@@ -11232,6 +11477,23 @@ function submitDiaryHarptosDayNoteDialog() {
   render();
 }
 
+function insertDiaryHarptosDayNoteEmoji(emojiValue) {
+  const emoji = cleanText(emojiValue);
+
+  if (!emoji) {
+    return;
+  }
+
+  const currentValue = state.diaryHarptosDayNoteDialogValue;
+  const separator = currentValue && !/\s$/u.test(currentValue) ? " " : "";
+  state.diaryHarptosDayNoteDialogValue = `${currentValue}${separator}${emoji}`.trim();
+  render({
+    focusSelector: "[data-diary-harptos-day-note-dialog-input]",
+    selectionStart: state.diaryHarptosDayNoteDialogValue.length,
+    selectionEnd: state.diaryHarptosDayNoteDialogValue.length
+  });
+}
+
 function getDiaryHarptosDayOfYear(value) {
   const normalizedDate = normalizeStoredHarptosDate(value);
   let dayOfYear = 0;
@@ -11279,7 +11541,10 @@ function getDiaryHarptosReferencedNotesForDay(year, periodId, day) {
 function getDiaryHarptosSeasonKey(periodId, day) {
   const targetDate = normalizeStoredHarptosDate({ year: HARPTOS_DEFAULT_YEAR, periodId, day });
 
-  if (isDiaryHarptosDateInRange(targetDate, { periodId: "hammer", day: 1 }, { periodId: "ches", day: 18 })) {
+  if (
+    isDiaryHarptosDateInRange(targetDate, { periodId: "hammer", day: 1 }, { periodId: "ches", day: 18 })
+    || isDiaryHarptosDateInRange(targetDate, { periodId: "nightal", day: 21 }, { periodId: "nightal", day: 30 })
+  ) {
     return "winter";
   }
 
@@ -11291,7 +11556,7 @@ function getDiaryHarptosSeasonKey(periodId, day) {
     return "summer";
   }
 
-  if (isDiaryHarptosDateInRange(targetDate, { periodId: "eleint", day: 21 }, { periodId: "nightal", day: 19 })) {
+  if (isDiaryHarptosDateInRange(targetDate, { periodId: "eleint", day: 22 }, { periodId: "nightal", day: 19 })) {
     return "autumn";
   }
 

@@ -35,6 +35,9 @@ DIARIO
 - Se ha añadido un boton de importar/exportar notas y carpetas del diario igual que en otras pantallas.
 - Añadido un boton para ver el calendario de Harptos en grande con las estaciones y la posibilidad de poner etiquetas en dias concretos.
 - En el calendario tambien quedan marcados los dias en los que hay una nota de diario asociada.
+- Tambien se ha añadido los ciclos lunares.
+- Clicar sobre la chip de una nota te abrira esa nota en concreto en el editor de notas.
+- Se pueden tambien añadir notas cortas en el propio calendario y editarlas con click iziquierdo.
 
 MEJORAS GENERALES
 
