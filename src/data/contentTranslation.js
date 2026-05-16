@@ -307,6 +307,11 @@ const REQUIRED_FIELDS_BY_KIND = {
   arcanum: ["Name", "Level", "School"]
 };
 
+const COMPENDIUM_IDENTITY_BASE_NAME_FIELD = "__mimicIdentityBaseName";
+const COMPENDIUM_IDENTITY_BASE_SOURCE_FIELD = "__mimicIdentityBaseSource";
+const COMPENDIUM_IDENTITY_BASE_LEVEL_FIELD = "__mimicIdentityBaseLevel";
+const COMPENDIUM_IDENTITY_LOCALIZED_NAME_FIELD = "__mimicIdentityLocalizedName";
+
 const HEADER_ALIASES_BY_KIND = {
   bestiary: {
     Name: ["Name", "Nombre"],
@@ -402,7 +407,7 @@ export function translateCompendiumRows(rows, kind, targetLanguage) {
   }
 
   return rows.map((row) => {
-    const nextRow = { ...row };
+    const nextRow = attachCompendiumIdentityFields({ ...row }, row, row);
 
     for (const field of fields) {
       if (typeof nextRow[field] === "string") {
@@ -441,7 +446,21 @@ export function normalizeLocalizedCompendiumRows(rows, kind) {
 export function mergeCompendiumTranslationRows(baseRows, localizedRows, kind) {
   const normalizedLocalizedRows = normalizeLocalizedCompendiumRows(localizedRows, kind);
 
-  return baseRows.map((baseRow, index) => mergeLocalizedRow(baseRow, normalizedLocalizedRows[index]));
+  return baseRows.map((baseRow, index) => (
+    attachCompendiumIdentityFields(
+      mergeLocalizedRow(baseRow, normalizedLocalizedRows[index]),
+      baseRow,
+      normalizedLocalizedRows[index]
+    )
+  ));
+}
+
+export function attachCompendiumTranslationIdentityRows(baseRows, localizedRows, kind) {
+  const normalizedLocalizedRows = normalizeLocalizedCompendiumRows(localizedRows, kind);
+
+  return baseRows.map((baseRow, index) => (
+    attachCompendiumIdentityFields({ ...(baseRow ?? {}) }, baseRow, normalizedLocalizedRows[index])
+  ));
 }
 
 export function isCompendiumTranslationSidecarUsable(baseRows, localizedRows, kind) {
@@ -570,4 +589,19 @@ function mergeLocalizedRow(baseRow, localizedRow = {}) {
   });
 
   return nextRow;
+}
+
+function attachCompendiumIdentityFields(row, baseRow = {}, localizedRow = {}) {
+  const baseName = cleanText(baseRow?.Name);
+  const baseSource = cleanText(baseRow?.Source);
+  const baseLevel = cleanText(baseRow?.Level);
+  const localizedName = cleanText(localizedRow?.Name);
+
+  return {
+    ...(row ?? {}),
+    [COMPENDIUM_IDENTITY_BASE_NAME_FIELD]: baseName || cleanText(row?.Name),
+    [COMPENDIUM_IDENTITY_BASE_SOURCE_FIELD]: baseSource || cleanText(row?.Source),
+    [COMPENDIUM_IDENTITY_BASE_LEVEL_FIELD]: baseLevel || cleanText(row?.Level),
+    [COMPENDIUM_IDENTITY_LOCALIZED_NAME_FIELD]: localizedName || ""
+  };
 }

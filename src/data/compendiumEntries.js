@@ -59,9 +59,18 @@ const ITEM_RARITY_BY_ALIAS = new Map(ITEM_RARITY_DEFINITIONS.flatMap((definition
   definition.aliases.map((alias) => [normalizeSearchText(alias).replace(/[-_]+/g, " "), definition])
 )));
 
+const COMPENDIUM_IDENTITY_BASE_NAME_FIELD = "__mimicIdentityBaseName";
+const COMPENDIUM_IDENTITY_BASE_SOURCE_FIELD = "__mimicIdentityBaseSource";
+const COMPENDIUM_IDENTITY_BASE_LEVEL_FIELD = "__mimicIdentityBaseLevel";
+const COMPENDIUM_IDENTITY_LOCALIZED_NAME_FIELD = "__mimicIdentityLocalizedName";
+
 export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
+  const canonicalName = cleanText(row[COMPENDIUM_IDENTITY_BASE_NAME_FIELD]) || name;
+  const canonicalSource = cleanText(row[COMPENDIUM_IDENTITY_BASE_SOURCE_FIELD]) || source;
+  const localizedName = cleanText(row[COMPENDIUM_IDENTITY_LOCALIZED_NAME_FIELD]) || (canonicalName && canonicalName !== name ? name : "");
+  const nameAliases = uniqueSortedStrings([name, canonicalName, localizedName].filter(Boolean));
   const sourceFullName = getBestiarySourceFullName(source);
   const page = cleanText(row.Page);
   const size = cleanText(row.Size);
@@ -102,9 +111,11 @@ export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) 
   const sourceLabel = page ? `${source} p.${page}` : source || "Sin fuente";
   const crLabel = cr || "Sin CR";
   const crBaseLabel = extractCrBaseLabel(cr);
-  const compositeKey = buildBestiaryCompositeKey(name, source);
+  const compositeKey = buildBestiaryCompositeKey(canonicalName || name, canonicalSource || source);
   const searchText = normalizeSearchText([
     name,
+    canonicalName,
+    localizedName,
     source,
     type,
     alignment,
@@ -126,9 +137,15 @@ export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) 
   return {
     id: compositeKey || `bestiary-${index + 1}`,
     compositeKey,
+    identityKey: compositeKey,
     name,
+    canonicalName,
+    localizedName,
+    nameAliases,
+    nameAliasesLower: nameAliases.map((alias) => normalizeSearchText(alias)).filter(Boolean),
     nameLower: normalizeSearchText(name),
     source,
+    canonicalSource,
     sourceFullName,
     page,
     size,
@@ -176,6 +193,10 @@ export function normalizeBestiaryEntry(row, index, imageMap = {}, options = {}) 
 export function normalizeItemEntry(row, index, imageMap = {}, options = {}) {
   const name = cleanText(row.Name);
   const source = cleanText(row.Source);
+  const canonicalName = cleanText(row[COMPENDIUM_IDENTITY_BASE_NAME_FIELD]) || name;
+  const canonicalSource = cleanText(row[COMPENDIUM_IDENTITY_BASE_SOURCE_FIELD]) || source;
+  const localizedName = cleanText(row[COMPENDIUM_IDENTITY_LOCALIZED_NAME_FIELD]) || (canonicalName && canonicalName !== name ? name : "");
+  const nameAliases = uniqueSortedStrings([name, canonicalName, localizedName].filter(Boolean));
   const page = cleanText(row.Page);
   const rarity = cleanText(row.Rarity);
   const type = cleanText(row.Type);
@@ -190,7 +211,7 @@ export function normalizeItemEntry(row, index, imageMap = {}, options = {}) {
   const rarityLabel = formatItemRarity(rarity, options);
   const requiresAttunement = Boolean(attunement);
   const typeLine = [type, requiresAttunement ? "Requiere attunement" : ""].filter(Boolean).join(" | ");
-  const compositeKey = buildItemCompositeKey(name, source);
+  const compositeKey = buildItemCompositeKey(canonicalName || name, canonicalSource || source);
   const valueNumber = parseItemValue(value);
   const weightNumber = parseItemWeight(weight);
   const sizeLabel = getItemSizeLabel(weightNumber, name, type);
@@ -213,9 +234,15 @@ export function normalizeItemEntry(row, index, imageMap = {}, options = {}) {
   return {
     id: compositeKey || `item-${index + 1}`,
     compositeKey,
+    identityKey: compositeKey,
     name,
+    canonicalName,
+    localizedName,
+    nameAliases,
+    nameAliasesLower: nameAliases.map((alias) => normalizeSearchText(alias)).filter(Boolean),
     nameLower: normalizeSearchText(name),
     source,
+    canonicalSource,
     page,
     rarity,
     rarityLabel,
@@ -253,6 +280,11 @@ export function normalizeSpellEntry(row, index) {
   const source = cleanText(row.Source);
   const page = cleanText(row.Page);
   const level = cleanText(row.Level);
+  const canonicalName = cleanText(row[COMPENDIUM_IDENTITY_BASE_NAME_FIELD]) || name;
+  const canonicalSource = cleanText(row[COMPENDIUM_IDENTITY_BASE_SOURCE_FIELD]) || source;
+  const canonicalLevel = cleanText(row[COMPENDIUM_IDENTITY_BASE_LEVEL_FIELD]) || level;
+  const localizedName = cleanText(row[COMPENDIUM_IDENTITY_LOCALIZED_NAME_FIELD]) || (canonicalName && canonicalName !== name ? name : "");
+  const nameAliases = uniqueSortedStrings([name, canonicalName, localizedName].filter(Boolean));
   const school = cleanText(row.School);
   const castingTime = cleanText(row["Casting Time"]);
   const duration = cleanText(row.Duration);
@@ -278,7 +310,7 @@ export function normalizeSpellEntry(row, index) {
   const sourceFullName = getSourceFullName(source);
   const sourceLabel = page ? `${sourceFullName} p.${page}` : sourceFullName || "Sin fuente";
   const schoolLine = [levelLabel, school].filter(Boolean).join(" | ");
-  const compositeKey = buildArcanumCompositeKey(name, source, level);
+  const compositeKey = buildArcanumCompositeKey(canonicalName || name, canonicalSource || source, canonicalLevel || level);
   const searchText = normalizeSearchText([
     name,
     source,
@@ -299,9 +331,15 @@ export function normalizeSpellEntry(row, index) {
   return {
     id: compositeKey || `arcanum-${index + 1}`,
     compositeKey,
+    identityKey: compositeKey,
     name,
+    canonicalName,
+    localizedName,
+    nameAliases,
+    nameAliasesLower: nameAliases.map((alias) => normalizeSearchText(alias)).filter(Boolean),
     nameLower: normalizeSearchText(name),
     source,
+    canonicalSource,
     sourceFullName,
     page,
     level,

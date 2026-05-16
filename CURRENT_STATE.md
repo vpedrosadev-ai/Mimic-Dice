@@ -100,6 +100,9 @@
 - Combat tracker ahora puede mostrar tambien retrato junto al nombre de aliados enlazados a personaje, no solo en enemigos.
 - El picker `Anadir > Personajes` ya permite `Anadir todos` evitando duplicados, y desactiva personajes que ya estan en la tabla.
 - En pantalla de personajes ya existe multiseleccion con `Ctrl`/`Cmd`; `Anadir al combate` envia la seleccion actual y `Anadir todos` mete todos los visibles evitando repetidos. La lista muestra ya una marca visual de seleccion y el detector de modificadores se reforzo.
+- Las criaturas guardadas en encuentros y combate conservan una referencia estable bilingue (`entryKey`/nombre canonico) para que cambiar contenido ES/EN no rompa la relacion con el bestiario ni obligue a renombrar filas existentes.
+- Los objetos y hechizos enlazados en ficha de personaje, menciones del diario y enlaces de tablas usan claves/alias bilingues para sobrevivir al cambio de idioma de contenido sin renombrar el texto visible.
+- Los nombres visibles de esas referencias enlazadas se sincronizan con el idioma de contenido activo: al cambiar ES/EN, criaturas, objetos, hechizos, menciones y enlaces de tablas muestran el nombre del compendio cargado.
 - En combat tracker, el submenu del boton `Anadir` se elevo por encima del resto de la UI y el panel principal deja de recortarlo.
 - En combat tracker, los aliados ya muestran preview flotante al pasar por su retrato igual que enemigos, pero con contenido de personaje en modo lectura: competencias, skills de campana e inventario.
 - La preview flotante de aliados ya permite mover el raton desde el retrato hasta la propia ventana sin perder hover, y clicar en ella abre directo la ficha del personaje.

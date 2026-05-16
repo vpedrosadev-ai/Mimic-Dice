@@ -22,6 +22,7 @@ import {
   CONTENT_TRANSLATION_MODE_GLOSSARY,
   CONTENT_TRANSLATION_MODE_ORIGINAL,
   CONTENT_TRANSLATION_MODE_SIDECAR,
+  attachCompendiumTranslationIdentityRows,
   detectCsvContentLanguage,
   getContentTranslationModeLabel,
   isCompendiumTranslationSidecarUsable,
@@ -1352,6 +1353,9 @@ async function handleClick(event) {
   }
 
   if (action === "set-content-language") {
+    reconcileEncounterRowsWithCurrentBestiaryReferences();
+    reconcileCombatantsWithCurrentBestiaryReferences();
+    reconcileCharactersWithCurrentCompendiumReferences();
     state.contentLanguage = normalizeStoredContentLanguage(actionButton.dataset.contentLanguage);
     synchronizeLanguageSpecificSystemData({ syncCombatants: true });
     saveCampaignMeta();
@@ -1553,6 +1557,11 @@ async function handleClick(event) {
 
   if (action === "open-loot-table-item") {
     openItemFromLootTable(actionButton.dataset.itemName);
+    return;
+  }
+
+  if (action === "open-table-spell") {
+    openSpellFromTable(actionButton.dataset.spellName);
     return;
   }
 
@@ -9173,7 +9182,7 @@ function renderCombatSpellPreviewOverlay() {
   }
 
   if (previewKind === "spell") {
-    const previewEntry = state.arcanum.find((entry) => cleanText(entry.name) === previewKey);
+    const previewEntry = findCompendiumEntryByReference(state.arcanum, { name: previewKey, entryId: previewKey });
 
     if (!previewEntry) {
       return "";
@@ -11949,7 +11958,6 @@ function renderTableColumnHeader(tableId, column, index, columnCount) {
 function renderTableRow(table, row, rowIndex) {
   const isRollingRow = state.rollingTableId === table.id && state.rollingTableRowId === row.id;
   const isRolledRow = state.rolledTableId === table.id && state.rolledTableRowId === row.id;
-  const isLootTable = getSystemTableKind(table).startsWith("loot-table-");
 
   return `
     <tr class="tables-data-table__row ${isRollingRow ? "is-rolling" : ""} ${isRolledRow ? "is-rolled" : ""}" data-table-row-id="${escapeHtml(row.id)}" data-table-owner-id="${escapeHtml(table.id)}">
@@ -11983,26 +11991,21 @@ function renderTableRow(table, row, rowIndex) {
       ${table.columns.map((column, columnIndex) => {
         const cellValue = row.cells[column.id] ?? "";
         const columnKind = getTableColumnKind(column, columnIndex);
-        const linkedContent = isLootTable && columnKind !== "number"
+        const linkedContent = columnKind !== "number"
           ? renderLootTableCellContent(cellValue)
           : "";
 
         return `
           <td class="tables-data-table__cell tables-data-table__cell--${columnKind}">
-            ${
-              linkedContent
-                ? `<div class="tables-data-table__cell-text tables-data-table__cell-text--${columnKind}">${linkedContent}</div>`
-                : `
-                  <textarea
-                    class="tables-data-table__cell-input tables-data-table__cell-input--${columnKind}"
-                    rows="${getTableTextareaRows(table.columns.length, columnKind)}"
-                    data-table-cell="${escapeHtml(column.id)}"
-                    data-table-id="${escapeHtml(table.id)}"
-                    data-table-row-id="${escapeHtml(row.id)}"
-                    data-table-column-id="${escapeHtml(column.id)}"
-                  >${escapeHtml(cellValue)}</textarea>
-                `
-            }
+            <textarea
+              class="tables-data-table__cell-input tables-data-table__cell-input--${columnKind}"
+              rows="${getTableTextareaRows(table.columns.length, columnKind)}"
+              data-table-cell="${escapeHtml(column.id)}"
+              data-table-id="${escapeHtml(table.id)}"
+              data-table-row-id="${escapeHtml(row.id)}"
+              data-table-column-id="${escapeHtml(column.id)}"
+            >${escapeHtml(cellValue)}</textarea>
+            ${linkedContent ? `<div class="tables-data-table__cell-text tables-data-table__cell-text--${columnKind}">${linkedContent}</div>` : ""}
           </td>
         `;
       }).join("")}
@@ -12012,7 +12015,7 @@ function renderTableRow(table, row, rowIndex) {
 
 function renderLootTableCellContent(value) {
   const text = cleanText(value);
-  const matches = getLootTableItemNameMatches(text);
+  const matches = getTableCompendiumNameMatches(text);
 
   if (!text || matches.length === 0) {
     return "";
@@ -12030,10 +12033,10 @@ function renderLootTableCellContent(value) {
       <button
         class="tables-data-table__item-link"
         type="button"
-        data-action="open-loot-table-item"
-        data-item-name="${escapeHtml(match.itemName)}"
-        title="Abrir ${escapeHtml(match.itemName)} en objetos"
-      >${escapeHtml(text.slice(match.start, match.end))}</button>
+        data-action="${match.kind === "spell" ? "open-table-spell" : "open-loot-table-item"}"
+        ${match.kind === "spell" ? `data-spell-name="${escapeHtml(match.entryName)}"` : `data-item-name="${escapeHtml(match.entryName)}"`}
+        title="Abrir ${escapeHtml(match.entryName)} en ${match.kind === "spell" ? "hechizos" : "objetos"}"
+      >${escapeHtml(match.entryName || text.slice(match.start, match.end))}</button>
     `);
     cursor = match.end;
   });
@@ -12046,19 +12049,23 @@ function renderLootTableCellContent(value) {
 }
 
 function getLootTableItemNameMatches(text) {
+  return getTableCompendiumNameMatches(text).filter((match) => match.kind === "item");
+}
+
+function getTableCompendiumNameMatches(text) {
   const sourceText = cleanText(text);
 
-  if (!sourceText || state.itemStatus !== "ready" || state.items.length === 0) {
+  if (!sourceText || ((state.itemStatus !== "ready" || state.items.length === 0) && (state.arcanumStatus !== "ready" || state.arcanum.length === 0))) {
     return [];
   }
 
   const normalizedSource = normalizeSearchText(sourceText);
   const sourceWords = new Set(normalizedSource.match(/[a-z0-9]+/g) ?? []);
-  const candidateIndex = getLootTableItemCandidateIndex();
+  const candidateIndex = getTableCompendiumCandidateIndex();
   const candidates = [...new Map(
     [...sourceWords]
       .flatMap((word) => candidateIndex.get(word) ?? [])
-      .map((candidate) => [candidate.normalizedName, candidate])
+      .map((candidate) => [`${candidate.kind}:${candidate.normalizedName}`, candidate])
   ).values()];
   const ranges = [];
 
@@ -12070,7 +12077,7 @@ function getLootTableItemNameMatches(text) {
       const overlaps = ranges.some((range) => start < range.end && end > range.start);
 
       if (!overlaps && isLootTableItemMatchBoundary(normalizedSource, start, end)) {
-        ranges.push({ start, end, itemName: candidate.itemName });
+        ranges.push({ start, end, kind: candidate.kind, entryName: candidate.entryName });
       }
 
       start = normalizedSource.indexOf(candidate.normalizedName, end);
@@ -12081,22 +12088,34 @@ function getLootTableItemNameMatches(text) {
 }
 
 function getLootTableItemCandidateIndex() {
-  if (lootTableItemMatchCache.items === state.items) {
+  return getTableCompendiumCandidateIndex();
+}
+
+function getTableCompendiumCandidateIndex() {
+  if (lootTableItemMatchCache.items === state.items && lootTableItemMatchCache.arcanum === state.arcanum) {
     return lootTableItemMatchCache.index;
   }
 
   const uniqueCandidates = new Map();
 
-  state.items.forEach((item) => {
-    const itemName = cleanText(item.name);
-    const normalizedName = normalizeSearchText(itemName);
-    const firstWord = normalizedName.match(/[a-z0-9]+/u)?.[0] ?? "";
+  [
+    { kind: "item", entries: state.items },
+    { kind: "spell", entries: state.arcanum }
+  ].forEach(({ kind, entries }) => {
+    entries.forEach((entry) => {
+      const entryName = cleanText(entry.name);
+      const aliases = getCompendiumEntryNameAliases(entry);
 
-    if (!itemName || normalizedName.length < 3 || !firstWord) {
-      return;
-    }
+      aliases.forEach((normalizedName) => {
+        const firstWord = normalizedName.match(/[a-z0-9]+/u)?.[0] ?? "";
 
-    uniqueCandidates.set(normalizedName, { itemName, normalizedName, firstWord });
+        if (!entryName || normalizedName.length < 3 || !firstWord) {
+          return;
+        }
+
+        uniqueCandidates.set(`${kind}:${normalizedName}`, { kind, entryName, normalizedName, firstWord });
+      });
+    });
   });
 
   const index = new Map();
@@ -12106,7 +12125,7 @@ function getLootTableItemCandidateIndex() {
     index.set(candidate.firstWord, bucket);
   });
   index.forEach((bucket) => bucket.sort((left, right) => right.normalizedName.length - left.normalizedName.length));
-  lootTableItemMatchCache = { items: state.items, index };
+  lootTableItemMatchCache = { items: state.items, arcanum: state.arcanum, index };
   return index;
 }
 
@@ -12123,7 +12142,7 @@ function openItemFromLootTable(itemName) {
     return;
   }
 
-  const matchedItem = state.items.find((item) => normalizeSearchText(item.name) === normalizeSearchText(normalizedItemName)) ?? null;
+  const matchedItem = findCompendiumEntryByReference(state.items, { name: normalizedItemName }) ?? null;
   resetItemVirtualScroll();
   state.activeScreen = "items";
   state.itemFilters = {
@@ -12136,6 +12155,29 @@ function openItemFromLootTable(itemName) {
   state.itemSelectedId = matchedItem?.id || "";
   render({
     focusSelector: "[data-item-query]"
+  });
+}
+
+function openSpellFromTable(spellName) {
+  const normalizedSpellName = cleanText(spellName);
+
+  if (!normalizedSpellName) {
+    return;
+  }
+
+  const matchedSpell = findCompendiumEntryByReference(state.arcanum, { name: normalizedSpellName }) ?? null;
+  resetArcanumVirtualScroll();
+  state.activeScreen = "arcanum";
+  state.arcanumFilters = {
+    ...blankArcanumFilters,
+    query: matchedSpell?.name || normalizedSpellName
+  };
+  state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
+  state.activeArcanumFilterKey = "";
+  state.showArcanumQuerySuggestions = false;
+  state.arcanumSelectedId = matchedSpell?.id || "";
+  render({
+    focusSelector: "[data-arcanum-query]"
   });
 }
 
@@ -12925,7 +12967,7 @@ function getCharacterSpellSuggestions(rowId) {
   }
 
   return state.arcanum
-    .filter((entry) => entry.nameLower.includes(query))
+    .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query)))
     .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }))
     .slice(0, 12);
 }
@@ -12951,8 +12993,13 @@ function formatCompendiumSuggestionLabel(entry, duplicateCounts) {
 }
 
 function getCharacterSpellMatchedEntry(row) {
-  return state.arcanum.find((entry) => entry.id === row.spellId)
-    ?? getArcanumEntryByName(row.name);
+  return findCompendiumEntryByReference(state.arcanum, {
+    entryKey: row.spellKey,
+    entryId: row.spellId,
+    name: row.name,
+    canonicalName: row.canonicalName,
+    localizedName: row.localizedName
+  });
 }
 
 function getCharacterSpellSortLevel(row) {
@@ -13409,8 +13456,13 @@ function renderCharacterCurrencyPill(character, currency) {
 }
 
 function getCharacterInventoryMatchedItemEntry(row) {
-  return state.items.find((entry) => entry.id === row.itemId)
-    ?? getItemEntryByName(row.name);
+  return findCompendiumEntryByReference(state.items, {
+    entryKey: row.itemKey,
+    entryId: row.itemId,
+    name: row.name,
+    canonicalName: row.canonicalName,
+    localizedName: row.localizedName
+  });
 }
 
 function renderCharacterInventoryItemPreview(entry) {
@@ -13764,7 +13816,7 @@ function getCharacterInventorySuggestions(rowId) {
   }
 
   return state.items
-    .filter((entry) => entry.nameLower.includes(query))
+    .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query)))
     .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }))
     .slice(0, 12);
 }
@@ -14322,7 +14374,7 @@ function getCombatNameSuggestions(combatant) {
 
   const bestiarySuggestions = state.bestiaryStatus === "ready"
     ? state.bestiary
-      .filter((entry) => entry.nameLower.includes(query))
+      .filter((entry) => getBestiaryEntryNameAliases(entry).some((alias) => alias.includes(query)))
       .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
         || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
       .slice(0, 7)
@@ -14355,19 +14407,20 @@ function getCombatNameSuggestions(combatant) {
 }
 
 function getCombatantBestiaryEntry(combatant) {
-  const name = cleanText(combatant.nombre).toLowerCase();
+  const name = cleanText(combatant.nombre);
 
   if (!name) {
     return null;
   }
 
-  if (combatant.source) {
-    const source = cleanText(combatant.source);
-    const sourceMatch = state.bestiary.find((entry) => cleanText(entry.name).toLowerCase() === name && entry.source === source);
-    return sourceMatch ?? null;
-  }
-
-  return state.bestiary.find((entry) => cleanText(entry.name).toLowerCase() === name) ?? null;
+  return findCompendiumEntryByReference(state.bestiary, {
+    entryKey: combatant.entryKey,
+    entryId: combatant.entryId,
+    name,
+    canonicalName: combatant.canonicalName,
+    localizedName: combatant.localizedName,
+    source: combatant.source
+  });
 }
 
 function getCombatantTokenUrl(combatant) {
@@ -14387,14 +14440,18 @@ function getCombatantInitials(combatant) {
 }
 
 function getCombatantSourceOptions(combatant) {
-  const name = cleanText(combatant.nombre).toLowerCase();
+  const names = getEncounterRowNameCandidates({
+    name: combatant.nombre,
+    canonicalName: combatant.canonicalName,
+    localizedName: combatant.localizedName
+  });
 
-  if (!name || state.bestiaryStatus !== "ready") {
+  if (names.length === 0 || state.bestiaryStatus !== "ready") {
     return [];
   }
 
   return state.bestiary
-    .filter((entry) => cleanText(entry.name).toLowerCase() === name)
+    .filter((entry) => names.some((name) => getBestiaryEntryNameAliases(entry).includes(name)))
     .sort((left, right) => {
       const leftSource = getBestiarySourceFullName(left.source) || cleanText(left.source);
       const rightSource = getBestiarySourceFullName(right.source) || cleanText(right.source);
@@ -14552,7 +14609,7 @@ function matchesBestiaryFilters(entry, overrides = {}) {
   const environment = Array.isArray(filters.environment) ? filters.environment : [];
   const crBase = Array.isArray(filters.crBase) ? filters.crBase : [];
 
-  if (query && !entry.nameLower.includes(query)) {
+  if (query && !getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query))) {
     return false;
   }
 
@@ -14586,7 +14643,7 @@ function matchesItemFilters(entry, overrides = {}) {
   const type = Array.isArray(filters.type) ? filters.type : [];
   const attunement = cleanText(filters.attunement);
 
-  if (query && !entry.nameLower.includes(query)) {
+  if (query && !getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query))) {
     return false;
   }
 
@@ -14626,7 +14683,7 @@ function matchesArcanumFilters(entry, overrides = {}) {
   const castingTime = Array.isArray(filters.castingTime) ? filters.castingTime : [];
   const concentration = cleanText(filters.concentration);
 
-  if (query && !entry.nameLower.includes(query)) {
+  if (query && !getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query))) {
     return false;
   }
 
@@ -15866,6 +15923,9 @@ function updateCharacterSpellRow(rowId, key, rawValue, normalize = true) {
       if (key === "name") {
         const matchedSpell = getArcanumEntryByName(rawValue);
         nextRow.spellId = matchedSpell?.id ?? "";
+        nextRow.spellKey = matchedSpell ? getCompendiumEntryIdentityKey(matchedSpell) : "";
+        nextRow.canonicalName = matchedSpell?.canonicalName ?? "";
+        nextRow.localizedName = matchedSpell?.localizedName ?? "";
         nextRow.level = normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort ?? cleanText(nextRow.level));
       }
 
@@ -15936,7 +15996,10 @@ function selectCharacterSpellSuggestion(rowId, arcanumEntryId) {
         ? normalizeStoredCharacterSpellRow({
           ...row,
           spellId: spellEntry.id,
+          spellKey: getCompendiumEntryIdentityKey(spellEntry),
           name: spellEntry.name,
+          canonicalName: spellEntry.canonicalName || spellEntry.name,
+          localizedName: spellEntry.localizedName || (spellEntry.canonicalName && spellEntry.canonicalName !== spellEntry.name ? spellEntry.name : ""),
           level: normalizeCharacterSpellLevelLabel(spellEntry.levelShort)
         })
         : row)
@@ -16009,8 +16072,7 @@ function getCharacterInventoryRowWeight(row) {
     return quantity / 20;
   }
 
-  const matchedItem = state.items.find((entry) => entry.id === row.itemId)
-    ?? getItemEntryByName(row.name);
+  const matchedItem = getCharacterInventoryMatchedItemEntry(row);
 
   if (matchedItem && matchedItem.weightNumber > 0) {
     return matchedItem.weightNumber * quantity;
@@ -16087,11 +16149,17 @@ function updateCharacterInventoryRow(rowId, key, rawValue, normalize = true) {
       if (key === "name") {
         const matchedItem = getItemEntryByName(rawValue);
         nextRow.itemId = matchedItem?.id ?? "";
+        nextRow.itemKey = matchedItem ? getCompendiumEntryIdentityKey(matchedItem) : "";
+        nextRow.canonicalName = matchedItem?.canonicalName ?? "";
+        nextRow.localizedName = matchedItem?.localizedName ?? "";
         nextRow.size = matchedItem?.sizeLabel ?? inferItemSizeLabel(rawValue);
       }
 
       if (isCharacterCurrencyRow(nextRow.name)) {
         nextRow.itemId = "";
+        nextRow.itemKey = "";
+        nextRow.canonicalName = "";
+        nextRow.localizedName = "";
         nextRow.size = getCurrencyInventorySizeLabel(nextRow.quantity);
       }
 
@@ -16124,7 +16192,10 @@ function selectCharacterInventorySuggestion(rowId, itemEntryId) {
         ? normalizeStoredCharacterInventoryRow({
           ...row,
           itemId: itemEntry.id,
+          itemKey: getCompendiumEntryIdentityKey(itemEntry),
           name: itemEntry.name,
+          canonicalName: itemEntry.canonicalName || itemEntry.name,
+          localizedName: itemEntry.localizedName || (itemEntry.canonicalName && itemEntry.canonicalName !== itemEntry.name ? itemEntry.name : ""),
           size: itemEntry.sizeLabel
         })
         : row)
@@ -16133,6 +16204,81 @@ function selectCharacterInventorySuggestion(rowId, itemEntryId) {
 
   state.activeCharacterInventoryRowId = normalizedRowId;
   state.showCharacterInventorySuggestions = false;
+}
+
+function reconcileCharactersWithCurrentCompendiumReferences(options = {}) {
+  let changed = false;
+
+  state.characters = state.characters.map((character) => {
+    let characterChanged = false;
+    const spells = character.spells.map((row) => {
+      const spellEntry = getCharacterSpellMatchedEntry(row);
+
+      if (!spellEntry) {
+        return row;
+      }
+
+      const nextRow = normalizeStoredCharacterSpellRow({
+        ...row,
+        spellId: spellEntry.id,
+        spellKey: getCompendiumEntryIdentityKey(spellEntry),
+        name: spellEntry.name,
+        canonicalName: spellEntry.canonicalName || spellEntry.name,
+        localizedName: spellEntry.localizedName || (spellEntry.canonicalName && spellEntry.canonicalName !== spellEntry.name ? spellEntry.name : cleanText(row.localizedName)),
+        level: normalizeCharacterSpellLevelLabel(spellEntry.levelShort)
+      });
+
+      if (JSON.stringify(nextRow) !== JSON.stringify(row)) {
+        characterChanged = true;
+      }
+
+      return nextRow;
+    });
+    const inventory = character.inventory.map((row) => {
+      if (isCharacterCurrencyRow(row.name)) {
+        return row;
+      }
+
+      const itemEntry = getCharacterInventoryMatchedItemEntry(row);
+
+      if (!itemEntry) {
+        return row;
+      }
+
+      const nextRow = normalizeStoredCharacterInventoryRow({
+        ...row,
+        itemId: itemEntry.id,
+        itemKey: getCompendiumEntryIdentityKey(itemEntry),
+        name: itemEntry.name,
+        canonicalName: itemEntry.canonicalName || itemEntry.name,
+        localizedName: itemEntry.localizedName || (itemEntry.canonicalName && itemEntry.canonicalName !== itemEntry.name ? itemEntry.name : cleanText(row.localizedName)),
+        size: itemEntry.sizeLabel
+      });
+
+      if (JSON.stringify(nextRow) !== JSON.stringify(row)) {
+        characterChanged = true;
+      }
+
+      return nextRow;
+    });
+
+    if (!characterChanged) {
+      return character;
+    }
+
+    changed = true;
+    return normalizeStoredCharacter({
+      ...character,
+      spells,
+      inventory
+    });
+  });
+
+  if (changed && options.save !== false) {
+    saveCharacters();
+  }
+
+  return changed;
 }
 
 function updateCharacterProficiency(key, isChecked) {
@@ -16754,8 +16900,12 @@ function addCreatureToActiveEncounter(entryId) {
   const row = {
     id: createStableId("encounter-row"),
     entryId: entry.id,
+    entryKey: entry.identityKey || entry.compositeKey || entry.id,
     name: entry.name,
+    canonicalName: entry.canonicalName || entry.name,
+    localizedName: entry.localizedName || (entry.canonicalName && entry.canonicalName !== entry.name ? entry.name : ""),
     source: entry.source,
+    canonicalSource: entry.canonicalSource || entry.source,
     tokenUrl: entry.tokenUrl,
     hp: entry.hp,
     hpValue: entry.hpValue,
@@ -16841,7 +16991,8 @@ function updateEncounterRowSource(rowId, source) {
 }
 
 function getEncounterRowWithSource(row, source) {
-  const matchingEntry = state.bestiary.find((entry) => entry.name === row.name && entry.source === source);
+  const matchingEntry = getEncounterSourceOptions(row)
+    .find((entry) => cleanText(entry.source) === cleanText(source));
 
   if (!matchingEntry) {
     return {
@@ -16850,18 +17001,111 @@ function getEncounterRowWithSource(row, source) {
     };
   }
 
+  return getEncounterRowWithBestiaryEntry(row, matchingEntry);
+}
+
+function getEncounterRowWithBestiaryEntry(row, entry) {
   return {
     ...row,
-    entryId: matchingEntry.id,
-    source,
-    tokenUrl: matchingEntry.tokenUrl,
-    hp: matchingEntry.hp,
-    hpValue: matchingEntry.hpValue,
-    ac: matchingEntry.ac,
-    acValue: matchingEntry.acValue,
-    crLabel: matchingEntry.crBaseLabel || matchingEntry.crLabel || row.crLabel,
-    crValue: matchingEntry.crBaseValue
+    entryId: entry.id,
+    entryKey: entry.identityKey || entry.compositeKey || entry.id,
+    name: entry.name,
+    canonicalName: entry.canonicalName || entry.name,
+    localizedName: entry.localizedName || (entry.canonicalName && entry.canonicalName !== entry.name ? entry.name : cleanText(row.localizedName)),
+    source: entry.source,
+    canonicalSource: entry.canonicalSource || entry.source,
+    tokenUrl: entry.tokenUrl,
+    hp: entry.hp,
+    hpValue: entry.hpValue,
+    ac: entry.ac,
+    acValue: entry.acValue,
+    crLabel: entry.crBaseLabel || entry.crLabel || row.crLabel,
+    crValue: entry.crBaseValue
   };
+}
+
+function reconcileEncounterRowsWithCurrentBestiaryReferences(options = {}) {
+  if (state.bestiaryStatus !== "ready" || !Array.isArray(state.bestiary) || state.bestiary.length === 0) {
+    return false;
+  }
+
+  let changed = false;
+
+  state.encounters = state.encounters.map((encounter) => {
+    if (!Array.isArray(encounter.rows) || encounter.rows.length === 0) {
+      return encounter;
+    }
+
+    let encounterChanged = false;
+    const rows = encounter.rows.map((row) => {
+      const entry = getEncounterRowBestiaryEntry(row);
+
+      if (!entry) {
+        return row;
+      }
+
+      const nextRow = getEncounterRowWithBestiaryEntry(row, entry);
+
+      if (JSON.stringify(nextRow) !== JSON.stringify(row)) {
+        encounterChanged = true;
+        changed = true;
+      }
+
+      return nextRow;
+    });
+
+    return encounterChanged ? { ...encounter, rows } : encounter;
+  });
+
+  if (changed && options.save !== false) {
+    saveEncounterInventory();
+  }
+
+  return changed;
+}
+
+function reconcileCombatantsWithCurrentBestiaryReferences(options = {}) {
+  if (state.bestiaryStatus !== "ready" || !Array.isArray(state.bestiary) || state.bestiary.length === 0) {
+    return false;
+  }
+
+  let changed = false;
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (!isEnemyCombatant(combatant) || !cleanText(combatant.nombre)) {
+      return combatant;
+    }
+
+    const entry = getCombatantBestiaryEntry(combatant);
+
+    if (!entry) {
+      return combatant;
+    }
+
+    const nextCombatant = {
+      ...combatant,
+      entryId: entry.id,
+      entryKey: getCompendiumEntryIdentityKey(entry),
+      nombre: entry.name,
+      canonicalName: entry.canonicalName || entry.name,
+      localizedName: entry.localizedName || (entry.canonicalName && entry.canonicalName !== entry.name ? entry.name : cleanText(combatant.localizedName)),
+      canonicalSource: entry.canonicalSource || entry.source,
+      source: entry.source,
+      tokenUrl: cleanText(combatant.tokenUrl) || cleanText(entry.tokenUrl)
+    };
+
+    if (JSON.stringify(nextCombatant) !== JSON.stringify(combatant)) {
+      changed = true;
+    }
+
+    return nextCombatant;
+  });
+
+  if (changed && options.save !== false) {
+    saveCombatTrackerState();
+  }
+
+  return changed;
 }
 
 function getActiveEncounter() {
@@ -16889,18 +17133,29 @@ function getEncountersByFolder(folderId) {
 }
 
 function getEncounterRowBestiaryEntry(row) {
-  const rowName = cleanText(row.name).toLowerCase();
   const rowSource = cleanText(row.source);
-  const sourceMatch = rowSource
-    ? state.bestiary.find((entry) => cleanText(entry.name).toLowerCase() === rowName && entry.source === rowSource)
+  const rowKeys = [row.entryKey, row.entryId]
+    .map((value) => cleanText(value))
+    .filter(Boolean);
+  const keyMatch = rowKeys.length > 0
+    ? state.bestiary.find((entry) => rowKeys.includes(getBestiaryEntryIdentityKey(entry)) && isSameBestiarySource(entry, rowSource))
     : null;
+
+  if (keyMatch) {
+    return keyMatch;
+  }
+
+  const sourceMatch = state.bestiary.find((entry) => (
+    doesBestiaryEntryMatchEncounterRowName(entry, row)
+    && isSameBestiarySource(entry, rowSource)
+  ));
 
   if (rowSource) {
     return sourceMatch;
   }
 
   return sourceMatch
-    ?? state.bestiary.find((entry) => entry.id === row.entryId)
+    ?? state.bestiary.find((entry) => doesBestiaryEntryMatchEncounterRowName(entry, row))
     ?? null;
 }
 
@@ -16941,25 +17196,121 @@ function getEncounterCreatureSuggestions() {
   }
 
   return state.bestiary
-    .filter((entry) => entry.nameLower.includes(query))
+    .filter((entry) => getBestiaryEntryNameAliases(entry).some((alias) => alias.includes(query)))
     .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
       || left.source.localeCompare(right.source, "es", { sensitivity: "base" }));
 }
 
 function getEncounterSourceOptions(row) {
-  const rowName = cleanText(row.name).toLowerCase();
+  const rowNames = getEncounterRowNameCandidates(row);
 
-  if (!rowName || state.bestiaryStatus !== "ready") {
+  if (rowNames.length === 0 || state.bestiaryStatus !== "ready") {
     return [];
   }
 
   return state.bestiary
-    .filter((entry) => cleanText(entry.name).toLowerCase() === rowName)
+    .filter((entry) => doesBestiaryEntryMatchEncounterRowName(entry, row))
     .sort((left, right) => {
       const leftSource = getBestiarySourceFullName(left.source) || cleanText(left.source);
       const rightSource = getBestiarySourceFullName(right.source) || cleanText(right.source);
       return leftSource.localeCompare(rightSource, "es", { sensitivity: "base" });
     });
+}
+
+function getBestiaryEntryIdentityKey(entry) {
+  return getCompendiumEntryIdentityKey(entry);
+}
+
+function getBestiaryEntryNameAliases(entry) {
+  return getCompendiumEntryNameAliases(entry);
+}
+
+function getCompendiumEntryIdentityKey(entry) {
+  return cleanText(entry?.identityKey) || cleanText(entry?.compositeKey) || cleanText(entry?.id);
+}
+
+function getCompendiumEntryNameAliases(entry) {
+  const aliases = Array.isArray(entry?.nameAliasesLower) && entry.nameAliasesLower.length > 0
+    ? entry.nameAliasesLower
+    : [entry?.name, entry?.canonicalName, entry?.localizedName].map((value) => normalizeSearchText(value));
+
+  return uniqueSortedStrings(aliases.filter(Boolean));
+}
+
+function doesCompendiumEntryMatchName(entry, name) {
+  const normalizedName = normalizeSearchText(name);
+  return Boolean(normalizedName) && getCompendiumEntryNameAliases(entry).includes(normalizedName);
+}
+
+function findCompendiumEntryByReference(entries, reference = {}) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return null;
+  }
+
+  const keys = [reference.entryKey, reference.key, reference.entryId, reference.id]
+    .map((value) => cleanText(value))
+    .filter(Boolean);
+  const source = cleanText(reference.source);
+  const keyMatch = keys.length > 0
+    ? entries.find((entry) => keys.includes(getCompendiumEntryIdentityKey(entry)) && isSameCompendiumSource(entry, source))
+    : null;
+
+  if (keyMatch) {
+    return keyMatch;
+  }
+
+  const names = [reference.name, reference.canonicalName, reference.localizedName]
+    .map((value) => normalizeSearchText(value))
+    .filter(Boolean);
+
+  return entries.find((entry) => (
+    names.some((name) => getCompendiumEntryNameAliases(entry).includes(name))
+    && isSameCompendiumSource(entry, source)
+  )) ?? null;
+}
+
+function getCurrentCompendiumEntries(kind) {
+  try {
+    if (kind === "items" && Array.isArray(state.items)) {
+      return state.items;
+    }
+
+    if (kind === "arcanum" && Array.isArray(state.arcanum)) {
+      return state.arcanum;
+    }
+
+    if (kind === "bestiary" && Array.isArray(state.bestiary)) {
+      return state.bestiary;
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+}
+
+function getEncounterRowNameCandidates(row) {
+  return uniqueSortedStrings([
+    row?.name,
+    row?.canonicalName,
+    row?.localizedName
+  ].map((value) => normalizeSearchText(value)).filter(Boolean));
+}
+
+function doesBestiaryEntryMatchEncounterRowName(entry, row) {
+  const entryAliases = getBestiaryEntryNameAliases(entry);
+  const rowNames = getEncounterRowNameCandidates(row);
+
+  return rowNames.some((rowName) => entryAliases.includes(rowName));
+}
+
+function isSameBestiarySource(entry, rowSource) {
+  return isSameCompendiumSource(entry, rowSource);
+}
+
+function isSameCompendiumSource(entry, rowSource) {
+  const normalizedSource = cleanText(rowSource);
+  return !normalizedSource || cleanText(entry?.source) === normalizedSource || cleanText(entry?.canonicalSource) === normalizedSource;
 }
 
 function getEncounterSummary(encounter) {
@@ -17060,7 +17411,10 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
   const bestiaryEntry = getEncounterRowBestiaryEntry(row);
 
   if (bestiaryEntry) {
-    return createCombatantFromBestiaryEntry(bestiaryEntry, {
+    return createCombatantFromBestiaryEntry({
+      ...bestiaryEntry,
+      name: bestiaryEntry.name
+    }, {
       id,
       ubicacion: encounterName,
       numPeana: formatStandNumber(standNumber)
@@ -17130,6 +17484,11 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
   const combatant = {
     id: existingCombatant.id,
     side: "enemies",
+    entryId: entry.id ?? existingCombatant.entryId ?? "",
+    entryKey: getCompendiumEntryIdentityKey(entry) || cleanText(existingCombatant.entryKey),
+    canonicalName: entry.canonicalName || entry.name || cleanText(existingCombatant.canonicalName),
+    localizedName: entry.localizedName || (entry.canonicalName && entry.canonicalName !== entry.name ? entry.name : cleanText(existingCombatant.localizedName)),
+    canonicalSource: entry.canonicalSource || entry.source || cleanText(existingCombatant.canonicalSource),
     ubicacion: existingCombatant.ubicacion ?? "",
     iniactiva: existingCombatant.iniactiva ?? "",
     nombre: entry.name,
@@ -17179,7 +17538,7 @@ function fillCombatantFromCharacter(combatantId, characterId) {
 }
 
 function fillCombatantFromBestiary(combatantId, entryId) {
-  const entry = state.bestiary.find((item) => item.id === entryId);
+  const entry = findCompendiumEntryByReference(state.bestiary, { entryId });
 
   if (!entry) {
     return;
@@ -17203,7 +17562,7 @@ function selectCombatNameSuggestion(combatantId, entryId, entryKind = "") {
 }
 
 function openCombatantBestiary(entryId) {
-  const entry = state.bestiary.find((item) => item.id === entryId);
+  const entry = findCompendiumEntryByReference(state.bestiary, { entryId });
 
   if (!entry) {
     return;
@@ -17230,15 +17589,18 @@ function selectCombatantSource(combatantId, source) {
     return;
   }
 
-  const name = cleanText(combatant.nombre).toLowerCase();
-  const entry = state.bestiary.find((item) => cleanText(item.name).toLowerCase() === name && item.source === cleanSource);
+  const entry = getCombatantSourceOptions(combatant)
+    .find((item) => cleanText(item.source) === cleanSource);
 
   if (!entry) {
     return;
   }
 
   state.combatants = state.combatants.map((item) => item.id === combatantId
-    ? createCombatantFromBestiaryEntry(entry, item)
+    ? createCombatantFromBestiaryEntry({
+      ...entry,
+      name: cleanText(item.nombre) || entry.name
+    }, item)
     : item);
   state.activeCombatSourceId = "";
 }
@@ -19436,10 +19798,16 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
     && isDefaultRepositoryCsv
     && targetLanguage === CONTENT_LANGUAGE_ES
     && detectedLanguage === CONTENT_LANGUAGE_EN;
+  const canUseBundledSpanishIdentitySidecar = !isExternalRepositoryCsvPath(relativePath)
+    && !isUploadedCsv
+    && isDefaultRepositoryCsv
+    && detectedLanguage === CONTENT_LANGUAGE_EN;
 
   if (detectedLanguage === targetLanguage) {
     return {
-      rows: baseRows,
+      rows: canUseBundledSpanishIdentitySidecar
+        ? await attachBundledSpanishIdentityRows(kind, baseRows, relativePath)
+        : baseRows,
       imageSourceRows: [],
       meta: {
         detectedLanguage,
@@ -19494,6 +19862,27 @@ async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
         message: "Spanish sidecar CSV missing or incompatible; local glossary applied."
       }
     };
+  }
+}
+
+async function attachBundledSpanishIdentityRows(kind, baseRows, relativePath) {
+  const sidecarPath = getLocalizedCsvRelativePath(relativePath, CONTENT_LANGUAGE_ES);
+
+  if (!sidecarPath) {
+    return baseRows;
+  }
+
+  try {
+    const sidecarText = await loadTextAsset(getDataAssetUrl(sidecarPath), sidecarPath);
+    const sidecarRows = parseCsv(sidecarText);
+
+    if (!isCompendiumTranslationSidecarUsable(baseRows, sidecarRows, kind)) {
+      return baseRows;
+    }
+
+    return attachCompendiumTranslationIdentityRows(baseRows, sidecarRows, kind);
+  } catch {
+    return baseRows;
   }
 }
 
@@ -19602,6 +19991,8 @@ async function loadBestiary() {
     state.bestiaryStatus = "ready";
     state.bestiaryDebugInfo = null;
     state.bestiarySelectedId = state.bestiary[0]?.id ?? "";
+    reconcileEncounterRowsWithCurrentBestiaryReferences();
+    reconcileCombatantsWithCurrentBestiaryReferences();
     render();
   } catch (error) {
     const csvRelativePath = getRepositoryCsvPath("bestiary");
@@ -19648,6 +20039,7 @@ async function loadItems() {
     state.itemStatus = "ready";
     state.itemDebugInfo = null;
     state.itemSelectedId = state.items[0]?.id ?? "";
+    reconcileCharactersWithCurrentCompendiumReferences();
     render();
   } catch (error) {
     const csvRelativePath = getRepositoryCsvPath("items");
@@ -19684,6 +20076,7 @@ async function loadArcanum() {
     state.arcanumStatus = "ready";
     state.arcanumDebugInfo = null;
     state.arcanumSelectedId = state.arcanum[0]?.id ?? "";
+    reconcileCharactersWithCurrentCompendiumReferences();
     render();
   } catch (error) {
     const csvRelativePath = getRepositoryCsvPath("arcanum");
@@ -19741,11 +20134,13 @@ function getItemEntryByName(name) {
     return null;
   }
 
-  if (typeof state === "undefined" || !Array.isArray(state.items)) {
+  const items = getCurrentCompendiumEntries("items");
+
+  if (items.length === 0) {
     return null;
   }
 
-  return state.items.find((entry) => entry.nameLower === normalizedName) ?? null;
+  return items.find((entry) => getCompendiumEntryNameAliases(entry).includes(normalizedName)) ?? null;
 }
 
 function getArcanumEntryByName(name) {
@@ -19755,11 +20150,13 @@ function getArcanumEntryByName(name) {
     return null;
   }
 
-  if (typeof state === "undefined" || !Array.isArray(state.arcanum)) {
+  const arcanum = getCurrentCompendiumEntries("arcanum");
+
+  if (arcanum.length === 0) {
     return null;
   }
 
-  return state.arcanum.find((entry) => entry.nameLower === normalizedName) ?? null;
+  return arcanum.find((entry) => getCompendiumEntryNameAliases(entry).includes(normalizedName)) ?? null;
 }
 
 function renderBestiaryFilterDropdown(key, label) {
@@ -20412,7 +20809,7 @@ function getBestiaryNameSuggestions() {
   const suggestionSource = hasBestiaryConstraintsBesides("query")
     ? state.bestiary
       .filter((entry) => matchesBestiaryFilters(entry, { query: "" }))
-      .filter((entry) => entry.nameLower.includes(query))
+      .filter((entry) => getBestiaryEntryNameAliases(entry).some((alias) => alias.includes(query)))
       .map((entry) => entry.name)
     : bestiaryRenderCache.staticOptions.names.filter((name) => normalizeSearchText(name).includes(query));
 
@@ -20515,10 +20912,10 @@ function getItemNameSuggestions() {
   const suggestionSource = hasItemConstraintsBesides("query")
     ? state.items
       .filter((entry) => matchesItemFilters(entry, { query: "" }))
-      .filter((entry) => entry.nameLower.includes(query))
+      .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query)))
       .map((entry) => entry.name)
     : state.items
-      .filter((entry) => entry.nameLower.includes(query))
+      .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query)))
       .map((entry) => entry.name);
 
   return [...new Set(suggestionSource)];
@@ -20634,10 +21031,10 @@ function getArcanumNameSuggestions() {
   const suggestionSource = hasArcanumConstraintsBesides("query")
     ? state.arcanum
       .filter((entry) => matchesArcanumFilters(entry, { query: "" }))
-      .filter((entry) => entry.nameLower.includes(query))
+      .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query)))
       .map((entry) => entry.name)
     : state.arcanum
-      .filter((entry) => entry.nameLower.includes(query))
+      .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(query)))
       .map((entry) => entry.name);
 
   return [...new Set(suggestionSource)];
@@ -23026,12 +23423,21 @@ function normalizeStoredCharacterSpellRow(row) {
   }
 
   const name = cleanText(row.name);
-  const matchedSpell = getArcanumEntryByName(name);
+  const matchedSpell = findCompendiumEntryByReference(getCurrentCompendiumEntries("arcanum"), {
+    entryKey: row.spellKey,
+    entryId: row.spellId,
+    name,
+    canonicalName: row.canonicalName,
+    localizedName: row.localizedName
+  });
 
   return {
     id: cleanText(row.id) || createStableId("character-spell"),
     spellId: cleanText(row.spellId) || matchedSpell?.id || "",
+    spellKey: cleanText(row.spellKey) || (matchedSpell ? getCompendiumEntryIdentityKey(matchedSpell) : ""),
     name,
+    canonicalName: cleanText(row.canonicalName) || matchedSpell?.canonicalName || "",
+    localizedName: cleanText(row.localizedName) || matchedSpell?.localizedName || "",
     level: normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort || cleanText(row.level) || ""),
     prepared: row.prepared === true
   };
@@ -23242,7 +23648,13 @@ function normalizeStoredCharacterInventoryRow(row) {
   }
 
   const name = cleanText(row.name);
-  const matchedItem = getItemEntryByName(name);
+  const matchedItem = findCompendiumEntryByReference(getCurrentCompendiumEntries("items"), {
+    entryKey: row.itemKey,
+    entryId: row.itemId,
+    name,
+    canonicalName: row.canonicalName,
+    localizedName: row.localizedName
+  });
   const quantity = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.quantity)) || 0));
   const size = isCharacterCurrencyRow(name)
     ? getCurrencyInventorySizeLabel(quantity)
@@ -23251,7 +23663,10 @@ function normalizeStoredCharacterInventoryRow(row) {
   return {
     id: cleanText(row.id) || createStableId("character-item"),
     itemId: isCharacterCurrencyRow(name) ? "" : cleanText(row.itemId) || matchedItem?.id || "",
+    itemKey: isCharacterCurrencyRow(name) ? "" : cleanText(row.itemKey) || (matchedItem ? getCompendiumEntryIdentityKey(matchedItem) : ""),
     name,
+    canonicalName: isCharacterCurrencyRow(name) ? "" : cleanText(row.canonicalName) || matchedItem?.canonicalName || "",
+    localizedName: isCharacterCurrencyRow(name) ? "" : cleanText(row.localizedName) || matchedItem?.localizedName || "",
     size,
     quantity
   };
@@ -23451,6 +23866,11 @@ function normalizeStoredCombatant(combatant) {
     id: cleanText(combatant.id) || createStableId("entity"),
     side,
     characterId: cleanText(combatant.characterId),
+    entryId: cleanText(combatant.entryId),
+    entryKey: cleanText(combatant.entryKey),
+    canonicalName: cleanText(combatant.canonicalName),
+    localizedName: cleanText(combatant.localizedName),
+    canonicalSource: cleanText(combatant.canonicalSource),
     source: cleanText(combatant.source),
     tokenUrl: cleanText(combatant.tokenUrl),
     ubicacion: cleanText(combatant.ubicacion),
@@ -24899,35 +25319,52 @@ function getDiaryMentionSuggestions(query) {
     }));
 
   const itemSuggestions = state.items
-    .filter((entry) => normalizeSearchText(entry.name).includes(normalizedQuery))
+    .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(normalizedQuery)))
     .slice(0, 24)
     .map((entry) => ({
       kind: "item",
-      id: entry.id,
+      id: getCompendiumEntryIdentityKey(entry),
       name: cleanText(entry.name),
+      aliases: getCompendiumEntryNameAliases(entry),
       subtitle: cleanText(entry.source || "Objeto"),
       imageUrl: ""
     }));
 
   const bestiarySuggestions = state.bestiary
-    .filter((entry) => normalizeSearchText(entry.name).includes(normalizedQuery))
+    .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(normalizedQuery)))
     .slice(0, 24)
     .map((entry) => ({
       kind: "bestiary",
-      id: entry.id,
+      id: getCompendiumEntryIdentityKey(entry),
       name: cleanText(entry.name),
+      aliases: getCompendiumEntryNameAliases(entry),
       subtitle: cleanText(getBestiarySourceFullName(entry.source) || entry.source || "Criatura"),
       imageUrl: cleanText(entry.tokenUrl)
     }));
 
-  return [...characterSuggestions, ...itemSuggestions, ...bestiarySuggestions]
+  const spellSuggestions = state.arcanum
+    .filter((entry) => getCompendiumEntryNameAliases(entry).some((alias) => alias.includes(normalizedQuery)))
+    .slice(0, 24)
+    .map((entry) => ({
+      kind: "arcanum",
+      id: getCompendiumEntryIdentityKey(entry),
+      name: cleanText(entry.name),
+      aliases: getCompendiumEntryNameAliases(entry),
+      subtitle: cleanText(entry.levelLabel || entry.level || "Hechizo"),
+      imageUrl: ""
+    }));
+
+  return [...characterSuggestions, ...itemSuggestions, ...bestiarySuggestions, ...spellSuggestions]
     .filter((entry) => entry.name)
     .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }) || left.kind.localeCompare(right.kind));
 }
 
 function findDiaryMentionMatch(query) {
   const normalizedQuery = normalizeSearchText(query);
-  return getDiaryMentionSuggestions(query).find((entry) => normalizeSearchText(entry.name) === normalizedQuery) ?? null;
+  return getDiaryMentionSuggestions(query).find((entry) => (
+    normalizeSearchText(entry.name) === normalizedQuery
+    || (Array.isArray(entry.aliases) && entry.aliases.includes(normalizedQuery))
+  )) ?? null;
 }
 
 function renderDiaryMentionSuggestions(editor, suggestions, range) {
@@ -25117,7 +25554,11 @@ function decorateDiaryContentFragment(fragment) {
 function normalizeDiaryMentionLinksInFragment(fragment) {
   fragment.querySelectorAll("[data-diary-mention-link], .diary-mention-link").forEach((link) => {
     const label = cleanText(link.textContent ?? "").replace(/^@+/u, "").trim();
-    const match = label ? findDiaryMentionMatch(label) : null;
+    const match = resolveDiaryMentionReference(
+      link.getAttribute("data-diary-mention-kind"),
+      link.getAttribute("data-diary-mention-id"),
+      link.getAttribute("data-diary-mention-name") || label
+    ) ?? (label ? findDiaryMentionMatch(label) : null);
 
     if (!match) {
       link.replaceWith(document.createTextNode(cleanText(link.textContent)));
@@ -25133,6 +25574,40 @@ function normalizeDiaryMentionLinksInFragment(fragment) {
     link.setAttribute("data-diary-mention-name", cleanText(match.name));
     link.textContent = `@${cleanText(match.name)}`;
   });
+}
+
+function resolveDiaryMentionReference(kind, id, name = "") {
+  const normalizedKind = cleanText(kind);
+  const normalizedId = cleanText(id);
+  const normalizedName = cleanText(name);
+
+  if (normalizedKind === "character") {
+    const character = state.characters.find((entry) => entry.id === normalizedId)
+      ?? state.characters.find((entry) => normalizeSearchText(entry.name) === normalizeSearchText(normalizedName));
+
+    return character ? {
+      kind: "character",
+      id: character.id,
+      name: cleanText(character.name)
+    } : null;
+  }
+
+  if (normalizedKind === "item") {
+    const entry = findCompendiumEntryByReference(state.items, { entryId: normalizedId, name: normalizedName });
+    return entry ? { kind: "item", id: getCompendiumEntryIdentityKey(entry), name: cleanText(entry.name) } : null;
+  }
+
+  if (normalizedKind === "bestiary") {
+    const entry = findCompendiumEntryByReference(state.bestiary, { entryId: normalizedId, name: normalizedName });
+    return entry ? { kind: "bestiary", id: getCompendiumEntryIdentityKey(entry), name: cleanText(entry.name) } : null;
+  }
+
+  if (normalizedKind === "arcanum") {
+    const entry = findCompendiumEntryByReference(state.arcanum, { entryId: normalizedId, name: normalizedName });
+    return entry ? { kind: "arcanum", id: getCompendiumEntryIdentityKey(entry), name: cleanText(entry.name) } : null;
+  }
+
+  return null;
 }
 
 function replaceDiaryWrappedTokensInFragment(fragment) {
@@ -25240,13 +25715,17 @@ function openDiaryMentionTarget(kind, id, name) {
   }
 
   if (normalizedKind === "item") {
+    const entry = findCompendiumEntryByReference(state.items, {
+      entryId: normalizedId,
+      name: normalizedName
+    });
     resetItemVirtualScroll();
     state.activeScreen = "items";
     state.itemFilters = {
       ...blankItemFilters,
-      query: normalizedName
+      query: entry?.name || normalizedName
     };
-    state.itemSelectedId = normalizedId;
+    state.itemSelectedId = entry?.id || normalizedId;
     state.showItemQuerySuggestions = false;
     render({
       focusSelector: "[data-item-query]"
@@ -25255,16 +25734,39 @@ function openDiaryMentionTarget(kind, id, name) {
   }
 
   if (normalizedKind === "bestiary") {
+    const entry = findCompendiumEntryByReference(state.bestiary, {
+      entryId: normalizedId,
+      name: normalizedName
+    });
     resetBestiaryVirtualScroll();
     state.activeScreen = "bestiary";
     state.bestiaryFilters = {
       ...blankBestiaryFilters,
-      query: normalizedName
+      query: entry?.name || normalizedName
     };
-    state.bestiarySelectedId = normalizedId;
+    state.bestiarySelectedId = entry?.id || normalizedId;
     state.showBestiaryQuerySuggestions = false;
     render({
       focusSelector: "[data-bestiary-query]"
+    });
+    return;
+  }
+
+  if (normalizedKind === "arcanum") {
+    const entry = findCompendiumEntryByReference(state.arcanum, {
+      entryId: normalizedId,
+      name: normalizedName
+    });
+    resetArcanumVirtualScroll();
+    state.activeScreen = "arcanum";
+    state.arcanumFilters = {
+      ...blankArcanumFilters,
+      query: entry?.name || normalizedName
+    };
+    state.arcanumSelectedId = entry?.id || normalizedId;
+    state.showArcanumQuerySuggestions = false;
+    render({
+      focusSelector: "[data-arcanum-query]"
     });
   }
 }
@@ -26358,8 +26860,12 @@ function normalizeStoredEncounterRow(row) {
   return {
     id: cleanText(row.id) || createStableId("encounter-row"),
     entryId: cleanText(row.entryId),
+    entryKey: cleanText(row.entryKey),
     name,
+    canonicalName: cleanText(row.canonicalName),
+    localizedName: cleanText(row.localizedName),
     source: cleanText(row.source),
+    canonicalSource: cleanText(row.canonicalSource),
     tokenUrl: cleanText(row.tokenUrl),
     hp: cleanText(row.hp),
     hpValue: toNumber(row.hpValue),
