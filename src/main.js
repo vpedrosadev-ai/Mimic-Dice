@@ -1,4 +1,5 @@
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
+import { getSortedReleaseNotes } from "./data/releaseNotes.js";
 import {
   buildArcanumCompositeKey,
   buildBestiaryCompositeKey,
@@ -176,85 +177,7 @@ const blankFilters = Object.fromEntries(columns.map((column) => [column.key, []]
 const blankCombatFilterDrafts = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
 const APP_VERSION = "v1.1";
-const RELEASE_NOTES = Object.freeze([
-  {
-    version: "v1.1",
-    heading: "Version 1.1",
-    modifiedAt: "18/05/2026 10:55",
-    summary: "Se resuelve bugs B.1 y B.2 y sugerencias S.1, S.2 y S.3",
-    groups: [
-      {
-        title: "Nuevas funcionalidades",
-        sections: [
-          {
-            title: "Combate",
-            changes: [
-              "Anadido un buscador en la pantalla de combate para filtrar criaturas por nombre, bando, estados activos o encuentro.",
-              "Ahora es posible hacer clic sobre el contador de turno para elegir manualmente el turno actual.",
-              "Anadido el boton Jump Turn To, que permite saltar directamente al turno de cualquier participante en la iniciativa."
-            ]
-          },
-          {
-            title: "Efectos en area",
-            changes: [
-              "Los efectos en area ya no requieren seleccionar filas previamente.",
-              "Al usar efectos como dano, curacion, dano necrotico, vida temporal o experiencia en area, se abre una ventana para elegir exactamente que criaturas se ven afectadas.",
-              "La seleccion de objetivos se realiza de forma mas comoda haciendo clic directamente sobre las tarjetas de cada criatura."
-            ]
-          },
-          {
-            title: "Diario",
-            changes: [
-              "Anadido un buscador de notas por texto.",
-              "El buscador muestra en que notas aparece el texto y filtra la lista para mostrar solo las coincidencias.",
-              "Se pueden crear etiquetas largas usando #, por ejemplo #DIA DE LLUVIA#, que se muestran como chips visuales.",
-              "Al hacer clic en una etiqueta, el buscador se rellena automaticamente con ese texto.",
-              "Al hacer clic derecho sobre una etiqueta, se abre directamente el selector de color.",
-              "El color elegido para una etiqueta se aplica a todas sus apariciones.",
-              "Anadidos botones en la barra del editor para explicar visualmente el uso de # y @.",
-              "Se pueden mencionar con @ personajes, objetos o criaturas.",
-              "Al escribir una mencion, aparecen sugerencias para completarla mas rapido.",
-              "Las menciones completadas aparecen subrayadas y permiten abrir la ficha correspondiente con clic izquierdo.",
-              "Anadido un boton para importar y exportar notas y carpetas del diario.",
-              "Anadida una vista ampliada del calendario de Harptos, con estaciones, ciclos lunares y etiquetas en dias concretos.",
-              "El calendario marca los dias que tienen una nota de diario asociada.",
-              "Al hacer clic sobre el chip de una nota, se abre esa nota directamente en el editor.",
-              "Tambien se pueden anadir notas cortas desde el propio calendario y editarlas con clic izquierdo."
-            ]
-          }
-        ]
-      },
-      {
-        title: "Arreglos de bugs",
-        sections: [
-          {
-            title: "Combate",
-            changes: [
-              "El dano necrotico ahora reduce correctamente tanto la vida actual como la vida maxima, reflejando su efecto de forma inmediata."
-            ]
-          },
-          {
-            title: "Mejoras generales",
-            changes: [
-              "Corregidos varios detalles visuales y de comportamiento en listas, ventanas emergentes y buscadores.",
-              "Mejorada la consistencia general de la interfaz.",
-              "Mejorada la comodidad de uso en pantallas con muchos resultados o muchos participantes en combate."
-            ]
-          },
-          {
-            title: "Bestiario, hechizos e items",
-            changes: [
-              "Los buscadores de criaturas, hechizos y objetos muestran ahora listas mas comodas y legibles.",
-              "Cuando hay muchos resultados, la lista mantiene un tamano visual limitado y permite navegar mediante scroll.",
-              "Los textos de ayuda se han simplificado para indicar claramente que la busqueda se realiza por nombre.",
-              "El editor de encuentros del bestiario usa ahora este mismo comportamiento en la lista de criaturas."
-            ]
-          }
-        ]
-      }
-    ]
-  }
-]);
+const RELEASE_NOTES = getSortedReleaseNotes();
 const OPTIONS_MENU_SECTION_GENERAL = "general";
 const OPTIONS_MENU_SECTION_LANGUAGES = "languages";
 const OPTIONS_MENU_SECTION_SOUND = "sound";
@@ -6839,7 +6762,11 @@ function renderReleaseNotesScreen() {
   return `
     <section class="panel release-notes-screen">
       <div class="section-heading">
-        ${renderScreenHeadingIdentity("release-notes", "Historial de cambios", "Notas de version")}
+        ${renderScreenHeadingIdentity(
+          "release-notes",
+          state.appLanguage === APP_LANGUAGE_EN ? "Change history" : "Historial de cambios",
+          state.appLanguage === APP_LANGUAGE_EN ? "Release notes" : "Notas de version"
+        )}
         <div class="section-heading__side">
           <span class="section-meta">
             <span>${escapeHtml(APP_VERSION)}</span>
@@ -6847,7 +6774,7 @@ function renderReleaseNotesScreen() {
         </div>
       </div>
       <div class="release-notes-layout">
-        <aside class="release-notes-sidebar" aria-label="Versiones publicadas">
+        <aside class="release-notes-sidebar" aria-label="${escapeHtml(state.appLanguage === APP_LANGUAGE_EN ? "Published versions" : "Versiones publicadas")}">
           ${RELEASE_NOTES.map((release) => `
             <button
               class="release-version-card${release.version === activeRelease.version ? " is-active" : ""}"
@@ -6856,9 +6783,9 @@ function renderReleaseNotesScreen() {
               data-release-version="${escapeHtml(release.version)}"
               aria-pressed="${release.version === activeRelease.version}"
             >
-              <strong>${escapeHtml(release.heading)}</strong>
-              <span>Notas modificadas</span>
-              <small>${escapeHtml(release.modifiedAt)}</small>
+              <strong>${escapeHtml(getLocalizedReleaseNoteContent(release).heading)}</strong>
+              <span>${escapeHtml(getLocalizedReleaseNoteContent(release).sidebarModifiedLabel)}</span>
+              <small>${escapeHtml(formatReleaseNoteDate(release.modifiedDate))}</small>
             </button>
           `).join("")}
         </aside>
@@ -6871,18 +6798,20 @@ function renderReleaseNotesScreen() {
 }
 
 function renderReleaseNoteDetail(release) {
+  const content = getLocalizedReleaseNoteContent(release);
+
   return `
     <article class="release-note-card">
       <header class="release-note-card__header">
         <div>
-          <p class="eyebrow">Ultima modificacion: ${escapeHtml(release.modifiedAt)}</p>
-          <h3>${escapeHtml(release.heading)}</h3>
+          <p class="release-note-card__modified">${escapeHtml(content.modifiedLabel)}: ${escapeHtml(formatReleaseNoteDate(release.modifiedDate))}</p>
+          <h3>${escapeHtml(content.heading)}</h3>
         </div>
         <span class="release-note-card__version">${escapeHtml(release.version)}</span>
       </header>
-      <p class="release-note-card__summary">${escapeHtml(release.summary)}</p>
+      <p class="release-note-card__summary">${escapeHtml(content.summary)}</p>
       <div class="release-note-card__groups">
-        ${release.groups.map((group) => `
+        ${content.groups.map((group) => `
           <section class="release-note-group">
             <h4>${escapeHtml(group.title)}</h4>
             <div class="release-note-card__sections">
@@ -6904,6 +6833,31 @@ function renderReleaseNoteDetail(release) {
 
 function getActiveReleaseNote() {
   return RELEASE_NOTES.find((release) => release.version === state.activeReleaseNotesVersion) ?? RELEASE_NOTES[0];
+}
+
+function getLocalizedReleaseNoteContent(release) {
+  const language = state.appLanguage === APP_LANGUAGE_EN ? APP_LANGUAGE_EN : APP_LANGUAGE_ES;
+  return release.content?.[language] ?? release.content?.[APP_LANGUAGE_ES] ?? {
+    heading: release.version,
+    modifiedLabel: language === APP_LANGUAGE_EN ? "Last modified" : "Ultima modificacion",
+    sidebarModifiedLabel: language === APP_LANGUAGE_EN ? "Notes modified" : "Notas modificadas",
+    summary: "",
+    groups: []
+  };
+}
+
+function formatReleaseNoteDate(value) {
+  const [year, month, day] = cleanText(value).split("-").map((part) => Math.floor(Number(part)));
+
+  if (!year || !month || !day) {
+    return cleanText(value);
+  }
+
+  if (state.appLanguage === APP_LANGUAGE_EN) {
+    return `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${year}`;
+  }
+
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
 }
 
 function normalizeReleaseNotesVersion(value) {

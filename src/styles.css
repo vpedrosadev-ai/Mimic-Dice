@@ -7382,6 +7382,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-notes-screen {
   padding: 1.5rem;
+  font-size: 1.13rem;
 }
 
 .release-notes-layout {
@@ -7400,7 +7401,7 @@ input[type="number"]::-webkit-inner-spin-button {
   display: grid;
   gap: 0.32rem;
   width: 100%;
-  padding: 1rem;
+  padding: 1.08rem;
   border: 1px solid rgba(168, 123, 67, 0.32);
   border-radius: 12px;
   color: var(--text);
@@ -7422,12 +7423,13 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-version-card strong {
   color: #f2d7a2;
-  font-size: 1.05rem;
+  font-size: 1.22rem;
 }
 
 .release-version-card span,
 .release-version-card small {
   color: #d0b287;
+  font-size: 1rem;
 }
 
 .release-notes-detail {
@@ -7437,7 +7439,7 @@ input[type="number"]::-webkit-inner-spin-button {
 .release-note-card {
   display: grid;
   gap: 1rem;
-  padding: 1.35rem;
+  padding: 1.55rem;
   border: 1px solid rgba(168, 123, 67, 0.34);
   border-radius: 14px;
   background:
@@ -7458,8 +7460,14 @@ input[type="number"]::-webkit-inner-spin-button {
 .release-note-card__header h3,
 .release-note-group h4,
 .release-note-section h5,
+.release-note-card__modified,
 .release-note-card__summary {
   margin: 0;
+}
+
+.release-note-card__header h3 {
+  margin-top: 1rem;
+  font-size: 1.85rem;
 }
 
 .release-note-card__version {
@@ -7470,11 +7478,21 @@ input[type="number"]::-webkit-inner-spin-button {
   color: #f2d7a2;
   background: rgba(240, 200, 121, 0.08);
   font-weight: 700;
+  font-size: 1.05rem;
   letter-spacing: 0;
+}
+
+.release-note-card__modified {
+  color: #c8924a;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .release-note-card__summary {
   color: #d0b287;
+  font-size: 1.18rem;
   line-height: 1.55;
 }
 
@@ -7490,7 +7508,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-note-group h4 {
   color: #c8924a;
-  font-size: 1.12rem;
+  font-size: 1.34rem;
 }
 
 .release-note-card__sections {
@@ -7509,7 +7527,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-note-section h5 {
   color: #f2d7a2;
-  font-size: 1rem;
+  font-size: 1.18rem;
 }
 
 .release-note-section ul {
@@ -7518,6 +7536,7 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0.7rem 0 0;
   padding-left: 1.1rem;
   color: var(--text);
+  font-size: 1.08rem;
   line-height: 1.45;
 }
 
