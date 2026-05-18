@@ -68,5 +68,15 @@ export const screens = [
         <path d="M4 4h16v16H4V4Zm2 2v3h5V6H6Zm7 0v3h5V6h-5ZM6 11v3h5v-3H6Zm7 0v3h5v-3h-5ZM6 16v2h5v-2H6Zm7 0v2h5v-2h-5Z" />
       </svg>
     `
+  },
+  {
+    id: "release-notes",
+    label: "Release Notes",
+    shortLabel: "Notas de version",
+    icon: `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 3h9.5L20 7.5V21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v14h12V8h-3.5A1.5 1.5 0 0 1 13 6.5V5H6Zm9 .4V6h.6L15 5.4ZM8 10h8v1.6H8V10Zm0 3.2h8v1.6H8v-1.6Zm0 3.2h5.8V18H8v-1.6Z" />
+      </svg>
+    `
   }
 ];

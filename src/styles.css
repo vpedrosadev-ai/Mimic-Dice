@@ -1014,7 +1014,7 @@ table {
   display: inline-block;
   margin-left: 0.36rem;
   color: #d0b287;
-  font-size: 0.46em;
+  font-size: 0.58em;
   font-family: var(--font-body);
   font-weight: 700;
   letter-spacing: 0;
@@ -7378,6 +7378,101 @@ input[type="number"]::-webkit-inner-spin-button {
   color: var(--danger);
   font-size: 1.05rem;
   font-weight: 700;
+}
+
+.release-notes-screen {
+  padding: 1.5rem;
+}
+
+.release-notes-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.release-note-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.35rem;
+  border: 1px solid rgba(168, 123, 67, 0.34);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(48, 29, 17, 0.74), rgba(18, 12, 10, 0.96)),
+    rgba(255, 255, 255, 0.02);
+  box-shadow:
+    inset 0 0 0 1px rgba(78, 49, 27, 0.52),
+    inset 0 1px 0 rgba(255, 232, 190, 0.04);
+}
+
+.release-note-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.release-note-card__header h3,
+.release-note-section h4,
+.release-note-card__summary {
+  margin: 0;
+}
+
+.release-note-card__version {
+  flex: none;
+  padding: 0.34rem 0.62rem;
+  border: 1px solid rgba(240, 200, 121, 0.3);
+  border-radius: 999px;
+  color: #f2d7a2;
+  background: rgba(240, 200, 121, 0.08);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.release-note-card__summary {
+  color: #d0b287;
+  line-height: 1.55;
+}
+
+.release-note-card__sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.release-note-section {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid rgba(122, 84, 44, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.release-note-section h4 {
+  color: #f2d7a2;
+  font-size: 1rem;
+}
+
+.release-note-section ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.7rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.release-note-section li::marker {
+  color: #c8924a;
+}
+
+@media (max-width: 760px) {
+  .release-note-card__header,
+  .release-note-card__sections {
+    grid-template-columns: 1fr;
+  }
+
+  .release-note-card__header {
+    display: grid;
+  }
 }
 
 .empty-state__debug-message {

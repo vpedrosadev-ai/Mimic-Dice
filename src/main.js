@@ -175,6 +175,68 @@ const bestiaryRenderCache = {
 const blankFilters = Object.fromEntries(columns.map((column) => [column.key, []]));
 const blankCombatFilterDrafts = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
+const APP_VERSION = "v1.1";
+const RELEASE_NOTES = Object.freeze([
+  {
+    version: "v1.1",
+    title: "Mimic Dice v1.1",
+    date: "Mayo 2026",
+    summary: "Mejoras de combate, buscadores, diario, calendario y calidad visual general.",
+    sections: [
+      {
+        title: "Combate",
+        changes: [
+          "El dano necrotico ahora reduce tanto la vida actual como la vida maxima.",
+          "Nuevo buscador en combate para filtrar por nombre, bando, estados activos o encuentro.",
+          "El contador de turno permite elegir manualmente el turno activo.",
+          "Nuevo boton Jump Turn To para saltar directamente a cualquier participante de la iniciativa."
+        ]
+      },
+      {
+        title: "Efectos en area",
+        changes: [
+          "Los efectos en area ya no dependen de seleccionar filas previamente.",
+          "Dano, curacion, dano necrotico, vida temporal y experiencia en area abren una ventana para elegir objetivos.",
+          "La seleccion de objetivos es mas comoda y se realiza directamente sobre tarjetas."
+        ]
+      },
+      {
+        title: "Bestiario, Arcanum e Items",
+        changes: [
+          "Los buscadores de criaturas, hechizos y objetos muestran listas mas comodas.",
+          "Las listas largas mantienen un tamano visual controlado y usan scroll.",
+          "Los textos de ayuda de busqueda se han simplificado.",
+          "El editor de encuentros del bestiario usa el mismo comportamiento de listas."
+        ]
+      },
+      {
+        title: "Diario",
+        changes: [
+          "Nuevo buscador para localizar notas por texto.",
+          "El buscador filtra la lista de notas y muestra donde aparece cada coincidencia.",
+          "Las etiquetas largas con #texto# se resaltan como chips visuales.",
+          "Click izquierdo sobre una etiqueta rellena el buscador con ese texto.",
+          "Click derecho sobre una etiqueta abre directamente el selector de color.",
+          "El color de una etiqueta se aplica a todas sus apariciones.",
+          "Nuevos botones de ayuda para explicar # etiquetas y @ menciones.",
+          "Las menciones con @ pueden apuntar a personajes, objetos o criaturas.",
+          "Las menciones completadas enlazan a su pantalla correspondiente.",
+          "Nuevo importador/exportador de notas y carpetas del diario.",
+          "Nuevo calendario de Harptos en grande con estaciones, notas por dia y ciclos lunares.",
+          "El calendario marca los dias vinculados con notas del diario.",
+          "Las chips de notas del calendario abren la nota concreta."
+        ]
+      },
+      {
+        title: "Mejoras generales",
+        changes: [
+          "Correcciones visuales y de comportamiento en listas, ventanas emergentes y buscadores.",
+          "Mejoras de comodidad en pantallas con muchos resultados o muchos participantes."
+        ]
+      }
+    ]
+  }
+]);
 const OPTIONS_MENU_SECTION_GENERAL = "general";
 const OPTIONS_MENU_SECTION_LANGUAGES = "languages";
 const OPTIONS_MENU_SECTION_SOUND = "sound";
@@ -1325,6 +1387,15 @@ async function handleClick(event) {
     state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = !state.optionsMenuOpen;
+    render();
+    return;
+  }
+
+  if (action === "open-release-notes-screen") {
+    state.activeScreen = "release-notes";
+    state.menuHubOpen = false;
+    state.fileMenuOpen = false;
+    state.optionsMenuOpen = false;
     render();
     return;
   }
@@ -5918,7 +5989,7 @@ function render(focusState = null) {
           </div>
           <div>
             <p class="brand__eyebrow">D&D 5e encounter suite</p>
-            <h1>Mimic Dice <span class="brand__version">v1.1</span></h1>
+            <h1>Mimic Dice <span class="brand__version">${escapeHtml(APP_VERSION)}</span></h1>
             <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
           </div>
         </div>
@@ -6093,6 +6164,9 @@ function renderFileMenu() {
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="open-options-menu-section">
                 ${escapeHtml(t("menu_settings"))}
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="open-release-notes-screen">
+                ${escapeHtml(t("menu_release_notes"))}
               </button>
             </div>
           `
@@ -6723,10 +6797,53 @@ function renderScreen() {
     return renderTablesScreen();
   }
 
+  if (state.activeScreen === "release-notes") {
+    return renderReleaseNotesScreen();
+  }
+
   return renderPlaceholderScreen(
     "Session Vault",
     "Esta pantalla puede agrupar criaturas guardadas, encuentros preparados, notas de sesion y presets de campana."
   );
+}
+
+function renderReleaseNotesScreen() {
+  return `
+    <section class="panel release-notes-screen">
+      <div class="section-heading">
+        ${renderScreenHeadingIdentity("release-notes", "Historial de cambios", "Notas de version")}
+        <div class="section-heading__side">
+          <span class="section-meta">
+            <span>${escapeHtml(APP_VERSION)}</span>
+          </span>
+        </div>
+      </div>
+      <div class="release-notes-list">
+        ${RELEASE_NOTES.map((release) => `
+          <article class="release-note-card">
+            <header class="release-note-card__header">
+              <div>
+                <p class="eyebrow">${escapeHtml(release.date)}</p>
+                <h3>${escapeHtml(release.title)}</h3>
+              </div>
+              <span class="release-note-card__version">${escapeHtml(release.version)}</span>
+            </header>
+            <p class="release-note-card__summary">${escapeHtml(release.summary)}</p>
+            <div class="release-note-card__sections">
+              ${release.sections.map((section) => `
+                <section class="release-note-section">
+                  <h4>${escapeHtml(section.title)}</h4>
+                  <ul>
+                    ${section.changes.map((change) => `<li>${escapeHtml(change)}</li>`).join("")}
+                  </ul>
+                </section>
+              `).join("")}
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
 }
 
 function renderScreenErrorPanel(title, message) {
