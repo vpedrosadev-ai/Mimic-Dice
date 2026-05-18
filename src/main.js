@@ -10159,15 +10159,21 @@ function renderCombatTokenPreview(entry) {
     { label: "Inmunidades", value: entry.damageImmunities },
     { label: "Condiciones inmunes", value: entry.conditionImmunities }
   ].filter((item) => item.value);
+  const sizeLabel = isEnglishInterface() ? "SIZE" : "TAMAÑO";
+  const sourceLabel = entry.sourceFullName || getBestiarySourceFullName(entry.source) || entry.source || "Sin fuente";
+  const crLabel = entry.crBaseLabel || entry.crLabel || "-";
 
   return `
     <div class="combat-token-preview" role="tooltip">
       <div class="combat-token-preview__header">
         <div>
           <strong>${escapeHtml(entry.name)}</strong>
-          <span>${escapeHtml(entry.sourceFullName || getBestiarySourceFullName(entry.source) || entry.source || "Sin fuente")}</span>
+          <span>${escapeHtml(sourceLabel)}</span>
         </div>
-        <small>CR ${escapeHtml(entry.crBaseLabel || entry.crLabel || "-")}</small>
+        <div class="combat-token-preview__header-meta">
+          <small>CR ${escapeHtml(crLabel)}</small>
+          <span>${escapeHtml(sizeLabel)}: ${escapeHtml(entry.size || "-")}</span>
+        </div>
       </div>
       <div class="combat-token-preview__metrics">
         ${renderBestiaryMetric("CA", entry.ac || "-")}
