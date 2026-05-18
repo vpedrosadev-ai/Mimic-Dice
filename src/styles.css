@@ -7398,7 +7398,15 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-notes-screen {
   padding: 1.5rem;
-  font-size: 1.13rem;
+  font-size: 1.5rem;
+}
+
+.release-notes-screen .section-heading h3 {
+  font-size: 2rem;
+}
+
+.release-notes-screen .section-heading p {
+  font-size: 1.18rem;
 }
 
 .release-notes-layout {
@@ -7439,13 +7447,13 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-version-card strong {
   color: #f2d7a2;
-  font-size: 1.22rem;
+  font-size: 1.58rem;
 }
 
 .release-version-card span,
 .release-version-card small {
   color: #d0b287;
-  font-size: 1rem;
+  font-size: 1.28rem;
 }
 
 .release-notes-detail {
@@ -7483,7 +7491,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-note-card__header h3 {
   margin-top: 1rem;
-  font-size: 1.85rem;
+  font-size: 2.65rem;
 }
 
 .release-note-card__version {
@@ -7494,13 +7502,13 @@ input[type="number"]::-webkit-inner-spin-button {
   color: #f2d7a2;
   background: rgba(240, 200, 121, 0.08);
   font-weight: 700;
-  font-size: 1.05rem;
+  font-size: 1.28rem;
   letter-spacing: 0;
 }
 
 .release-note-card__modified {
   color: #c8924a;
-  font-size: 1rem;
+  font-size: 1.28rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -7508,7 +7516,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-note-card__summary {
   color: #d0b287;
-  font-size: 1.18rem;
+  font-size: 1.55rem;
   line-height: 1.55;
 }
 
@@ -7524,7 +7532,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-note-group h4 {
   color: #c8924a;
-  font-size: 1.34rem;
+  font-size: 1.86rem;
 }
 
 .release-note-card__sections {
@@ -7543,7 +7551,7 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .release-note-section h5 {
   color: #f2d7a2;
-  font-size: 1.18rem;
+  font-size: 1.6rem;
 }
 
 .release-note-section ul {
@@ -7552,7 +7560,7 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0.7rem 0 0;
   padding-left: 1.1rem;
   color: var(--text);
-  font-size: 1.08rem;
+  font-size: 1.42rem;
   line-height: 1.45;
 }
 

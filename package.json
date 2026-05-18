@@ -7,9 +7,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:cloudflare": "vite build",
+    "build": "npm run release-notes:generate && vite build",
+    "build:cloudflare": "npm run release-notes:generate && vite build",
     "preview": "vite preview",
+    "release-notes:generate": "node scripts/generate-release-notes.mjs",
     "translate:default-csvs": "node scripts/generate-default-translation-sidecars.mjs",
     "cache:bestiary-images": "powershell -ExecutionPolicy Bypass -File scripts/cache-bestiary-images.ps1",
     "cache:item-images": "powershell -ExecutionPolicy Bypass -File scripts/cache-item-images.ps1",

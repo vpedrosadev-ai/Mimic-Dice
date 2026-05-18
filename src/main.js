@@ -176,8 +176,8 @@ const bestiaryRenderCache = {
 const blankFilters = Object.fromEntries(columns.map((column) => [column.key, []]));
 const blankCombatFilterDrafts = Object.fromEntries(columns.map((column) => [column.key, ""]));
 const blankInlineAdjustments = { pgAct: "", necrotic: "" };
-const APP_VERSION = "v1.1";
 const RELEASE_NOTES = getSortedReleaseNotes();
+const APP_VERSION = RELEASE_NOTES[0]?.version || "v1.0";
 const OPTIONS_MENU_SECTION_GENERAL = "general";
 const OPTIONS_MENU_SECTION_LANGUAGES = "languages";
 const OPTIONS_MENU_SECTION_SOUND = "sound";
