@@ -1335,7 +1335,7 @@ async function handleClick(event) {
 
   if (action === "open-release-notes-screen") {
     state.activeScreen = "release-notes";
-    state.activeReleaseNotesVersion = getActiveReleaseNote()?.version || RELEASE_NOTES[0]?.version || APP_VERSION;
+    state.activeReleaseNotesVersion = normalizeReleaseNotesVersion(actionButton.dataset.releaseVersion || APP_VERSION);
     state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = false;
@@ -5938,7 +5938,19 @@ function render(focusState = null) {
           </div>
           <div>
             <p class="brand__eyebrow">D&D 5e encounter suite</p>
-            <h1>Mimic Dice <span class="brand__version">${escapeHtml(APP_VERSION)}</span></h1>
+            <h1>
+              Mimic Dice
+              <button
+                class="brand__version"
+                type="button"
+                data-action="open-release-notes-screen"
+                data-release-version="${escapeHtml(APP_VERSION)}"
+                aria-label="${escapeHtml(state.appLanguage === APP_LANGUAGE_EN ? `Open release notes for ${APP_VERSION}` : `Abrir notas de version de ${APP_VERSION}`)}"
+                title="${escapeHtml(state.appLanguage === APP_LANGUAGE_EN ? `Release notes ${APP_VERSION}` : `Notas de version ${APP_VERSION}`)}"
+              >
+                ${escapeHtml(APP_VERSION)}
+              </button>
+            </h1>
             <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
           </div>
         </div>

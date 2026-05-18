@@ -1011,16 +1011,32 @@ table {
 }
 
 .brand__version {
-  display: inline-block;
-  margin-left: 0.36rem;
-  color: #d0b287;
-  font-size: 0.58em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.55rem;
+  padding: 0.16rem 0.46rem 0.18rem;
+  border: 1px solid rgba(240, 200, 121, 0.38);
+  border-radius: 999px;
+  color: #f2d7a2;
+  background:
+    linear-gradient(180deg, rgba(87, 52, 27, 0.86), rgba(30, 20, 13, 0.96)),
+    rgba(240, 200, 121, 0.08);
+  font-size: 0.74em;
   font-family: var(--font-body);
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
   text-transform: none;
-  vertical-align: baseline;
+  vertical-align: 0.08em;
+  cursor: pointer;
+}
+
+.brand__version:hover,
+.brand__version:focus-visible {
+  border-color: rgba(240, 200, 121, 0.68);
+  color: #ffe0a9;
+  filter: brightness(1.08);
 }
 
 .brand__eyebrow,
