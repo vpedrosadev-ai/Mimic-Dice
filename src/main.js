@@ -10084,11 +10084,7 @@ function renderCombatantNameToken(combatant) {
     ? getCharacterInitials(linkedCharacter)
     : getCombatantInitials(combatant);
 
-  if (!tokenUrl && !linkedCharacter) {
-    return "";
-  }
-
-  if (!isEnemyCombatant(combatant)) {
+  if (linkedCharacter) {
     return `
       <span class="combat-name-token-wrap combat-name-token-wrap--ally">
         <span class="combat-name-token-static">
@@ -10104,34 +10100,50 @@ function renderCombatantNameToken(combatant) {
               : `<span class="combat-name-token__placeholder">${escapeHtml(initials)}</span>`
           }
         </span>
-        ${linkedCharacter ? renderCombatCharacterPreview(linkedCharacter) : ""}
+        ${renderCombatCharacterPreview(linkedCharacter)}
       </span>
     `;
   }
 
-  if (!bestiaryEntry || !tokenUrl) {
+  if (bestiaryEntry && tokenUrl) {
+    return `
+      <span class="combat-name-token-wrap">
+        <button
+          class="combat-name-token-button"
+          type="button"
+          data-action="open-combatant-bestiary"
+          data-entry-id="${escapeHtml(bestiaryEntry.id)}"
+          aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
+        >
+          <img
+            class="combat-name-token"
+            src="${escapeHtml(tokenUrl)}"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            aria-hidden="true"
+          />
+        </button>
+        ${renderCombatTokenPreview(bestiaryEntry)}
+      </span>
+    `;
+  }
+
+  if (!tokenUrl) {
     return "";
   }
 
   return `
-    <span class="combat-name-token-wrap">
-      <button
-        class="combat-name-token-button"
-        type="button"
-        data-action="open-combatant-bestiary"
-        data-entry-id="${escapeHtml(bestiaryEntry.id)}"
-        aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
-      >
+    <span class="combat-name-token-wrap combat-name-token-wrap--ally">
+      <span class="combat-name-token-static">
         <img
           class="combat-name-token"
           src="${escapeHtml(tokenUrl)}"
           alt=""
           loading="lazy"
           decoding="async"
-          aria-hidden="true"
         />
-      </button>
-      ${renderCombatTokenPreview(bestiaryEntry)}
+      </span>
     </span>
   `;
 }
@@ -15121,6 +15133,8 @@ function toggleAllVisible(selected) {
 
 function updateCombatantField(id, key, rawValue, normalize = true) {
   const previousCombatants = state.combatants;
+  const isResourceField = ["pgAct", "pgMax", "pgTemp", "necrotic"].includes(key);
+
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== id) {
       return combatant;
@@ -15144,10 +15158,14 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
       updatedCombatant.initiativeRoll = null;
     }
 
+    if (!normalize && isResourceField) {
+      return updatedCombatant;
+    }
+
     return normalizeCombatant(updatedCombatant, key);
   });
 
-  if (["pgAct", "pgMax", "pgTemp", "necrotic"].includes(key)) {
+  if (isResourceField && normalize) {
     syncDownedAllyUnconsciousStatus(previousCombatants);
     distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
     applyReviveExhaustion(previousCombatants);
