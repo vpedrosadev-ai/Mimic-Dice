@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:cloudflare": "vite build",
     "preview": "vite preview",
     "translate:default-csvs": "node scripts/generate-default-translation-sidecars.mjs",
     "cache:bestiary-images": "powershell -ExecutionPolicy Bypass -File scripts/cache-bestiary-images.ps1",
@@ -28,6 +29,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",

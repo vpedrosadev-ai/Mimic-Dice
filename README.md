@@ -70,6 +70,24 @@ npm run electron:build:editable-mac-zip
 
 La build de macOS debe lanzarse desde macOS. Windows y macOS generan binarios distintos, asi que se distribuyen como artefactos separados. En macOS los assets editables se escriben en la carpeta de usuario de la app para evitar permisos del bundle `.app`.
 
+## Build web para Cloudflare Pages
+
+Mimic Dice tambien puede funcionar directamente en el navegador como una web estatica de Cloudflare Pages:
+
+```powershell
+npm run build:cloudflare
+```
+
+Configuracion de Cloudflare Pages:
+
+- Project name: `mimicdice`
+- Production branch: `feature/cloudflare-pages` para la primera prueba
+- Build command: `npm run build:cloudflare`
+- Build output directory: `dist`
+- Node version: `22.16.0`
+
+Consulta [docs/cloudflare-pages.md](docs/cloudflare-pages.md) para la guia completa de despliegue.
+
 ## Descargar y probar en otro PC
 
 La forma mas sencilla para alguien que no tenga Node, npm o entorno de desarrollo es usar la build portable ya empaquetada.
