@@ -1010,6 +1010,19 @@ table {
   text-transform: uppercase;
 }
 
+.brand__version {
+  display: inline-block;
+  margin-left: 0.36rem;
+  color: #d0b287;
+  font-size: 0.46em;
+  font-family: var(--font-body);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+  vertical-align: baseline;
+}
+
 .brand__eyebrow,
 .eyebrow {
   margin: 0 0 calc(0.46rem * var(--topbar-scale));

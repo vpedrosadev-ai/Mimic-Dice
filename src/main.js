@@ -5918,7 +5918,7 @@ function render(focusState = null) {
           </div>
           <div>
             <p class="brand__eyebrow">D&D 5e encounter suite</p>
-            <h1>Mimic Dice</h1>
+            <h1>Mimic Dice <span class="brand__version">v1.1</span></h1>
             <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
           </div>
         </div>
