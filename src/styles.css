@@ -7384,9 +7384,54 @@ input[type="number"]::-webkit-inner-spin-button {
   padding: 1.5rem;
 }
 
-.release-notes-list {
+.release-notes-layout {
   display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
+}
+
+.release-notes-sidebar {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.release-version-card {
+  display: grid;
+  gap: 0.32rem;
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid rgba(168, 123, 67, 0.32);
+  border-radius: 12px;
+  color: var(--text);
+  text-align: left;
+  background:
+    linear-gradient(180deg, rgba(38, 24, 16, 0.7), rgba(18, 12, 10, 0.94)),
+    rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.release-version-card:hover,
+.release-version-card:focus-visible,
+.release-version-card.is-active {
+  border-color: rgba(240, 200, 121, 0.52);
+  background:
+    linear-gradient(180deg, rgba(70, 43, 23, 0.86), rgba(26, 16, 11, 0.96)),
+    rgba(240, 200, 121, 0.05);
+}
+
+.release-version-card strong {
+  color: #f2d7a2;
+  font-size: 1.05rem;
+}
+
+.release-version-card span,
+.release-version-card small {
+  color: #d0b287;
+}
+
+.release-notes-detail {
+  min-width: 0;
 }
 
 .release-note-card {
@@ -7411,7 +7456,8 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .release-note-card__header h3,
-.release-note-section h4,
+.release-note-group h4,
+.release-note-section h5,
 .release-note-card__summary {
   margin: 0;
 }
@@ -7432,6 +7478,21 @@ input[type="number"]::-webkit-inner-spin-button {
   line-height: 1.55;
 }
 
+.release-note-card__groups {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.release-note-group {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.release-note-group h4 {
+  color: #c8924a;
+  font-size: 1.12rem;
+}
+
 .release-note-card__sections {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7446,7 +7507,7 @@ input[type="number"]::-webkit-inner-spin-button {
   background: rgba(255, 255, 255, 0.025);
 }
 
-.release-note-section h4 {
+.release-note-section h5 {
   color: #f2d7a2;
   font-size: 1rem;
 }
@@ -7465,6 +7526,7 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 @media (max-width: 760px) {
+  .release-notes-layout,
   .release-note-card__header,
   .release-note-card__sections {
     grid-template-columns: 1fr;

@@ -179,59 +179,77 @@ const APP_VERSION = "v1.1";
 const RELEASE_NOTES = Object.freeze([
   {
     version: "v1.1",
-    title: "Mimic Dice v1.1",
-    date: "Mayo 2026",
-    summary: "Mejoras de combate, buscadores, diario, calendario y calidad visual general.",
-    sections: [
+    heading: "Version 1.1",
+    modifiedAt: "18/05/2026 10:55",
+    summary: "Se resuelve bugs B.1 y B.2 y sugerencias S.1, S.2 y S.3",
+    groups: [
       {
-        title: "Combate",
-        changes: [
-          "El dano necrotico ahora reduce tanto la vida actual como la vida maxima.",
-          "Nuevo buscador en combate para filtrar por nombre, bando, estados activos o encuentro.",
-          "El contador de turno permite elegir manualmente el turno activo.",
-          "Nuevo boton Jump Turn To para saltar directamente a cualquier participante de la iniciativa."
+        title: "Nuevas funcionalidades",
+        sections: [
+          {
+            title: "Combate",
+            changes: [
+              "Anadido un buscador en la pantalla de combate para filtrar criaturas por nombre, bando, estados activos o encuentro.",
+              "Ahora es posible hacer clic sobre el contador de turno para elegir manualmente el turno actual.",
+              "Anadido el boton Jump Turn To, que permite saltar directamente al turno de cualquier participante en la iniciativa."
+            ]
+          },
+          {
+            title: "Efectos en area",
+            changes: [
+              "Los efectos en area ya no requieren seleccionar filas previamente.",
+              "Al usar efectos como dano, curacion, dano necrotico, vida temporal o experiencia en area, se abre una ventana para elegir exactamente que criaturas se ven afectadas.",
+              "La seleccion de objetivos se realiza de forma mas comoda haciendo clic directamente sobre las tarjetas de cada criatura."
+            ]
+          },
+          {
+            title: "Diario",
+            changes: [
+              "Anadido un buscador de notas por texto.",
+              "El buscador muestra en que notas aparece el texto y filtra la lista para mostrar solo las coincidencias.",
+              "Se pueden crear etiquetas largas usando #, por ejemplo #DIA DE LLUVIA#, que se muestran como chips visuales.",
+              "Al hacer clic en una etiqueta, el buscador se rellena automaticamente con ese texto.",
+              "Al hacer clic derecho sobre una etiqueta, se abre directamente el selector de color.",
+              "El color elegido para una etiqueta se aplica a todas sus apariciones.",
+              "Anadidos botones en la barra del editor para explicar visualmente el uso de # y @.",
+              "Se pueden mencionar con @ personajes, objetos o criaturas.",
+              "Al escribir una mencion, aparecen sugerencias para completarla mas rapido.",
+              "Las menciones completadas aparecen subrayadas y permiten abrir la ficha correspondiente con clic izquierdo.",
+              "Anadido un boton para importar y exportar notas y carpetas del diario.",
+              "Anadida una vista ampliada del calendario de Harptos, con estaciones, ciclos lunares y etiquetas en dias concretos.",
+              "El calendario marca los dias que tienen una nota de diario asociada.",
+              "Al hacer clic sobre el chip de una nota, se abre esa nota directamente en el editor.",
+              "Tambien se pueden anadir notas cortas desde el propio calendario y editarlas con clic izquierdo."
+            ]
+          }
         ]
       },
       {
-        title: "Efectos en area",
-        changes: [
-          "Los efectos en area ya no dependen de seleccionar filas previamente.",
-          "Dano, curacion, dano necrotico, vida temporal y experiencia en area abren una ventana para elegir objetivos.",
-          "La seleccion de objetivos es mas comoda y se realiza directamente sobre tarjetas."
-        ]
-      },
-      {
-        title: "Bestiario, Arcanum e Items",
-        changes: [
-          "Los buscadores de criaturas, hechizos y objetos muestran listas mas comodas.",
-          "Las listas largas mantienen un tamano visual controlado y usan scroll.",
-          "Los textos de ayuda de busqueda se han simplificado.",
-          "El editor de encuentros del bestiario usa el mismo comportamiento de listas."
-        ]
-      },
-      {
-        title: "Diario",
-        changes: [
-          "Nuevo buscador para localizar notas por texto.",
-          "El buscador filtra la lista de notas y muestra donde aparece cada coincidencia.",
-          "Las etiquetas largas con #texto# se resaltan como chips visuales.",
-          "Click izquierdo sobre una etiqueta rellena el buscador con ese texto.",
-          "Click derecho sobre una etiqueta abre directamente el selector de color.",
-          "El color de una etiqueta se aplica a todas sus apariciones.",
-          "Nuevos botones de ayuda para explicar # etiquetas y @ menciones.",
-          "Las menciones con @ pueden apuntar a personajes, objetos o criaturas.",
-          "Las menciones completadas enlazan a su pantalla correspondiente.",
-          "Nuevo importador/exportador de notas y carpetas del diario.",
-          "Nuevo calendario de Harptos en grande con estaciones, notas por dia y ciclos lunares.",
-          "El calendario marca los dias vinculados con notas del diario.",
-          "Las chips de notas del calendario abren la nota concreta."
-        ]
-      },
-      {
-        title: "Mejoras generales",
-        changes: [
-          "Correcciones visuales y de comportamiento en listas, ventanas emergentes y buscadores.",
-          "Mejoras de comodidad en pantallas con muchos resultados o muchos participantes."
+        title: "Arreglos de bugs",
+        sections: [
+          {
+            title: "Combate",
+            changes: [
+              "El dano necrotico ahora reduce correctamente tanto la vida actual como la vida maxima, reflejando su efecto de forma inmediata."
+            ]
+          },
+          {
+            title: "Mejoras generales",
+            changes: [
+              "Corregidos varios detalles visuales y de comportamiento en listas, ventanas emergentes y buscadores.",
+              "Mejorada la consistencia general de la interfaz.",
+              "Mejorada la comodidad de uso en pantallas con muchos resultados o muchos participantes en combate."
+            ]
+          },
+          {
+            title: "Bestiario, hechizos e items",
+            changes: [
+              "Los buscadores de criaturas, hechizos y objetos muestran ahora listas mas comodas y legibles.",
+              "Cuando hay muchos resultados, la lista mantiene un tamano visual limitado y permite navegar mediante scroll.",
+              "Los textos de ayuda se han simplificado para indicar claramente que la busqueda se realiza por nombre.",
+              "El editor de encuentros del bestiario usa ahora este mismo comportamiento en la lista de criaturas."
+            ]
+          }
         ]
       }
     ]
@@ -473,6 +491,7 @@ const state = {
   fileMenuOpen: false,
   optionsMenuOpen: false,
   optionsMenuSection: OPTIONS_MENU_SECTION_GENERAL,
+  activeReleaseNotesVersion: APP_VERSION,
   importExportDialogOpen: false,
   importExportDialogCategory: "",
   importExportDialogMode: "",
@@ -1393,9 +1412,16 @@ async function handleClick(event) {
 
   if (action === "open-release-notes-screen") {
     state.activeScreen = "release-notes";
+    state.activeReleaseNotesVersion = getActiveReleaseNote()?.version || RELEASE_NOTES[0]?.version || APP_VERSION;
     state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = false;
+    render();
+    return;
+  }
+
+  if (action === "select-release-notes-version") {
+    state.activeReleaseNotesVersion = normalizeReleaseNotesVersion(actionButton.dataset.releaseVersion);
     render();
     return;
   }
@@ -6808,6 +6834,8 @@ function renderScreen() {
 }
 
 function renderReleaseNotesScreen() {
+  const activeRelease = getActiveReleaseNote();
+
   return `
     <section class="panel release-notes-screen">
       <div class="section-heading">
@@ -6818,32 +6846,71 @@ function renderReleaseNotesScreen() {
           </span>
         </div>
       </div>
-      <div class="release-notes-list">
-        ${RELEASE_NOTES.map((release) => `
-          <article class="release-note-card">
-            <header class="release-note-card__header">
-              <div>
-                <p class="eyebrow">${escapeHtml(release.date)}</p>
-                <h3>${escapeHtml(release.title)}</h3>
-              </div>
-              <span class="release-note-card__version">${escapeHtml(release.version)}</span>
-            </header>
-            <p class="release-note-card__summary">${escapeHtml(release.summary)}</p>
+      <div class="release-notes-layout">
+        <aside class="release-notes-sidebar" aria-label="Versiones publicadas">
+          ${RELEASE_NOTES.map((release) => `
+            <button
+              class="release-version-card${release.version === activeRelease.version ? " is-active" : ""}"
+              type="button"
+              data-action="select-release-notes-version"
+              data-release-version="${escapeHtml(release.version)}"
+              aria-pressed="${release.version === activeRelease.version}"
+            >
+              <strong>${escapeHtml(release.heading)}</strong>
+              <span>Notas modificadas</span>
+              <small>${escapeHtml(release.modifiedAt)}</small>
+            </button>
+          `).join("")}
+        </aside>
+        <div class="release-notes-detail">
+          ${renderReleaseNoteDetail(activeRelease)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderReleaseNoteDetail(release) {
+  return `
+    <article class="release-note-card">
+      <header class="release-note-card__header">
+        <div>
+          <p class="eyebrow">Ultima modificacion: ${escapeHtml(release.modifiedAt)}</p>
+          <h3>${escapeHtml(release.heading)}</h3>
+        </div>
+        <span class="release-note-card__version">${escapeHtml(release.version)}</span>
+      </header>
+      <p class="release-note-card__summary">${escapeHtml(release.summary)}</p>
+      <div class="release-note-card__groups">
+        ${release.groups.map((group) => `
+          <section class="release-note-group">
+            <h4>${escapeHtml(group.title)}</h4>
             <div class="release-note-card__sections">
-              ${release.sections.map((section) => `
+              ${group.sections.map((section) => `
                 <section class="release-note-section">
-                  <h4>${escapeHtml(section.title)}</h4>
+                  <h5>${escapeHtml(section.title)}</h5>
                   <ul>
                     ${section.changes.map((change) => `<li>${escapeHtml(change)}</li>`).join("")}
                   </ul>
                 </section>
               `).join("")}
             </div>
-          </article>
+          </section>
         `).join("")}
       </div>
-    </section>
+    </article>
   `;
+}
+
+function getActiveReleaseNote() {
+  return RELEASE_NOTES.find((release) => release.version === state.activeReleaseNotesVersion) ?? RELEASE_NOTES[0];
+}
+
+function normalizeReleaseNotesVersion(value) {
+  const normalizedValue = cleanText(value);
+  return RELEASE_NOTES.some((release) => release.version === normalizedValue)
+    ? normalizedValue
+    : RELEASE_NOTES[0]?.version || APP_VERSION;
 }
 
 function renderScreenErrorPanel(title, message) {
