@@ -54,6 +54,12 @@ Notas:
 - `src/shared/virtualList.js`: calculo generico de ventana visible para listas virtualizadas.
 - `src/screens/compendiums/detailRender.js`: render puro de fichas seleccionadas de Bestiario, Items y Arcanum.
 - `src/screens/compendiums/listRender.js`: render puro de filas y listas virtualizadas de Bestiario, Items y Arcanum.
+- `src/screens/characters/characterState.js`: carga, guardado y normalizacion de personajes, skills, conjuros e inventario.
+- `src/screens/combat-tracker/combatTrackerState.js`: carga, guardado y normalizacion del combat tracker.
+- `src/screens/diary/diaryRender.js`: render del Diario, editor y calendario visual de Harptos.
+- `src/screens/tables/tableController.js`: estado, acciones, carpetas, tiradas e import/export Excel de `Tablas`.
+- `src/screens/tables/tableRender.js`: render de `Tablas` y enlaces de celdas a compendios.
+- `src/screens/tables/tableUtils.js`: helpers compartidos de tablas, como tipo visual de columna.
 - `electron/main.js`: shell de escritorio, dialogos y guardado/carga de campanas.
 - `electron/preload.js`: API segura expuesta al frontend.
 - `electron/assets/`: recursos del shell desktop, incluido icono runtime de app.
@@ -161,6 +167,7 @@ Persistencia desktop:
 - `src/shared/virtualList.js` centraliza el calculo de `startIndex`, `endIndex`, padding y alto total de listas virtualizadas.
 - `src/screens/README.md` marca intencion de extraer pantallas a modulos por pantalla.
 - `src/screens/compendiums/detailRender.js` y `src/screens/compendiums/listRender.js` son la primera extraccion real de render de pantalla; reciben dependencias desde `src/main.js` para no acoplarse directamente al `state` global.
+- `src/screens/characters/characterState.js`, `src/screens/combat-tracker/combatTrackerState.js`, `src/screens/diary/diaryRender.js`, `src/screens/tables/tableController.js` y `src/screens/tables/tableRender.js` siguen el patron de factory con dependencias explicitas desde `src/main.js`, manteniendo el estado global en `main.js` mientras se reduce su tamano.
 - Idioma de contenido CSV es independiente del idioma de interfaz. El cambio de contenido recarga Bestiario/Items/Arcanum. Para traduccion completa de CSV nuevos, convencion optima: colocar junto al CSV base un sidecar con mismo esquema y sufijo `_ES.csv`, por ejemplo `BestiaryExtra.csv` + `BestiaryExtra_ES.csv`.
 - Los CSV canonicos del proyecto ya tienen sidecars por defecto `*_ES.csv` generados con las mismas cabeceras inglesas para no romper normalizacion en runtime.
 - Si el CSV detectado esta en ingles y no hay sidecar `_ES.csv`, la app aplica `src/data/contentTranslation.js` como fallback de glosario. Es util para campos estructurados y frases comunes, pero no sustituye una traduccion humana/modelo para textos largos arbitrarios.

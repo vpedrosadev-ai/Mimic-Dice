@@ -45,6 +45,11 @@ import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
 import { parseCsv } from "./shared/csv.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
 import { createCompendiumListRenderers } from "./screens/compendiums/listRender.js";
+import { createCharacterStateController } from "./screens/characters/characterState.js";
+import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
+import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
+import { createTablesController } from "./screens/tables/tableController.js";
+import { createTableRenderers } from "./screens/tables/tableRender.js";
 import {
   extractCrBaseLabel,
   formatCombatCrDisplay,
@@ -72,7 +77,6 @@ import {
   uniqueSortedStrings
 } from "./shared/text.js";
 import { getVirtualStartIndex, getVirtualWindow } from "./shared/virtualList.js";
-import * as XLSX from "xlsx";
 import appIconUrl from "../build-resources/icon.png";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
 import combatHitDiceIconUrl from "./assets/buttons-icons/Dados_golpe.png";
@@ -357,6 +361,7 @@ const COMPENDIUM_REPOSITORY_LABELS = Object.freeze({
 });
 
 const app = document.querySelector("#app");
+let state;
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
 let campaignSaveInProgress = null;
@@ -365,12 +370,212 @@ let initialDataLoadQueued = false;
 let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
 let activeTableColumnResize = null;
-let activeTableRollTimer = 0;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 const notificationTimeouts = new Map();
-let tableRollAudioContext = null;
 let repositoryCsvUploadDatabasePromise = null;
+const appStateProxy = new Proxy({}, {
+  get: (_target, property) => state?.[property],
+  set: (_target, property, value) => {
+    if (state) {
+      state[property] = value;
+    }
+    return true;
+  }
+});
+const {
+  loadCombatTrackerState,
+  removeLegacyCombatTrackerPlaceholders,
+  normalizeStoredCombatTrackerState,
+  saveCombatTrackerState,
+  getCombatTrackerSaveData,
+  getDefaultCombatTrackerState,
+  getDefaultCombatSort,
+  normalizeStoredEnemyHpMode,
+  normalizeStoredCombatant,
+  normalizeStoredCombatFilters,
+  normalizeStoredCombatSort,
+  normalizeStoredInlineAdjustments,
+  normalizeStoredNextCombatantId,
+  normalizeStoredActiveTurnCombatantId,
+  normalizeStoredCombatRound,
+  normalizeStoredCombatSide,
+  normalizeStoredCombatTag,
+  normalizeStoredNumber,
+  normalizeStoredStandLabel,
+  normalizeStoredNonNegativeNumber
+} = createCombatTrackerStateController({
+  state: appStateProxy,
+  COMBAT_TRACKER_STORAGE_KEY,
+  usesDesktopFileOnlyPersistence,
+  scheduleDesktopCampaignDirtyStateSync,
+  createStableId,
+  getBattleTimerElapsedMs,
+  mapTagToSide,
+  mapSideToTag
+});
+const {
+  loadCharacterSkillDefinitions,
+  saveCharacterSkillDefinitions,
+  getCharacterSkillDefinitionsSaveData,
+  loadCharacters,
+  saveCharacters,
+  getCharactersSaveData,
+  resolveCharacterSkillDefinitions,
+  normalizeStoredCharacters,
+  normalizeStoredCharacter,
+  createDefaultCharacterClassEntry,
+  normalizeStoredCharacterClassEntries,
+  normalizeStoredCharacterClassEntry,
+  normalizeStoredCharacterClassLevel,
+  ensureCharacterClassEntryCount,
+  hasMeaningfulCharacterClassEntry,
+  getCharacterVisibleClassEntries,
+  getCharacterTotalLevelFromClassEntries,
+  normalizeStoredCharacterLevel,
+  normalizeStoredCharacterLevelExperiencePoints,
+  normalizeLegacyCharacterLevelExperiencePoints,
+  normalizeStoredCharacterAbilities,
+  normalizeStoredCharacterSkillDefinitions,
+  dedupeCharacterSkillDefinitions,
+  getLegacyCharacterSkillDefinitionsFromCharacters,
+  normalizeLegacyCharacterSkillTrack,
+  normalizeStoredCharacterSkillDefinition,
+  getCharacterSkillCanonicalConfig,
+  createCharacterSkillDefinitionId,
+  normalizeStoredCharacterSkillProgress,
+  normalizeStoredCharacterSkillProgressEntry,
+  normalizeStoredCharacterSkillLevel,
+  normalizeStoredCharacterSkillExperiencePoints,
+  normalizeStoredCharacterSkillGain,
+  normalizeStoredCharacterSkillGains,
+  normalizeStoredCharacterSpells,
+  normalizeStoredCharacterSpellRow,
+  normalizeCharacterSpellLevelLabel,
+  getCharacterSpellLevelLabel,
+  isCharacterSpellCantripLabel,
+  formatCompactSpellLevelLabel,
+  formatCharacterSignedFieldValue,
+  createBlankCharacterSpellRow,
+  normalizeStoredCharacterSpellbookAbilities,
+  normalizeStoredCharacterSpellbookAbilityRow,
+  normalizeStoredCharacterSpellbookAbilitySpent,
+  createBlankCharacterSpellbookAbilityRow,
+  getMeaningfulCharacterSpellbookAbilityRows,
+  clearCharacterSpellbookAbilityUsesSpent,
+  getDefaultCharacterSpellSlots,
+  normalizeStoredCharacterSpellSlots,
+  normalizeStoredCharacterSpellSlotRow,
+  normalizeStoredCharacterSpellSlotSpent,
+  normalizeStoredCharacterSpellSlotVisibleLevels,
+  ensureCharacterSpellSlotLevels,
+  clearCharacterSpellSlotsSpent,
+  normalizeStoredCharacterInventory,
+  normalizeStoredCharacterInventoryRow,
+  createBlankCharacterInventoryRow,
+  normalizeItemSizeLabel,
+  normalizeStoredCharacterProficiencies,
+  normalizeCharacterProficiencyKey
+} = createCharacterStateController({
+  state: appStateProxy,
+  CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY,
+  CHARACTERS_STORAGE_KEY,
+  usesDesktopFileOnlyPersistence,
+  scheduleDesktopCampaignDirtyStateSync,
+  createStableId,
+  getDefaultCharacterSkillDefinitions,
+  normalizeStoredNonNegativeNumber,
+  normalizeStoredNumber,
+  normalizeStoredStandLabel,
+  getCharacterLevelProgressionEntry,
+  getCharacterLevelExperienceRequirement,
+  getDefaultCharacterProficiencyBonus,
+  getCharacterSkillMaxLevel,
+  getCharacterSkillMaxExperiencePoints,
+  normalizeStoredCharacterSkillColor,
+  getDefaultCharacterSkillColorForIdentity,
+  findCompendiumEntryByReference,
+  getCurrentCompendiumEntries,
+  getCompendiumEntryIdentityKey,
+  isCharacterCurrencyRow,
+  getCurrencyInventorySizeLabel
+});
+const {
+  loadTablesState,
+  saveTablesState,
+  getDefaultTablesState,
+  getTablesSaveData,
+  normalizeStoredTablesState,
+  deduplicateStoredSystemTables,
+  normalizeStoredTableFolder,
+  normalizeStoredTable,
+  normalizeStoredTableColumns,
+  normalizeStoredTableColumn,
+  normalizeStoredTableColumnWidth,
+  normalizeStoredTableRows,
+  normalizeStoredTableRow,
+  getActiveTable,
+  getOpenTables,
+  getTableFolderGroups,
+  getTablesByFolder,
+  getTableFolderNameById,
+  reconcileTablesUiState,
+  createBlankTable,
+  createTable,
+  selectTable,
+  toggleTableOpen,
+  toggleTableCollapsed,
+  openAllTables,
+  closeAllTables,
+  stopActiveTableRoll,
+  getTableRollAudioContext,
+  playTableRollTone,
+  playTableRollSoundStep,
+  startTableRoll,
+  createTableFolder,
+  toggleTableFolder,
+  expandTableFolder,
+  updateTableFolderName,
+  deleteTableFolder,
+  deleteTable,
+  moveTableToFrontWithinFolder,
+  updateTableName,
+  updateTableColumnLabel,
+  setTableColumnWidth,
+  applyTableColumnWidthPreview,
+  updateTableCell,
+  updateTableDimension,
+  addTableColumn,
+  insertTableColumnAfter,
+  removeTableColumn,
+  setTableColumnCount,
+  addTableRow,
+  insertTableRowAfter,
+  removeTableRow,
+  setTableRowCount,
+  importTablesFromWorkbook,
+  extractTablesFromWorkbookSheet,
+  normalizeWorkbookGrid,
+  detectWorkbookTableRegions,
+  buildTableFromWorkbookRegion,
+  createImportedTableFolder,
+  getExcelImportBaseName,
+  exportTableToExcel,
+  getSafeExcelSheetName
+} = createTablesController({
+  state: appStateProxy,
+  app,
+  initialTableFolders,
+  initialTableDefinitions,
+  TABLES_STORAGE_KEY,
+  usesDesktopFileOnlyPersistence,
+  scheduleDesktopCampaignDirtyStateSync,
+  getSystemTableKind,
+  isProtectedTableId,
+  render,
+  createStableId
+});
+
 resetDesktopLocalStorageIfNeeded();
 const initialCampaignMeta = loadCampaignMeta();
 const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
@@ -387,7 +592,7 @@ let arcanumSpellLinkCache = {
   namesByLower: new Map()
 };
 
-const state = {
+state = {
   activeScreen: "combat-tracker",
   campaignName: initialCampaignMeta.name,
   campaignFileName: initialCampaignMeta.fileName,
@@ -719,11 +924,6 @@ const HARPTOS_MOON_PHASE_RULES = Object.freeze({
     { start: 26, end: 30, phase: "waxing-quarter" }
   ]
 });
-let lootTableItemMatchCache = {
-  items: null,
-  index: new Map()
-};
-
 synchronizeLanguageSpecificSystemData({ syncCombatants: true });
 
 const {
@@ -6052,21 +6252,6 @@ function renderTopbarNavigation() {
   `;
 }
 
-function renderTopbarNavRow(row) {
-  const rowScreens = row.screenIds
-    .map((screenId) => screens.find((screen) => screen.id === screenId))
-    .filter(Boolean);
-  const rowLabel = row.id === "game" ? "Pantallas principales" : "Pantallas de consulta";
-
-  return `
-    <div class="nav-row nav-row--${row.id}">
-      <nav class="nav nav--row" aria-label="${escapeHtml(rowLabel)}">
-        ${rowScreens.map((screen) => renderScreenButton(screen)).join("")}
-      </nav>
-    </div>
-  `;
-}
-
 function renderScreenButton(screen, extraClassName = "") {
   const buttonLabel = state.appLanguage === APP_LANGUAGE_EN ? screen.label : screen.shortLabel;
   const screenIconUrl = getScreenIconUrl(screen.id);
@@ -8165,16 +8350,6 @@ function renderRepositoryCsvPicker(repositoryKey) {
   `;
 }
 
-function getRepositoryCsvOptions(selectedPath) {
-  return [...new Set([
-    selectedPath,
-    ...state.dataCsvFiles,
-    ...defaultDataCsvFiles
-  ].filter(Boolean))]
-    .filter((relativePath) => /\.csv$/i.test(relativePath) && !/\.es\.csv$/i.test(relativePath))
-    .sort((left, right) => getFileNameFromPath(left).localeCompare(getFileNameFromPath(right), "es", { sensitivity: "base" }));
-}
-
 function renderItemsContent(filteredEntries, selectedEntry) {
   if (state.itemStatus === "loading") {
     return `
@@ -8623,15 +8798,6 @@ function getArcanumSpellLinkSignature() {
   return `${state.arcanum.length}:${state.arcanum.map((entry) => entry.id).join("|")}`;
 }
 
-function renderSummaryCard(item) {
-  return `
-    <article class="summary-card">
-      <span>${item.label}</span>
-      <strong>${item.value}</strong>
-    </article>
-  `;
-}
-
 function renderScreenHeadingIdentity(screenId, eyebrow, title) {
   const screenIconUrl = getScreenIconUrl(screenId);
 
@@ -8720,34 +8886,6 @@ function getCombatHealthVisualFill(healthPercent) {
   }
 
   return Math.max(0, Math.min(100, Math.round(100 * Math.pow(clampedPercent / 100, 0.45))));
-}
-
-function renderCombatToolbarIcon(kind) {
-  if (kind === "campfire") {
-    return `
-      <svg viewBox="0 0 24 24" focusable="false">
-        <path d="M9 2c2 1.4 4 4.1 4 6.8 0 1.2-.3 2.4-.9 3.4 2.2-.6 3.9-2.7 3.9-5.2 1.8 1.6 3 4 3 6.6A7 7 0 0 1 5 13.6c0-2.7 1.3-5.2 3.3-6.8.2 1.9 1.1 3.4 2.5 4.2.2-.7.2-1.4.2-2.1 0-2.3-.8-4.6-2-6.9Zm-5 19h16v2H4v-2Zm8-9.2c1.6 1 2.6 2.5 2.6 4.1A2.6 2.6 0 1 1 9.4 16c0-1.4.8-2.8 2.6-4.2Z" />
-      </svg>
-    `;
-  }
-
-  if (kind === "book") {
-    return `
-      <svg viewBox="0 0 24 24" focusable="false">
-        <path d="M5 3.5A2.5 2.5 0 0 1 7.5 1H20v18.5a2.5 2.5 0 0 0-2.5-2.5H5V3.5Zm2.5-.5A1.5 1.5 0 0 0 6 4.5V16h11.5c.53 0 1.04.13 1.5.36V3H7.5ZM4 18h13.5c.83 0 1.5.67 1.5 1.5V21H6.5A2.5 2.5 0 0 1 4 18.5V18Z" />
-      </svg>
-    `;
-  }
-
-  if (kind === "wand") {
-    return `
-      <svg viewBox="0 0 24 24" focusable="false">
-        <path d="m3.8 19.1 9.9-9.9 1.4 1.4-9.9 9.9a1 1 0 0 1-1.4-1.4Zm10.6-13.8.6-2.3.6 2.3 2.3.6-2.3.6-.6 2.3-.6-2.3-2.3-.6 2.3-.6Zm4.7 4 .4-1.7.4 1.7 1.7.4-1.7.4-.4 1.7-.4-1.7-1.7-.4 1.7-.4ZM9.7 2.8l.5-1.8.5 1.8 1.8.5-1.8.5-.5 1.8-.5-1.8-1.8-.5 1.8-.5Z" />
-      </svg>
-    `;
-  }
-
-  return "";
 }
 
 function renderHeaderCell(column) {
@@ -9860,10 +9998,6 @@ function getCombatantStatusNames(combatant) {
   return [...new Set(rawStatuses.map((value) => cleanText(value)).filter(Boolean))];
 }
 
-function getCombatantExhaustionLevel(combatant) {
-  return getExhaustionLevelFromStatusNames(getCombatantStatusNames(combatant));
-}
-
 function getExhaustionLevelFromStatusNames(statusNames) {
   return statusNames.reduce((highestLevel, statusName) => {
     const match = cleanText(statusName).match(/^(?:agotamiento|exhaustion)(?:\s+(\d+))?$/i);
@@ -10512,124 +10646,39 @@ function renderCharactersScreen() {
   `;
 }
 
-function renderDiaryScreen() {
-  reconcileDiaryUiState();
-  const activeNote = getActiveDiaryNote();
-  const folderCount = state.diaryFolders.length;
-  const diaryFolderGroups = getDiaryFolderGroups();
-  const showDiarySearchPopover = state.showDiarySearchSuggestions && cleanText(state.diarySearchQuery).length > 0;
-  const diarySearchMatches = showDiarySearchPopover ? getDiarySearchMatches() : [];
-
-  return `
-    <section class="panel panel--table diary-screen">
-      <div class="section-heading">
-        ${renderScreenHeadingIdentity("diary", t("diary_eyebrow"), t("diary_title"))}
-        <div class="section-meta">
-          <span>${escapeHtml(t("diary_notes_count", { count: state.diaryNotes.length }))}</span>
-          <span>${escapeHtml(t("diary_folders_count", { count: folderCount }))}</span>
-          <span>${escapeHtml(activeNote ? t("diary_open_note") : t("diary_no_selection"))}</span>
-        </div>
-      </div>
-
-      <div class="characters-toolbar diary-screen__toolbar">
-        <div class="toolbar-field toolbar-field--search bestiary-query diary-search" data-diary-search-menu>
-          <span>${escapeHtml(t("diary_search_label"))}</span>
-          <input
-            class="filter-input filter-input--wide"
-            type="search"
-            value="${escapeHtml(state.diarySearchQuery)}"
-            placeholder="${escapeHtml(t("diary_search_placeholder"))}"
-            data-diary-search
-          />
-          ${
-            showDiarySearchPopover
-              ? `
-                <div class="bestiary-query__popover diary-search__popover" role="listbox" aria-label="${escapeHtml(t("diary_search_results_aria"))}">
-                  ${
-                    diarySearchMatches.length > 0
-                      ? diarySearchMatches.map((note) => renderDiarySearchSuggestion(note)).join("")
-                      : `<p class="bestiary-filter__empty">${escapeHtml(t("diary_search_no_matches"))}</p>`
-                  }
-                </div>
-              `
-              : ""
-          }
-        </div>
-        <div class="diary-screen__toolbar-actions">
-          <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-diary-note">
-            ${escapeHtml(t("diary_new_note"))}
-          </button>
-          <button class="toolbar-button" type="button" data-action="create-diary-folder">
-            ${escapeHtml(t("diary_new_folder"))}
-          </button>
-          <button class="toolbar-button toolbar-button--danger" type="button" data-action="delete-diary-note" ${activeNote ? "" : "disabled"}>
-            ${escapeHtml(t("diary_delete_note"))}
-          </button>
-          <button class="toolbar-button" type="button" data-action="open-diary-import-export">
-            ${escapeHtml(t("import_export_button"))}
-          </button>
-          <button
-            class="toolbar-button ${state.diaryHarptosOverviewOpen ? "is-active" : ""}"
-            type="button"
-            data-action="toggle-diary-harptos-overview"
-            aria-expanded="${state.diaryHarptosOverviewOpen}"
-          >
-            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(getScreenIconUrl("tables"))}" alt="" decoding="async" /></span>
-            ${escapeHtml(t("diary_harptos_overview_button"))}
-          </button>
-        </div>
-      </div>
-
-      ${state.diaryHarptosOverviewOpen ? renderDiaryHarptosOverviewSection() : ""}
-
-      <div class="diary-layout">
-        <aside class="diary-sidebar panel panel--inner" aria-label="${escapeHtml(t("diary_sidebar_aria"))}">
-          <div class="diary-sidebar__header">
-            <div>
-              <p class="eyebrow">${escapeHtml(t("diary_list_eyebrow"))}</p>
-              <h3>${escapeHtml(t("diary_entries_title"))}</h3>
-            </div>
-          </div>
-          <div class="diary-sidebar__list">
-            ${
-              state.diaryNotes.length > 0 || state.diaryFolders.length > 0
-                ? diaryFolderGroups.length > 0
-                  ? diaryFolderGroups.map((folder) => renderDiaryFolderGroup(folder)).join("")
-                  : `
-                      <div class="empty-state empty-state--compact">
-                        ${escapeHtml(t("diary_search_no_matches"))}
-                      </div>
-                    `
-                : `
-                  <div class="empty-state empty-state--compact">
-                    ${escapeHtml(t("diary_empty_list"))}
-                  </div>
-                `
-            }
-          </div>
-        </aside>
-
-        <section class="diary-workspace panel panel--inner">
-          ${
-            activeNote
-              ? renderDiaryEditor(activeNote)
-              : `
-                <div class="empty-state empty-state--panel diary-workspace__empty">
-                  <div>
-                    <p>${escapeHtml(t("diary_empty_workspace"))}</p>
-                    <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-diary-note">
-                      ${escapeHtml(t("diary_create_first_note"))}
-                    </button>
-                  </div>
-                </div>
-              `
-          }
-        </section>
-      </div>
-    </section>
-  `;
-}
-
+const { renderDiaryScreen } = createDiaryRenderers({
+  state: appStateProxy,
+  t,
+  escapeHtml,
+  cleanText,
+  renderScreenHeadingIdentity,
+  getScreenIconUrl,
+  getDiarySearchMatches,
+  getDiaryFolderGroups,
+  getActiveDiaryNote,
+  getDiaryNoteSearchPreview,
+  getDiaryNoteUpdatedLabel,
+  getDiaryNotesByFolder,
+  formatDiaryRealDateSummary,
+  formatDiaryHarptosDateSummary,
+  getDiaryNoteTags,
+  renderDiaryTagSummaryChipHtml,
+  normalizeDiaryContentHtml,
+  HARPTOS_MONTH_PERIODS,
+  HARPTOS_CALENDAR_PERIODS,
+  HARPTOS_PERIODS_BY_ID,
+  getDiaryHarptosOverviewValidPeriodId,
+  normalizeDiaryHarptosOverviewYear,
+  getDiaryHarptosMonthToneClass,
+  getDiaryHarptosSeasonKey,
+  getDiaryHarptosReferencedNotesForDay,
+  getDiaryHarptosDayNoteStorageKey,
+  normalizeDiaryHarptosQuickNote,
+  formatDiaryHarptosDayLabel,
+  getDiaryHarptosMoonPhase,
+  getDiaryHarptosTransitionClass,
+  getDiaryHarptosQuickNoteChipStyle
+});
 function renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, hasAreaAmount) {
   return `
     <div
@@ -10889,587 +10938,6 @@ function renderCombatTurnJumpOption(combatant, isActive) {
   `;
 }
 
-function renderDiarySearchSuggestion(note) {
-  const preview = getDiaryNoteSearchPreview(note);
-
-  return `
-    <button
-      class="bestiary-query__option diary-search__option"
-      type="button"
-      data-action="select-diary-search-suggestion"
-      data-diary-note-id="${escapeHtml(note.id)}"
-    >
-      <strong>${escapeHtml(note.title || t("diary_note_untitled"))}</strong>
-      <small>${escapeHtml(preview || getDiaryNoteUpdatedLabel(note.updatedAt))}</small>
-    </button>
-  `;
-}
-
-function renderDiaryFolderGroup(folder) {
-  const folderNotes = getDiaryNotesByFolder(folder.id);
-  const isActive = state.activeDiaryFolderId === folder.id;
-  const isSystemFolder = folder.id === "";
-
-  if (folderNotes.length === 0 && isSystemFolder && state.diaryFolders.length > 0) {
-    return "";
-  }
-
-  return `
-    <section class="encounter-folder ${isActive ? "is-active" : ""}">
-      <div class="encounter-folder__header">
-        <div class="encounter-folder__summary">
-          <button
-            class="encounter-folder__toggle"
-            type="button"
-            data-action="toggle-diary-folder"
-            data-diary-folder-id="${escapeHtml(folder.id)}"
-            aria-expanded="${folder.isExpanded}"
-          >
-            <span aria-hidden="true">${folder.isExpanded ? "v" : ">"}</span>
-            <small>${folderNotes.length}</small>
-          </button>
-          ${
-            isSystemFolder
-              ? `<strong class="encounter-folder__static-name">${escapeHtml(folder.name)}</strong>`
-              : `
-                <input
-                  class="encounter-folder__name"
-                  type="text"
-                  value="${escapeHtml(folder.name)}"
-                  data-diary-folder-name="${escapeHtml(folder.id)}"
-                  aria-label="${escapeHtml(t("diary_folder_name_aria", { name: folder.name }))}"
-                />
-              `
-          }
-        </div>
-        <div class="tables-folder__actions">
-          <button
-            class="filter-clear"
-            type="button"
-            data-action="create-diary-note"
-            ${folder.id ? `data-diary-folder-id="${escapeHtml(folder.id)}"` : ""}
-          >
-            ${escapeHtml(t("diary_folder_new_short"))}
-          </button>
-          ${
-            !isSystemFolder
-              ? `
-                <button
-                  class="filter-clear encounter-folder__delete"
-                  type="button"
-                  data-action="delete-diary-folder"
-                  data-diary-folder-id="${escapeHtml(folder.id)}"
-                  aria-label="${escapeHtml(t("diary_delete_folder_aria", { name: folder.name }))}"
-                >
-                  ${escapeHtml(t("diary_delete_folder_short"))}
-                </button>
-              `
-              : ""
-          }
-        </div>
-      </div>
-      ${
-        folder.isExpanded
-          ? `
-            <div class="encounter-folder__items">
-              ${
-                folderNotes.length > 0
-                  ? folderNotes.map((note) => renderDiaryNoteListItem(note)).join("")
-                  : `<div class="empty-state empty-state--compact">${escapeHtml(t("diary_empty_folder"))}</div>`
-              }
-            </div>
-          `
-          : ""
-      }
-    </section>
-  `;
-}
-
-function renderDiaryNoteListItem(note) {
-  const isActive = note.id === state.activeDiaryNoteId;
-  const realSummary = formatDiaryRealDateSummary(note) || t("diary_real_date_empty");
-  const harptosSummary = formatDiaryHarptosDateSummary(note) || t("diary_harptos_date_empty");
-  const tags = getDiaryNoteTags(note);
-
-  return `
-    <button
-      class="diary-note-card ${isActive ? "is-active" : ""}"
-      type="button"
-      data-action="select-diary-note"
-      data-diary-note-id="${escapeHtml(note.id)}"
-      aria-pressed="${isActive}"
-    >
-      <strong>${escapeHtml(note.title || t("diary_note_untitled"))}</strong>
-      <small class="diary-note-card__meta-row">${escapeHtml(t("diary_real_date_label"))}: ${escapeHtml(realSummary)}</small>
-      <small class="diary-note-card__meta-row">${escapeHtml(t("diary_harptos_date_label"))}: ${escapeHtml(harptosSummary)}</small>
-      ${tags.length > 0 ? `<span class="diary-note-card__tags">${tags.map((tag) => renderDiaryTagSummaryChipHtml(tag)).join("")}</span>` : ""}
-      <span>${escapeHtml(getDiaryNoteUpdatedLabel(note.updatedAt))}</span>
-    </button>
-  `;
-}
-
-function renderDiaryEditor(note) {
-  const contentHtml = normalizeDiaryContentHtml(note.contentHtml);
-
-  return `
-    <div class="diary-editor">
-      <div class="diary-editor__header">
-        <div class="diary-editor__identity">
-          <label class="toolbar-field diary-editor__title">
-            <span>${escapeHtml(t("diary_title_field"))}</span>
-            <input
-              class="filter-input"
-              type="text"
-              value="${escapeHtml(note.title)}"
-              placeholder="${escapeHtml(t("diary_title_placeholder"))}"
-              data-diary-title="${escapeHtml(note.id)}"
-            />
-          </label>
-        </div>
-        <div class="section-meta">
-          <span>${escapeHtml(getDiaryNoteUpdatedLabel(note.updatedAt))}</span>
-        </div>
-      </div>
-
-      <div class="diary-editor__meta-grid">
-        ${renderDiaryRealDateCard(note)}
-        ${renderDiaryHarptosDateCard(note)}
-      </div>
-
-      <div class="diary-editor__toolbar" aria-label="${escapeHtml(t("diary_toolbar_aria"))}">
-        ${renderDiaryCommandButton("bold", t("diary_cmd_bold"))}
-        ${renderDiaryCommandButton("italic", t("diary_cmd_italic"))}
-        ${renderDiaryCommandButton("underline", t("diary_cmd_underline"))}
-        ${renderDiaryCommandButton("strikeThrough", t("diary_cmd_strike"))}
-        ${renderDiaryCommandButton("formatBlock", "H3", "<h3>")}
-        ${renderDiaryCommandButton("formatBlock", t("diary_cmd_quote"), "<blockquote>")}
-        ${renderDiaryCommandButton("insertUnorderedList", t("diary_cmd_list"))}
-        ${renderDiaryCommandButton("insertOrderedList", t("diary_cmd_numbered"))}
-        ${renderDiaryCommandButton("createLink", t("diary_cmd_link"))}
-        ${renderDiaryCommandButton("unlink", t("diary_cmd_unlink"))}
-        ${renderDiaryCommandButton("insertHorizontalRule", t("diary_cmd_separator"))}
-        ${renderDiaryCommandButton("removeFormat", t("diary_cmd_clear"))}
-        ${renderDiaryTokenButton("#", "insert-diary-tag-token", t("diary_tag_button_tooltip"))}
-        ${renderDiaryTokenButton("@", "insert-diary-mention-token", t("diary_mention_button_tooltip"))}
-      </div>
-
-      <div class="diary-rich-editor-shell" data-diary-mention-root>
-        <div
-          class="diary-rich-editor"
-          contenteditable="true"
-          spellcheck="true"
-          data-diary-editor="${escapeHtml(note.id)}"
-        >${contentHtml}</div>
-        <div class="diary-mention-popover" data-diary-mention-popover hidden></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderDiaryCommandButton(command, label, value = "") {
-  return `
-    <button
-      class="toolbar-button toolbar-button--subtle diary-editor__command"
-      type="button"
-      data-action="apply-diary-command"
-      data-diary-command="${escapeHtml(command)}"
-      ${value ? `data-diary-command-value="${escapeHtml(value)}"` : ""}
-    >
-      ${escapeHtml(label)}
-    </button>
-  `;
-}
-
-function renderDiaryTokenButton(label, action, tooltip) {
-  return `
-    <button
-      class="toolbar-button toolbar-button--subtle diary-editor__command diary-editor__command--token"
-      type="button"
-      data-action="${escapeHtml(action)}"
-      data-tooltip="${escapeHtml(tooltip)}"
-      aria-label="${escapeHtml(tooltip)}"
-    >
-      ${escapeHtml(label)}
-    </button>
-  `;
-}
-
-function renderDiaryRealDateCard(note) {
-  const isRange = note.realDateMode === "range";
-  const summary = formatDiaryRealDateSummary(note) || t("diary_no_date_assigned");
-  const isCollapsed = state.diaryCalendarSectionCollapsed.real === true;
-
-  return `
-    <section class="detail-section diary-date-card">
-      <div class="diary-date-card__header">
-        <button
-          class="diary-date-card__title-button"
-          type="button"
-          data-action="toggle-diary-calendar-section"
-          data-diary-calendar-section="real"
-          aria-expanded="${isCollapsed ? "false" : "true"}"
-        >
-          <p class="eyebrow">${escapeHtml(t("diary_real_eyebrow"))}</p>
-          <h4>${escapeHtml(t("diary_real_calendar_title"))}</h4>
-        </button>
-        <div class="diary-date-card__summary">${escapeHtml(summary)}</div>
-      </div>
-      ${
-        isCollapsed
-          ? ""
-          : `
-      <div class="diary-date-card__grid">
-        <label class="toolbar-field diary-date-card__mode-field">
-          <span>${escapeHtml(t("diary_mode_label"))}</span>
-          <select data-diary-real-date-mode="${escapeHtml(note.id)}">
-            <option value="single" ${isRange ? "" : "selected"}>${escapeHtml(t("diary_mode_day"))}</option>
-            <option value="range" ${isRange ? "selected" : ""}>${escapeHtml(t("diary_mode_range"))}</option>
-          </select>
-        </label>
-        <label class="toolbar-field">
-          <span>${escapeHtml(isRange ? t("diary_start_label") : t("diary_day_label"))}</span>
-          <input
-            class="filter-input"
-            type="date"
-            value="${escapeHtml(note.realDateStart)}"
-            data-diary-real-date-start="${escapeHtml(note.id)}"
-          />
-        </label>
-        ${
-          isRange
-            ? `
-              <label class="toolbar-field">
-                <span>${escapeHtml(t("diary_end_label"))}</span>
-                <input
-                  class="filter-input"
-                  type="date"
-                  value="${escapeHtml(note.realDateEnd)}"
-                  data-diary-real-date-end="${escapeHtml(note.id)}"
-                />
-              </label>
-            `
-            : ""
-        }
-      </div>
-          `
-      }
-    </section>
-  `;
-}
-
-function renderDiaryHarptosDateCard(note) {
-  const isRange = note.harptosDateMode === "range";
-  const summary = formatDiaryHarptosDateSummary(note) || t("diary_no_date_assigned");
-  const isCollapsed = state.diaryCalendarSectionCollapsed.harptos === true;
-
-  return `
-    <section class="detail-section diary-date-card">
-      <div class="diary-date-card__header">
-        <button
-          class="diary-date-card__title-button"
-          type="button"
-          data-action="toggle-diary-calendar-section"
-          data-diary-calendar-section="harptos"
-          aria-expanded="${isCollapsed ? "false" : "true"}"
-        >
-          <p class="eyebrow">${escapeHtml(t("diary_harptos_eyebrow"))}</p>
-          <h4>${escapeHtml(t("diary_harptos_calendar_title"))}</h4>
-        </button>
-        <div class="diary-date-card__summary">${escapeHtml(summary)}</div>
-      </div>
-      ${
-        isCollapsed
-          ? ""
-          : `
-      <div class="diary-date-card__grid">
-        <label class="toolbar-field diary-date-card__mode-field">
-          <span>${escapeHtml(t("diary_mode_label"))}</span>
-          <select data-diary-harptos-date-mode="${escapeHtml(note.id)}">
-            <option value="single" ${isRange ? "" : "selected"}>${escapeHtml(t("diary_mode_day"))}</option>
-            <option value="range" ${isRange ? "selected" : ""}>${escapeHtml(t("diary_mode_range"))}</option>
-          </select>
-        </label>
-      </div>
-      <div class="diary-date-card__range-grid">
-        ${renderDiaryHarptosDateFields(note.id, "start", note.harptosStart, isRange ? t("diary_start_label") : t("diary_day_label"))}
-        ${isRange ? renderDiaryHarptosDateFields(note.id, "end", note.harptosEnd, t("diary_end_label")) : ""}
-      </div>
-          `
-      }
-    </section>
-  `;
-}
-
-function renderDiaryHarptosDateFields(noteId, side, dateValue, label) {
-  const period = HARPTOS_PERIODS_BY_ID.get(dateValue.periodId) ?? HARPTOS_CALENDAR_PERIODS[0];
-  const isFestival = period.kind === "festival";
-  const monthSelectValue = isFestival ? "" : dateValue.periodId;
-  const subtitle = isFestival
-    ? t("diary_harptos_festival_meta")
-    : t("diary_harptos_month_meta", { count: period.days });
-
-  return `
-    <div class="diary-date-card__harptos-block">
-      <div class="diary-date-card__block-header">
-        <p class="eyebrow">${escapeHtml(label)}</p>
-        <span class="diary-date-card__block-meta">${escapeHtml(subtitle)}</span>
-      </div>
-      <div class="diary-date-card__harptos-fields">
-        <label class="toolbar-field">
-          <span>${escapeHtml(t("diary_harptos_year_label"))}</span>
-          <input
-            class="filter-input"
-            type="number"
-            value="${escapeHtml(String(dateValue.year))}"
-            min="1"
-            step="1"
-            data-diary-harptos-year="${escapeHtml(noteId)}"
-            data-diary-harptos-side="${escapeHtml(side)}"
-          />
-        </label>
-      </div>
-      ${renderDiaryHarptosVisualCalendar(noteId, side, dateValue, monthSelectValue)}
-    </div>
-  `;
-}
-
-function formatHarptosPeriodSelectLabel(periodEntry) {
-  return `${String(getHarptosMonthNumber(periodEntry.id)).padStart(2, "0")} ${periodEntry.name}`;
-}
-
-function renderDiaryHarptosVisualCalendar(noteId, side, dateValue, monthSelectValue = "") {
-  const period = HARPTOS_PERIODS_BY_ID.get(dateValue.periodId) ?? HARPTOS_CALENDAR_PERIODS[0];
-  const isFestival = period.kind === "festival";
-  const visibleMonthId = getHarptosVisibleMonthPeriodId(dateValue);
-  const visibleMonth = HARPTOS_PERIODS_BY_ID.get(visibleMonthId) ?? HARPTOS_MONTH_PERIODS[0];
-  const monthToneClass = getDiaryHarptosMonthToneClass(visibleMonth.id);
-
-  return `
-    <div class="diary-harptos-visual">
-      <div class="diary-harptos-visual__section">
-        ${
-          isFestival
-            ? `
-              <div class="diary-harptos-visual__festival-selected">
-                ${escapeHtml(t("diary_harptos_festival_hidden_copy", { name: period.name, month: visibleMonth.name }))}
-              </div>
-            `
-            : ""
-        }
-        <div class="toolbar-field diary-harptos-visual__month-field">
-          <span>${escapeHtml(t("diary_harptos_month_label"))}</span>
-          <details class="diary-harptos-visual__month-picker">
-            <summary class="diary-harptos-visual__month-trigger ${escapeHtml(monthToneClass)}">
-              ${escapeHtml(formatHarptosPeriodSelectLabel(visibleMonth))}
-            </summary>
-            <div class="diary-harptos-visual__month-options">
-              ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
-                <button
-                  class="diary-harptos-visual__chip ${escapeHtml(getDiaryHarptosMonthToneClass(periodEntry.id))} ${periodEntry.id === visibleMonthId ? "is-active" : ""}"
-                  type="button"
-                  data-action="set-diary-harptos-period"
-                  data-diary-harptos-period="${escapeHtml(noteId)}"
-                  data-diary-harptos-side="${escapeHtml(side)}"
-                  data-harptos-period-id="${escapeHtml(periodEntry.id)}"
-                >
-                  ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
-                </button>
-              `).join("")}
-            </div>
-          </details>
-        </div>
-        <div class="diary-harptos-visual__days">
-          ${Array.from({ length: visibleMonth.days }, (_, index) => index + 1).map((day) => {
-            const moonPhase = getDiaryHarptosMoonPhase(visibleMonth.id, day);
-            return `
-              <button
-                class="diary-harptos-visual__day diary-harptos-visual__day--${escapeHtml(getDiaryHarptosSeasonKey(visibleMonth.id, day))} ${visibleMonth.id === monthSelectValue && day === dateValue.day ? "is-active" : ""}"
-                type="button"
-                data-action="set-diary-harptos-day"
-                data-diary-harptos-day="${escapeHtml(noteId)}"
-                data-diary-harptos-side="${escapeHtml(side)}"
-                data-harptos-day="${day}"
-                title="${escapeHtml(formatDiaryHarptosDayLabel(visibleMonth.id, day, dateValue.year))}"
-              >
-                <span>${day}</span>
-                ${moonPhase ? `<img class="diary-harptos-visual__moon-icon" src="${escapeHtml(moonPhase.iconUrl)}" alt="${escapeHtml(moonPhase.label)}" decoding="async" />` : ""}
-              </button>
-            `;
-          }).join("")}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function getHarptosMonthNumber(periodId) {
-  return HARPTOS_MONTH_PERIODS.findIndex((entry) => entry.id === periodId) + 1;
-}
-
-function getHarptosVisibleMonthPeriodId(value) {
-  const currentPeriodId = cleanText(value?.periodId);
-
-  if (HARPTOS_MONTH_PERIODS.some((period) => period.id === currentPeriodId)) {
-    return currentPeriodId;
-  }
-
-  const currentIndex = HARPTOS_CALENDAR_PERIODS.findIndex((period) => period.id === currentPeriodId);
-
-  if (currentIndex >= 0) {
-    for (let index = currentIndex - 1; index >= 0; index -= 1) {
-      if (HARPTOS_CALENDAR_PERIODS[index]?.kind === "month") {
-        return HARPTOS_CALENDAR_PERIODS[index].id;
-      }
-    }
-  }
-
-  return HARPTOS_MONTH_PERIODS[0]?.id ?? HARPTOS_CALENDAR_PERIODS[0]?.id ?? "";
-}
-
-function renderDiaryHarptosOverviewSection() {
-  const periodId = getDiaryHarptosOverviewValidPeriodId(state.diaryHarptosOverviewPeriodId);
-  const period = HARPTOS_PERIODS_BY_ID.get(periodId) ?? HARPTOS_MONTH_PERIODS[0];
-  const overviewYear = normalizeDiaryHarptosOverviewYear(state.diaryHarptosOverviewYear);
-  const monthToneClass = getDiaryHarptosMonthToneClass(period.id);
-
-  return `
-    <section class="panel panel--inner diary-harptos-overview">
-      <div class="diary-harptos-overview__header">
-        <div>
-          <p class="eyebrow">${escapeHtml(t("diary_harptos_eyebrow"))}</p>
-          <h3>${escapeHtml(t("diary_harptos_overview_title"))}</h3>
-          <p class="diary-harptos-overview__copy">${escapeHtml(t("diary_harptos_overview_subtitle"))}</p>
-        </div>
-      </div>
-      ${renderDiaryHarptosOverviewLegend()}
-      <div class="diary-harptos-overview__controls">
-        <label class="toolbar-field">
-          <span>${escapeHtml(t("diary_harptos_overview_year"))}</span>
-          <input
-            class="filter-input"
-            type="number"
-            min="1"
-            step="1"
-            value="${escapeHtml(String(overviewYear))}"
-            data-diary-harptos-overview-year
-          />
-        </label>
-        <label class="toolbar-field diary-harptos-overview__month-field">
-          <span>${escapeHtml(t("diary_harptos_month_label"))}</span>
-          <details class="diary-harptos-overview__period-picker">
-            <summary class="diary-harptos-overview__period-trigger ${escapeHtml(monthToneClass)}">
-              ${escapeHtml(formatHarptosPeriodSelectLabel(period))}
-            </summary>
-            <div class="diary-harptos-overview__period-options">
-              ${HARPTOS_MONTH_PERIODS.map((periodEntry) => `
-                <button
-                  class="diary-harptos-overview__period-chip ${escapeHtml(getDiaryHarptosMonthToneClass(periodEntry.id))} ${periodEntry.id === periodId ? "is-active" : ""}"
-                  type="button"
-                  data-action="set-diary-harptos-overview-period"
-                  data-harptos-period-id="${escapeHtml(periodEntry.id)}"
-                >
-                  ${escapeHtml(formatHarptosPeriodSelectLabel(periodEntry))}
-                </button>
-              `).join("")}
-            </div>
-          </details>
-        </label>
-      </div>
-      <div class="diary-harptos-overview__visual">
-        <div class="diary-harptos-overview__days">
-          ${Array.from({ length: period.days }, (_, index) => renderDiaryHarptosOverviewDayCard(period, overviewYear, index + 1)).join("")}
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function renderDiaryHarptosOverviewDayCard(period, year, day) {
-  const seasonKey = getDiaryHarptosSeasonKey(period.id, day);
-  const markerNotes = getDiaryHarptosReferencedNotesForDay(year, period.id, day);
-  const quickNoteKey = getDiaryHarptosDayNoteStorageKey(year, period.id, day);
-  const quickNote = normalizeDiaryHarptosQuickNote(state.diaryHarptosDayNotes?.[quickNoteKey]);
-  const isSolstice = seasonKey === "transition";
-  const dayLabel = formatDiaryHarptosDayLabel(period.id, day, year);
-  const moonPhase = getDiaryHarptosMoonPhase(period.id, day);
-  const transitionClass = isSolstice ? getDiaryHarptosTransitionClass(period.id, day) : "";
-  const noteChips = markerNotes.map((note) => ({
-    kind: "note",
-    label: `${t("diary_harptos_overview_note_chip_prefix")}: ${note.title || t("diary_note_untitled")}`,
-    noteId: note.id
-  }));
-
-  if (quickNote) {
-    noteChips.push({
-      kind: "quick",
-      label: quickNote.label,
-      color: quickNote.color
-    });
-  }
-
-  return `
-    <article
-      class="diary-harptos-overview__day-card diary-harptos-overview__day-card--${escapeHtml(seasonKey)} ${escapeHtml(transitionClass)} ${markerNotes.length > 0 ? "has-diary-notes" : ""}"
-      title="${escapeHtml([dayLabel, ...markerNotes.map((note) => note.title || t("diary_note_untitled"))].join(" | "))}"
-    >
-      <div class="diary-harptos-overview__day-top">
-        <strong>
-          <span class="diary-harptos-overview__day-number">${escapeHtml(String(day))}</span>
-          <span class="diary-harptos-overview__day-month">${escapeHtml(period.name)}</span>
-        </strong>
-        <div class="diary-harptos-overview__day-badges">
-          ${moonPhase ? `<img class="diary-harptos-overview__moon-icon" src="${escapeHtml(moonPhase.iconUrl)}" alt="${escapeHtml(moonPhase.label)}" title="${escapeHtml(moonPhase.label)}" decoding="async" />` : ""}
-        </div>
-      </div>
-      ${
-        noteChips.length > 0 || isSolstice
-          ? `
-            <div class="diary-harptos-overview__titles">
-              ${noteChips.map((chip) => chip.kind === "note"
-                ? `<button class="diary-harptos-overview__chip diary-harptos-overview__chip--note" type="button" data-action="open-harptos-note-from-calendar" data-diary-note-id="${escapeHtml(chip.noteId)}">${escapeHtml(chip.label)}</button>`
-                : `<button class="diary-harptos-overview__chip diary-harptos-overview__chip--quick" type="button" data-action="edit-diary-harptos-day-note" data-harptos-year="${escapeHtml(String(year))}" data-harptos-period-id="${escapeHtml(period.id)}" data-harptos-day="${escapeHtml(String(day))}" style="${escapeHtml(getDiaryHarptosQuickNoteChipStyle(chip.color))}">${escapeHtml(chip.label)}</button>`).join("")}
-            </div>
-          `
-          : ""
-      }
-      <button
-        class="diary-harptos-overview__add-note"
-        type="button"
-        data-action="edit-diary-harptos-day-note"
-        data-harptos-year="${escapeHtml(String(year))}"
-        data-harptos-period-id="${escapeHtml(period.id)}"
-        data-harptos-day="${escapeHtml(String(day))}"
-        aria-label="${escapeHtml(t("diary_harptos_overview_quick_note"))}"
-      >
-        +
-      </button>
-    </article>
-  `;
-}
-
-function renderDiaryHarptosOverviewLegend() {
-  return `
-    <section class="diary-harptos-overview__legend" aria-label="${escapeHtml(t("diary_harptos_overview_legend_title"))}">
-      <strong>${escapeHtml(t("diary_harptos_overview_legend_title"))}</strong>
-      <div class="diary-harptos-overview__legend-grid">
-        ${renderDiaryHarptosLegendItem("winter", t("diary_harptos_overview_legend_winter"))}
-        ${renderDiaryHarptosLegendItem("spring", t("diary_harptos_overview_legend_spring"))}
-        ${renderDiaryHarptosLegendItem("summer", t("diary_harptos_overview_legend_summer"))}
-        ${renderDiaryHarptosLegendItem("autumn", t("diary_harptos_overview_legend_autumn"))}
-      </div>
-    </section>
-  `;
-}
-
-function renderDiaryHarptosLegendItem(seasonKey, label) {
-  return `
-    <span class="diary-harptos-overview__legend-item">
-      <span class="diary-harptos-overview__legend-swatch diary-harptos-overview__legend-swatch--${escapeHtml(seasonKey)}" aria-hidden="true"></span>
-      <span>${escapeHtml(label)}</span>
-    </span>
-  `;
-}
-
 function toggleDiaryHarptosOverview() {
   if (!state.diaryHarptosOverviewOpen) {
     const activeNote = getActiveDiaryNote();
@@ -11496,7 +10964,23 @@ function normalizeDiaryHarptosOverviewYear(value) {
 }
 
 function getDiaryHarptosOverviewValidPeriodId(periodId) {
-  const visibleMonthId = getHarptosVisibleMonthPeriodId({ periodId });
+  const currentPeriodId = cleanText(periodId);
+
+  if (HARPTOS_MONTH_PERIODS.some((period) => period.id === currentPeriodId)) {
+    return currentPeriodId;
+  }
+
+  const currentIndex = HARPTOS_CALENDAR_PERIODS.findIndex((period) => period.id === currentPeriodId);
+
+  if (currentIndex >= 0) {
+    for (let index = currentIndex - 1; index >= 0; index -= 1) {
+      if (HARPTOS_CALENDAR_PERIODS[index]?.kind === "month") {
+        return HARPTOS_CALENDAR_PERIODS[index].id;
+      }
+    }
+  }
+
+  const visibleMonthId = HARPTOS_MONTH_PERIODS[0]?.id ?? "hammer";
   return HARPTOS_MONTH_PERIODS.some((period) => period.id === visibleMonthId) ? visibleMonthId : HARPTOS_MONTH_PERIODS[0]?.id ?? "hammer";
 }
 
@@ -11749,664 +11233,34 @@ function isDiaryHarptosDateInRange(targetDate, startDate, endDate) {
     && compareDiaryHarptosDates(normalizedTarget, normalizedEnd) <= 0;
 }
 
-function renderTablesScreen() {
-  reconcileTablesUiState();
-  const openTables = getOpenTables();
-  const selectedFolder = state.tableFolders.find((folder) => folder.id === state.activeTableFolderId) ?? null;
-
-  return `
-    <section class="panel panel--table tables-screen">
-      <div class="section-heading">
-        ${renderScreenHeadingIdentity("tables", "Referencia editable", "Tablas")}
-        <div class="section-meta">
-          <span>${state.tables.length} tablas</span>
-          <span>${openTables.length} abiertas</span>
-        </div>
-      </div>
-
-      <div class="characters-toolbar tables-screen__toolbar">
-        <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-table">
-          Nueva tabla
-        </button>
-        <button class="toolbar-button" type="button" data-action="import-table-workbook">
-          Importar Excel
-        </button>
-        <button class="toolbar-button" type="button" data-action="close-all-tables" ${openTables.length > 0 ? "" : "disabled"}>
-          Cerrar vistas
-        </button>
-      </div>
-
-      <div class="tables-layout">
-        <aside class="tables-sidebar panel panel--inner" aria-label="Tablas disponibles">
-          <div class="tables-sidebar__header">
-            <div>
-              <p class="eyebrow">Listado</p>
-              <h3>Biblioteca</h3>
-            </div>
-            <div class="encounter-list__actions tables-sidebar__actions">
-              <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-table-folder">
-                Nueva carpeta
-              </button>
-              ${
-                selectedFolder
-                  ? `
-                    <button
-                      class="toolbar-button toolbar-button--danger"
-                      type="button"
-                      data-action="delete-table-folder"
-                      data-table-folder-id="${escapeHtml(selectedFolder.id)}"
-                    >
-                      Eliminar carpeta
-                    </button>
-                  `
-                  : ""
-              }
-            </div>
-          </div>
-          <div class="tables-sidebar__list">
-            ${
-              state.tables.length > 0 || state.tableFolders.length > 0
-                ? renderTableFolderGroups()
-                : `<div class="empty-state empty-state--compact">No hay tablas todavia. Crea una nueva.</div>`
-            }
-          </div>
-        </aside>
-
-        <div class="tables-workspace">
-          ${
-            openTables.length > 0
-              ? openTables.map((table) => renderTablePanel(table)).join("")
-              : `
-                <div class="empty-state empty-state--panel tables-workspace__empty">
-                  <div>
-                    <p>Abre una tabla desde la izquierda para verla aqui.</p>
-                    <button class="toolbar-button toolbar-button--accent" type="button" data-action="create-table">
-                      Crear primera tabla
-                    </button>
-                  </div>
-                </div>
-              `
-          }
-        </div>
-      </div>
-      <input
-        class="file-menu__file"
-        type="file"
-        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-        data-table-import-input
-      />
-    </section>
-  `;
-}
-
-function renderTableListItem(table) {
-  const isActive = table.id === state.activeTableId;
-  const isOpen = state.openTableIds.includes(table.id);
-
-  return `
-    <button
-      class="table-list-item ${isActive ? "is-active" : ""} ${isOpen ? "is-open" : ""}"
-      type="button"
-      data-action="select-table"
-      data-table-id="${escapeHtml(table.id)}"
-      aria-pressed="${isActive}"
-    >
-      <span class="table-list-item__copy">
-        <strong>${escapeHtml(table.name || "Tabla sin nombre")}</strong>
-        <small>${table.columns.length} columnas | ${table.rows.length} filas${isOpen ? " | abierta" : ""}</small>
-      </span>
-    </button>
-  `;
-}
-
-function renderTableFolderGroups() {
-  return getTableFolderGroups()
-    .map((folder) => renderTableFolderGroup(folder))
-    .join("");
-}
-
-function renderTableFolderGroup(folder) {
-  const folderTables = getTablesByFolder(folder.id);
-  const isActive = state.activeTableFolderId === folder.id;
-  const isSystemFolder = folder.id === "";
-  const selectedTableInFolder = state.tables.find((table) => table.id === state.activeTableId && (table.folderId ?? "") === folder.id) ?? null;
-  const isSelectedTableProtected = isProtectedTable(selectedTableInFolder);
-
-  if (folderTables.length === 0 && isSystemFolder && state.tableFolders.length > 0) {
-    return "";
-  }
-
-  return `
-    <section class="encounter-folder ${isActive ? "is-active" : ""}">
-      <div class="encounter-folder__header">
-        <div class="encounter-folder__summary">
-          <button
-            class="encounter-folder__toggle"
-            type="button"
-            data-action="toggle-table-folder"
-            data-table-folder-id="${escapeHtml(folder.id)}"
-            aria-expanded="${folder.isExpanded}"
-          >
-            <span aria-hidden="true">${folder.isExpanded ? "v" : ">"}</span>
-            <small>${folderTables.length}</small>
-          </button>
-          ${
-            isSystemFolder
-              ? `<strong class="encounter-folder__static-name">${escapeHtml(folder.name)}</strong>`
-              : `
-                <input
-                  class="encounter-folder__name"
-                  type="text"
-                  value="${escapeHtml(folder.name)}"
-                  data-table-folder-name="${escapeHtml(folder.id)}"
-                  aria-label="Nombre de carpeta ${escapeHtml(folder.name)}"
-                />
-              `
-          }
-        </div>
-        <div class="tables-folder__actions">
-          <button
-            class="filter-clear"
-            type="button"
-            data-action="create-table"
-            ${folder.id ? `data-table-folder-id="${escapeHtml(folder.id)}"` : ""}
-          >
-            Nueva
-          </button>
-          <button
-            class="filter-clear encounter-folder__delete"
-            type="button"
-            data-action="delete-table"
-            data-table-id="${escapeHtml(selectedTableInFolder?.id ?? "")}"
-            aria-label="${selectedTableInFolder ? isSelectedTableProtected ? `La tabla ${escapeHtml(selectedTableInFolder.name)} esta protegida` : `Eliminar tabla ${escapeHtml(selectedTableInFolder.name)}` : `Selecciona una tabla de ${escapeHtml(folder.name)} para eliminarla`}"
-            ${selectedTableInFolder && !isSelectedTableProtected ? "" : "disabled"}
-          >
-            Eliminar
-          </button>
-        </div>
-      </div>
-      ${
-        folder.isExpanded
-          ? `
-            <div class="encounter-folder__items">
-              ${
-                folderTables.length > 0
-                  ? folderTables.map((table) => renderTableListItem(table)).join("")
-                  : `<div class="empty-state empty-state--compact">Esta carpeta esta vacia.</div>`
-              }
-            </div>
-          `
-          : ""
-      }
-    </section>
-  `;
-}
-
-function renderTablePanel(table) {
-  const isActive = table.id === state.activeTableId;
-  const columnCount = table.columns.length;
-  const rowCount = table.rows.length;
-  const panelTitle = getTablePanelTitle(table);
-  const isRolling = state.rollingTableId === table.id;
-  const isTableProtected = isProtectedTable(table);
-
-  return `
-    <section class="panel panel--inner table-panel ${isActive ? "is-active" : ""} ${table.collapsed ? "is-collapsed" : ""}">
-      <button
-        class="table-panel__header"
-        type="button"
-        data-action="toggle-table-panel-collapse"
-        data-table-id="${escapeHtml(table.id)}"
-        aria-expanded="${table.collapsed ? "false" : "true"}"
-      >
-        <div>
-          <p class="eyebrow">Tabla editable</p>
-          <h3>${escapeHtml(panelTitle)}</h3>
-        </div>
-        <div class="section-meta">
-          <span>${columnCount} columnas</span>
-          <span>${rowCount} filas</span>
-          <span>${table.collapsed ? "Expandir" : "Encoger"}</span>
-        </div>
-      </button>
-
-      ${
-        table.collapsed
-          ? ""
-          : `
-            <div class="tables-toolbar">
-              <label class="toolbar-field tables-toolbar__name">
-                <span>Nombre</span>
-                <input
-                  class="filter-input"
-                  type="text"
-                  value="${escapeHtml(table.name)}"
-                  data-table-name="${escapeHtml(table.id)}"
-                  placeholder="Nueva tabla"
-                />
-              </label>
-              <div class="tables-toolbar__actions">
-                <button class="toolbar-button toolbar-button--accent tables-toolbar__roll" type="button" data-action="roll-table" data-table-id="${escapeHtml(table.id)}" ${rowCount > 0 ? "" : "disabled"}>
-                  <span class="button-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false">
-                      <path d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm0 2a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H7Zm2.5 2.8a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Zm5 0a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Zm-5 5a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Zm5 0a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8Z" />
-                    </svg>
-                  </span>
-                  ${isRolling ? "Rodando..." : "ROLL TABLA"}
-                </button>
-                <button class="toolbar-button toolbar-button--subtle" type="button" data-action="export-table" data-table-id="${escapeHtml(table.id)}">
-                  Exportar Excel
-                </button>
-                <button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="delete-table" data-table-id="${escapeHtml(table.id)}" ${isTableProtected ? "disabled" : ""}>
-                  Eliminar
-                </button>
-              </div>
-            </div>
-
-            <div class="table-wrap tables-table-wrap" role="region" aria-label="${escapeHtml(table.name || "Tabla")}">
-              <table class="combat-table tables-data-table">
-                ${renderTableColGroup(table)}
-                <thead>
-                  <tr>
-                    <th class="tables-data-table__row-tools" title="Fila">#</th>
-                    ${table.columns.map((column, index) => renderTableColumnHeader(table.id, column, index, columnCount)).join("")}
-                  </tr>
-                </thead>
-                <tbody>
-                  ${
-                    table.rows.length > 0
-                      ? table.rows.map((row, index) => renderTableRow(table, row, index)).join("")
-                      : `
-                        <tr>
-                          <td colspan="${columnCount + 1}">
-                            <div class="empty-state empty-state--compact">
-                              <p>Sin filas todavia.</p>
-                              <button class="toolbar-button toolbar-button--subtle tables-data-table__empty-add" type="button" data-action="insert-table-row-after" data-table-id="${escapeHtml(table.id)}" aria-label="Anadir primera fila" title="Anadir primera fila">+</button>
-                            </div>
-                          </td>
-                        </tr>
-                      `
-                  }
-                </tbody>
-              </table>
-            </div>
-          `
-      }
-    </section>
-  `;
-}
-
-function getTablePanelTitle(table) {
-  const folderName = getTableFolderNameById(table.folderId);
-  const tableName = cleanText(table?.name) || "Tabla sin nombre";
-  return folderName ? `${folderName} - ${tableName}` : tableName;
-}
-
-function syncRolledTableRowIntoView() {
-  const rowId = cleanText(state.rollingTableRowId || state.rolledTableRowId);
-  const tableId = cleanText(state.rollingTableId || state.rolledTableId || state.activeTableId);
-
-  if (!rowId || !tableId) {
-    return;
-  }
-
-  const row = app.querySelector(`[data-table-row-id="${rowId}"][data-table-owner-id="${tableId}"]`);
-  const viewport = row?.closest(".tables-table-wrap");
-
-  if (!row || !viewport) {
-    return;
-  }
-
-  const rowRect = row.getBoundingClientRect();
-  const viewportRect = viewport.getBoundingClientRect();
-  const nextScrollTop = viewport.scrollTop + (rowRect.top - viewportRect.top) - (viewport.clientHeight / 2) + (rowRect.height / 2);
-
-  viewport.scrollTo({
-    top: Math.max(0, nextScrollTop),
-    behavior: state.rollingTableId ? "auto" : "smooth"
-  });
-}
-
-function renderTableColumnHeader(tableId, column, index, columnCount) {
-  const columnKind = getTableColumnKind(column, index);
-
-  return `
-    <th class="tables-data-table__header-cell tables-data-table__header-cell--${columnKind}">
-      <div class="tables-data-table__header">
-        <div class="tables-data-table__header-top">
-          <span class="tables-data-table__header-index">Col ${index + 1}</span>
-          <div class="tables-data-table__header-actions">
-            <button
-              class="toolbar-button toolbar-button--subtle-danger tables-data-table__remove-column"
-              type="button"
-              data-action="remove-table-column"
-              data-table-id="${escapeHtml(tableId)}"
-              data-table-column-id="${escapeHtml(column.id)}"
-              aria-label="Eliminar columna ${escapeHtml(column.label || `Columna ${index + 1}`)}"
-              title="Eliminar columna"
-              ${columnCount > 1 ? "" : "disabled"}
-            >
-              X
-            </button>
-            <button
-              class="toolbar-button toolbar-button--subtle tables-data-table__insert-column"
-              type="button"
-              data-action="insert-table-column-after"
-              data-table-id="${escapeHtml(tableId)}"
-              data-table-column-id="${escapeHtml(column.id)}"
-              aria-label="Anadir columna tras ${escapeHtml(column.label || `Columna ${index + 1}`)}"
-              title="Anadir columna"
-            >
-              +
-            </button>
-          </div>
-        </div>
-        <input
-          class="filter-input tables-data-table__header-input tables-data-table__header-input--${columnKind}"
-          type="text"
-          value="${escapeHtml(column.label)}"
-          data-table-id="${escapeHtml(tableId)}"
-          data-table-column-id="${escapeHtml(column.id)}"
-          data-table-column-label="${escapeHtml(column.id)}"
-          placeholder="Columna ${index + 1}"
-        />
-      </div>
-      <span
-        class="tables-data-table__resize-handle"
-        data-table-resize-handle
-        data-table-id="${escapeHtml(tableId)}"
-        data-table-column-id="${escapeHtml(column.id)}"
-        title="Arrastra para cambiar ancho"
-        aria-hidden="true"
-      ></span>
-    </th>
-  `;
-}
-
-function renderTableRow(table, row, rowIndex) {
-  const isRollingRow = state.rollingTableId === table.id && state.rollingTableRowId === row.id;
-  const isRolledRow = state.rolledTableId === table.id && state.rolledTableRowId === row.id;
-
-  return `
-    <tr class="tables-data-table__row ${isRollingRow ? "is-rolling" : ""} ${isRolledRow ? "is-rolled" : ""}" data-table-row-id="${escapeHtml(row.id)}" data-table-owner-id="${escapeHtml(table.id)}">
-      <td class="tables-data-table__row-tools">
-        <div class="tables-data-table__row-actions">
-          <strong>${rowIndex + 1}</strong>
-          <button
-            class="toolbar-button toolbar-button--subtle-danger tables-data-table__remove-row"
-            type="button"
-            data-action="remove-table-row"
-            data-table-id="${escapeHtml(table.id)}"
-            data-table-row-id="${escapeHtml(row.id)}"
-            aria-label="Eliminar fila ${rowIndex + 1}"
-            title="Eliminar fila"
-          >
-            X
-          </button>
-          <button
-            class="toolbar-button toolbar-button--subtle tables-data-table__insert-row"
-            type="button"
-            data-action="insert-table-row-after"
-            data-table-id="${escapeHtml(table.id)}"
-            data-table-row-id="${escapeHtml(row.id)}"
-            aria-label="Anadir fila tras fila ${rowIndex + 1}"
-            title="Anadir fila"
-          >
-            +
-          </button>
-        </div>
-      </td>
-      ${table.columns.map((column, columnIndex) => {
-        const cellValue = row.cells[column.id] ?? "";
-        const columnKind = getTableColumnKind(column, columnIndex);
-        const linkedContent = columnKind !== "number"
-          ? renderLootTableCellContent(cellValue)
-          : "";
-
-        return `
-          <td class="tables-data-table__cell tables-data-table__cell--${columnKind}">
-            <textarea
-              class="tables-data-table__cell-input tables-data-table__cell-input--${columnKind}"
-              rows="${getTableTextareaRows(table.columns.length, columnKind)}"
-              data-table-cell="${escapeHtml(column.id)}"
-              data-table-id="${escapeHtml(table.id)}"
-              data-table-row-id="${escapeHtml(row.id)}"
-              data-table-column-id="${escapeHtml(column.id)}"
-            >${escapeHtml(cellValue)}</textarea>
-            ${linkedContent ? `<div class="tables-data-table__cell-text tables-data-table__cell-text--${columnKind}">${linkedContent}</div>` : ""}
-          </td>
-        `;
-      }).join("")}
-    </tr>
-  `;
-}
-
-function renderLootTableCellContent(value) {
-  const text = cleanText(value);
-  const matches = getTableCompendiumNameMatches(text);
-
-  if (!text || matches.length === 0) {
-    return "";
-  }
-
-  let cursor = 0;
-  const chunks = [];
-
-  matches.forEach((match) => {
-    if (match.start > cursor) {
-      chunks.push(escapeHtml(text.slice(cursor, match.start)));
-    }
-
-    chunks.push(`
-      <button
-        class="tables-data-table__item-link"
-        type="button"
-        data-action="${match.kind === "spell" ? "open-table-spell" : "open-loot-table-item"}"
-        ${match.kind === "spell" ? `data-spell-name="${escapeHtml(match.entryName)}"` : `data-item-name="${escapeHtml(match.entryName)}"`}
-        title="Abrir ${escapeHtml(match.entryName)} en ${match.kind === "spell" ? "hechizos" : "objetos"}"
-      >${escapeHtml(match.entryName || text.slice(match.start, match.end))}</button>
-    `);
-    cursor = match.end;
-  });
-
-  if (cursor < text.length) {
-    chunks.push(escapeHtml(text.slice(cursor)));
-  }
-
-  return chunks.join("");
-}
-
-function getLootTableItemNameMatches(text) {
-  return getTableCompendiumNameMatches(text).filter((match) => match.kind === "item");
-}
-
-function getTableCompendiumNameMatches(text) {
-  const sourceText = cleanText(text);
-
-  if (!sourceText || ((state.itemStatus !== "ready" || state.items.length === 0) && (state.arcanumStatus !== "ready" || state.arcanum.length === 0))) {
-    return [];
-  }
-
-  const normalizedSource = normalizeSearchText(sourceText);
-  const sourceWords = new Set(normalizedSource.match(/[a-z0-9]+/g) ?? []);
-  const candidateIndex = getTableCompendiumCandidateIndex();
-  const candidates = [...new Map(
-    [...sourceWords]
-      .flatMap((word) => candidateIndex.get(word) ?? [])
-      .map((candidate) => [`${candidate.kind}:${candidate.normalizedName}`, candidate])
-  ).values()];
-  const ranges = [];
-
-  candidates.forEach((candidate) => {
-    let start = normalizedSource.indexOf(candidate.normalizedName);
-
-    while (start >= 0) {
-      const end = start + candidate.normalizedName.length;
-      const overlaps = ranges.some((range) => start < range.end && end > range.start);
-
-      if (!overlaps && isLootTableItemMatchBoundary(normalizedSource, start, end)) {
-        ranges.push({ start, end, kind: candidate.kind, entryName: candidate.entryName });
-      }
-
-      start = normalizedSource.indexOf(candidate.normalizedName, end);
-    }
-  });
-
-  return ranges.sort((left, right) => left.start - right.start);
-}
-
-function getLootTableItemCandidateIndex() {
-  return getTableCompendiumCandidateIndex();
-}
-
-function getTableCompendiumCandidateIndex() {
-  if (lootTableItemMatchCache.items === state.items && lootTableItemMatchCache.arcanum === state.arcanum) {
-    return lootTableItemMatchCache.index;
-  }
-
-  const uniqueCandidates = new Map();
-
-  [
-    { kind: "item", entries: state.items },
-    { kind: "spell", entries: state.arcanum }
-  ].forEach(({ kind, entries }) => {
-    entries.forEach((entry) => {
-      const entryName = cleanText(entry.name);
-      const aliases = getCompendiumEntryNameAliases(entry);
-
-      aliases.forEach((normalizedName) => {
-        const firstWord = normalizedName.match(/[a-z0-9]+/u)?.[0] ?? "";
-
-        if (!entryName || normalizedName.length < 3 || !firstWord) {
-          return;
-        }
-
-        uniqueCandidates.set(`${kind}:${normalizedName}`, { kind, entryName, normalizedName, firstWord });
-      });
-    });
-  });
-
-  const index = new Map();
-  uniqueCandidates.forEach((candidate) => {
-    const bucket = index.get(candidate.firstWord) ?? [];
-    bucket.push(candidate);
-    index.set(candidate.firstWord, bucket);
-  });
-  index.forEach((bucket) => bucket.sort((left, right) => right.normalizedName.length - left.normalizedName.length));
-  lootTableItemMatchCache = { items: state.items, arcanum: state.arcanum, index };
-  return index;
-}
-
-function isLootTableItemMatchBoundary(text, start, end) {
-  const before = start > 0 ? text[start - 1] : "";
-  const after = end < text.length ? text[end] : "";
-  return !/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after);
-}
-
-function openItemFromLootTable(itemName) {
-  const normalizedItemName = cleanText(itemName);
-
-  if (!normalizedItemName) {
-    return;
-  }
-
-  const matchedItem = findCompendiumEntryByReference(state.items, { name: normalizedItemName }) ?? null;
-  resetItemVirtualScroll();
-  state.activeScreen = "items";
-  state.itemFilters = {
-    ...blankItemFilters,
-    query: matchedItem?.name || normalizedItemName
-  };
-  state.itemFilterSearch = { ...blankItemFilterSearch };
-  state.activeItemFilterKey = "";
-  state.showItemQuerySuggestions = false;
-  state.itemSelectedId = matchedItem?.id || "";
-  render({
-    focusSelector: "[data-item-query]"
-  });
-}
-
-function openSpellFromTable(spellName) {
-  const normalizedSpellName = cleanText(spellName);
-
-  if (!normalizedSpellName) {
-    return;
-  }
-
-  const matchedSpell = findCompendiumEntryByReference(state.arcanum, { name: normalizedSpellName }) ?? null;
-  resetArcanumVirtualScroll();
-  state.activeScreen = "arcanum";
-  state.arcanumFilters = {
-    ...blankArcanumFilters,
-    query: matchedSpell?.name || normalizedSpellName
-  };
-  state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
-  state.activeArcanumFilterKey = "";
-  state.showArcanumQuerySuggestions = false;
-  state.arcanumSelectedId = matchedSpell?.id || "";
-  render({
-    focusSelector: "[data-arcanum-query]"
-  });
-}
-
-function renderTableColGroup(table) {
-  return `
-    <colgroup>
-      <col class="tables-data-table__col tables-data-table__col--row-tools" />
-      ${table.columns.map((column, index) => `
-        <col
-          class="tables-data-table__col tables-data-table__col--${getTableColumnKind(column, index)}"
-          data-table-id="${escapeHtml(table.id)}"
-          data-table-col-id="${escapeHtml(column.id)}"
-          ${column.width ? `style="width:${column.width}px"` : ""}
-        />
-      `).join("")}
-    </colgroup>
-  `;
-}
-
-function getTableColumnKind(column, index) {
-  const label = cleanText(column?.label).toLowerCase();
-
-  if (
-    index === 0
-    && (
-      label.includes("num")
-      || label.includes("numero")
-      || label === "#"
-      || label === "id"
-    )
-  ) {
-    return "number";
-  }
-
-  if (
-    index === 0
-    && (
-      label.includes("estado")
-      || label.includes("nombre")
-      || label.includes("tipo")
-      || label.includes("tag")
-    )
-  ) {
-    return "short";
-  }
-
-  return "wide";
-}
-
-function getTableTextareaRows(columnCount, columnKind) {
-  if (columnKind === "number") {
-    return 1;
-  }
-
-  if (columnKind === "short") {
-    return 2;
-  }
-
-  return columnCount <= 2 ? 2 : 3;
-}
-
+const {
+  renderTablesScreen,
+  syncRolledTableRowIntoView,
+  openItemFromLootTable,
+  openSpellFromTable
+} = createTableRenderers({
+  state: appStateProxy,
+  app,
+  renderScreenHeadingIdentity,
+  escapeHtml,
+  cleanText,
+  normalizeSearchText,
+  isProtectedTable,
+  getOpenTables,
+  reconcileTablesUiState,
+  getTableFolderGroups,
+  getTablesByFolder,
+  getTableFolderNameById,
+  getCompendiumEntryNameAliases,
+  findCompendiumEntryByReference,
+  resetItemVirtualScroll,
+  blankItemFilters,
+  blankItemFilterSearch,
+  render,
+  resetArcanumVirtualScroll,
+  blankArcanumFilters,
+  blankArcanumFilterSearch
+});
 function renderCharacterListItem(character) {
   const isActive = character.id === state.activeCharacterId;
   const isSelected = state.selectedCharacterIds.has(character.id);
@@ -12628,22 +11482,6 @@ function renderCharacterOverviewField(characterId, key, value, type = "text", pl
       data-character-overview-id="${escapeHtml(characterId)}"
       data-character-overview-field="${escapeHtml(key)}"
     />
-  `;
-}
-
-function renderCharacterOverviewValue(value) {
-  return `<span class="character-overview__value">${escapeHtml(String(value ?? ""))}</span>`;
-}
-
-function renderCharacterOverviewProgressBar(label, percent, tone, extraStyle = "") {
-  const clampedPercent = Math.max(0, Math.min(100, percent));
-  const styleAttribute = [`--overview-fill: ${clampedPercent.toFixed(2)}%`, extraStyle].filter(Boolean).join("; ");
-
-  return `
-    <div class="character-overview-bar character-overview-bar--${tone}" style="${styleAttribute}">
-      <span class="character-overview-bar__fill" aria-hidden="true"></span>
-      <span class="character-overview-bar__label">${escapeHtml(label)}</span>
-    </div>
   `;
 }
 
@@ -13752,10 +12590,6 @@ function getCharacterPassivePerception(character) {
     + (proficientKeys.has("skill:perception") ? proficiencyBonus : 0);
 }
 
-function getCharacterTrapDoorPerception(character) {
-  return Math.max(0, Math.floor(toNumber(character?.trapPerception) || 0));
-}
-
 function getCharacterCurrencyDescription(currency) {
   const normalizedName = cleanText(currency?.name).toUpperCase();
   const descriptions = isEnglishInterface()
@@ -14021,21 +12855,6 @@ function renderCharacterNpcField(character) {
   `;
 }
 
-function renderCharacterNumberField(key, label, value) {
-  return `
-    <label class="toolbar-field character-identity-field">
-      <span>${escapeHtml(label)}</span>
-      <input
-        class="filter-input character-identity-field__input"
-        type="number"
-        inputmode="numeric"
-        value="${escapeHtml(String(value ?? ""))}"
-        data-character-field="${escapeHtml(key)}"
-      />
-    </label>
-  `;
-}
-
 function getCharacterTextLengthClass(value) {
   const length = cleanText(value).length;
 
@@ -14048,25 +12867,6 @@ function getCharacterTextLengthClass(value) {
   }
 
   return "";
-}
-
-function renderCharacterAbilityField(character, key) {
-  const score = character.abilities[key] ?? 10;
-  const modifier = getAbilityModifier(score);
-
-  return `
-    <label class="ability-card character-ability">
-      <span>${key.toUpperCase()}</span>
-      <input
-        class="filter-input"
-        type="number"
-        inputmode="numeric"
-        value="${escapeHtml(String(score))}"
-        data-character-ability="${escapeHtml(key)}"
-      />
-      <strong>${formatModifier(modifier)}</strong>
-    </label>
-  `;
 }
 
 function renderCharacterEmpty() {
@@ -14085,46 +12885,6 @@ function renderPlaceholderScreen(title, description) {
       <p class="lead">${description}</p>
     </section>
   `;
-}
-
-function getSummaries() {
-  const allies = state.combatants.filter((entry) => entry.side === "allies").length;
-  const enemies = state.combatants.filter((entry) => entry.side === "enemies").length;
-  const selected = state.selectedIds.size;
-  const totalHp = state.combatants.reduce((total, entry) => total + toNumber(entry.pgAct), 0);
-
-  return [
-    { label: "Aliados", value: allies },
-    { label: "Enemigos", value: enemies },
-    { label: "Seleccionados", value: selected },
-    { label: "PG totales", value: totalHp }
-  ];
-}
-
-function getItemSummaries(filteredEntries) {
-  const sources = new Set(filteredEntries.map((entry) => entry.source).filter(Boolean)).size;
-  const rarities = new Set(filteredEntries.map((entry) => entry.rarityLabel).filter(Boolean)).size;
-  const illustrated = filteredEntries.filter((entry) => entry.hasImage).length;
-
-  return [
-    { label: "Items", value: filteredEntries.length },
-    { label: "Fuentes", value: sources },
-    { label: "Rarezas", value: rarities },
-    { label: "Con arte", value: illustrated }
-  ];
-}
-
-function getArcanumSummaries(filteredEntries) {
-  const sources = new Set(filteredEntries.map((entry) => entry.source).filter(Boolean)).size;
-  const schools = new Set(filteredEntries.map((entry) => entry.school).filter(Boolean)).size;
-  const selected = getSelectedArcanumEntry(filteredEntries);
-
-  return [
-    { label: "Hechizos", value: filteredEntries.length },
-    { label: "Fuentes", value: sources },
-    { label: "Escuelas", value: schools },
-    { label: "Seleccion", value: selected ? selected.name : "Ninguno" }
-  ];
 }
 
 function getVisibleCombatants() {
@@ -14167,14 +12927,6 @@ function formatCharacterSubtitle(character) {
     level,
     character.species
   ].filter(Boolean).join(" | ");
-}
-
-function formatCharacterIdentityLine(character) {
-  return [
-    character.background,
-    character.playerName ? `Jugador: ${character.playerName}` : "",
-    character.size ? `Talla ${character.size}` : ""
-  ].filter(Boolean).join(" | ") || "Ficha editable lista para entrar en combate.";
 }
 
 function renderCharacterExperienceBar(character, options = {}) {
@@ -16827,34 +15579,6 @@ function deleteEncounterFolder(folderId) {
   saveEncounterInventory();
 }
 
-function moveFolderToFolder(sourceFolderId, targetFolderId, placement) {
-  if (!sourceFolderId || !targetFolderId || sourceFolderId === targetFolderId) {
-    return;
-  }
-
-  const sourceFolder = state.encounterFolders.find((folder) => folder.id === sourceFolderId);
-
-  if (!sourceFolder) {
-    return;
-  }
-
-  const foldersWithoutSource = state.encounterFolders.filter((folder) => folder.id !== sourceFolderId);
-  const targetIndex = foldersWithoutSource.findIndex((folder) => folder.id === targetFolderId);
-
-  if (targetIndex === -1) {
-    return;
-  }
-
-  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
-  state.encounterFolders = [
-    ...foldersWithoutSource.slice(0, insertIndex),
-    sourceFolder,
-    ...foldersWithoutSource.slice(insertIndex)
-  ];
-  state.activeEncounterFolderId = sourceFolderId;
-  saveEncounterInventory();
-}
-
 function moveFoldersToFolder(sourceFolderIds, targetFolderId, placement) {
   const cleanSourceIds = sourceFolderIds.filter(Boolean);
 
@@ -16881,26 +15605,6 @@ function moveFoldersToFolder(sourceFolderIds, targetFolderId, placement) {
   saveEncounterInventory();
 }
 
-function moveEncounterToFolder(encounterId, folderId) {
-  const encounter = state.encounters.find((item) => item.id === encounterId);
-
-  if (!encounter) {
-    return;
-  }
-
-  state.encounters = [
-    ...state.encounters.filter((item) => item.id !== encounterId),
-    {
-      ...encounter,
-      folderId
-    }
-  ];
-  expandEncounterFolder(folderId);
-  state.activeEncounterId = encounterId;
-  state.activeEncounterFolderId = folderId;
-  saveEncounterInventory();
-}
-
 function moveEncountersToFolder(encounterIds, folderId) {
   const encounterIdSet = new Set(encounterIds);
   const movedEncounters = state.encounters
@@ -16921,42 +15625,6 @@ function moveEncountersToFolder(encounterIds, folderId) {
   expandEncounterFolder(folderId);
   state.activeEncounterId = movedEncounters[0].id;
   state.activeEncounterFolderId = folderId;
-  saveEncounterInventory();
-}
-
-function moveEncounterToEncounter(sourceEncounterId, targetEncounterId, placement) {
-  if (!sourceEncounterId || !targetEncounterId || sourceEncounterId === targetEncounterId) {
-    return;
-  }
-
-  const sourceEncounter = state.encounters.find((encounter) => encounter.id === sourceEncounterId);
-  const targetEncounter = state.encounters.find((encounter) => encounter.id === targetEncounterId);
-
-  if (!sourceEncounter || !targetEncounter) {
-    return;
-  }
-
-  const encountersWithoutSource = state.encounters.filter((encounter) => encounter.id !== sourceEncounterId);
-  const targetIndex = encountersWithoutSource.findIndex((encounter) => encounter.id === targetEncounterId);
-
-  if (targetIndex === -1) {
-    return;
-  }
-
-  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
-  const movedEncounter = {
-    ...sourceEncounter,
-    folderId: targetEncounter.folderId ?? ""
-  };
-
-  state.encounters = [
-    ...encountersWithoutSource.slice(0, insertIndex),
-    movedEncounter,
-    ...encountersWithoutSource.slice(insertIndex)
-  ];
-  expandEncounterFolder(movedEncounter.folderId);
-  state.activeEncounterId = sourceEncounterId;
-  state.activeEncounterFolderId = movedEncounter.folderId;
   saveEncounterInventory();
 }
 
@@ -17411,11 +16079,6 @@ function getCompendiumEntryNameAliases(entry) {
   return uniqueSortedStrings(aliases.filter(Boolean));
 }
 
-function doesCompendiumEntryMatchName(entry, name) {
-  const normalizedName = normalizeSearchText(name);
-  return Boolean(normalizedName) && getCompendiumEntryNameAliases(entry).includes(normalizedName);
-}
-
 function findCompendiumEntryByReference(entries, reference = {}) {
   if (!Array.isArray(entries) || entries.length === 0) {
     return null;
@@ -17816,43 +16479,6 @@ function addBlankCombatant() {
   state.activeCombatNameSearchId = id;
   state.nextId += 1;
   return id;
-}
-
-function addEntity() {
-  const basePg = 10;
-  const id = `entity-${state.nextId}`;
-
-  state.combatants = [
-    {
-      id,
-      side: state.newEntitySide,
-      source: "",
-      ubicacion: "",
-      iniactiva: "",
-      nombre: "",
-      numPeana: formatStandNumber(getNextEnemyStandNumber()),
-      pgMax: basePg,
-      pgAct: basePg,
-      pgTemp: 0,
-      necrotic: 0,
-      ca: 10,
-      shieldEquipped: false,
-      condiciones: "",
-      stats: formatStatsWithModifiers("STR 10 DEX 10 CON 10 INT 10 WIS 10 CHA 10"),
-      tamano: "Mediano",
-      movimiento: "30 ft",
-      vision: "",
-      lenguas: "",
-      crExp: "",
-      tag: mapSideToTag(state.newEntitySide),
-      initiativeRoll: null,
-      initiativeNat20: false
-    },
-    ...state.combatants
-  ];
-
-  state.inlineAdjustments[id] = { ...blankInlineAdjustments };
-  state.nextId += 1;
 }
 
 function deleteSelected() {
@@ -19478,18 +18104,6 @@ function getRepositoryCsvDisplayPath(value) {
   return normalizeDataCsvRelativePath(value);
 }
 
-function getRepositoryCsvDisplayName(value) {
-  const displayPath = getRepositoryCsvDisplayPath(value);
-  return getFileNameFromPath(displayPath) || displayPath || "CSV";
-}
-
-function getRepositoryStatusDisplay(repositoryKey) {
-  const meta = state.contentSourceMeta[repositoryKey] ?? blankContentSourceMeta;
-  const modeLabel = getContentTranslationModeLabel(meta.translationMode, state.contentLanguage);
-
-  return `${getActiveRepositoryCsvDisplayName(repositoryKey)} - ${modeLabel}`;
-}
-
 function getRepositoryCsvPath(repositoryKey) {
   return normalizeRepositoryCsvPath(state.repositoryCsvPaths[repositoryKey])
     || defaultRepositoryCsvPaths[repositoryKey]
@@ -19527,31 +18141,6 @@ function updateRepositoryCsvPath(repositoryKey, relativePath) {
     resetArcanumVirtualScroll();
     state.arcanumSelectedId = "";
     loadArcanum();
-  }
-}
-
-async function openRepositoryCsvPicker(repositoryKey) {
-  if (!defaultRepositoryCsvPaths[repositoryKey]) {
-    return;
-  }
-
-  const desktopApi = getDesktopCampaignApi();
-
-  if (typeof desktopApi?.pickRepositoryCsv !== "function") {
-    return;
-  }
-
-  try {
-    const result = await desktopApi.pickRepositoryCsv(repositoryKey);
-
-    if (result?.canceled || !result?.filePath) {
-      return;
-    }
-
-    updateRepositoryCsvPath(repositoryKey, encodeExternalRepositoryCsvPath(result.filePath));
-    render();
-  } catch {
-    // Keep current CSV if desktop picker fails.
   }
 }
 
@@ -21226,49 +19815,6 @@ function hasArcanumConstraintsBesides(excludedKey) {
 
     return (state.arcanumFilters[key] ?? []).length > 0;
   }) || (excludedKey !== "concentration" && Boolean(state.arcanumFilters.concentration));
-}
-
-function getBestiaryStatusLabel() {
-  if (state.bestiaryStatus === "loading") {
-    return t("loading_csv");
-  }
-
-  if (state.bestiaryStatus === "error") {
-    return t("read_error");
-  }
-
-  return t("active_csv", { path: getRepositoryStatusDisplay("bestiary") });
-}
-function getItemStatusLabel() {
-  if (state.itemStatus === "loading") {
-    return t("loading_csv");
-  }
-
-  if (state.itemStatus === "error") {
-    return t("read_error");
-  }
-
-  return t("active_csv", { path: getRepositoryStatusDisplay("items") });
-}
-
-function getArcanumStatusLabel() {
-  if (state.arcanumStatus === "loading") {
-    return t("loading_csv");
-  }
-
-  if (state.arcanumStatus === "error") {
-    return t("read_error");
-  }
-
-  return t("active_csv", { path: getRepositoryStatusDisplay("arcanum") });
-}
-
-function getRepositoryStatusPath(repositoryKey) {
-  const relativePath = getRepositoryCsvPath(repositoryKey);
-  const meta = state.contentSourceMeta[repositoryKey] ?? blankContentSourceMeta;
-  const modeLabel = getContentTranslationModeLabel(meta.translationMode, state.contentLanguage);
-
-  return `${relativePath} · ${modeLabel}`;
 }
 
 function getEnemyHitPointValue(entry) {
@@ -23048,1139 +21594,6 @@ function dismissNotification(notificationId) {
   state.notifications = state.notifications.filter((notification) => notification.id !== normalizedNotificationId);
 }
 
-function loadCharacterSkillDefinitions() {
-  if (typeof window === "undefined") {
-    return getDefaultCharacterSkillDefinitions();
-  }
-
-  if (usesDesktopFileOnlyPersistence()) {
-    return getDefaultCharacterSkillDefinitions();
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY);
-
-    if (rawValue) {
-      return normalizeStoredCharacterSkillDefinitions(JSON.parse(rawValue || "[]"));
-    }
-
-    const legacyCharactersRaw = window.localStorage.getItem(CHARACTERS_STORAGE_KEY);
-    return normalizeStoredCharacterSkillDefinitions(undefined, JSON.parse(legacyCharactersRaw || "[]"));
-  } catch {
-    return getDefaultCharacterSkillDefinitions();
-  }
-}
-
-function saveCharacterSkillDefinitions() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!usesDesktopFileOnlyPersistence()) {
-    try {
-      window.localStorage.setItem(
-        CHARACTER_SKILL_DEFINITIONS_STORAGE_KEY,
-        JSON.stringify(getCharacterSkillDefinitionsSaveData())
-      );
-    } catch {
-      // Storage can be unavailable in private contexts; campaign files still work.
-    }
-  }
-
-  scheduleDesktopCampaignDirtyStateSync(60);
-}
-
-function getCharacterSkillDefinitionsSaveData() {
-  return state.characterSkillDefinitions
-    .map((skillDefinition) => normalizeStoredCharacterSkillDefinition(skillDefinition))
-    .filter(Boolean);
-}
-
-function loadCharacters(skillDefinitions = getDefaultCharacterSkillDefinitions()) {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  if (usesDesktopFileOnlyPersistence()) {
-    return [];
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(CHARACTERS_STORAGE_KEY);
-    return normalizeStoredCharacters(JSON.parse(rawValue || "[]"), skillDefinitions);
-  } catch {
-    return [];
-  }
-}
-
-function saveCharacters() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!usesDesktopFileOnlyPersistence()) {
-    try {
-      window.localStorage.setItem(CHARACTERS_STORAGE_KEY, JSON.stringify(getCharactersSaveData()));
-    } catch {
-      // Storage can be unavailable in private contexts; campaign files still work.
-    }
-  }
-
-  scheduleDesktopCampaignDirtyStateSync(60);
-}
-
-function getCharactersSaveData() {
-  return state.characters
-    .map((character) => normalizeStoredCharacter(character, state.characterSkillDefinitions))
-    .filter(Boolean);
-}
-
-function resolveCharacterSkillDefinitions(skillDefinitions, legacyCharacters = []) {
-  if (Array.isArray(skillDefinitions)) {
-    return skillDefinitions;
-  }
-
-  if (typeof state !== "undefined" && Array.isArray(state.characterSkillDefinitions)) {
-    return state.characterSkillDefinitions;
-  }
-
-  return normalizeStoredCharacterSkillDefinitions(undefined, legacyCharacters);
-}
-
-function normalizeStoredCharacters(value, skillDefinitions = undefined) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const resolvedSkillDefinitions = resolveCharacterSkillDefinitions(skillDefinitions, value);
-
-  return value
-    .map((character) => normalizeStoredCharacter(character, resolvedSkillDefinitions))
-    .filter(Boolean);
-}
-
-function normalizeStoredCharacter(character, skillDefinitions = undefined) {
-  if (!isPlainObject(character)) {
-    return null;
-  }
-
-  const resolvedSkillDefinitions = resolveCharacterSkillDefinitions(skillDefinitions, [character]);
-  const classEntries = normalizeStoredCharacterClassEntries(character.classEntries, character);
-  const hasStoredMulticlassFlag = typeof character.isMulticlass === "boolean";
-  const inferredMulticlass = classEntries.slice(1).some((entry) => hasMeaningfulCharacterClassEntry(entry));
-  const isMulticlass = hasStoredMulticlassFlag ? character.isMulticlass === true : inferredMulticlass;
-  const normalizedClassEntries = ensureCharacterClassEntryCount(classEntries, isMulticlass ? 2 : 1);
-  const primaryClassEntry = normalizedClassEntries[0] ?? createDefaultCharacterClassEntry({ level: 1 });
-
-  const maxHp = normalizeStoredNonNegativeNumber(character.maxHp);
-  const hasCurrentHp = character.currentHp !== undefined && character.currentHp !== null;
-  let currentHp = hasCurrentHp ? normalizeStoredNonNegativeNumber(character.currentHp) : maxHp;
-  const level = getCharacterTotalLevelFromClassEntries(normalizedClassEntries, isMulticlass);
-  const levelStartExperiencePoints = getCharacterLevelProgressionEntry(level).experiencePoints;
-  const hasSeparatedExperience = character.totalExperiencePoints !== undefined;
-  const levelExperiencePoints = hasSeparatedExperience
-    ? normalizeStoredCharacterLevelExperiencePoints(character.experiencePoints, level)
-    : normalizeLegacyCharacterLevelExperiencePoints(character.experiencePoints, level);
-
-  if (currentHp !== "" && maxHp !== "") {
-    currentHp = Math.min(currentHp, maxHp);
-  }
-
-  return {
-    id: cleanText(character.id) || createStableId("character"),
-    name: cleanText(character.name) || "Personaje",
-    playerName: cleanText(character.playerName),
-    isNpc: character.isNpc === true,
-    className: primaryClassEntry.name,
-    subclassName: primaryClassEntry.subclassName,
-    isMulticlass,
-    classEntries: normalizedClassEntries,
-    level,
-    experiencePoints: levelExperiencePoints,
-    totalExperiencePoints: levelStartExperiencePoints + levelExperiencePoints,
-    species: cleanText(character.species),
-    background: cleanText(character.background),
-    size: cleanText(character.size) || "Mediano",
-    proficiencyBonus: getDefaultCharacterProficiencyBonus(level),
-    proficiencies: normalizeStoredCharacterProficiencies(character.proficiencies),
-    tokenUrl: cleanText(character.tokenUrl),
-    armorClass: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.armorClass)) || 10)),
-    maxHp,
-    currentHp,
-    tempHp: normalizeStoredNonNegativeNumber(character.tempHp),
-    speed: cleanText(character.speed) || "30 ft",
-    initiativeBonus: normalizeStoredNumber(character.initiativeBonus),
-    trapPerception: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.trapPerception)) || 0)),
-    conditions: cleanText(character.conditions),
-    stand: normalizeStoredStandLabel(character.stand),
-    notes: cleanText(character.notes),
-    skillProgress: normalizeStoredCharacterSkillProgress(
-      character.skillProgress,
-      resolvedSkillDefinitions,
-      character.skillTracks
-    ),
-    spellsOpen: character.spellsOpen === true,
-    spells: normalizeStoredCharacterSpells(character.spells),
-    spellAttackModifier: normalizeStoredNumber(character.spellAttackModifier),
-    spellSaveDc: normalizeStoredNumber(character.spellSaveDc),
-    spellSlotLevelsVisible: normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots),
-    spellSlots: normalizeStoredCharacterSpellSlots(character.spellSlots),
-    spellbookAbilities: normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities),
-    inventoryOpen: character.inventoryOpen !== false,
-    inventory: normalizeStoredCharacterInventory(character.inventory),
-    abilities: normalizeStoredCharacterAbilities(character.abilities)
-  };
-}
-
-function createDefaultCharacterClassEntry(overrides = {}) {
-  return normalizeStoredCharacterClassEntry({
-    id: createStableId("character-class"),
-    level: 1,
-    ...overrides
-  });
-}
-
-function normalizeStoredCharacterClassEntries(entries, legacyCharacter = {}) {
-  const normalizedEntries = Array.isArray(entries)
-    ? entries.map((entry) => normalizeStoredCharacterClassEntry(entry)).filter(Boolean)
-    : [];
-
-  if (normalizedEntries.length > 0) {
-    return normalizedEntries;
-  }
-
-  return [createDefaultCharacterClassEntry({
-    name: legacyCharacter.className,
-    subclassName: legacyCharacter.subclassName,
-    level: legacyCharacter.level ?? 1
-  })];
-}
-
-function normalizeStoredCharacterClassEntry(entry) {
-  if (!isPlainObject(entry)) {
-    return null;
-  }
-
-  return {
-    id: cleanText(entry.id) || createStableId("character-class"),
-    name: cleanText(entry.name ?? entry.className),
-    subclassName: cleanText(entry.subclassName),
-    level: normalizeStoredCharacterClassLevel(entry.level)
-  };
-}
-
-function normalizeStoredCharacterClassLevel(value) {
-  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
-  return Math.min(numericValue, 20);
-}
-
-function ensureCharacterClassEntryCount(entries, minimumCount = 1) {
-  const normalizedEntries = Array.isArray(entries)
-    ? entries.map((entry) => normalizeStoredCharacterClassEntry(entry)).filter(Boolean)
-    : [];
-  const requiredCount = Math.max(1, Math.floor(toNumber(minimumCount) || 1));
-
-  while (normalizedEntries.length < requiredCount) {
-    normalizedEntries.push(createDefaultCharacterClassEntry({
-      level: normalizedEntries.length === 0 ? 1 : 0
-    }));
-  }
-
-  return normalizedEntries;
-}
-
-function hasMeaningfulCharacterClassEntry(entry) {
-  return cleanText(entry?.name).length > 0
-    || cleanText(entry?.subclassName).length > 0
-    || normalizeStoredCharacterClassLevel(entry?.level) > 0;
-}
-
-function getCharacterVisibleClassEntries(character) {
-  const entries = ensureCharacterClassEntryCount(character?.classEntries, character?.isMulticlass ? 2 : 1);
-  return character?.isMulticlass ? entries : entries.slice(0, 1);
-}
-
-function getCharacterTotalLevelFromClassEntries(classEntries, isMulticlass) {
-  const visibleEntries = isMulticlass ? classEntries : classEntries.slice(0, 1);
-  const summedLevel = visibleEntries.reduce((sum, entry) => sum + normalizeStoredCharacterClassLevel(entry?.level), 0);
-  return normalizeStoredCharacterLevel(summedLevel || 1);
-}
-
-function normalizeStoredCharacterLevel(value) {
-  return Math.max(1, Math.min(20, Math.floor(toNumber(value)) || 1));
-}
-
-function normalizeStoredCharacterLevelExperiencePoints(value, level) {
-  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
-  return Math.min(numericValue, getCharacterLevelExperienceRequirement(level));
-}
-
-function normalizeLegacyCharacterLevelExperiencePoints(value, level) {
-  const totalExperiencePoints = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
-  const levelStartExperiencePoints = getCharacterLevelProgressionEntry(level).experiencePoints;
-  return normalizeStoredCharacterLevelExperiencePoints(totalExperiencePoints - levelStartExperiencePoints, level);
-}
-
-function normalizeStoredCharacterAbilities(abilities) {
-  const source = isPlainObject(abilities) ? abilities : {};
-
-  return Object.fromEntries(characterAbilityKeys.map((key) => {
-    const score = Math.max(1, Math.min(30, Math.floor(toNumber(source[key])) || 10));
-    return [key, score];
-  }));
-}
-
-function normalizeStoredCharacterSkillDefinitions(definitions, legacyCharacters = []) {
-  if (Array.isArray(definitions)) {
-    const normalizedDefinitions = definitions
-      .map((definition) => normalizeStoredCharacterSkillDefinition(definition))
-      .filter(Boolean);
-
-    return dedupeCharacterSkillDefinitions(normalizedDefinitions);
-  }
-
-  const legacyDefinitions = getLegacyCharacterSkillDefinitionsFromCharacters(legacyCharacters);
-  return legacyDefinitions.length > 0 ? legacyDefinitions : getDefaultCharacterSkillDefinitions();
-}
-
-function dedupeCharacterSkillDefinitions(definitions) {
-  const seen = new Set();
-
-  return definitions.filter((definition) => {
-    if (!definition || seen.has(definition.id)) {
-      return false;
-    }
-
-    seen.add(definition.id);
-    return true;
-  });
-}
-
-function getLegacyCharacterSkillDefinitionsFromCharacters(characters) {
-  if (!Array.isArray(characters)) {
-    return [];
-  }
-
-  const definitions = [];
-  const seenNames = new Set();
-
-  characters.forEach((character) => {
-    if (!isPlainObject(character) || !Array.isArray(character.skillTracks)) {
-      return;
-    }
-
-    character.skillTracks.forEach((skillTrack) => {
-      const normalizedSkillTrack = normalizeLegacyCharacterSkillTrack(skillTrack);
-
-      if (!normalizedSkillTrack || seenNames.has(normalizedSkillTrack.name.toLowerCase())) {
-        return;
-      }
-
-      seenNames.add(normalizedSkillTrack.name.toLowerCase());
-      definitions.push(normalizeStoredCharacterSkillDefinition({
-        id: normalizedSkillTrack.id,
-        name: normalizedSkillTrack.name,
-        successGains: normalizedSkillTrack.successGains,
-        intermediateGains: normalizedSkillTrack.intermediateGains,
-        failureGains: normalizedSkillTrack.failureGains
-      }));
-    });
-  });
-
-  return definitions.filter(Boolean);
-}
-
-function normalizeLegacyCharacterSkillTrack(skillTrack) {
-  if (!isPlainObject(skillTrack)) {
-    return null;
-  }
-
-  const name = cleanText(skillTrack.name);
-  const id = cleanText(skillTrack.id) || createCharacterSkillDefinitionId(name);
-  const canonicalConfig = getCharacterSkillCanonicalConfig(id, name);
-
-  return {
-    id,
-    name: name || "Nueva maestria",
-    color: canonicalConfig?.color ?? normalizeStoredCharacterSkillColor(
-      skillTrack.color,
-      getDefaultCharacterSkillColorForIdentity(id, name)
-    ),
-    experiencePoints: normalizeStoredCharacterSkillExperiencePoints(skillTrack.experiencePoints),
-    successGains: canonicalConfig?.successGains
-      ?? normalizeStoredCharacterSkillGains(skillTrack.successGains ?? skillTrack.successGain, [2]),
-    intermediateGains: canonicalConfig?.intermediateGains
-      ?? normalizeStoredCharacterSkillGains(skillTrack.intermediateGains, []),
-    failureGains: canonicalConfig?.failureGains
-      ?? normalizeStoredCharacterSkillGains(skillTrack.failureGains ?? skillTrack.failureGain, [1])
-  };
-}
-
-function normalizeStoredCharacterSkillDefinition(definition) {
-  if (!isPlainObject(definition)) {
-    return null;
-  }
-
-  const name = cleanText(definition.name) || "Nueva maestria";
-  const id = cleanText(definition.id) || createCharacterSkillDefinitionId(name) || createStableId("skill-def");
-  const canonicalConfig = getCharacterSkillCanonicalConfig(id, name);
-
-  return {
-    id,
-    name,
-    color: canonicalConfig?.color ?? normalizeStoredCharacterSkillColor(
-      definition.color,
-      getDefaultCharacterSkillColorForIdentity(id, name)
-    ),
-    successGains: canonicalConfig?.successGains
-      ?? normalizeStoredCharacterSkillGains(definition.successGains ?? definition.successGain, [2]),
-    intermediateGains: canonicalConfig?.intermediateGains
-      ?? normalizeStoredCharacterSkillGains(definition.intermediateGains, []),
-    failureGains: canonicalConfig?.failureGains
-      ?? normalizeStoredCharacterSkillGains(definition.failureGains ?? definition.failureGain, [1])
-  };
-}
-
-function getCharacterSkillCanonicalConfig(skillId, skillName) {
-  const normalizedId = cleanText(skillId);
-  const normalizedName = cleanText(skillName).toLowerCase();
-
-  if (normalizedId === "skill-cocina" || normalizedName === "cocina") {
-    return {
-      color: "#f0c879",
-      successGains: [3],
-      intermediateGains: [2],
-      failureGains: [1]
-    };
-  }
-
-  if (
-    normalizedId === "skill-trampas-puertas-secretas"
-    || normalizedName === "trampas y puertas secretas"
-  ) {
-    return {
-      color: "#e06d78",
-      successGains: [3],
-      intermediateGains: [],
-      failureGains: [0]
-    };
-  }
-
-  return null;
-}
-
-function createCharacterSkillDefinitionId(name) {
-  const slug = cleanText(name)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return slug ? `skill-${slug}` : "";
-}
-
-function normalizeStoredCharacterSkillProgress(skillProgress, skillDefinitions, legacySkillTracks = []) {
-  const progressBySkillId = new Map();
-  const legacySkillTracksByName = new Map(
-    Array.isArray(legacySkillTracks)
-      ? legacySkillTracks
-        .map((skillTrack) => normalizeLegacyCharacterSkillTrack(skillTrack))
-        .filter(Boolean)
-        .map((skillTrack) => [skillTrack.name.toLowerCase(), skillTrack])
-      : []
-  );
-
-  if (Array.isArray(skillProgress)) {
-    skillProgress
-      .map((entry) => normalizeStoredCharacterSkillProgressEntry(entry))
-      .filter(Boolean)
-      .forEach((entry) => progressBySkillId.set(entry.skillId, entry));
-  }
-
-  return skillDefinitions.map((skillDefinition) => {
-    const existingProgress = progressBySkillId.get(skillDefinition.id);
-    const legacyProgress = legacySkillTracksByName.get(skillDefinition.name.toLowerCase());
-
-    return normalizeStoredCharacterSkillProgressEntry({
-      skillId: skillDefinition.id,
-      level: existingProgress?.level,
-      experiencePoints: existingProgress?.experiencePoints ?? legacyProgress?.experiencePoints ?? 0
-    });
-  }).filter(Boolean);
-}
-
-function normalizeStoredCharacterSkillProgressEntry(entry) {
-  if (!isPlainObject(entry)) {
-    return null;
-  }
-
-  const skillId = cleanText(entry.skillId);
-
-  if (!skillId) {
-    return null;
-  }
-
-  const hasExplicitLevel = entry.level !== undefined && entry.level !== null && entry.level !== "";
-
-  if (!hasExplicitLevel) {
-    const legacyExperiencePoints = normalizeStoredCharacterSkillExperiencePoints(entry.experiencePoints);
-    const legacyCurrentEntry = [...characterSkillLevelProgression]
-      .reverse()
-      .find((progressionEntry) => legacyExperiencePoints >= progressionEntry.experiencePoints) ?? null;
-    const legacyLevel = legacyCurrentEntry?.level ?? 0;
-    const legacyLevelStart = legacyCurrentEntry?.experiencePoints ?? 0;
-
-    return {
-      skillId,
-      level: legacyLevel,
-      experiencePoints: Math.max(0, legacyExperiencePoints - legacyLevelStart)
-    };
-  }
-
-  return {
-    skillId,
-    level: normalizeStoredCharacterSkillLevel(entry.level),
-    experiencePoints: normalizeStoredCharacterSkillExperiencePoints(entry.experiencePoints)
-  };
-}
-
-function normalizeStoredCharacterSkillLevel(value) {
-  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
-  return Math.min(numericValue, getCharacterSkillMaxLevel());
-}
-
-function normalizeStoredCharacterSkillExperiencePoints(value) {
-  const numericValue = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
-  return Math.min(numericValue, getCharacterSkillMaxExperiencePoints());
-}
-
-function normalizeStoredCharacterSkillGain(value, fallback = 0) {
-  if (value === "" || value === undefined || value === null) {
-    return fallback;
-  }
-
-  return Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(value)) || 0));
-}
-
-function normalizeStoredCharacterSkillGains(value, defaultValues = [0]) {
-  const normalizedDefaults = Array.isArray(defaultValues)
-    ? defaultValues.map((entry) => normalizeStoredCharacterSkillGain(entry, 0))
-    : [normalizeStoredCharacterSkillGain(defaultValues, 0)];
-  const sourceValues = Array.isArray(value)
-    ? value
-    : (value === undefined || value === null || value === "")
-      ? normalizedDefaults
-      : [value];
-  const normalizedValues = sourceValues
-    .map((entry, index) => normalizeStoredCharacterSkillGain(entry, normalizedDefaults[Math.min(index, normalizedDefaults.length - 1)] ?? 0))
-    .filter((entry) => entry !== null && entry !== undefined);
-
-  if (normalizedValues.length > 0 || normalizedDefaults.length === 0) {
-    return normalizedValues;
-  }
-
-  return normalizedDefaults;
-}
-
-function normalizeStoredCharacterSpells(spells) {
-  const normalizedRows = Array.isArray(spells)
-    ? spells.map((row) => normalizeStoredCharacterSpellRow(row)).filter(Boolean)
-    : [];
-
-  return normalizedRows.length > 0 ? normalizedRows : [createBlankCharacterSpellRow()];
-}
-
-function normalizeStoredCharacterSpellRow(row) {
-  if (!isPlainObject(row)) {
-    return null;
-  }
-
-  const name = cleanText(row.name);
-  const matchedSpell = findCompendiumEntryByReference(getCurrentCompendiumEntries("arcanum"), {
-    entryKey: row.spellKey,
-    entryId: row.spellId,
-    name,
-    canonicalName: row.canonicalName,
-    localizedName: row.localizedName
-  });
-
-  return {
-    id: cleanText(row.id) || createStableId("character-spell"),
-    spellId: cleanText(row.spellId) || matchedSpell?.id || "",
-    spellKey: cleanText(row.spellKey) || (matchedSpell ? getCompendiumEntryIdentityKey(matchedSpell) : ""),
-    name,
-    canonicalName: cleanText(row.canonicalName) || matchedSpell?.canonicalName || "",
-    localizedName: cleanText(row.localizedName) || matchedSpell?.localizedName || "",
-    level: normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort || cleanText(row.level) || ""),
-    prepared: row.prepared === true
-  };
-}
-
-function normalizeCharacterSpellLevelLabel(value) {
-  const normalizedValue = cleanText(value);
-  const compactValue = normalizedValue.toLowerCase().replace(/\s+/g, "");
-  const parsedLevel = normalizedValue ? parseSpellLevel(normalizedValue) : 99;
-
-  if (
-    compactValue === "n/a"
-    || compactValue === "na"
-    || compactValue === "0"
-    || compactValue === "cantrip"
-    || compactValue === "truco"
-    || compactValue === "level0"
-    || compactValue === "nivel0"
-    || compactValue === "lvl0"
-    || parsedLevel === 0
-  ) {
-    return "Truco";
-  }
-
-  return normalizedValue;
-}
-
-function getCharacterSpellLevelLabel(value) {
-  const normalizedValue = normalizeCharacterSpellLevelLabel(value);
-  return normalizedValue || "N/D";
-}
-
-function isCharacterSpellCantripLabel(value) {
-  return normalizeCharacterSpellLevelLabel(value).toLowerCase() === "truco";
-}
-
-function formatCompactSpellLevelLabel(levelValue) {
-  if (levelValue === 0) {
-    return "TRUCO";
-  }
-
-  return levelValue === 99 ? "LVL ?" : `LVL ${levelValue}`;
-}
-
-function formatCharacterSignedFieldValue(value) {
-  if (value === "" || value === null || value === undefined) {
-    return "";
-  }
-
-  return formatModifier(toNumber(value));
-}
-
-function createBlankCharacterSpellRow(overrides = {}) {
-  return normalizeStoredCharacterSpellRow({
-    id: createStableId("character-spell"),
-    prepared: false,
-    level: "",
-    name: "",
-    spellId: "",
-    ...overrides
-  });
-}
-
-function normalizeStoredCharacterSpellbookAbilities(rows) {
-  const normalizedRows = Array.isArray(rows)
-    ? rows.map((row) => normalizeStoredCharacterSpellbookAbilityRow(row)).filter(Boolean)
-    : [];
-
-  return normalizedRows.length > 0 ? normalizedRows : [createBlankCharacterSpellbookAbilityRow()];
-}
-
-function normalizeStoredCharacterSpellbookAbilityRow(row) {
-  if (!isPlainObject(row)) {
-    return null;
-  }
-
-  const uses = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.uses)) || 0));
-
-  return {
-    id: cleanText(row.id) || createStableId("character-spellbook-ability"),
-    name: cleanText(row.name),
-    description: cleanText(row.description),
-    uses,
-    spent: normalizeStoredCharacterSpellbookAbilitySpent(row.spent, uses)
-  };
-}
-
-function normalizeStoredCharacterSpellbookAbilitySpent(spent, uses) {
-  const normalizedUses = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(uses)) || 0));
-  const source = Array.isArray(spent) ? spent : [];
-  return Array.from({ length: normalizedUses }, (_, index) => source[index] === true);
-}
-
-function createBlankCharacterSpellbookAbilityRow(overrides = {}) {
-  return normalizeStoredCharacterSpellbookAbilityRow({
-    id: createStableId("character-spellbook-ability"),
-    name: "",
-    description: "",
-    uses: 0,
-    spent: [],
-    ...overrides
-  });
-}
-
-function getMeaningfulCharacterSpellbookAbilityRows(rows) {
-  return normalizeStoredCharacterSpellbookAbilities(rows)
-    .filter((row) => cleanText(row.name) || row.uses > 0);
-}
-
-function clearCharacterSpellbookAbilityUsesSpent(rows) {
-  return normalizeStoredCharacterSpellbookAbilities(rows).map((row) => normalizeStoredCharacterSpellbookAbilityRow({
-    ...row,
-    spent: Array.from({ length: row.uses }, () => false)
-  }));
-}
-
-function getDefaultCharacterSpellSlots() {
-  return [normalizeStoredCharacterSpellSlotRow({ level: 1, slots: 0 })].filter(Boolean);
-}
-
-function normalizeStoredCharacterSpellSlots(spellSlots) {
-  const normalizedRows = Array.isArray(spellSlots)
-    ? spellSlots.map((row) => normalizeStoredCharacterSpellSlotRow(row)).filter(Boolean)
-    : [];
-
-  if (normalizedRows.length === 0) {
-    return getDefaultCharacterSpellSlots();
-  }
-
-  const byLevel = new Map();
-  normalizedRows.forEach((row) => {
-    if (!byLevel.has(row.level)) {
-      byLevel.set(row.level, row);
-    }
-  });
-
-  return [...byLevel.values()].sort((left, right) => left.level - right.level);
-}
-
-function normalizeStoredCharacterSpellSlotRow(row) {
-  if (!isPlainObject(row)) {
-    return null;
-  }
-
-  const level = Math.max(1, Math.min(9, Math.floor(toNumber(row.level) || 1)));
-  const slots = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.slots)) || 0));
-
-  return {
-    level,
-    slots,
-    spent: normalizeStoredCharacterSpellSlotSpent(row.spent, slots)
-  };
-}
-
-function normalizeStoredCharacterSpellSlotSpent(spent, slots) {
-  const normalizedSlots = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(slots)) || 0));
-  const source = Array.isArray(spent) ? spent : [];
-  return Array.from({ length: normalizedSlots }, (_, index) => source[index] === true);
-}
-
-function normalizeStoredCharacterSpellSlotVisibleLevels(value, spellSlots = []) {
-  const highestStoredLevel = normalizeStoredCharacterSpellSlots(spellSlots).reduce((max, entry) => Math.max(max, entry.level), 1);
-  const numericValue = Math.max(1, Math.floor(toNumber(value) || 1));
-  return Math.min(9, Math.max(numericValue, highestStoredLevel));
-}
-
-function ensureCharacterSpellSlotLevels(spellSlots, visibleLevels = 1) {
-  const normalizedSpellSlots = normalizeStoredCharacterSpellSlots(spellSlots);
-  const requiredLevels = Math.max(1, Math.min(9, Math.floor(toNumber(visibleLevels) || 1)));
-  const byLevel = new Map(normalizedSpellSlots.map((entry) => [entry.level, entry]));
-
-  for (let level = 1; level <= requiredLevels; level += 1) {
-    if (!byLevel.has(level)) {
-      byLevel.set(level, normalizeStoredCharacterSpellSlotRow({ level, slots: 0 }));
-    }
-  }
-
-  return [...byLevel.values()].sort((left, right) => left.level - right.level);
-}
-
-function clearCharacterSpellSlotsSpent(spellSlots) {
-  return normalizeStoredCharacterSpellSlots(spellSlots).map((entry) => normalizeStoredCharacterSpellSlotRow({
-    ...entry,
-    spent: Array.from({ length: entry.slots }, () => false)
-  }));
-}
-
-function normalizeStoredCharacterInventory(inventory) {
-  const normalizedRows = Array.isArray(inventory)
-    ? inventory.map((row) => normalizeStoredCharacterInventoryRow(row)).filter(Boolean)
-    : [];
-  const nonCurrencyRows = normalizedRows.filter((row) => !isCharacterCurrencyRow(row.name));
-  const currencyRows = characterCurrencyRows.map((currency) => {
-    const existingRow = normalizedRows.find((row) => cleanText(row.name).toUpperCase() === currency.name);
-    return normalizeStoredCharacterInventoryRow(existingRow ?? {
-      id: createStableId("character-item"),
-      name: currency.name,
-      quantity: 0
-    });
-  }).filter(Boolean);
-
-  return [...currencyRows, ...(nonCurrencyRows.length > 0 ? nonCurrencyRows : [createBlankCharacterInventoryRow()])];
-}
-
-function normalizeStoredCharacterInventoryRow(row) {
-  if (!isPlainObject(row)) {
-    return null;
-  }
-
-  const name = cleanText(row.name);
-  const matchedItem = findCompendiumEntryByReference(getCurrentCompendiumEntries("items"), {
-    entryKey: row.itemKey,
-    entryId: row.itemId,
-    name,
-    canonicalName: row.canonicalName,
-    localizedName: row.localizedName
-  });
-  const quantity = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.quantity)) || 0));
-  const size = isCharacterCurrencyRow(name)
-    ? getCurrencyInventorySizeLabel(quantity)
-    : normalizeItemSizeLabel(row.size) || matchedItem?.sizeLabel || inferItemSizeLabel(name);
-
-  return {
-    id: cleanText(row.id) || createStableId("character-item"),
-    itemId: isCharacterCurrencyRow(name) ? "" : cleanText(row.itemId) || matchedItem?.id || "",
-    itemKey: isCharacterCurrencyRow(name) ? "" : cleanText(row.itemKey) || (matchedItem ? getCompendiumEntryIdentityKey(matchedItem) : ""),
-    name,
-    canonicalName: isCharacterCurrencyRow(name) ? "" : cleanText(row.canonicalName) || matchedItem?.canonicalName || "",
-    localizedName: isCharacterCurrencyRow(name) ? "" : cleanText(row.localizedName) || matchedItem?.localizedName || "",
-    size,
-    quantity
-  };
-}
-
-function createBlankCharacterInventoryRow(overrides = {}) {
-  return normalizeStoredCharacterInventoryRow({
-    id: createStableId("character-item"),
-    name: "",
-    size: "XS",
-    quantity: 1,
-    itemId: "",
-    ...overrides
-  });
-}
-
-function normalizeItemSizeLabel(value) {
-  const normalizedValue = cleanText(value).toUpperCase();
-  return itemSizeThresholds.some((entry) => entry.label === normalizedValue) ? normalizedValue : "";
-}
-
-function normalizeStoredCharacterProficiencies(proficiencies) {
-  if (!Array.isArray(proficiencies)) {
-    return [];
-  }
-
-  return [...new Set(proficiencies.map((key) => normalizeCharacterProficiencyKey(key)).filter(Boolean))];
-}
-
-function normalizeCharacterProficiencyKey(key) {
-  const value = cleanText(key);
-
-  if (characterAbilityKeys.some((ability) => value === `save:${ability}`)) {
-    return value;
-  }
-
-  const skillKeys = Object.values(characterStatBlocks)
-    .flatMap((block) => block.skills)
-    .map((skill) => `skill:${skill.id}`);
-
-  return skillKeys.includes(value) ? value : "";
-}
-
-function loadCombatTrackerState() {
-  const defaultState = getDefaultCombatTrackerState();
-
-  if (typeof window === "undefined") {
-    return defaultState;
-  }
-
-  if (usesDesktopFileOnlyPersistence()) {
-    return defaultState;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(COMBAT_TRACKER_STORAGE_KEY);
-    const parsedValue = JSON.parse(rawValue || "{}");
-    return normalizeStoredCombatTrackerState(parsedValue, defaultState);
-  } catch {
-    return defaultState;
-  }
-}
-
-function removeLegacyCombatTrackerPlaceholders(combatants) {
-  if (!Array.isArray(combatants) || combatants.length === 0) {
-    return [];
-  }
-
-  const normalizedNames = combatants.map((combatant) => cleanText(combatant?.nombre).toLowerCase()).filter(Boolean);
-
-  if (
-    normalizedNames.length === LEGACY_COMBAT_PLACEHOLDER_NAMES.size
-    && normalizedNames.every((name) => LEGACY_COMBAT_PLACEHOLDER_NAMES.has(name))
-  ) {
-    return [];
-  }
-
-  return combatants;
-}
-
-function normalizeStoredCombatTrackerState(value, defaultState = getDefaultCombatTrackerState()) {
-  if (!isPlainObject(value)) {
-    return defaultState;
-  }
-
-  const combatants = removeLegacyCombatTrackerPlaceholders(Array.isArray(value.combatants)
-    ? value.combatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean)
-    : defaultState.combatants);
-  const nextId = normalizeStoredNextCombatantId(value.nextId, combatants);
-  const sort = value.sortDefaultVersion === COMBAT_TRACKER_SORT_DEFAULT_VERSION
-    ? normalizeStoredCombatSort(value.sort)
-    : getDefaultCombatSort();
-
-  return {
-    combatants,
-    filters: normalizeStoredCombatFilters(value.filters),
-    sort,
-    combatSearchQuery: cleanText(value.combatSearchQuery),
-    newEntitySide: normalizeStoredCombatSide(value.newEntitySide),
-    nextId,
-    inlineAdjustments: normalizeStoredInlineAdjustments(value.inlineAdjustments, combatants),
-    areaDamage: cleanText(value.areaDamage),
-    isCombatActive: value.isCombatActive === true,
-    activeTurnCombatantId: normalizeStoredActiveTurnCombatantId(value.activeTurnCombatantId, combatants),
-    combatRound: normalizeStoredCombatRound(value.combatRound),
-    enemyHpMode: normalizeStoredEnemyHpMode(value.enemyHpMode)
-  };
-}
-
-function saveCombatTrackerState() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!usesDesktopFileOnlyPersistence()) {
-    try {
-      window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify(getCombatTrackerSaveData()));
-    } catch {
-      // Storage can be unavailable in private contexts; the in-memory tracker still works.
-    }
-  }
-
-  scheduleDesktopCampaignDirtyStateSync(60);
-}
-
-function getCombatTrackerSaveData(options = {}) {
-  const data = {
-    combatants: state.combatants,
-    filters: state.filters,
-    sort: state.sort,
-    combatSearchQuery: state.combatSearchQuery,
-    sortDefaultVersion: COMBAT_TRACKER_SORT_DEFAULT_VERSION,
-    newEntitySide: state.newEntitySide,
-    nextId: state.nextId,
-    inlineAdjustments: state.inlineAdjustments,
-    areaDamage: state.areaDamage,
-    isCombatActive: state.isCombatActive,
-    activeTurnCombatantId: state.activeTurnCombatantId,
-    combatRound: state.combatRound,
-    enemyHpMode: state.enemyHpMode
-  };
-
-  if (options.includeBattleTimer) {
-    data.battleTimer = {
-      elapsedMs: getBattleTimerElapsedMs(),
-      isRunning: false
-    };
-  }
-
-  return data;
-}
-
-function getDefaultCombatTrackerState() {
-  const combatants = initialCombatants.map((combatant) => normalizeStoredCombatant(combatant)).filter(Boolean);
-
-  return {
-    combatants,
-    filters: { ...blankFilters },
-    sort: getDefaultCombatSort(),
-    combatSearchQuery: "",
-    newEntitySide: "allies",
-    nextId: normalizeStoredNextCombatantId(initialCombatants.length + 1, combatants),
-    inlineAdjustments: normalizeStoredInlineAdjustments({}, combatants),
-    areaDamage: "",
-    isCombatActive: false,
-    activeTurnCombatantId: "",
-    combatRound: 1,
-    enemyHpMode: ENEMY_HP_MODE_FIXED
-  };
-}
-
-function getDefaultCombatSort() {
-  return { key: "numPeana", direction: "asc" };
-}
-
-function normalizeStoredEnemyHpMode(value) {
-  return cleanText(value) === ENEMY_HP_MODE_VARIABLE ? ENEMY_HP_MODE_VARIABLE : ENEMY_HP_MODE_FIXED;
-}
-
-function normalizeStoredCombatant(combatant) {
-  if (!isPlainObject(combatant)) {
-    return null;
-  }
-
-  const tag = normalizeStoredCombatTag(combatant.tag, combatant.side);
-  const side = mapTagToSide(tag);
-  const pgMax = normalizeStoredNonNegativeNumber(combatant.pgMax);
-  const pgTemp = normalizeStoredNonNegativeNumber(combatant.pgTemp);
-  const necrotic = normalizeStoredNonNegativeNumber(combatant.necrotic);
-  let pgAct = normalizeStoredNonNegativeNumber(combatant.pgAct);
-
-  if (pgAct !== "" && pgMax !== "") {
-    pgAct = Math.min(pgAct, Math.max(0, toNumber(pgMax) - toNumber(necrotic)));
-  }
-
-  return {
-    id: cleanText(combatant.id) || createStableId("entity"),
-    side,
-    characterId: cleanText(combatant.characterId),
-    entryId: cleanText(combatant.entryId),
-    entryKey: cleanText(combatant.entryKey),
-    canonicalName: cleanText(combatant.canonicalName),
-    localizedName: cleanText(combatant.localizedName),
-    canonicalSource: cleanText(combatant.canonicalSource),
-    source: cleanText(combatant.source),
-    tokenUrl: cleanText(combatant.tokenUrl),
-    ubicacion: cleanText(combatant.ubicacion),
-    iniactiva: normalizeStoredNumber(combatant.iniactiva),
-    nombre: cleanText(combatant.nombre),
-    numPeana: normalizeStoredStandLabel(combatant.numPeana),
-    pgMax,
-    pgAct,
-    pgTemp,
-    hitDice: normalizeStoredNonNegativeNumber(combatant.hitDice),
-    necrotic,
-    ca: normalizeStoredNumber(combatant.ca),
-    shieldEquipped: combatant.shieldEquipped === true,
-    condiciones: cleanText(combatant.condiciones),
-    stats: formatStatsWithModifiers(combatant.stats ?? ""),
-    tamano: cleanText(combatant.tamano),
-    movimiento: cleanText(combatant.movimiento),
-    vision: cleanText(combatant.vision),
-    lenguas: cleanText(combatant.lenguas),
-    crExp: cleanText(combatant.crExp),
-    tag,
-    experienceGranted: combatant.experienceGranted === true,
-    initiativeRoll: combatant.initiativeRoll === null || combatant.initiativeRoll === ""
-      ? null
-      : normalizeStoredNumber(combatant.initiativeRoll),
-    initiativeNat20: combatant.initiativeNat20 === true
-  };
-}
-
-function normalizeStoredCombatFilters(filters) {
-  const normalizedFilters = { ...blankFilters };
-
-  if (!isPlainObject(filters)) {
-    return normalizedFilters;
-  }
-
-  for (const key of Object.keys(normalizedFilters)) {
-    if (Array.isArray(filters[key])) {
-      normalizedFilters[key] = filters[key].map((value) => cleanText(value)).filter(Boolean);
-      continue;
-    }
-
-    const legacyValue = cleanText(filters[key]);
-    normalizedFilters[key] = legacyValue ? [legacyValue] : [];
-  }
-
-  return normalizedFilters;
-}
-
-function normalizeStoredCombatSort(sort) {
-  if (!isPlainObject(sort)) {
-    return getDefaultCombatSort();
-  }
-
-  const key = cleanText(sort.key);
-
-  if (!columns.some((column) => column.key === key)) {
-    return getDefaultCombatSort();
-  }
-
-  return {
-    key,
-    direction: sort.direction === "desc" ? "desc" : "asc"
-  };
-}
-
-function normalizeStoredInlineAdjustments(inlineAdjustments, combatants) {
-  const storedAdjustments = isPlainObject(inlineAdjustments) ? inlineAdjustments : {};
-
-  return Object.fromEntries(combatants.map((combatant) => {
-    const current = isPlainObject(storedAdjustments[combatant.id]) ? storedAdjustments[combatant.id] : {};
-
-    return [
-      combatant.id,
-      {
-        pgAct: cleanText(current.pgAct),
-        necrotic: cleanText(current.necrotic)
-      }
-    ];
-  }));
-}
-
-function normalizeStoredNextCombatantId(value, combatants) {
-  const storedId = Math.floor(toNumber(value));
-  const nextGeneratedId = combatants.reduce((maxId, combatant) => {
-    const match = cleanText(combatant.id).match(/^entity-(\d+)$/i);
-    return match ? Math.max(maxId, Number(match[1]) + 1) : maxId;
-  }, 1);
-
-  return Math.max(storedId, nextGeneratedId, combatants.length + 1);
-}
-
-function normalizeStoredActiveTurnCombatantId(value, combatants) {
-  const activeTurnCombatantId = cleanText(value);
-  return combatants.some((combatant) => combatant.id === activeTurnCombatantId) ? activeTurnCombatantId : "";
-}
-
-function normalizeStoredCombatRound(value) {
-  return Math.max(1, Math.floor(toNumber(value)) || 1);
-}
-
-function normalizeStoredCombatSide(side) {
-  return ["allies", "neutral", "enemies"].includes(side) ? side : "allies";
-}
-
-function normalizeStoredCombatTag(tag, side) {
-  const cleanTag = cleanText(tag).toUpperCase();
-
-  if (combatTagOptions.includes(cleanTag)) {
-    return cleanTag;
-  }
-
-  return mapSideToTag(normalizeStoredCombatSide(side));
-}
-
-function normalizeStoredNumber(value) {
-  if (value === "" || value === null || value === undefined) {
-    return "";
-  }
-
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : 0;
-}
-
-function normalizeStoredStandLabel(value) {
-  const cleanValue = cleanText(value);
-  const legacyMatch = cleanValue.match(/^[A-Z]+-(\d+)$/i);
-
-  return legacyMatch ? String(Number(legacyMatch[1])) : cleanValue;
-}
-
-function normalizeStoredNonNegativeNumber(value) {
-  const normalizedValue = normalizeStoredNumber(value);
-  return normalizedValue === "" ? "" : Math.max(0, normalizedValue);
-}
-
 function loadEncounterInventory() {
   if (typeof window === "undefined") {
     return { folders: [], encounters: [], systemFolderExpanded: true };
@@ -24248,175 +21661,6 @@ function getEncounterInventorySaveData() {
     systemFolderExpanded: state.systemEncounterFolderExpanded,
     encounters: state.encounters
   };
-}
-
-function loadTablesState() {
-  const defaultState = getDefaultTablesState();
-
-  if (typeof window === "undefined") {
-    return defaultState;
-  }
-
-  if (usesDesktopFileOnlyPersistence()) {
-    return defaultState;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(TABLES_STORAGE_KEY);
-    return rawValue ? normalizeStoredTablesState(JSON.parse(rawValue || "{}")) : defaultState;
-  } catch {
-    return defaultState;
-  }
-}
-
-function saveTablesState() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!usesDesktopFileOnlyPersistence()) {
-    try {
-      window.localStorage.setItem(TABLES_STORAGE_KEY, JSON.stringify(getTablesSaveData()));
-    } catch {
-      // Storage can be unavailable in private contexts; campaign files still work.
-    }
-  }
-
-  scheduleDesktopCampaignDirtyStateSync(60);
-}
-
-function getDefaultTablesState() {
-  return normalizeStoredTablesState({
-    folders: initialTableFolders,
-    systemFolderExpanded: true,
-    tables: initialTableDefinitions,
-    activeTableFolderId: "",
-    activeTableId: "",
-    openTableIds: []
-  });
-}
-
-function getTablesSaveData() {
-  reconcileTablesUiState();
-
-  return {
-    folders: state.tableFolders,
-    systemFolderExpanded: state.systemTableFolderExpanded,
-    tables: state.tables.map((table, index) => normalizeStoredTable(table, index)).filter(Boolean),
-    activeTableFolderId: state.activeTableFolderId,
-    activeTableId: state.activeTableId,
-    openTableIds: state.openTableIds.filter((tableId) => state.tables.some((table) => table.id === tableId))
-  };
-}
-
-function normalizeStoredTablesState(value) {
-  const source = isPlainObject(value) ? value : {};
-  const hasExplicitTables = Array.isArray(value) || Array.isArray(source.tables);
-  const rawFolders = Array.isArray(source.folders)
-    ? source.folders
-    : hasExplicitTables
-      ? []
-      : initialTableFolders;
-  const folders = rawFolders
-    .map((folder) => normalizeStoredTableFolder(folder))
-    .filter(Boolean);
-  const rawTables = Array.isArray(value)
-    ? value
-    : Array.isArray(source.tables)
-      ? source.tables
-      : initialTableDefinitions;
-  let tables = rawTables
-    .map((table, index) => normalizeStoredTable(table, index))
-    .filter(Boolean);
-  tables = deduplicateStoredSystemTables(tables);
-
-  if (!hasExplicitTables && tables.length === 0) {
-    tables = initialTableDefinitions
-      .map((table, index) => normalizeStoredTable(table, index))
-      .filter(Boolean);
-  }
-
-  const existingFolderIds = new Set(folders.map((folder) => folder.id));
-  initialTableFolders.forEach((folder) => {
-    if (existingFolderIds.has(folder.id)) {
-      return;
-    }
-
-    const normalizedFolder = normalizeStoredTableFolder(folder);
-
-    if (normalizedFolder) {
-      folders.push(normalizedFolder);
-      existingFolderIds.add(normalizedFolder.id);
-    }
-  });
-
-  const existingTableIds = new Set(tables.map((table) => table.id));
-  const existingSystemKinds = new Set(tables.map((table) => getSystemTableKind(table)).filter(Boolean));
-  initialTableDefinitions.forEach((table, index) => {
-    const systemKind = getSystemTableKind(table);
-
-    if (existingTableIds.has(table.id) || (systemKind && existingSystemKinds.has(systemKind))) {
-      return;
-    }
-
-    const normalizedTable = normalizeStoredTable(table, tables.length + index);
-
-    if (normalizedTable) {
-      tables.push(normalizedTable);
-      existingTableIds.add(normalizedTable.id);
-      const normalizedKind = getSystemTableKind(normalizedTable);
-
-      if (normalizedKind) {
-        existingSystemKinds.add(normalizedKind);
-      }
-    }
-  });
-
-  const tableIds = new Set(tables.map((table) => table.id));
-  const folderIds = new Set(folders.map((folder) => folder.id));
-  const firstTableId = tables[0]?.id ?? "";
-  const activeTableId = tableIds.has(cleanText(source.activeTableId)) ? cleanText(source.activeTableId) : firstTableId;
-  const activeTable = tables.find((table) => table.id === activeTableId) ?? null;
-  const activeTableFolderId = folderIds.has(cleanText(source.activeTableFolderId))
-    ? cleanText(source.activeTableFolderId)
-    : activeTable?.folderId ?? "";
-  const openTableIds = [...new Set(
-    (Array.isArray(source.openTableIds) ? source.openTableIds : [activeTableId])
-      .map((tableId) => cleanText(tableId))
-      .filter((tableId) => tableIds.has(tableId))
-  )];
-
-  if (openTableIds.length === 0 && activeTableId) {
-    openTableIds.push(activeTableId);
-  }
-
-  return {
-    folders,
-    systemFolderExpanded: source.systemFolderExpanded !== false,
-    tables,
-    activeTableFolderId,
-    activeTableId,
-    openTableIds
-  };
-}
-
-function deduplicateStoredSystemTables(tables) {
-  const seenKinds = new Set();
-
-  return tables.filter((table) => {
-    const kind = getSystemTableKind(table);
-
-    if (kind !== "status" && kind !== "wild-magic") {
-      return true;
-    }
-
-    if (seenKinds.has(kind)) {
-      return false;
-    }
-
-    seenKinds.add(kind);
-    return true;
-  });
 }
 
 function loadDiaryState() {
@@ -25011,12 +22255,6 @@ function deleteDiaryFolder(folderId) {
   reconcileDiaryUiState();
 }
 
-function getDiaryNoteDateSummary(note) {
-  const realSummary = formatDiaryRealDateSummary(note);
-  const harptosSummary = formatDiaryHarptosDateSummary(note);
-  return [realSummary, harptosSummary].filter(Boolean).join(" | ") || "Sin fechas";
-}
-
 function formatDiaryRealDateSummary(note) {
   if (!note.realDateStart) {
     return "";
@@ -25407,48 +22645,6 @@ function getDiaryEditorTextTokenState(range, trigger, requireClosingTrigger = fa
     query: tokenQuery,
     range: tokenRange
   };
-}
-
-function createEditorTextRange(root, startOffset, endOffset) {
-  if (typeof document === "undefined") {
-    return null;
-  }
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let currentNode = walker.nextNode();
-  let consumed = 0;
-  let startNode = null;
-  let endNode = null;
-  let startNodeOffset = 0;
-  let endNodeOffset = 0;
-
-  while (currentNode) {
-    const textLength = currentNode.textContent?.length ?? 0;
-    const nextConsumed = consumed + textLength;
-
-    if (!startNode && startOffset <= nextConsumed) {
-      startNode = currentNode;
-      startNodeOffset = Math.max(0, startOffset - consumed);
-    }
-
-    if (!endNode && endOffset <= nextConsumed) {
-      endNode = currentNode;
-      endNodeOffset = Math.max(0, endOffset - consumed);
-      break;
-    }
-
-    consumed = nextConsumed;
-    currentNode = walker.nextNode();
-  }
-
-  if (!startNode || !endNode) {
-    return null;
-  }
-
-  const range = document.createRange();
-  range.setStart(startNode, startNodeOffset);
-  range.setEnd(endNode, endNodeOffset);
-  return range;
 }
 
 function replaceSelectionRangeWithHtml(range, html) {
@@ -25943,1050 +23139,6 @@ function openDiaryMentionTarget(kind, id, name) {
       focusSelector: "[data-arcanum-query]"
     });
   }
-}
-
-function normalizeStoredTableFolder(folder) {
-  if (!isPlainObject(folder)) {
-    return null;
-  }
-
-  return {
-    id: cleanText(folder.id) || createStableId("table-folder"),
-    name: cleanText(folder.name) || "Carpeta",
-    isExpanded: folder.isExpanded !== false
-  };
-}
-
-function normalizeStoredTable(value, index = 0) {
-  if (!isPlainObject(value)) {
-    if (Array.isArray(value)) {
-      return normalizeStoredTable({
-        name: `Tabla ${index + 1}`,
-        columns: value[0] ?? [],
-        rows: value.slice(1)
-      }, index);
-    }
-
-    return null;
-  }
-
-  const columns = normalizeStoredTableColumns(value.columns);
-
-  return {
-    id: cleanText(value.id) || createStableId("table"),
-    name: cleanText(value.name) || `Tabla ${index + 1}`,
-    folderId: cleanText(value.folderId),
-    columns,
-    rows: normalizeStoredTableRows(value.rows, columns),
-    collapsed: value.collapsed === true
-  };
-}
-
-function normalizeStoredTableColumns(value) {
-  const normalizedColumns = (Array.isArray(value) ? value : [])
-    .map((column, index) => normalizeStoredTableColumn(column, index))
-    .filter(Boolean);
-
-  return normalizedColumns.length > 0
-    ? normalizedColumns
-    : [normalizeStoredTableColumn({ label: "Columna 1" }, 0)].filter(Boolean);
-}
-
-function normalizeStoredTableColumn(value, index = 0) {
-  if (typeof value === "string") {
-    return {
-      id: createStableId("table-col"),
-      label: cleanText(value) || `Columna ${index + 1}`,
-      width: ""
-    };
-  }
-
-  if (!isPlainObject(value)) {
-    return null;
-  }
-
-  return {
-    id: cleanText(value.id) || createStableId("table-col"),
-    label: cleanText(value.label) || `Columna ${index + 1}`,
-    width: normalizeStoredTableColumnWidth(value.width)
-  };
-}
-
-function normalizeStoredTableColumnWidth(value) {
-  const numericValue = Math.floor(toNumber(value));
-  return Number.isFinite(numericValue) && numericValue >= 72 ? numericValue : "";
-}
-
-function normalizeStoredTableRows(value, columns) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((row, index) => normalizeStoredTableRow(row, columns, index))
-    .filter(Boolean);
-}
-
-function normalizeStoredTableRow(value, columns, index = 0) {
-  if (!Array.isArray(value) && !isPlainObject(value)) {
-    return null;
-  }
-
-  const sourceCells = Array.isArray(value)
-    ? value
-    : Array.isArray(value.cells)
-      ? value.cells
-      : isPlainObject(value.cells)
-        ? value.cells
-        : {};
-  const cells = Object.fromEntries(columns.map((column, columnIndex) => {
-    const rawValue = Array.isArray(sourceCells)
-      ? sourceCells[columnIndex]
-      : sourceCells[column.id] ?? sourceCells[column.label];
-    return [column.id, cleanText(rawValue)];
-  }));
-
-  return {
-    id: cleanText(value.id) || createStableId("table-row"),
-    cells
-  };
-}
-
-function getActiveTable() {
-  return state.tables.find((table) => table.id === state.activeTableId) ?? null;
-}
-
-function getOpenTables() {
-  const tableMap = new Map(state.tables.map((table) => [table.id, table]));
-  return state.openTableIds.map((tableId) => tableMap.get(tableId)).filter(Boolean);
-}
-
-function getTableFolderGroups() {
-  return [
-    {
-      id: "",
-      name: "Sin carpeta",
-      isExpanded: state.systemTableFolderExpanded
-    },
-    ...state.tableFolders
-  ];
-}
-
-function getTablesByFolder(folderId = "") {
-  const normalizedFolderId = cleanText(folderId);
-  return state.tables.filter((table) => cleanText(table.folderId) === normalizedFolderId);
-}
-
-function getTableFolderNameById(folderId = "") {
-  const normalizedFolderId = cleanText(folderId);
-
-  if (!normalizedFolderId) {
-    return "";
-  }
-
-  return cleanText(state.tableFolders.find((folder) => folder.id === normalizedFolderId)?.name);
-}
-
-function reconcileTablesUiState() {
-  const tableIds = new Set(state.tables.map((table) => table.id));
-  const folderIds = new Set(state.tableFolders.map((folder) => folder.id));
-
-  if (state.tables.length === 0) {
-    state.activeTableId = "";
-    state.activeTableFolderId = "";
-    state.openTableIds = [];
-    state.rolledTableId = "";
-    state.rolledTableRowId = "";
-    return;
-  }
-
-  if (!tableIds.has(state.activeTableId)) {
-    state.activeTableId = state.tables[0].id;
-  }
-
-  if (!folderIds.has(state.activeTableFolderId) && state.activeTableFolderId !== "") {
-    state.activeTableFolderId = state.tables.find((table) => table.id === state.activeTableId)?.folderId ?? "";
-  }
-
-  if (!tableIds.has(state.rolledTableId)) {
-    state.rolledTableId = "";
-    state.rolledTableRowId = "";
-  }
-
-  state.openTableIds = [...new Set(state.openTableIds.map((tableId) => cleanText(tableId)).filter((tableId) => tableIds.has(tableId)))];
-}
-
-function createBlankTable(name = "", folderId = "") {
-  const columns = [
-    normalizeStoredTableColumn({ label: "Columna 1" }, 0),
-    normalizeStoredTableColumn({ label: "Columna 2" }, 1)
-  ].filter(Boolean);
-  const rows = [
-    normalizeStoredTableRow({ cells: ["", ""] }, columns, 0),
-    normalizeStoredTableRow({ cells: ["", ""] }, columns, 1)
-  ].filter(Boolean);
-
-  return normalizeStoredTable({
-    name: cleanText(name) || `Tabla ${state.tables.length + 1}`,
-    folderId: cleanText(folderId),
-    columns,
-    rows,
-    collapsed: false
-  }, state.tables.length);
-}
-
-function createTable(options = {}) {
-  const folderId = cleanText(options.folderId) || state.activeTableFolderId || "";
-  const table = createBlankTable("", folderId);
-  state.tables = [...state.tables, table];
-  state.activeTableId = table.id;
-  state.activeTableFolderId = table.folderId ?? "";
-  state.openTableIds = [...state.openTableIds, table.id];
-  reconcileTablesUiState();
-  return table.id;
-}
-
-function selectTable(tableId) {
-  const normalizedTableId = cleanText(tableId);
-  const table = state.tables.find((entry) => entry.id === normalizedTableId);
-
-  if (!table) {
-    return;
-  }
-
-  state.activeTableId = normalizedTableId;
-  state.activeTableFolderId = table.folderId ?? "";
-  state.openTableIds = [normalizedTableId, ...state.openTableIds.filter((id) => id !== normalizedTableId)];
-  state.tables = moveTableToFrontWithinFolder(state.tables, normalizedTableId);
-  expandTableFolder(table.folderId ?? "");
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? { ...table, collapsed: false }
-    : table);
-  reconcileTablesUiState();
-}
-
-function toggleTableOpen(tableId) {
-  const normalizedTableId = cleanText(tableId);
-
-  if (!state.tables.some((table) => table.id === normalizedTableId)) {
-    return;
-  }
-
-  state.activeTableId = normalizedTableId;
-  state.openTableIds = state.openTableIds.includes(normalizedTableId)
-    ? state.openTableIds.filter((id) => id !== normalizedTableId)
-    : [...state.openTableIds, normalizedTableId];
-  reconcileTablesUiState();
-}
-
-function toggleTableCollapsed(tableId) {
-  const normalizedTableId = cleanText(tableId);
-  state.activeTableId = normalizedTableId;
-  state.activeTableFolderId = state.tables.find((table) => table.id === normalizedTableId)?.folderId ?? "";
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? { ...table, collapsed: !table.collapsed }
-    : table);
-  reconcileTablesUiState();
-}
-
-function openAllTables() {
-  state.openTableIds = state.tables.map((table) => table.id);
-  reconcileTablesUiState();
-}
-
-function closeAllTables() {
-  state.openTableIds = [];
-}
-
-function stopActiveTableRoll() {
-  if (activeTableRollTimer) {
-    window.clearTimeout(activeTableRollTimer);
-    activeTableRollTimer = 0;
-  }
-
-  state.rollingTableId = "";
-  state.rollingTableRowId = "";
-}
-
-function getTableRollAudioContext() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
-
-  if (!AudioContextConstructor) {
-    return null;
-  }
-
-  if (!tableRollAudioContext) {
-    tableRollAudioContext = new AudioContextConstructor();
-  }
-
-  if (tableRollAudioContext.state === "suspended") {
-    tableRollAudioContext.resume().catch(() => {});
-  }
-
-  return tableRollAudioContext;
-}
-
-function playTableRollTone({
-  frequency,
-  durationMs,
-  type = "triangle",
-  volume = 0.028,
-  attackMs = 6,
-  frequencyEnd = frequency
-}) {
-  const audioContext = getTableRollAudioContext();
-
-  if (!audioContext) {
-    return;
-  }
-
-  const oscillator = audioContext.createOscillator();
-  const gainNode = audioContext.createGain();
-  const startTime = audioContext.currentTime + 0.005;
-  const endTime = startTime + (durationMs / 1000);
-  const attackTime = Math.min(endTime, startTime + (attackMs / 1000));
-
-  oscillator.type = type;
-  oscillator.frequency.setValueAtTime(Math.max(60, frequency), startTime);
-  oscillator.frequency.exponentialRampToValueAtTime(Math.max(60, frequencyEnd), endTime);
-
-  gainNode.gain.setValueAtTime(0.0001, startTime);
-  gainNode.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), attackTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.0001, endTime);
-
-  oscillator.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  oscillator.start(startTime);
-  oscillator.stop(endTime + 0.02);
-
-  oscillator.addEventListener("ended", () => {
-    oscillator.disconnect();
-    gainNode.disconnect();
-  }, { once: true });
-}
-
-function playTableRollSoundStep(stepIndex, totalSteps, isFinalStep) {
-  const progress = totalSteps <= 1 ? 1 : stepIndex / Math.max(1, totalSteps - 1);
-
-  if (isFinalStep) {
-    playTableRollTone({
-      frequency: 740,
-      frequencyEnd: 620,
-      durationMs: 220,
-      type: "triangle",
-      volume: 0.045,
-      attackMs: 8
-    });
-    playTableRollTone({
-      frequency: 1110,
-      frequencyEnd: 880,
-      durationMs: 180,
-      type: "sine",
-      volume: 0.018,
-      attackMs: 10
-    });
-    return;
-  }
-
-  playTableRollTone({
-    frequency: 980 + ((1 - progress) * 240),
-    frequencyEnd: 640 + ((1 - progress) * 90),
-    durationMs: 56,
-    type: progress > 0.72 ? "triangle" : "square",
-    volume: 0.02 + ((1 - progress) * 0.008),
-    attackMs: 4
-  });
-}
-
-function startTableRoll(tableId) {
-  const normalizedTableId = cleanText(tableId);
-  const table = state.tables.find((entry) => entry.id === normalizedTableId);
-  const rows = Array.isArray(table?.rows) ? table.rows : [];
-
-  if (!table || rows.length === 0) {
-    return;
-  }
-
-  stopActiveTableRoll();
-  selectTable(normalizedTableId);
-
-  const startingIndex = state.rolledTableId === normalizedTableId
-    ? Math.max(0, rows.findIndex((row) => row.id === state.rolledTableRowId))
-    : 0;
-  const targetIndex = Math.floor(Math.random() * rows.length);
-  const totalSteps = Math.min(12, Math.max(8, rows.length + 4));
-  const targetOffset = (targetIndex - startingIndex + rows.length) % rows.length;
-  const baseOffset = (totalSteps - 1) % rows.length;
-  const extraLoops = Math.max(0, Math.ceil((baseOffset - targetOffset) / rows.length));
-  const finalStepOffset = targetOffset + (extraLoops * rows.length);
-  const effectiveTotalSteps = finalStepOffset + 1;
-  const rawDelays = Array.from({ length: Math.max(0, effectiveTotalSteps - 1) }, (_, step) => {
-    const progress = step / Math.max(1, effectiveTotalSteps - 2);
-    return 42 + ((progress ** 2) * 120);
-  });
-  const maxDurationMs = 2000;
-  const rawTotalDuration = rawDelays.reduce((sum, delay) => sum + delay, 0);
-  const durationScale = rawTotalDuration > maxDurationMs ? maxDurationMs / rawTotalDuration : 1;
-  const delays = rawDelays.map((delay) => Math.max(28, Math.round(delay * durationScale)));
-  let currentStep = 0;
-  state.rolledTableId = "";
-  state.rolledTableRowId = "";
-
-  const advanceRoll = () => {
-    const currentIndex = (startingIndex + currentStep) % rows.length;
-    const currentRow = rows[currentIndex];
-    const isFinalStep = currentStep >= effectiveTotalSteps - 1;
-
-    state.rollingTableId = normalizedTableId;
-    state.rollingTableRowId = currentRow.id;
-    playTableRollSoundStep(currentStep, effectiveTotalSteps, isFinalStep);
-    render();
-
-    if (isFinalStep) {
-      state.rollingTableId = "";
-      state.rollingTableRowId = "";
-      state.rolledTableId = normalizedTableId;
-      state.rolledTableRowId = currentRow.id;
-      activeTableRollTimer = 0;
-      render();
-      return;
-    }
-
-    currentStep += 1;
-    const nextDelay = delays[Math.max(0, currentStep - 1)] ?? 40;
-    activeTableRollTimer = window.setTimeout(advanceRoll, nextDelay);
-  };
-
-  advanceRoll();
-}
-
-function createTableFolder() {
-  const folder = normalizeStoredTableFolder({
-    id: createStableId("table-folder"),
-    name: `Carpeta ${state.tableFolders.length + 1}`,
-    isExpanded: true
-  });
-
-  state.tableFolders = [...state.tableFolders, folder];
-  state.activeTableFolderId = folder.id;
-  return folder.id;
-}
-
-function toggleTableFolder(folderId) {
-  state.activeTableFolderId = cleanText(folderId);
-
-  if (!folderId) {
-    state.systemTableFolderExpanded = !state.systemTableFolderExpanded;
-    return;
-  }
-
-  state.tableFolders = state.tableFolders.map((folder) => folder.id === folderId
-    ? {
-      ...folder,
-      isExpanded: !folder.isExpanded
-    }
-    : folder);
-}
-
-function expandTableFolder(folderId) {
-  const normalizedFolderId = cleanText(folderId);
-
-  if (!normalizedFolderId) {
-    state.systemTableFolderExpanded = true;
-    return;
-  }
-
-  state.tableFolders = state.tableFolders.map((folder) => folder.id === normalizedFolderId
-    ? {
-      ...folder,
-      isExpanded: true
-    }
-    : folder);
-}
-
-function updateTableFolderName(folderId, name) {
-  state.tableFolders = state.tableFolders.map((folder) => folder.id === folderId
-    ? {
-      ...folder,
-      name
-    }
-    : folder);
-}
-
-function deleteTableFolder(folderId) {
-  state.tableFolders = state.tableFolders.filter((folder) => folder.id !== folderId);
-  state.tables = state.tables.map((table) => table.folderId === folderId
-    ? {
-      ...table,
-      folderId: ""
-    }
-    : table);
-
-  if (state.activeTableFolderId === folderId) {
-    state.activeTableFolderId = "";
-  }
-}
-
-function deleteTable(tableId) {
-  const normalizedTableId = cleanText(tableId);
-
-  if (isProtectedTableId(normalizedTableId)) {
-    return;
-  }
-
-  const currentIndex = state.tables.findIndex((table) => table.id === normalizedTableId);
-
-  if (currentIndex < 0) {
-    return;
-  }
-
-  state.tables = state.tables.filter((table) => table.id !== normalizedTableId);
-  state.openTableIds = state.openTableIds.filter((id) => id !== normalizedTableId);
-  state.activeTableId = state.tables[currentIndex]?.id ?? state.tables[currentIndex - 1]?.id ?? state.tables[0]?.id ?? "";
-  state.activeTableFolderId = state.tables.find((table) => table.id === state.activeTableId)?.folderId ?? "";
-  reconcileTablesUiState();
-}
-
-function moveTableToFrontWithinFolder(tables, tableId) {
-  const targetTable = tables.find((table) => table.id === tableId);
-
-  if (!targetTable) {
-    return tables;
-  }
-
-  const sameFolderTables = tables.filter((table) => table.folderId === targetTable.folderId);
-  const otherTables = tables.filter((table) => table.folderId !== targetTable.folderId);
-  const reorderedSameFolderTables = [
-    targetTable,
-    ...sameFolderTables.filter((table) => table.id !== tableId)
-  ];
-  const result = [];
-  const folderBuckets = new Map();
-
-  otherTables.forEach((table) => {
-    const bucket = folderBuckets.get(table.folderId ?? "__root__") ?? [];
-    bucket.push(table);
-    folderBuckets.set(table.folderId ?? "__root__", bucket);
-  });
-
-  let inserted = false;
-  tables.forEach((table) => {
-    if (table.folderId === targetTable.folderId) {
-      if (!inserted) {
-        result.push(...reorderedSameFolderTables);
-        inserted = true;
-      }
-      return;
-    }
-
-    const key = table.folderId ?? "__root__";
-    const bucket = folderBuckets.get(key);
-
-    if (!bucket || bucket.length === 0) {
-      return;
-    }
-
-    result.push(bucket.shift());
-  });
-
-  return result.filter(Boolean);
-}
-
-function updateTableName(tableId, rawValue) {
-  const normalizedTableId = cleanText(tableId);
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? {
-      ...table,
-      name: rawValue
-    }
-    : table);
-}
-
-function updateTableColumnLabel(tableId, columnId, rawValue) {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedColumnId = cleanText(columnId);
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? {
-      ...table,
-      columns: table.columns.map((column) => column.id === normalizedColumnId
-        ? { ...column, label: rawValue }
-        : column)
-    }
-    : table);
-}
-
-function setTableColumnWidth(tableId, columnId, width) {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedColumnId = cleanText(columnId);
-  const safeWidth = Math.max(72, Math.floor(toNumber(width)) || 72);
-
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? {
-      ...table,
-      columns: table.columns.map((column) => column.id === normalizedColumnId
-        ? { ...column, width: safeWidth }
-        : column)
-    }
-    : table);
-}
-
-function applyTableColumnWidthPreview(tableId, columnId, width) {
-  const safeWidth = Math.max(72, Math.floor(toNumber(width)) || 72);
-  app.querySelectorAll(`[data-table-id="${tableId}"][data-table-col-id="${columnId}"]`).forEach((col) => {
-    col.style.width = `${safeWidth}px`;
-  });
-}
-
-function updateTableCell(tableId, rowId, columnId, rawValue) {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedRowId = cleanText(rowId);
-  const normalizedColumnId = cleanText(columnId);
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? {
-      ...table,
-      rows: table.rows.map((row) => row.id === normalizedRowId
-        ? {
-          ...row,
-          cells: {
-            ...row.cells,
-            [normalizedColumnId]: rawValue
-          }
-        }
-        : row)
-    }
-    : table);
-}
-
-function updateTableDimension(tableId, kind, rawValue) {
-  const value = Math.max(kind === "columns" ? 1 : 0, Math.floor(toNumber(rawValue)) || 0);
-
-  if (kind === "columns") {
-    setTableColumnCount(tableId, value);
-    return;
-  }
-
-  if (kind === "rows") {
-    setTableRowCount(tableId, value);
-  }
-}
-
-function addTableColumn(tableId) {
-  const table = state.tables.find((entry) => entry.id === cleanText(tableId));
-  setTableColumnCount(tableId, (table?.columns.length ?? 0) + 1);
-}
-
-function insertTableColumnAfter(tableId, afterColumnId = "") {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedAfterColumnId = cleanText(afterColumnId);
-
-  state.tables = state.tables.map((table) => {
-    if (table.id !== normalizedTableId) {
-      return table;
-    }
-
-    const currentColumns = [...table.columns];
-    const insertAt = normalizedAfterColumnId
-      ? Math.max(0, currentColumns.findIndex((column) => column.id === normalizedAfterColumnId) + 1)
-      : currentColumns.length;
-    const nextColumn = normalizeStoredTableColumn({
-      label: `Columna ${insertAt + 1}`
-    }, insertAt);
-    const nextColumns = [...currentColumns];
-    nextColumns.splice(insertAt, 0, nextColumn);
-
-    return {
-      ...table,
-      columns: nextColumns,
-      rows: table.rows.map((row) => ({
-        ...row,
-        cells: Object.fromEntries(nextColumns.map((column) => [
-          column.id,
-          column.id === nextColumn.id ? "" : row.cells[column.id] ?? ""
-        ]))
-      }))
-    };
-  });
-}
-
-function removeTableColumn(tableId, columnId = "") {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedColumnId = cleanText(columnId);
-
-  state.tables = state.tables.map((table) => {
-    if (table.id !== normalizedTableId || table.columns.length <= 1) {
-      return table;
-    }
-
-    const nextColumns = normalizedColumnId
-      ? table.columns.filter((column) => column.id !== normalizedColumnId)
-      : table.columns.slice(0, -1);
-
-    if (nextColumns.length === 0) {
-      return table;
-    }
-
-    return {
-      ...table,
-      columns: nextColumns,
-      rows: table.rows.map((row) => ({
-        ...row,
-        cells: Object.fromEntries(nextColumns.map((column) => [column.id, row.cells[column.id] ?? ""]))
-      }))
-    };
-  });
-}
-
-function setTableColumnCount(tableId, nextCount) {
-  const normalizedTableId = cleanText(tableId);
-  const safeCount = Math.max(1, Math.floor(toNumber(nextCount)) || 1);
-
-  state.tables = state.tables.map((table) => {
-    if (table.id !== normalizedTableId) {
-      return table;
-    }
-
-    let nextColumns = [...table.columns];
-
-    if (safeCount > nextColumns.length) {
-      while (nextColumns.length < safeCount) {
-        nextColumns.push(normalizeStoredTableColumn({ label: `Columna ${nextColumns.length + 1}` }, nextColumns.length));
-      }
-    } else if (safeCount < nextColumns.length) {
-      nextColumns = nextColumns.slice(0, safeCount);
-    }
-
-    return {
-      ...table,
-      columns: nextColumns,
-      rows: table.rows.map((row) => ({
-        ...row,
-        cells: Object.fromEntries(nextColumns.map((column) => [column.id, row.cells[column.id] ?? ""]))
-      }))
-    };
-  });
-}
-
-function addTableRow(tableId) {
-  const table = state.tables.find((entry) => entry.id === cleanText(tableId));
-  setTableRowCount(tableId, (table?.rows.length ?? 0) + 1);
-}
-
-function insertTableRowAfter(tableId, afterRowId = "") {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedAfterRowId = cleanText(afterRowId);
-
-  state.tables = state.tables.map((table) => {
-    if (table.id !== normalizedTableId) {
-      return table;
-    }
-
-    const nextRows = [...table.rows];
-    const insertAt = normalizedAfterRowId
-      ? Math.max(0, nextRows.findIndex((row) => row.id === normalizedAfterRowId) + 1)
-      : nextRows.length;
-    const nextRow = normalizeStoredTableRow({
-      cells: table.columns.map(() => "")
-    }, table.columns, insertAt);
-
-    nextRows.splice(insertAt, 0, nextRow);
-
-    return {
-      ...table,
-      rows: nextRows
-    };
-  });
-}
-
-function removeTableRow(tableId, rowId) {
-  const normalizedTableId = cleanText(tableId);
-  const normalizedRowId = cleanText(rowId);
-  state.tables = state.tables.map((table) => table.id === normalizedTableId
-    ? {
-      ...table,
-      rows: table.rows.filter((row) => row.id !== normalizedRowId)
-    }
-    : table);
-}
-
-function setTableRowCount(tableId, nextCount) {
-  const normalizedTableId = cleanText(tableId);
-  const safeCount = Math.max(0, Math.floor(toNumber(nextCount)) || 0);
-
-  state.tables = state.tables.map((table) => {
-    if (table.id !== normalizedTableId) {
-      return table;
-    }
-
-    let nextRows = [...table.rows];
-
-    if (safeCount > nextRows.length) {
-      while (nextRows.length < safeCount) {
-        nextRows.push(normalizeStoredTableRow({
-          cells: table.columns.map(() => "")
-        }, table.columns, nextRows.length));
-      }
-    } else if (safeCount < nextRows.length) {
-      nextRows = nextRows.slice(0, safeCount);
-    }
-
-    return {
-      ...table,
-      rows: nextRows
-    };
-  });
-}
-
-async function importTablesFromWorkbook(file) {
-  if (!file) {
-    return;
-  }
-
-  try {
-    const workbook = XLSX.read(await file.arrayBuffer(), {
-      type: "array"
-    });
-    const detectedTables = workbook.SheetNames.flatMap((sheetName, sheetIndex) =>
-      extractTablesFromWorkbookSheet(workbook.Sheets[sheetName], sheetName, sheetIndex)
-    );
-
-    if (detectedTables.length === 0) {
-      state.campaignMessage = "El Excel no trae hojas utiles para importar.";
-      render();
-      return;
-    }
-
-    const importFolderId = detectedTables.length > 1
-      ? createImportedTableFolder(getExcelImportBaseName(file.name))
-      : "";
-    const importedTables = detectedTables.map((table, index) => normalizeStoredTable({
-      ...table,
-      folderId: importFolderId
-    }, state.tables.length + index)).filter(Boolean);
-
-    state.tables = [...state.tables, ...importedTables];
-    state.activeScreen = "tables";
-    state.activeTableFolderId = importFolderId || importedTables[0]?.folderId || "";
-    state.activeTableId = importedTables[0].id;
-    state.openTableIds = [...new Set([...state.openTableIds, ...importedTables.map((table) => table.id)])];
-    expandTableFolder(importFolderId);
-    reconcileTablesUiState();
-    saveTablesState();
-    state.campaignMessage = importedTables.length === 1
-      ? `Excel importado: ${importedTables[0].name}.`
-      : `Excel importado: ${importedTables.length} tablas agrupadas en carpeta.`;
-    render();
-  } catch {
-    state.campaignMessage = "No se pudo importar el fichero Excel.";
-    render();
-  }
-}
-
-function extractTablesFromWorkbookSheet(sheet, sheetName, index = 0) {
-  if (!sheet) {
-    return [];
-  }
-
-  const rawGrid = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: "",
-    raw: false,
-    blankrows: true
-  }).map((row) => Array.isArray(row) ? row.map((cell) => cleanText(cell)) : []);
-  const grid = normalizeWorkbookGrid(rawGrid);
-
-  if (grid.length === 0) {
-    return [];
-  }
-
-  const regions = detectWorkbookTableRegions(grid);
-
-  return regions
-    .map((region, regionIndex) => buildTableFromWorkbookRegion(region, grid, sheetName, index, regionIndex))
-    .filter(Boolean);
-}
-
-function normalizeWorkbookGrid(rawGrid) {
-  const maxColumns = Math.max(0, ...rawGrid.map((row) => row.length));
-
-  if (maxColumns === 0) {
-    return [];
-  }
-
-  const paddedGrid = rawGrid.map((row) => Array.from({ length: maxColumns }, (_, columnIndex) => cleanText(row[columnIndex])));
-  const firstNonEmptyRowIndex = paddedGrid.findIndex((row) => row.some(Boolean));
-  const lastNonEmptyRowIndex = [...paddedGrid].reverse().findIndex((row) => row.some(Boolean));
-
-  if (firstNonEmptyRowIndex < 0) {
-    return [];
-  }
-
-  const endIndex = paddedGrid.length - lastNonEmptyRowIndex;
-  return paddedGrid.slice(firstNonEmptyRowIndex, endIndex);
-}
-
-function detectWorkbookTableRegions(grid) {
-  const rowCount = grid.length;
-  const columnCount = Math.max(0, ...grid.map((row) => row.length));
-  const visited = new Set();
-  const regions = [];
-
-  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
-    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-      if (!cleanText(grid[rowIndex]?.[columnIndex])) {
-        continue;
-      }
-
-      const key = `${rowIndex}:${columnIndex}`;
-
-      if (visited.has(key)) {
-        continue;
-      }
-
-      const queue = [[rowIndex, columnIndex]];
-      const cells = [];
-      visited.add(key);
-
-      while (queue.length > 0) {
-        const [currentRow, currentColumn] = queue.shift();
-        cells.push([currentRow, currentColumn]);
-
-        [
-          [currentRow - 1, currentColumn],
-          [currentRow + 1, currentColumn],
-          [currentRow, currentColumn - 1],
-          [currentRow, currentColumn + 1]
-        ].forEach(([nextRow, nextColumn]) => {
-          if (
-            nextRow < 0
-            || nextColumn < 0
-            || nextRow >= rowCount
-            || nextColumn >= columnCount
-            || !cleanText(grid[nextRow]?.[nextColumn])
-          ) {
-            return;
-          }
-
-          const nextKey = `${nextRow}:${nextColumn}`;
-
-          if (visited.has(nextKey)) {
-            return;
-          }
-
-          visited.add(nextKey);
-          queue.push([nextRow, nextColumn]);
-        });
-      }
-
-      const rows = cells.map(([cellRow]) => cellRow);
-      const columns = cells.map(([, cellColumn]) => cellColumn);
-      const region = {
-        minRow: Math.min(...rows),
-        maxRow: Math.max(...rows),
-        minColumn: Math.min(...columns),
-        maxColumn: Math.max(...columns),
-        nonEmptyCells: cells.length
-      };
-
-      if (region.nonEmptyCells >= 2) {
-        regions.push(region);
-      }
-    }
-  }
-
-  return regions.sort((left, right) => left.minRow - right.minRow || left.minColumn - right.minColumn);
-}
-
-function buildTableFromWorkbookRegion(region, grid, sheetName, sheetIndex = 0, regionIndex = 0) {
-  const regionGrid = grid
-    .slice(region.minRow, region.maxRow + 1)
-    .map((row) => row.slice(region.minColumn, region.maxColumn + 1));
-  const nonEmptyColumnIndexes = Array.from({ length: regionGrid[0]?.length ?? 0 }, (_, columnIndex) => columnIndex)
-    .filter((columnIndex) => regionGrid.some((row) => cleanText(row[columnIndex])));
-  const compactGrid = regionGrid.map((row) => nonEmptyColumnIndexes.map((columnIndex) => cleanText(row[columnIndex])));
-  const firstRow = compactGrid[0] ?? [];
-  const secondRow = compactGrid[1] ?? [];
-  const firstRowCount = firstRow.filter(Boolean).length;
-  const secondRowCount = secondRow.filter(Boolean).length;
-  const titleRowIndex = compactGrid.length >= 2 && firstRowCount === 1 && secondRowCount >= 2 ? 0 : -1;
-  const headerRowIndex = titleRowIndex === 0 ? 1 : 0;
-  const headerRow = compactGrid[headerRowIndex] ?? [];
-  const dataRows = compactGrid.slice(headerRowIndex + 1);
-  const hasBody = dataRows.some((row) => row.some(Boolean));
-  const columnCount = Math.max(1, headerRow.length, ...dataRows.map((row) => row.length));
-
-  if (columnCount === 1 && compactGrid.length === 1) {
-    return null;
-  }
-
-  const columns = Array.from({ length: columnCount }, (_, columnIndex) => normalizeStoredTableColumn({
-    label: headerRow[columnIndex] || `Columna ${columnIndex + 1}`
-  }, columnIndex)).filter(Boolean);
-  const rows = (hasBody ? dataRows : [])
-    .map((row, rowIndex) => normalizeStoredTableRow({
-      cells: Array.from({ length: columnCount }, (_, columnIndex) => row[columnIndex] ?? "")
-    }, columns, rowIndex))
-    .filter(Boolean);
-  const title = titleRowIndex === 0 ? firstRow.find(Boolean) ?? "" : "";
-  const fallbackName = cleanText(sheetName) || `Hoja ${sheetIndex + 1}`;
-  const regionSuffix = regionIndex > 0 ? ` ${regionIndex + 1}` : "";
-
-  return {
-    name: cleanText(title) || `${fallbackName}${regionSuffix}`,
-    columns,
-    rows,
-    collapsed: false
-  };
-}
-
-function createImportedTableFolder(baseName = "") {
-  const folder = normalizeStoredTableFolder({
-    id: createStableId("table-folder"),
-    name: cleanText(baseName) || `Importacion ${state.tableFolders.length + 1}`,
-    isExpanded: true
-  });
-
-  state.tableFolders = [...state.tableFolders, folder];
-  return folder.id;
-}
-
-function getExcelImportBaseName(fileName = "") {
-  return cleanText(fileName)
-    .replace(/\.(xlsx|xls)$/i, "")
-    .replace(/[_-]+/g, " ")
-    .trim();
-}
-
-function exportTableToExcel(tableId) {
-  const table = state.tables.find((entry) => entry.id === cleanText(tableId));
-
-  if (!table) {
-    return;
-  }
-
-  const workbook = XLSX.utils.book_new();
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    table.columns.map((column) => column.label),
-    ...table.rows.map((row) => table.columns.map((column) => row.cells[column.id] ?? ""))
-  ]);
-
-  worksheet["!cols"] = table.columns.map((column, index) => {
-    const widthPx = column.width || (getTableColumnKind(column, index) === "number" ? 88 : getTableColumnKind(column, index) === "short" ? 220 : 420);
-    return {
-      wpx: widthPx
-    };
-  });
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, getSafeExcelSheetName(table.name));
-  XLSX.writeFile(workbook, `${slugify(table.name) || "tabla"}.xlsx`);
-}
-
-function getSafeExcelSheetName(name) {
-  const safeName = cleanText(name).replace(/[\\/*?:\[\]]/g, " ").trim();
-  return (safeName || "Tabla").slice(0, 31);
 }
 
 function normalizeStoredEncounterFolder(folder) {

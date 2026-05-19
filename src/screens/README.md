@@ -17,8 +17,14 @@ src/shared/dndRules.js          stats, modificadores, CR, pesos y dados de PG
 src/shared/numberUtils.js       numeros seguros y objeto plano
 src/shared/text.js              texto limpio, escape HTML, slug y listas
 src/shared/virtualList.js       ventana visible de listas virtualizadas
+src/screens/characters/characterState.js       carga, guardado y normalizacion de personajes
+src/screens/combat-tracker/combatTrackerState.js carga, guardado y normalizacion del tracker de combate
 src/screens/compendiums/detailRender.js  fichas seleccionadas de compendios
 src/screens/compendiums/listRender.js    filas y listas virtualizadas de compendios
+src/screens/diary/diaryRender.js        render del diario y calendario visual de Harptos
+src/screens/tables/tableController.js    estado, acciones e import/export de tablas
+src/screens/tables/tableRender.js        render de tablas y enlaces a compendios
+src/screens/tables/tableUtils.js         helpers compartidos de tablas
 ```
 
 La convencion recomendada para nuevas funcionalidades es:
@@ -38,4 +44,5 @@ Para extraer pantallas existentes, ruta recomendada:
 1. Mover primero constantes puras a `src/data/` o `src/config/`.
 2. Mover helpers sin dependencia de `state` a `src/shared/`.
 3. Extraer render puro de pantalla a `src/screens/<screen-id>/render.js`, inyectando dependencias desde `main.js` mientras `state` siga global. En compendios ya existe el patron con `detailRender.js` y `listRender.js`.
-4. Mantener handlers y mutaciones de `state` en `src/main.js` hasta que haya un patron claro para `actions.js`.
+4. Para render o estado/acciones de una pantalla, usar un factory `create<Screen>...()` que reciba `state` y dependencias explicitas. Ya existe el patron en personajes, combat tracker, diario y tablas.
+5. Mantener handlers genericos y mutaciones cruzadas de `state` en `src/main.js` hasta que haya un patron claro para `actions.js`.
