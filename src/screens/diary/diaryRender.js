@@ -29,7 +29,8 @@ export function createDiaryRenderers({
   formatDiaryHarptosDayLabel,
   getDiaryHarptosMoonPhase,
   getDiaryHarptosTransitionClass,
-  getDiaryHarptosQuickNoteChipStyle
+  getDiaryHarptosQuickNoteChipStyle,
+  reconcileDiaryUiState
 }) {
 function renderDiaryScreen() {
   reconcileDiaryUiState();

@@ -10677,7 +10677,8 @@ const { renderDiaryScreen } = createDiaryRenderers({
   formatDiaryHarptosDayLabel,
   getDiaryHarptosMoonPhase,
   getDiaryHarptosTransitionClass,
-  getDiaryHarptosQuickNoteChipStyle
+  getDiaryHarptosQuickNoteChipStyle,
+  reconcileDiaryUiState
 });
 function renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, hasAreaAmount) {
   return `
