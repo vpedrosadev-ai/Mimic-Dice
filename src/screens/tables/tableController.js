@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import { isPlainObject, toNumber } from "../../shared/numberUtils.js";
 import { cleanText, slugify } from "../../shared/text.js";
 import { getTableColumnKind } from "./tableUtils.js";
@@ -18,6 +17,15 @@ export function createTablesController({
 }) {
   let activeTableRollTimer = 0;
   let tableRollAudioContext = null;
+  let xlsxModulePromise = null;
+
+async function loadXlsxModule() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = import("xlsx");
+  }
+
+  return xlsxModulePromise;
+}
 
 function loadTablesState() {
   const defaultState = getDefaultTablesState();
@@ -989,11 +997,12 @@ async function importTablesFromWorkbook(file) {
   }
 
   try {
+    const XLSX = await loadXlsxModule();
     const workbook = XLSX.read(await file.arrayBuffer(), {
       type: "array"
     });
     const detectedTables = workbook.SheetNames.flatMap((sheetName, sheetIndex) =>
-      extractTablesFromWorkbookSheet(workbook.Sheets[sheetName], sheetName, sheetIndex)
+      extractTablesFromWorkbookSheet(workbook.Sheets[sheetName], sheetName, sheetIndex, XLSX)
     );
 
     if (detectedTables.length === 0) {
@@ -1028,12 +1037,12 @@ async function importTablesFromWorkbook(file) {
   }
 }
 
-function extractTablesFromWorkbookSheet(sheet, sheetName, index = 0) {
-  if (!sheet) {
+function extractTablesFromWorkbookSheet(sheet, sheetName, index = 0, spreadsheet = null) {
+  if (!sheet || !spreadsheet?.utils) {
     return [];
   }
 
-  const rawGrid = XLSX.utils.sheet_to_json(sheet, {
+  const rawGrid = spreadsheet.utils.sheet_to_json(sheet, {
     header: 1,
     defval: "",
     raw: false,
@@ -1090,11 +1099,13 @@ function detectWorkbookTableRegions(grid) {
       }
 
       const queue = [[rowIndex, columnIndex]];
+      let queueIndex = 0;
       const cells = [];
       visited.add(key);
 
-      while (queue.length > 0) {
-        const [currentRow, currentColumn] = queue.shift();
+      while (queueIndex < queue.length) {
+        const [currentRow, currentColumn] = queue[queueIndex];
+        queueIndex += 1;
         cells.push([currentRow, currentColumn]);
 
         [
@@ -1203,28 +1214,34 @@ function getExcelImportBaseName(fileName = "") {
     .trim();
 }
 
-function exportTableToExcel(tableId) {
+async function exportTableToExcel(tableId) {
   const table = state.tables.find((entry) => entry.id === cleanText(tableId));
 
   if (!table) {
     return;
   }
 
-  const workbook = XLSX.utils.book_new();
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    table.columns.map((column) => column.label),
-    ...table.rows.map((row) => table.columns.map((column) => row.cells[column.id] ?? ""))
-  ]);
+  try {
+    const XLSX = await loadXlsxModule();
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      table.columns.map((column) => column.label),
+      ...table.rows.map((row) => table.columns.map((column) => row.cells[column.id] ?? ""))
+    ]);
 
-  worksheet["!cols"] = table.columns.map((column, index) => {
-    const widthPx = column.width || (getTableColumnKind(column, index) === "number" ? 88 : getTableColumnKind(column, index) === "short" ? 220 : 420);
-    return {
-      wpx: widthPx
-    };
-  });
+    worksheet["!cols"] = table.columns.map((column, index) => {
+      const widthPx = column.width || (getTableColumnKind(column, index) === "number" ? 88 : getTableColumnKind(column, index) === "short" ? 220 : 420);
+      return {
+        wpx: widthPx
+      };
+    });
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, getSafeExcelSheetName(table.name));
-  XLSX.writeFile(workbook, `${slugify(table.name) || "tabla"}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, getSafeExcelSheetName(table.name));
+    XLSX.writeFile(workbook, `${slugify(table.name) || "tabla"}.xlsx`);
+  } catch {
+    state.campaignMessage = "No se pudo exportar la tabla a Excel.";
+    render();
+  }
 }
 
 function getSafeExcelSheetName(name) {

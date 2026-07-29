@@ -586,6 +586,8 @@ const initialTablesState = loadTablesState();
 const initialDiaryState = loadDiaryState();
 let scheduledRenderTimer = 0;
 let scheduledRenderFocusState = null;
+let lastRenderedScreen = "";
+let scheduledRenderViewportRestore = 0;
 let arcanumSpellLinkCache = {
   signature: "",
   pattern: null,
@@ -1766,7 +1768,7 @@ async function handleClick(event) {
   }
 
   if (action === "export-table") {
-    exportTableToExcel(actionButton.dataset.tableId);
+    await exportTableToExcel(actionButton.dataset.tableId);
     return;
   }
 
@@ -6125,8 +6127,108 @@ function renderCharacterOverviewHeaderTooltipOverlay() {
   `;
 }
 
+function captureRenderViewportState() {
+  if (typeof window === "undefined" || lastRenderedScreen !== state.activeScreen) {
+    return null;
+  }
+
+  return {
+    screen: lastRenderedScreen,
+    windowX: window.scrollX,
+    windowY: window.scrollY,
+    containers: [...app.querySelectorAll("[data-render-scroll-key]")].map((element) => ({
+      key: element.dataset.renderScrollKey,
+      left: element.scrollLeft,
+      top: element.scrollTop
+    }))
+  };
+}
+
+function restoreRenderViewportState(viewportState) {
+  if (!viewportState || viewportState.screen !== state.activeScreen) {
+    return;
+  }
+
+  const scrollContainers = new Map(
+    [...app.querySelectorAll("[data-render-scroll-key]")]
+      .map((element) => [element.dataset.renderScrollKey, element])
+  );
+
+  viewportState.containers.forEach(({ key, left, top }) => {
+    const element = scrollContainers.get(key);
+
+    if (element) {
+      element.scrollLeft = left;
+      element.scrollTop = top;
+    }
+  });
+
+  window.scrollTo(viewportState.windowX, viewportState.windowY);
+}
+
+function cancelRenderViewportRestore() {
+  if (!scheduledRenderViewportRestore) {
+    return;
+  }
+
+  if (typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(scheduledRenderViewportRestore);
+  } else {
+    window.clearTimeout(scheduledRenderViewportRestore);
+  }
+
+  scheduledRenderViewportRestore = 0;
+}
+
+function scheduleRenderViewportRestore(viewportState) {
+  if (!viewportState) {
+    return;
+  }
+
+  const schedule = typeof window.requestAnimationFrame === "function"
+    ? window.requestAnimationFrame.bind(window)
+    : (callback) => window.setTimeout(callback, 16);
+
+  scheduledRenderViewportRestore = schedule(() => {
+    scheduledRenderViewportRestore = 0;
+    restoreRenderViewportState(viewportState);
+  });
+}
+
+function restoreRenderFocus(focusState) {
+  if (!focusState?.focusSelector) {
+    return;
+  }
+
+  const target = app.querySelector(focusState.focusSelector);
+
+  if (!target) {
+    return;
+  }
+
+  try {
+    target.focus({ preventScroll: true });
+  } catch {
+    target.focus();
+  }
+
+  if (typeof focusState.selectionStart === "number" && typeof target.setSelectionRange === "function") {
+    target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd ?? focusState.selectionStart);
+  }
+
+  if (focusState.scrollIntoView && typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest"
+    });
+  }
+}
+
 function render(focusState = null) {
   cancelScheduledRender();
+  cancelRenderViewportRestore();
+  const viewportState = captureRenderViewportState();
 
   app.innerHTML = `
     <div class="shell">
@@ -6176,30 +6278,6 @@ function render(focusState = null) {
     </div>
   `;
 
-  if (focusState?.focusSelector) {
-    const target = app.querySelector(focusState.focusSelector);
-
-    if (target) {
-      try {
-        target.focus({ preventScroll: true });
-      } catch {
-        target.focus();
-      }
-
-      if (typeof focusState.selectionStart === "number" && typeof target.setSelectionRange === "function") {
-        target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd ?? focusState.selectionStart);
-      }
-
-      if (focusState.scrollIntoView && typeof target.scrollIntoView === "function") {
-        target.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-          inline: "nearest"
-        });
-      }
-    }
-  }
-
   if (state.activeScreen === "bestiary") {
     restoreBestiaryListScroll();
   }
@@ -6219,6 +6297,14 @@ function render(focusState = null) {
   syncCompendiumLayoutHeights();
   applyInterfaceTranslations(app);
   syncTopbarNavigationMetrics();
+  lastRenderedScreen = state.activeScreen;
+  restoreRenderViewportState(viewportState);
+  restoreRenderFocus(focusState);
+
+  if (!focusState?.scrollIntoView) {
+    scheduleRenderViewportRestore(viewportState);
+  }
+
   scheduleActiveCombatSpellbookPopoverSync();
   scheduleActiveCombatSpellPreviewSync();
   activeCharacterOverviewHeaderTooltipElement = null;
@@ -7076,9 +7162,12 @@ function renderScreenErrorPanel(title, message) {
 }
 
 function renderCombatTracker() {
-  const visibleCombatants = Array.isArray(getVisibleCombatants()) ? getVisibleCombatants() : [];
-  const turnOrder = Array.isArray(getCombatTurnOrder(visibleCombatants)) ? getCombatTurnOrder(visibleCombatants) : [];
-  const turnParticipants = Array.isArray(getCombatTurnParticipants(turnOrder)) ? getCombatTurnParticipants(turnOrder) : [];
+  const visibleCombatantResult = getVisibleCombatants();
+  const visibleCombatants = Array.isArray(visibleCombatantResult) ? visibleCombatantResult : [];
+  const turnOrderResult = getCombatTurnOrder(visibleCombatants);
+  const turnOrder = Array.isArray(turnOrderResult) ? turnOrderResult : [];
+  const turnParticipantResult = getCombatTurnParticipants(turnOrder);
+  const turnParticipants = Array.isArray(turnParticipantResult) ? turnParticipantResult : [];
   const activeTurnCombatantId = state.isCombatActive ? getActiveTurnCombatantId(turnParticipants) : "";
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
@@ -7190,7 +7279,7 @@ function renderCombatTracker() {
         </div>
       </div>
 
-      <div class="table-wrap" role="region" aria-label="Combat tracker" tabindex="0">
+      <div class="table-wrap" role="region" aria-label="Combat tracker" tabindex="0" data-render-scroll-key="combat-table">
         <table class="combat-table">
           <colgroup>
             <col style="width: 2.4rem" />
@@ -7358,6 +7447,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
           class="combat-turn-strip"
           style="--turn-token-scale:${turnTokenScale};--turn-strip-count:${turnOrder.length}"
           aria-label="Orden de iniciativa"
+          data-render-scroll-key="combat-turn-strip"
         >
           ${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeTurnCombatantId)).join("")}
         </div>
@@ -9019,7 +9109,6 @@ function renderDataCell(combatant, column, isDead) {
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inputMode = column.type === "number" ? "numeric" : "text";
   const inlineValues = getInlineAdjustment(combatant.id);
-  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
 
   if (column.key === "iniactiva") {
     return `
@@ -9046,11 +9135,13 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "nombre") {
-    const suggestions = getCombatNameSuggestions(combatant);
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const isNameSearchActive = state.activeCombatNameSearchId === combatant.id;
+    const suggestions = isNameSearchActive ? getCombatNameSuggestions(combatant) : [];
     const sourceChip = renderCombatantSourceChip(combatant);
-    const token = renderCombatantNameToken(combatant);
+    const token = renderCombatantNameToken(combatant, linkedCharacter);
     const tagChip = renderCombatantTagChip(combatant);
-    const npcChip = renderCombatantNpcChip(combatant);
+    const npcChip = renderCombatantNpcChip(combatant, linkedCharacter);
     const nameInputStyle = getCombatNameInputStyle(value);
 
     return `
@@ -9079,7 +9170,7 @@ function renderDataCell(combatant, column, isDead) {
             </div>
           ` : ""}
           ${
-            state.activeCombatNameSearchId === combatant.id && suggestions.length > 0
+            isNameSearchActive && suggestions.length > 0
               ? `
                 <div class="combat-name-suggestions" role="listbox" aria-label="Sugerencias de combate">
                   ${suggestions.map((entry) => renderCombatNameSuggestion(combatant.id, entry)).join("")}
@@ -9159,6 +9250,7 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "pgAct") {
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
     const maxForBar = Math.max(1, getEffectivePgMax(combatant));
     const healthPercent = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxForBar) * 100)));
     const hpVisualFill = getCombatHealthVisualFill(healthPercent);
@@ -9300,6 +9392,8 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "crExp") {
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+
     if (linkedCharacter && cleanText(combatant.tag).toUpperCase() === "ALIADO") {
       if (isNpcCharacter(linkedCharacter)) {
         return `
@@ -9861,8 +9955,8 @@ function renderCombatantTagChip(combatant) {
   `;
 }
 
-function renderCombatantNpcChip(combatant) {
-  return isNpcCharacter(getLinkedCharacterForCombatant(combatant))
+function renderCombatantNpcChip(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
+  return isNpcCharacter(linkedCharacter)
     ? `<span class="combat-npc-chip">NPC</span>`
     : "";
 }
@@ -10210,10 +10304,9 @@ function renderCombatNameSuggestion(combatantId, entry) {
   `;
 }
 
-function renderCombatantNameToken(combatant) {
-  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+function renderCombatantNameToken(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
   const bestiaryEntry = getCombatantBestiaryEntry(combatant);
-  const tokenUrl = getCombatantTokenUrl(combatant);
+  const tokenUrl = getCombatantTokenUrl(combatant, linkedCharacter);
   const initials = linkedCharacter
     ? getCharacterInitials(linkedCharacter)
     : getCombatantInitials(combatant);
@@ -13344,8 +13437,8 @@ function getCombatantBestiaryEntry(combatant) {
   });
 }
 
-function getCombatantTokenUrl(combatant) {
-  return cleanText(getLinkedCharacterForCombatant(combatant)?.tokenUrl)
+function getCombatantTokenUrl(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
+  return cleanText(linkedCharacter?.tokenUrl)
     || getCombatantBestiaryEntry(combatant)?.tokenUrl
     || cleanText(combatant.tokenUrl);
 }

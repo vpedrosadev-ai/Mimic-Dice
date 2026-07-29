@@ -2241,6 +2241,7 @@ table {
 
 .combat-tracker-panel {
   overflow: visible;
+  overflow-anchor: none;
   z-index: 1;
   font-size: 1.25rem;
 }

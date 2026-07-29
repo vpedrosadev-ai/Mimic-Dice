@@ -22,6 +22,8 @@ export function createCombatTrackerStateController({
   mapTagToSide,
   mapSideToTag
 }) {
+let lastSavedCombatTrackerJson = "";
+
 function loadCombatTrackerState() {
   const defaultState = getDefaultCombatTrackerState();
 
@@ -93,9 +95,17 @@ function saveCombatTrackerState() {
     return;
   }
 
+  const serializedState = JSON.stringify(getCombatTrackerSaveData());
+
+  if (serializedState === lastSavedCombatTrackerJson) {
+    return;
+  }
+
+  lastSavedCombatTrackerJson = serializedState;
+
   if (!usesDesktopFileOnlyPersistence()) {
     try {
-      window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, JSON.stringify(getCombatTrackerSaveData()));
+      window.localStorage.setItem(COMBAT_TRACKER_STORAGE_KEY, serializedState);
     } catch {
       // Storage can be unavailable in private contexts; the in-memory tracker still works.
     }
