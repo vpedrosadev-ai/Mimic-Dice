@@ -1,19 +1,20 @@
 export function parseCsv(csvText) {
-  const wrappedSpreadsheetRows = parseWrappedSpreadsheetCsvExport(csvText);
+  const normalizedCsvText = String(csvText ?? "").replace(/^\uFEFF/, "");
+  const wrappedSpreadsheetRows = parseWrappedSpreadsheetCsvExport(normalizedCsvText);
 
   if (wrappedSpreadsheetRows) {
     return wrappedSpreadsheetRows;
   }
 
-  const delimiter = detectCsvDelimiter(csvText);
+  const delimiter = detectCsvDelimiter(normalizedCsvText);
   const rows = [];
   const currentRow = [];
   let currentField = "";
   let insideQuotes = false;
 
-  for (let index = 0; index < csvText.length; index += 1) {
-    const char = csvText[index];
-    const nextChar = csvText[index + 1];
+  for (let index = 0; index < normalizedCsvText.length; index += 1) {
+    const char = normalizedCsvText[index];
+    const nextChar = normalizedCsvText[index + 1];
 
     if (char === "\"") {
       if (insideQuotes && nextChar === "\"") {

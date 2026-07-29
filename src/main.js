@@ -1921,7 +1921,7 @@ async function handleClick(event) {
 
   if (action === "dismiss-notification") {
     dismissNotification(actionButton.dataset.notificationId);
-    render();
+    syncNotificationUi();
     return;
   }
 
@@ -2023,18 +2023,19 @@ async function handleClick(event) {
   }
 
   if (action === "toggle-combat-status") {
-    toggleCombatantStatus(actionButton.dataset.combatantId, actionButton.dataset.combatStatus);
+    const combatantId = actionButton.dataset.combatantId;
+    toggleCombatantStatus(combatantId, actionButton.dataset.combatStatus);
     state.activeCombatStatusMenuId = "";
-    saveCombatTrackerState();
-    render();
+    syncCombatTrackerMutation(combatantId);
     return;
   }
 
   if (action === "toggle-combat-status-menu") {
     event.preventDefault();
     const combatantId = cleanText(actionButton.dataset.combatantId);
+    const previousCombatantId = state.activeCombatStatusMenuId;
     state.activeCombatStatusMenuId = state.activeCombatStatusMenuId === combatantId ? "" : combatantId;
-    render();
+    syncCombatTrackerMutation([previousCombatantId, combatantId]);
     return;
   }
 
@@ -2136,29 +2137,37 @@ async function handleClick(event) {
   }
 
   if (action === "adjust-pg-act") {
-    applyPgActAdjustment(actionButton.dataset.id, actionButton.dataset.mode);
-    render();
+    const combatantId = actionButton.dataset.id;
+    const previousCharacters = state.characters;
+    applyPgActAdjustment(combatantId, actionButton.dataset.mode);
+    syncCombatTrackerMutation(combatantId, {
+      forceFullRender: previousCharacters !== state.characters
+    });
     return;
   }
 
   if (action === "adjust-necrotic") {
-    applyNecroticAdjustment(actionButton.dataset.id);
-    render();
+    const combatantId = actionButton.dataset.id;
+    const previousCharacters = state.characters;
+    applyNecroticAdjustment(combatantId);
+    syncCombatTrackerMutation(combatantId, {
+      forceFullRender: previousCharacters !== state.characters
+    });
     return;
   }
 
   if (action === "toggle-combatant-shield") {
-    toggleCombatantShield(actionButton.dataset.combatantId);
-    saveCombatTrackerState();
-    render();
+    const combatantId = actionButton.dataset.combatantId;
+    toggleCombatantShield(combatantId);
+    syncCombatTrackerMutation(combatantId);
     return;
   }
 
   if (action === "restore-combatant-max-hp") {
-    restoreCombatantMaxHp(actionButton.dataset.combatantId);
+    const combatantId = actionButton.dataset.combatantId;
+    restoreCombatantMaxHp(combatantId);
     closeCombatMaxHpRestoreMenu();
-    saveCombatTrackerState();
-    render();
+    syncCombatTrackerMutation(combatantId);
     return;
   }
 
@@ -2211,8 +2220,12 @@ async function handleClick(event) {
   }
 
   if (action === "adjust-combat-turn-quick-resource") {
+    const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
+    const previousCharacters = state.characters;
     applyCombatTurnQuickMenuAdjustment(actionButton.dataset.mode);
-    render();
+    syncCombatTrackerMutation(combatantId, {
+      forceFullRender: previousCharacters !== state.characters
+    });
     return;
   }
 
@@ -3301,13 +3314,13 @@ function handleChange(event) {
 
   if (target.matches("[data-select-row]")) {
     toggleRowSelection(target.dataset.selectRow, target.checked);
-    render();
+    syncCombatSelectionUi();
     return;
   }
 
   if (target.matches("[data-select-all]")) {
     toggleAllVisible(target.checked);
-    render();
+    syncCombatSelectionUi();
     return;
   }
 
@@ -3383,6 +3396,7 @@ function handleChange(event) {
   }
 
   if (target.matches("[data-edit-id][data-edit-key]")) {
+    const previousCharacters = state.characters;
     updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value);
     saveCombatTrackerState();
 
@@ -3390,7 +3404,9 @@ function handleChange(event) {
       return;
     }
 
-    render();
+    syncCombatTrackerMutation(target.dataset.editId, {
+      forceFullRender: previousCharacters !== state.characters
+    });
     return;
   }
 
@@ -6374,7 +6390,9 @@ function render(focusState = null) {
       <main class="workspace">
         ${renderScreen()}
       </main>
-      ${renderNotifications()}
+      <div data-notification-root>
+        ${renderNotifications()}
+      </div>
       ${renderCombatSpellPreviewOverlay()}
       ${renderCharacterOverviewHeaderTooltipOverlay()}
       ${renderBootOverlay()}
@@ -9218,6 +9236,179 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
   `;
 }
 
+function createTranslatedMarkupElement(markup) {
+  const template = document.createElement("template");
+  template.innerHTML = cleanText(markup);
+  applyInterfaceTranslations(template.content);
+  return template.content.firstElementChild;
+}
+
+function syncCombatTrackerMutation(combatantIds, options = {}) {
+  saveCombatTrackerState();
+
+  if (
+    options.forceFullRender
+    || state.activeScreen !== "combat-tracker"
+    || lastRenderedScreen !== "combat-tracker"
+  ) {
+    render();
+    return false;
+  }
+
+  const visibleCombatants = getVisibleCombatants();
+  const renderedRows = [...app.querySelectorAll("[data-combat-row-id]")];
+  const renderedIds = renderedRows.map((row) => cleanText(row.dataset.combatRowId));
+  const visibleIds = visibleCombatants.map((combatant) => combatant.id);
+
+  if (
+    renderedIds.length !== visibleIds.length
+    || renderedIds.some((id, index) => id !== visibleIds[index])
+  ) {
+    render();
+    return false;
+  }
+
+  const targetIds = new Set(
+    (Array.isArray(combatantIds) ? combatantIds : [combatantIds])
+      .map((id) => cleanText(id))
+      .filter(Boolean)
+  );
+  const combatantById = new Map(visibleCombatants.map((combatant) => [combatant.id, combatant]));
+  const rowById = new Map(renderedRows.map((row) => [cleanText(row.dataset.combatRowId), row]));
+  const turnParticipants = state.isCombatActive
+    ? getCombatTurnParticipants(getCombatTurnOrder(visibleCombatants))
+    : [];
+  const activeTurnCombatantId = state.isCombatActive
+    ? getActiveTurnCombatantId(turnParticipants)
+    : "";
+
+  for (const combatantId of targetIds) {
+    const currentRow = rowById.get(combatantId);
+    const combatant = combatantById.get(combatantId);
+
+    if (!currentRow || !combatant) {
+      continue;
+    }
+
+    const nextRow = createTranslatedMarkupElement(renderCombatRow(combatant, activeTurnCombatantId));
+
+    if (nextRow) {
+      currentRow.replaceWith(nextRow);
+    }
+  }
+
+  if (!syncCombatTurnTokens(targetIds, turnParticipants, activeTurnCombatantId)) {
+    render();
+    return false;
+  }
+
+  if (!cleanText(state.combatTurnQuickMenu?.combatantId)) {
+    app.querySelector("[data-combat-turn-quick-menu]")?.remove();
+  }
+
+  if (!cleanText(state.combatMaxHpRestoreMenu?.combatantId)) {
+    app.querySelector("[data-combat-maxhp-restore-menu]")?.remove();
+  }
+
+  syncNotificationUi();
+  scheduleActiveCombatSpellbookPopoverSync();
+  scheduleActiveCombatSpellPreviewSync();
+  return true;
+}
+
+function syncCombatTurnTokens(targetIds, turnParticipants, activeTurnCombatantId) {
+  if (!state.isCombatActive) {
+    return true;
+  }
+
+  const turnStrip = app.querySelector(".combat-turn-strip");
+  const renderedTokens = turnStrip
+    ? [...turnStrip.querySelectorAll(':scope > [data-action="focus-combatant-row"]')]
+    : [];
+  const renderedIds = renderedTokens.map((token) => cleanText(token.dataset.combatantId));
+  const participantIds = turnParticipants.map((combatant) => combatant.id);
+
+  if (
+    !turnStrip
+    || renderedIds.length !== participantIds.length
+    || renderedIds.some((id, index) => id !== participantIds[index])
+  ) {
+    return false;
+  }
+
+  const participantById = new Map(turnParticipants.map((combatant) => [combatant.id, combatant]));
+
+  renderedTokens.forEach((token) => {
+    const combatantId = cleanText(token.dataset.combatantId);
+
+    if (!targetIds.has(combatantId)) {
+      return;
+    }
+
+    const combatant = participantById.get(combatantId);
+    const nextToken = combatant
+      ? createTranslatedMarkupElement(renderCombatTurnToken(combatant, combatantId === activeTurnCombatantId))
+      : null;
+
+    if (nextToken) {
+      token.replaceWith(nextToken);
+    }
+  });
+
+  return true;
+}
+
+function syncCombatSelectionUi() {
+  if (state.activeScreen !== "combat-tracker" || lastRenderedScreen !== "combat-tracker") {
+    render();
+    return;
+  }
+
+  const visibleCombatants = getVisibleCombatants();
+  const visibleIds = new Set(visibleCombatants.map((combatant) => combatant.id));
+
+  app.querySelectorAll("[data-combat-row-id]").forEach((row) => {
+    const combatantId = cleanText(row.dataset.combatRowId);
+    const isSelected = state.selectedIds.has(combatantId);
+    row.classList.toggle("row--selected", isSelected);
+
+    const checkbox = row.querySelector("[data-select-row]");
+
+    if (checkbox) {
+      checkbox.checked = isSelected;
+    }
+  });
+
+  const selectAll = app.querySelector("[data-select-all]");
+
+  if (selectAll) {
+    selectAll.checked = visibleIds.size > 0 && [...visibleIds].every((id) => state.selectedIds.has(id));
+  }
+
+  const hasSelection = state.selectedIds.size > 0;
+  const deleteButton = app.querySelector('[data-action="delete-selected"]');
+  const initiativeButton = app.querySelector('[data-action="generate-iniactiva"]');
+
+  if (deleteButton) {
+    deleteButton.disabled = !hasSelection;
+  }
+
+  if (initiativeButton) {
+    initiativeButton.disabled = !hasSelection;
+  }
+}
+
+function syncNotificationUi() {
+  const notificationRoot = app.querySelector("[data-notification-root]");
+
+  if (!notificationRoot) {
+    return;
+  }
+
+  notificationRoot.innerHTML = renderNotifications();
+  applyInterfaceTranslations(notificationRoot);
+}
+
 function renderDataCell(combatant, column, isDead) {
   const value = getCombatantColumnValue(combatant, column.key);
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
@@ -10077,10 +10268,11 @@ function renderCombatantNpcChip(combatant, linkedCharacter = getLinkedCharacterF
 
 function renderCombatStatusCell(combatant) {
   const statusNames = getCombatantStatusNames(combatant);
-  const statusDraft = getCombatStatusDraft(combatant.id);
-  const statusEntries = getFilteredCombatStatusReferenceEntries(statusDraft);
+  const isMenuOpen = state.activeCombatStatusMenuId === combatant.id;
+  const statusDraft = isMenuOpen ? getCombatStatusDraft(combatant.id) : "";
+  const statusEntries = isMenuOpen ? getFilteredCombatStatusReferenceEntries(statusDraft) : [];
   const normalizedDraft = normalizeTranslationKey(statusDraft.toLowerCase());
-  const hasExactDraftMatch = statusEntries.some((entry) => {
+  const hasExactDraftMatch = isMenuOpen && statusEntries.some((entry) => {
     const localizedStatusName = translateCombatStatusNameForLanguage(entry.name, state.appLanguage);
     return normalizeTranslationKey(entry.name.toLowerCase()) === normalizedDraft
       || normalizeTranslationKey(localizedStatusName.toLowerCase()) === normalizedDraft;
@@ -10091,11 +10283,12 @@ function renderCombatStatusCell(combatant) {
   return `
     <div class="combat-status-cell">
       <div class="combat-status-cell__top">
-        <details class="combat-inline-menu combat-inline-menu--status" data-combat-status-menu ${state.activeCombatStatusMenuId === combatant.id ? "open" : ""}>
+        <details class="combat-inline-menu combat-inline-menu--status" data-combat-status-menu ${isMenuOpen ? "open" : ""}>
           <summary class="combat-status-cell__add" data-action="toggle-combat-status-menu" data-combatant-id="${escapeHtml(combatant.id)}">
             + Estado
           </summary>
-          <div class="combat-inline-menu__popover combat-inline-menu__popover--status">
+          ${isMenuOpen ? `
+            <div class="combat-inline-menu__popover combat-inline-menu__popover--status">
             <label class="combat-inline-menu__search">
               <span>Buscar o escribir estado</span>
               <input
@@ -10158,7 +10351,8 @@ function renderCombatStatusCell(combatant) {
                 }).join("")
                 : `<div class="combat-inline-menu__empty">${statusDraft ? "No hay coincidencias en la tabla de estados." : "No hay tabla de estados disponible."}</div>`
             }
-          </div>
+            </div>
+          ` : ""}
         </details>
         ${firstStatus ? renderCombatStatusChip(combatant.id, firstStatus) : ""}
       </div>
@@ -21871,7 +22065,7 @@ function pushNotification({ title = "Notificación", message = "", tone = "info"
   if (typeof window !== "undefined" && durationMs > 0) {
     const timeoutId = window.setTimeout(() => {
       dismissNotification(id);
-      render();
+      syncNotificationUi();
     }, durationMs);
     notificationTimeouts.set(id, timeoutId);
   }
