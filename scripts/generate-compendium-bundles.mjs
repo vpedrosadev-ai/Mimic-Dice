@@ -60,8 +60,8 @@ async function generateDatasetBundles({ key, kind, fileName }) {
     fs.readFile(basePath, "utf8"),
     fs.readFile(sidecarPath, "utf8").catch(() => "")
   ]);
-  const baseRows = parseCsv(baseText);
-  const sidecarRows = sidecarText ? parseCsv(sidecarText) : [];
+  const baseRows = parseCsv(normalizeNewlines(baseText));
+  const sidecarRows = sidecarText ? parseCsv(normalizeNewlines(sidecarText)) : [];
   const hasUsableSidecar = isCompendiumTranslationSidecarUsable(baseRows, sidecarRows, kind);
   const englishRows = hasUsableSidecar
     ? attachCompendiumTranslationIdentityRows(baseRows, sidecarRows, kind)
@@ -146,4 +146,8 @@ function createContentHash(value) {
     .update(value)
     .digest("hex")
     .slice(0, 16);
+}
+
+function normalizeNewlines(value) {
+  return String(value ?? "").replace(/\r\n?/g, "\n");
 }
