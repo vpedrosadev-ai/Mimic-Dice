@@ -7,9 +7,6 @@
 /images/*
   Cache-Control: public, max-age=604800
 
-/data/*
-  Cache-Control: public, max-age=300, must-revalidate
-
 /data/compendium-manifest.json
   Cache-Control: public, max-age=0, must-revalidate
 
