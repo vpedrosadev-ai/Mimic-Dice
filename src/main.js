@@ -30,6 +30,7 @@ import {
   mergeCompendiumTranslationRows,
   translateCompendiumRows
 } from "./data/contentTranslation.js";
+import { loadVersionedCompendiumBundle } from "./data/compendiumBundles.js";
 import { getLocalizedSystemTableDefinitions, getLocalizedSystemTableFolders, initialTableDefinitions, initialTableFolders } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
 import { getCombatMiniActionIconUrl, getCombatSpellbookIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "./assets/combatIcons.js";
@@ -588,6 +589,17 @@ let scheduledRenderTimer = 0;
 let scheduledRenderFocusState = null;
 let lastRenderedScreen = "";
 let scheduledRenderViewportRestore = 0;
+const compendiumLoadPromises = {
+  bestiary: null,
+  items: null,
+  arcanum: null
+};
+const compendiumLoadTokens = {
+  bestiary: 0,
+  items: 0,
+  arcanum: 0
+};
+const queuedCompendiumLoads = new Set();
 let arcanumSpellLinkCache = {
   signature: "",
   pattern: null,
@@ -685,7 +697,7 @@ state = {
   bestiaryFilterSearch: { ...blankBestiaryFilterSearch },
   showBestiaryQuerySuggestions: false,
   bestiarySelectedId: "",
-  bestiaryStatus: "loading",
+  bestiaryStatus: "idle",
   bestiaryMessage: "",
   bestiaryDebugInfo: null,
   items: [],
@@ -706,7 +718,7 @@ state = {
   activeCombatPreviewName: "",
   activeCombatPreviewDescription: "",
   multiclassLevelUpQueue: [],
-  itemStatus: "loading",
+  itemStatus: "idle",
   itemMessage: "",
   itemDebugInfo: null,
   itemListScrollTop: 0,
@@ -718,7 +730,7 @@ state = {
   arcanumFilterSearch: { ...blankArcanumFilterSearch },
   showArcanumQuerySuggestions: false,
   arcanumSelectedId: "",
-  arcanumStatus: "loading",
+  arcanumStatus: "idle",
   arcanumMessage: "",
   arcanumDebugInfo: null,
   arcanumListScrollTop: 0,
@@ -1959,6 +1971,11 @@ async function handleClick(event) {
     state.activeCombatSpellbookCombatantId = isClosing ? "" : combatantId;
     clearActiveCombatPreview();
     render();
+
+    if (!isClosing) {
+      queueCompendiumLoad("arcanum");
+    }
+
     return;
   }
 
@@ -4514,26 +4531,119 @@ function queueInitialDataLoad() {
   schedule(() => {
     schedule(() => {
       loadDataCsvFileOptions();
-      loadBestiary();
-      window.setTimeout(() => {
-        loadItems();
-      }, 140);
-      window.setTimeout(() => {
-        loadArcanum();
-      }, 280);
+      queueCompendiumLoadsForScreen(state.activeScreen);
     });
   });
 }
 
+function getCompendiumStatus(kind) {
+  if (kind === "bestiary") {
+    return state.bestiaryStatus;
+  }
+
+  if (kind === "items") {
+    return state.itemStatus;
+  }
+
+  if (kind === "arcanum") {
+    return state.arcanumStatus;
+  }
+
+  return "";
+}
+
+function getRequiredCompendiumsForScreen(screenId) {
+  if (["combat-tracker", "initiative-board", "bestiary"].includes(screenId)) {
+    return ["bestiary"];
+  }
+
+  if (screenId === "items") {
+    return ["items"];
+  }
+
+  if (screenId === "arcanum") {
+    return ["arcanum"];
+  }
+
+  if (screenId === "characters") {
+    return ["items", "arcanum"];
+  }
+
+  if (screenId === "tables") {
+    return ["items", "arcanum"];
+  }
+
+  if (screenId === "diary") {
+    return ["bestiary", "items", "arcanum"];
+  }
+
+  return [];
+}
+
+function queueCompendiumLoadsForScreen(screenId) {
+  getRequiredCompendiumsForScreen(screenId).forEach((kind, index) => {
+    queueCompendiumLoad(kind, index * 80);
+  });
+}
+
+function queueCompendiumLoad(kind, delay = 0) {
+  if (
+    typeof window === "undefined"
+    || getCompendiumStatus(kind) !== "idle"
+    || compendiumLoadPromises[kind]
+    || queuedCompendiumLoads.has(kind)
+  ) {
+    return;
+  }
+
+  queuedCompendiumLoads.add(kind);
+  window.setTimeout(() => {
+    queuedCompendiumLoads.delete(kind);
+    ensureCompendiumLoaded(kind);
+  }, Math.max(0, delay));
+}
+
+function ensureCompendiumLoaded(kind) {
+  if (getCompendiumStatus(kind) === "ready") {
+    return Promise.resolve();
+  }
+
+  if (compendiumLoadPromises[kind]) {
+    return compendiumLoadPromises[kind];
+  }
+
+  const loader = kind === "bestiary"
+    ? loadBestiary
+    : kind === "items"
+      ? loadItems
+      : kind === "arcanum"
+        ? loadArcanum
+        : null;
+
+  if (!loader) {
+    return Promise.resolve();
+  }
+
+  const loadPromise = loader().finally(() => {
+    if (compendiumLoadPromises[kind] === loadPromise) {
+      compendiumLoadPromises[kind] = null;
+    }
+  });
+
+  compendiumLoadPromises[kind] = loadPromise;
+  return loadPromise;
+}
+
 function isAppBootLoading() {
-  return [state.bestiaryStatus, state.itemStatus, state.arcanumStatus].some((status) => status === "loading");
+  return state.bestiary.length === 0 && ["idle", "loading"].includes(state.bestiaryStatus);
 }
 
 function getAppBootProgress() {
   const statuses = [
-    { label: "Bestiario", status: state.bestiaryStatus },
-    { label: "Objetos", status: state.itemStatus },
-    { label: "Arcanum", status: state.arcanumStatus }
+    {
+      label: "Bestiario",
+      status: state.bestiaryStatus === "idle" ? "loading" : state.bestiaryStatus
+    }
   ];
   const completed = statuses.filter((entry) => entry.status !== "loading").length;
 
@@ -6311,6 +6421,10 @@ function render(focusState = null) {
   hideCharacterOverviewHeaderTooltip();
 
   saveCombatTrackerState();
+
+  if (initialDataLoadQueued) {
+    queueCompendiumLoadsForScreen(state.activeScreen);
+  }
 }
 
 function renderTopbarNavigation() {
@@ -8441,16 +8555,16 @@ function renderRepositoryCsvPicker(repositoryKey) {
 }
 
 function renderItemsContent(filteredEntries, selectedEntry) {
-  if (state.itemStatus === "loading") {
+  if (state.itemStatus === "error") {
+    return renderAssetLoadErrorState(state.itemMessage || "No se pudo leer el CSV de objetos.", state.itemDebugInfo);
+  }
+
+  if (state.itemStatus !== "ready") {
     return `
       <div class="empty-state empty-state--panel">
         ${escapeHtml(t("loading_items"))}
       </div>
     `;
-  }
-
-  if (state.itemStatus === "error") {
-    return renderAssetLoadErrorState(state.itemMessage || "No se pudo leer el CSV de objetos.", state.itemDebugInfo);
   }
 
   return `
@@ -8466,16 +8580,16 @@ function renderItemsContent(filteredEntries, selectedEntry) {
 }
 
 function renderArcanumContent(filteredEntries, selectedEntry) {
-  if (state.arcanumStatus === "loading") {
+  if (state.arcanumStatus === "error") {
+    return renderAssetLoadErrorState(state.arcanumMessage || "No se pudo leer Spells.csv.", state.arcanumDebugInfo);
+  }
+
+  if (state.arcanumStatus !== "ready") {
     return `
       <div class="empty-state empty-state--panel">
         ${escapeHtml(t("loading_arcanum"))}
       </div>
     `;
-  }
-
-  if (state.arcanumStatus === "error") {
-    return renderAssetLoadErrorState(state.arcanumMessage || "No se pudo leer Spells.csv.", state.arcanumDebugInfo);
   }
 
   return `
@@ -8491,16 +8605,16 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
 }
 
 function renderBestiaryContent(filteredEntries, selectedEntry) {
-  if (state.bestiaryStatus === "loading") {
+  if (state.bestiaryStatus === "error") {
+    return renderAssetLoadErrorState(state.bestiaryMessage || "No se pudo leer Bestiary.csv.", state.bestiaryDebugInfo);
+  }
+
+  if (state.bestiaryStatus !== "ready") {
     return `
       <div class="empty-state empty-state--panel">
         ${escapeHtml(t("loading_bestiary"))}
       </div>
     `;
-  }
-
-  if (state.bestiaryStatus === "error") {
-    return renderAssetLoadErrorState(state.bestiaryMessage || "No se pudo leer Bestiary.csv.", state.bestiaryDebugInfo);
   }
 
   return `
@@ -18459,8 +18573,8 @@ function buildReusableBestiaryImageMap(rows, baseImageMap, previousCustomMap = {
     }
 
     const sourceRow = Array.isArray(imageSourceRows) ? imageSourceRows[index] : null;
-    const sourceName = cleanText(sourceRow?.Name);
-    const sourceSource = cleanText(sourceRow?.Source) || source;
+    const sourceName = cleanText(sourceRow?.Name) || cleanText(row.__mimicIdentityBaseName);
+    const sourceSource = cleanText(sourceRow?.Source) || cleanText(row.__mimicIdentityBaseSource) || source;
     const sourceMatch = sourceName
       ? findCompendiumImageMapEntry(baseImageMap, sourceName, sourceSource, buildBestiaryCompositeKey)
       : null;
@@ -18508,8 +18622,8 @@ function buildReusableItemImageMap(rows, baseImageMap, previousCustomMap = {}, i
     }
 
     const sourceRow = Array.isArray(imageSourceRows) ? imageSourceRows[index] : null;
-    const sourceName = cleanText(sourceRow?.Name);
-    const sourceSource = cleanText(sourceRow?.Source) || source;
+    const sourceName = cleanText(sourceRow?.Name) || cleanText(row.__mimicIdentityBaseName);
+    const sourceSource = cleanText(sourceRow?.Source) || cleanText(row.__mimicIdentityBaseSource) || source;
     const sourceMatch = sourceName
       ? findCompendiumImageMapEntry(baseImageMap, sourceName, sourceSource, buildItemCompositeKey)
       : null;
@@ -18638,9 +18752,19 @@ function reloadCompendiumContent() {
   resetItemVirtualScroll();
   resetArcanumVirtualScroll();
   resetBestiaryRenderCache();
+  const requiredKinds = new Set(getRequiredCompendiumsForScreen(state.activeScreen));
+  const shouldReloadItems = state.itemStatus !== "idle" || requiredKinds.has("items");
+  const shouldReloadArcanum = state.arcanumStatus !== "idle" || requiredKinds.has("arcanum");
+
   loadBestiary();
-  window.setTimeout(() => loadItems(), 80);
-  window.setTimeout(() => loadArcanum(), 160);
+
+  if (shouldReloadItems) {
+    window.setTimeout(() => loadItems(), 80);
+  }
+
+  if (shouldReloadArcanum) {
+    window.setTimeout(() => loadArcanum(), 160);
+  }
 }
 
 async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
@@ -18814,7 +18938,60 @@ async function loadRepositoryCsvText(pathValue, repositoryKey = "") {
   return loadTextAsset(getDataAssetUrl(pathValue), pathValue);
 }
 
+function canUseVersionedCompendiumBundle(repositoryKey, pathValue) {
+  const normalizedRepositoryKey = cleanText(repositoryKey).toLowerCase();
+  const defaultPath = defaultRepositoryCsvPaths[normalizedRepositoryKey];
+  const upload = getRepositoryCsvUpload(normalizedRepositoryKey);
+
+  if (
+    !defaultPath
+    || DESKTOP_ASSET_BASE_URL
+    || HAS_DESKTOP_EXTERNAL_ASSETS
+    || IS_FILE_PROTOCOL_RUNTIME
+    || upload?.text
+    || isExternalRepositoryCsvPath(pathValue)
+    || isUploadedRepositoryCsvPath(pathValue)
+  ) {
+    return false;
+  }
+
+  return normalizeDataCsvRelativePath(pathValue) === normalizeDataCsvRelativePath(defaultPath);
+}
+
+async function loadLocalizedRepositoryRows(repositoryKey, kind, csvRelativePath) {
+  if (canUseVersionedCompendiumBundle(repositoryKey, csvRelativePath)) {
+    try {
+      const bundle = await loadVersionedCompendiumBundle(
+        repositoryKey,
+        normalizeStoredContentLanguage(state.contentLanguage)
+      );
+
+      if (bundle) {
+        return {
+          rows: bundle.rows,
+          imageSourceRows: [],
+          meta: bundle.meta,
+          loaderMode: "versioned JSON bundle"
+        };
+      }
+    } catch {
+      // Keep editable CSV path as resilient fallback.
+    }
+  }
+
+  const text = await loadRepositoryCsvText(csvRelativePath, repositoryKey);
+  const localizedRows = await getLocalizedCompendiumRows(kind, text, csvRelativePath);
+
+  return {
+    ...localizedRows,
+    loaderMode: isExternalRepositoryCsvPath(csvRelativePath)
+      ? "desktopApi.readRepositoryCsvText"
+      : "desktopApi.readAssetText -> fetch"
+  };
+}
+
 async function loadBestiary() {
+  const loadToken = ++compendiumLoadTokens.bestiary;
   state.bestiaryStatus = "loading";
   state.bestiaryMessage = "";
   state.bestiaryDebugInfo = null;
@@ -18822,12 +18999,17 @@ async function loadBestiary() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("bestiary");
-    const [text, imageMap, persistedCustomMap] = await Promise.all([
-      loadRepositoryCsvText(csvRelativePath, "bestiary"),
+    const [localizedData, imageMap, persistedCustomMap] = await Promise.all([
+      loadLocalizedRepositoryRows("bestiary", "bestiary", csvRelativePath),
       loadBestiaryImages(),
       loadBestiaryPersistedCustomImageMap()
     ]);
-    const { rows, imageSourceRows, meta } = await getLocalizedCompendiumRows("bestiary", text, csvRelativePath);
+    const { rows, imageSourceRows, meta } = localizedData;
+
+    if (loadToken !== compendiumLoadTokens.bestiary) {
+      return;
+    }
+
     const normalizedRows = normalizeBestiaryCsvRows(rows);
     const normalizedImageSourceRows = normalizeBestiaryCsvRows(imageSourceRows);
     const reusableCustomMap = buildReusableBestiaryImageMap(normalizedRows, imageMap, persistedCustomMap, normalizedImageSourceRows);
@@ -18852,6 +19034,10 @@ async function loadBestiary() {
     reconcileCombatantsWithCurrentBestiaryReferences();
     render();
   } catch (error) {
+    if (loadToken !== compendiumLoadTokens.bestiary) {
+      return;
+    }
+
     const csvRelativePath = getRepositoryCsvPath("bestiary");
     state.bestiaryStatus = "error";
     state.bestiaryMessage = error instanceof Error ? error.message : `No se pudo cargar ${csvRelativePath}.`;
@@ -18866,6 +19052,7 @@ async function loadBestiary() {
 }
 
 async function loadItems() {
+  const loadToken = ++compendiumLoadTokens.items;
   state.itemStatus = "loading";
   state.itemMessage = "";
   state.itemDebugInfo = null;
@@ -18873,12 +19060,17 @@ async function loadItems() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("items");
-    const [text, imageMap, persistedCustomMap] = await Promise.all([
-      loadRepositoryCsvText(csvRelativePath, "items"),
+    const [localizedData, imageMap, persistedCustomMap] = await Promise.all([
+      loadLocalizedRepositoryRows("items", "items", csvRelativePath),
       loadItemImages(),
       loadItemPersistedCustomImageMap()
     ]);
-    const { rows, imageSourceRows, meta } = await getLocalizedCompendiumRows("items", text, csvRelativePath);
+    const { rows, imageSourceRows, meta } = localizedData;
+
+    if (loadToken !== compendiumLoadTokens.items) {
+      return;
+    }
+
     const reusableCustomMap = buildReusableItemImageMap(rows, imageMap, persistedCustomMap, imageSourceRows);
     const mergedImageMap = {
       ...imageMap,
@@ -18899,6 +19091,10 @@ async function loadItems() {
     reconcileCharactersWithCurrentCompendiumReferences();
     render();
   } catch (error) {
+    if (loadToken !== compendiumLoadTokens.items) {
+      return;
+    }
+
     const csvRelativePath = getRepositoryCsvPath("items");
     state.itemStatus = "error";
     state.itemMessage = error instanceof Error ? error.message : `No se pudo cargar ${csvRelativePath}.`;
@@ -18913,6 +19109,7 @@ async function loadItems() {
 }
 
 async function loadArcanum() {
+  const loadToken = ++compendiumLoadTokens.arcanum;
   state.arcanumStatus = "loading";
   state.arcanumMessage = "";
   state.arcanumDebugInfo = null;
@@ -18920,9 +19117,16 @@ async function loadArcanum() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("arcanum");
-    const text = await loadRepositoryCsvText(csvRelativePath, "arcanum");
-    const { rows, meta } = await getLocalizedCompendiumRows("arcanum", text, csvRelativePath);
-    const persistedCustomMap = await loadArcanumPersistedCustomMap();
+    const [localizedData, persistedCustomMap] = await Promise.all([
+      loadLocalizedRepositoryRows("arcanum", "arcanum", csvRelativePath),
+      loadArcanumPersistedCustomMap()
+    ]);
+    const { rows, meta } = localizedData;
+
+    if (loadToken !== compendiumLoadTokens.arcanum) {
+      return;
+    }
+
     const reusableCustomMap = buildReusableArcanumMap(rows, persistedCustomMap);
 
     saveArcanumCustomMap(reusableCustomMap);
@@ -18936,6 +19140,10 @@ async function loadArcanum() {
     reconcileCharactersWithCurrentCompendiumReferences();
     render();
   } catch (error) {
+    if (loadToken !== compendiumLoadTokens.arcanum) {
+      return;
+    }
+
     const csvRelativePath = getRepositoryCsvPath("arcanum");
     state.arcanumStatus = "error";
     state.arcanumMessage = error instanceof Error ? error.message : `No se pudo cargar ${csvRelativePath}.`;
@@ -20880,7 +21088,7 @@ async function loadTextAsset(assetUrl, desktopRelativePath = "") {
 
   try {
     const response = await fetch(assetUrl, {
-      cache: "no-store"
+      cache: "default"
     });
 
     if (!response.ok) {
@@ -20934,7 +21142,7 @@ async function loadJsonAsset(assetUrl, desktopRelativePath = "") {
 
   try {
     const response = await fetch(assetUrl, {
-      cache: "no-store"
+      cache: "default"
     });
 
     if (!response.ok) {
