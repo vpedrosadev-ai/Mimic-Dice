@@ -56,7 +56,12 @@ export async function onRequest(context) {
       providers: [
         Google({
           clientId: context.env.GOOGLE_CLIENT_ID,
-          clientSecret: context.env.GOOGLE_CLIENT_SECRET
+          clientSecret: context.env.GOOGLE_CLIENT_SECRET,
+          authorization: {
+            params: {
+              prompt: "select_account"
+            }
+          }
         })
       ],
       pages: {

@@ -670,6 +670,8 @@ state = {
   cloudLibraryEntries: [],
   publicCloudLibraryEntries: [],
   cloudLibraryBusy: false,
+  cloudOperationKind: "",
+  cloudOperationTarget: "",
   cloudCampaignId: "",
   cloudCampaignRevision: 0,
   cloudCampaignIsPublic: false,
@@ -6668,11 +6670,12 @@ function getCloudAutosaveLabel() {
 function renderAccountChip() {
   const user = state.accountSession?.user ?? null;
   const isAuthenticated = Boolean(user?.id);
+  const isSaving = isAuthenticated && state.cloudAutosaveStatus === "saving";
 
   return `
     <span class="account-chip-root" data-account-chip-root>
       <button
-        class="account-chip ${isAuthenticated ? "is-authenticated" : ""}"
+        class="account-chip ${isAuthenticated ? "is-authenticated" : ""}${isSaving ? " is-cloud-busy" : ""}"
         type="button"
         data-action="toggle-account-dialog"
         aria-label="${escapeHtml(isAuthenticated ? `Abrir cuenta de ${getAccountDisplayName()}` : "Abrir acceso de usuario invitado") }"
@@ -6700,10 +6703,54 @@ function formatCloudCampaignSize(bytes) {
   return `${(numericBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isCloudOperationActive(kind, target) {
+  return state.cloudOperationKind === kind && state.cloudOperationTarget === target;
+}
+
+function beginCloudOperation(kind, target, options = {}) {
+  state.cloudOperationKind = cleanText(kind);
+  state.cloudOperationTarget = cleanText(target);
+
+  if (options.renderNow !== false) {
+    render();
+  }
+}
+
+function endCloudOperation(kind, target) {
+  if (!isCloudOperationActive(kind, target)) {
+    return;
+  }
+
+  state.cloudOperationKind = "";
+  state.cloudOperationTarget = "";
+}
+
+function renderCloudButtonLabel(label, busyLabel, kind, target) {
+  const isBusy = isCloudOperationActive(kind, target);
+
+  return `
+    <span class="cloud-button-label">
+      ${isBusy ? `<span class="cloud-button-spinner" aria-hidden="true"></span>` : ""}
+      <span>${escapeHtml(isBusy ? busyLabel : label)}</span>
+    </span>
+  `;
+}
+
+function getCloudButtonBusyClass(kind, target) {
+  return isCloudOperationActive(kind, target) ? " is-cloud-busy" : "";
+}
+
+function renderCloudButtonBusyAttributes(kind, target) {
+  return isCloudOperationActive(kind, target) ? `disabled aria-busy="true"` : "";
+}
+
 function renderCloudCampaignCard(campaign, options = {}) {
   const isActive = campaign.id === state.cloudCampaignId;
   const publicLibrary = options.publicLibrary === true;
   const canClone = Boolean(state.accountSession?.user?.id);
+  const loadTarget = `campaign:${campaign.id}`;
+  const publicLoadTarget = `public-campaign:${campaign.id}`;
+  const visibilityTarget = `campaign-visibility:${campaign.id}`;
 
   return `
     <article class="account-campaign-card ${isActive ? "is-active" : ""}">
@@ -6724,14 +6771,14 @@ function renderCloudCampaignCard(campaign, options = {}) {
         ${
           publicLibrary
             ? canClone
-              ? `<button class="account-action-button" type="button" data-action="clone-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Usar una copia</button>`
-              : `<button class="account-action-button" type="button" data-action="load-public-campaign-local" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Cargar localmente</button>`
+              ? `<button class="account-action-button${getCloudButtonBusyClass("loading", publicLoadTarget)}" type="button" data-action="clone-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("loading", publicLoadTarget)}>${renderCloudButtonLabel("Crear copia privada", "Creando copia...", "loading", publicLoadTarget)}</button>`
+              : `<button class="account-action-button${getCloudButtonBusyClass("loading", publicLoadTarget)}" type="button" data-action="load-public-campaign-local" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("loading", publicLoadTarget)}>${renderCloudButtonLabel("Cargar copia local", "Cargando...", "loading", publicLoadTarget)}</button>`
             : `
-              <button class="account-action-button" type="button" data-action="load-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">
-                ${isActive ? "Recargar" : "Cargar"}
+              <button class="account-action-button${getCloudButtonBusyClass("loading", loadTarget)}" type="button" data-action="load-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("loading", loadTarget)}>
+                ${renderCloudButtonLabel(isActive ? "Recargar" : "Cargar", "Cargando...", "loading", loadTarget)}
               </button>
-              <button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-campaign-public" data-cloud-campaign-id="${escapeHtml(campaign.id)}">
-                ${campaign.isPublic ? "Hacer privada" : "Hacer pública"}
+              <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="toggle-cloud-campaign-public" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>
+                ${renderCloudButtonLabel(campaign.isPublic ? "Hacer privada" : "Hacer pública", "Guardando...", "saving", visibilityTarget)}
               </button>
               <button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Eliminar</button>
             `
@@ -6753,6 +6800,8 @@ function getCloudLibraryTypeLabel(type) {
 
 function renderCloudLibraryCard(entry, options = {}) {
   const publicLibrary = options.publicLibrary === true;
+  const importTarget = `library:${entry.id}`;
+  const visibilityTarget = `library-visibility:${entry.id}`;
 
   return `
     <article class="account-campaign-card account-library-card">
@@ -6770,9 +6819,9 @@ function renderCloudLibraryCard(entry, options = {}) {
       </div>
       ${entry.description ? `<p class="account-library-card__description">${escapeHtml(entry.description)}</p>` : ""}
       <div class="account-campaign-card__actions">
-        <button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(entry.id)}">Añadir a mi campaña</button>
+        <button class="account-action-button${getCloudButtonBusyClass("loading", importTarget)}" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(entry.id)}" ${renderCloudButtonBusyAttributes("loading", importTarget)}>${renderCloudButtonLabel("Añadir a mi campaña", "Añadiendo...", "loading", importTarget)}</button>
         ${!publicLibrary && entry.isOwner ? `
-          <button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-library-public" data-cloud-entry-id="${escapeHtml(entry.id)}">${entry.isPublic ? "Hacer privado" : "Hacer público"}</button>
+          <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="toggle-cloud-library-public" data-cloud-entry-id="${escapeHtml(entry.id)}" ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>${renderCloudButtonLabel(entry.isPublic ? "Hacer privado" : "Hacer público", "Guardando...", "saving", visibilityTarget)}</button>
           <button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(entry.id)}">Eliminar</button>
         ` : ""}
       </div>
@@ -6854,7 +6903,7 @@ function renderAccountDialog() {
                   <h3>Guardar campaña actual</h3>
                   <div class="account-create-row">
                     <input type="text" maxlength="120" value="${escapeHtml(state.accountCampaignName)}" data-account-campaign-name aria-label="Nombre de campaña en la nube" />
-                    <button class="account-action-button" type="button" data-action="create-cloud-campaign">Guardar en nube</button>
+                    <button class="account-action-button${getCloudButtonBusyClass("saving", "campaign:create")}" type="button" data-action="create-cloud-campaign" ${renderCloudButtonBusyAttributes("saving", "campaign:create")}>${renderCloudButtonLabel("Guardar en nube", "Guardando...", "saving", "campaign:create")}</button>
                   </div>
                   <small>Autoguardado empieza cuando cargas o creas una campaña cloud. JSON local sigue disponible.</small>
                 </section>
@@ -6876,16 +6925,16 @@ function renderAccountDialog() {
                 <p class="account-dialog__intro">Como invitado, todo sigue funcionando localmente con almacenamiento del navegador y archivos JSON.</p>
                 ${state.accountStatus === "loading" ? `<p class="account-dialog__empty">Comprobando sesión...</p>` : ""}
                 ${state.accountStatus === "unavailable" ? `<p class="account-dialog__empty">Cuentas cloud solo disponibles en versión web.</p>` : `
-                  <button class="account-google-button" type="button" data-action="account-login-google">
-                    <span>G</span> Iniciar sesión con Google
+                  <button class="account-google-button${getCloudButtonBusyClass("loading", "auth:login")}" type="button" data-action="account-login-google" ${renderCloudButtonBusyAttributes("loading", "auth:login")}>
+                    <span class="account-google-button__icon">G</span> ${renderCloudButtonLabel("Iniciar sesión con Google", "Abriendo selector...", "loading", "auth:login")}
                   </button>
                   <div class="account-dialog__divider"><span>Registro por invitación</span></div>
                   <label class="account-dialog__field">
                     <span>Código de registro</span>
                     <input type="password" autocomplete="one-time-code" value="${escapeHtml(state.accountRegistrationCode)}" data-account-registration-code />
                   </label>
-                  <button class="account-google-button account-google-button--register" type="button" data-action="account-register-google">
-                    <span>G</span> Registrarse con Google
+                  <button class="account-google-button account-google-button--register${getCloudButtonBusyClass("loading", "auth:register")}" type="button" data-action="account-register-google" ${renderCloudButtonBusyAttributes("loading", "auth:register")}>
+                    <span class="account-google-button__icon">G</span> ${renderCloudButtonLabel("Registrarse con Google", "Abriendo selector...", "loading", "auth:register")}
                   </button>
                 `}
                 <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="library">Explorar personajes, encuentros y compendios</button>
@@ -8515,8 +8564,8 @@ function renderEncounterInventoryPanel(activeEncounter) {
             <button class="toolbar-button" type="button" data-action="open-encounter-import-export">
               ${escapeHtml(t("import_export_button"))}
             </button>
-            <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="encounter" ${activeEncounter ? "" : "disabled"}>
-              Publicar encuentro
+            <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:encounter")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="encounter" ${activeEncounter ? renderCloudButtonBusyAttributes("publishing", "publish:encounter") : "disabled"}>
+              ${renderCloudButtonLabel("Publicar encuentro", "Publicando...", "publishing", "publish:encounter")}
             </button>
           </div>
         </div>
@@ -8913,7 +8962,7 @@ function renderBestiary() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="compendium-create-row compendium-create-row--toolbar">
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="bestiary">Crear criatura</button>
-          <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="monster" ${selectedEntry ? "" : "disabled"}>Publicar criatura</button>
+          <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:monster")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="monster" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:monster") : "disabled"}>${renderCloudButtonLabel("Publicar criatura", "Publicando...", "publishing", "publish:monster")}</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderBestiaryQueryField()}
@@ -8952,7 +9001,7 @@ function renderItems() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="items">
             ${escapeHtml(t("create_item"))}
           </button>
-          <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="item" ${selectedEntry ? "" : "disabled"}>Publicar objeto</button>
+          <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:item")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="item" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:item") : "disabled"}>${renderCloudButtonLabel("Publicar objeto", "Publicando...", "publishing", "publish:item")}</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
@@ -8991,7 +9040,7 @@ function renderArcanum() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="arcanum">
             ${escapeHtml(t("create_spell"))}
           </button>
-          <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="spell" ${selectedEntry ? "" : "disabled"}>Publicar hechizo</button>
+          <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:spell")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="spell" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:spell") : "disabled"}>${renderCloudButtonLabel("Publicar hechizo", "Publicando...", "publishing", "publish:spell")}</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
@@ -11471,8 +11520,8 @@ function renderCharactersScreen() {
         <button class="toolbar-button" type="button" data-action="open-character-import-export">
           ${escapeHtml(t("import_export_button"))}
         </button>
-        <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="character" ${activeCharacter ? "" : "disabled"}>
-          Publicar personaje
+        <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:character")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="character" ${activeCharacter ? renderCloudButtonBusyAttributes("publishing", "publish:character") : "disabled"}>
+          ${renderCloudButtonLabel("Publicar personaje", "Publicando...", "publishing", "publish:character")}
         </button>
         <button
           class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
@@ -21748,7 +21797,9 @@ async function publishCurrentCloudLibraryEntry(type) {
     return;
   }
 
+  const operationTarget = `publish:${draft.type}`;
   state.cloudLibraryBusy = true;
+  beginCloudOperation("publishing", operationTarget);
 
   try {
     const payload = await preparePayloadImagesForCloud(draft.payload);
@@ -21764,6 +21815,7 @@ async function publishCurrentCloudLibraryEntry(type) {
   }
 
   state.cloudLibraryBusy = false;
+  endCloudOperation("publishing", operationTarget);
   render();
 }
 
@@ -21799,7 +21851,9 @@ async function importCloudCompendiumEntry(payload) {
 }
 
 async function importCloudLibraryEntry(entryId) {
+  const operationTarget = `library:${entryId}`;
   state.cloudLibraryBusy = true;
+  beginCloudOperation("loading", operationTarget);
 
   try {
     const result = await getCloudLibraryEntry(entryId);
@@ -21828,6 +21882,7 @@ async function importCloudLibraryEntry(entryId) {
   }
 
   state.cloudLibraryBusy = false;
+  endCloudOperation("loading", operationTarget);
   render();
 }
 
@@ -21838,6 +21893,9 @@ async function toggleCloudLibraryEntryPublic(entryId) {
     return;
   }
 
+  const operationTarget = `library-visibility:${entryId}`;
+  beginCloudOperation("saving", operationTarget);
+
   try {
     await setCloudLibraryEntryVisibility(entryId, {
       isPublic: !entry.isPublic,
@@ -21846,8 +21904,10 @@ async function toggleCloudLibraryEntryPublic(entryId) {
     await refreshCloudLibrary();
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
-    render();
   }
+
+  endCloudOperation("saving", operationTarget);
+  render();
 }
 
 async function removeCloudLibraryEntry(entryId) {
@@ -21874,6 +21934,8 @@ async function startGoogleAccountFlow(register) {
   }
 
   state.accountError = "";
+  const operationTarget = `auth:${register ? "register" : "login"}`;
+  beginCloudOperation("loading", operationTarget);
 
   try {
     await beginGoogleAuth({
@@ -21881,6 +21943,7 @@ async function startGoogleAccountFlow(register) {
       registrationCode: state.accountRegistrationCode
     });
   } catch (error) {
+    endCloudOperation("loading", operationTarget);
     state.accountError = getCloudErrorMessage(error);
     render();
   }
@@ -21963,9 +22026,10 @@ async function saveCurrentCampaignToCloud() {
   }
 
   const campaignName = cleanText(state.accountCampaignName) || cleanText(state.campaignName) || "Campaña sin nombre";
+  const operationTarget = "campaign:create";
   state.campaignName = campaignName;
   state.cloudAutosaveStatus = "saving";
-  syncCloudAccountUi();
+  beginCloudOperation("saving", operationTarget);
 
   try {
     const payload = await preparePayloadImagesForCloud(createCampaignSavePayload());
@@ -21981,6 +22045,7 @@ async function saveCurrentCampaignToCloud() {
     state.cloudAutosaveStatus = "error";
     state.accountError = getCloudErrorMessage(error);
   }
+  endCloudOperation("saving", operationTarget);
   render();
 }
 
@@ -22015,11 +22080,18 @@ async function loadCloudCampaignById(campaignId, options = {}) {
     return false;
   }
 
+  const operationTarget = cleanText(options.operationTarget) || `campaign:${normalizedId}`;
+
+  if (options.silent !== true && options.operationAlreadyStarted !== true) {
+    beginCloudOperation("loading", operationTarget);
+  }
+
   const canReplace = await prepareToReplaceActiveCloudCampaign({
     allowConflict: normalizedId === state.cloudCampaignId
   });
 
   if (!canReplace) {
+    endCloudOperation("loading", operationTarget);
     if (options.silent !== true) {
       render();
     }
@@ -22039,6 +22111,7 @@ async function loadCloudCampaignById(campaignId, options = {}) {
     state.campaignMessage = `Campaña cloud cargada: ${campaign.name}`;
     state.accountError = "";
     cloudCampaignSaveSuspended = false;
+    endCloudOperation("loading", operationTarget);
     render();
     return true;
   } catch (error) {
@@ -22049,6 +22122,7 @@ async function loadCloudCampaignById(campaignId, options = {}) {
       detachActiveCloudCampaign();
     }
 
+    endCloudOperation("loading", operationTarget);
     if (options.silent !== true) {
       render();
     }
@@ -22228,6 +22302,8 @@ async function toggleCloudCampaignPublic(campaignId) {
   }
 
   const isActiveCampaign = campaignId === state.cloudCampaignId;
+  const operationTarget = `campaign-visibility:${campaignId}`;
+  beginCloudOperation("saving", operationTarget);
 
   if (isActiveCampaign) {
     state.cloudAutosaveStatus = "saving";
@@ -22250,6 +22326,7 @@ async function toggleCloudCampaignPublic(campaignId) {
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
   }
+  endCloudOperation("saving", operationTarget);
   render();
 }
 
@@ -22288,18 +22365,29 @@ async function removeCloudCampaign(campaignId) {
 }
 
 async function clonePublicCampaign(campaignId) {
+  const operationTarget = `public-campaign:${campaignId}`;
+  beginCloudOperation("loading", operationTarget);
+
   try {
     const result = await cloneCloudCampaign(campaignId);
     await refreshCloudCampaigns({ renderAfter: false });
-    await loadCloudCampaignById(result.campaign.id);
+    await loadCloudCampaignById(result.campaign.id, {
+      operationTarget,
+      operationAlreadyStarted: true
+    });
   } catch (error) {
+    endCloudOperation("loading", operationTarget);
     state.accountError = getCloudErrorMessage(error);
     render();
   }
 }
 
 async function loadPublicCampaignLocally(campaignId) {
+  const operationTarget = `public-campaign:${campaignId}`;
+  beginCloudOperation("loading", operationTarget);
+
   if (!await prepareToReplaceActiveCloudCampaign()) {
+    endCloudOperation("loading", operationTarget);
     render();
     return;
   }
@@ -22323,6 +22411,7 @@ async function loadPublicCampaignLocally(campaignId) {
   }
 
   cloudCampaignSaveSuspended = false;
+  endCloudOperation("loading", operationTarget);
   render();
 }
 

@@ -1075,6 +1075,10 @@ table {
   background: #e1ad55;
 }
 
+.account-chip.is-cloud-busy .account-chip__status {
+  animation: cloud-status-pulse 0.9s ease-in-out infinite alternate;
+}
+
 .account-chip__status--error,
 .account-chip__status--conflict {
   background: #d66c62;
@@ -1234,7 +1238,7 @@ table {
   margin-top: 1rem;
 }
 
-.account-google-button span {
+.account-google-button__icon {
   display: grid;
   place-items: center;
   width: 1.65rem;
@@ -1339,6 +1343,69 @@ table {
 .account-autosave-status--pending,
 .account-autosave-status--saving {
   border-left-color: #dda94f;
+}
+
+.account-autosave-status--saving strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.account-autosave-status--saving strong::before {
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid rgba(221, 169, 79, 0.35);
+  border-top-color: #dda94f;
+  border-radius: 50%;
+  content: "";
+  animation: cloud-button-spin 0.75s linear infinite;
+}
+
+.cloud-button-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+}
+
+.cloud-button-spinner {
+  width: 0.82rem;
+  height: 0.82rem;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.86;
+  animation: cloud-button-spin 0.75s linear infinite;
+}
+
+button.is-cloud-busy {
+  cursor: wait;
+}
+
+button.is-cloud-busy:disabled {
+  opacity: 0.82;
+}
+
+@keyframes cloud-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cloud-status-pulse {
+  to {
+    box-shadow: 0 0 0 5px rgba(225, 173, 85, 0.08), 0 0 0.72rem rgba(225, 173, 85, 0.72);
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-chip.is-cloud-busy .account-chip__status,
+  .account-autosave-status--saving strong::before,
+  .cloud-button-spinner {
+    animation: none;
+  }
 }
 
 .account-autosave-status--error,
