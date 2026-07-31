@@ -1470,6 +1470,233 @@ button.is-cloud-busy:disabled {
   gap: 0.65rem;
 }
 
+.account-dialog__panel--catalog {
+  width: min(76rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+}
+
+.cloud-catalog-tabs {
+  display: flex;
+  gap: 0.42rem;
+  margin: 1rem 0;
+  padding-bottom: 0.35rem;
+  overflow-x: auto;
+}
+
+.cloud-catalog-tab {
+  flex: 0 0 auto;
+  min-height: 2.35rem;
+  padding: 0.4rem 0.78rem;
+  border: 1px solid rgba(202, 152, 81, 0.28);
+  border-radius: 999px;
+  color: #bca98a;
+  background: rgba(45, 31, 23, 0.7);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cloud-catalog-tab:hover,
+.cloud-catalog-tab:focus-visible,
+.cloud-catalog-tab.is-active {
+  border-color: rgba(235, 184, 103, 0.72);
+  color: #f2d5a0;
+  background: rgba(118, 73, 35, 0.52);
+}
+
+.cloud-catalog-filters {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(10rem, 0.55fr) minmax(10rem, 0.55fr) auto;
+  align-items: end;
+  gap: 0.65rem;
+  padding: 0.78rem;
+  border: 1px solid rgba(202, 152, 81, 0.2);
+  border-radius: 0.78rem;
+  background: rgba(12, 8, 6, 0.42);
+}
+
+.cloud-catalog-filters label {
+  display: grid;
+  gap: 0.3rem;
+  color: #ae9a7d;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cloud-catalog-filters input,
+.cloud-catalog-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.4rem;
+  padding: 0.42rem 0.58rem;
+  border: 1px solid rgba(201, 151, 82, 0.32);
+  border-radius: 0.55rem;
+  color: #ead6b4;
+  background: #18100c;
+}
+
+.cloud-catalog-section {
+  scroll-margin-top: 1rem;
+}
+
+.cloud-catalog-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.cloud-catalog-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(190, 143, 79, 0.22);
+  border-radius: 0.75rem;
+  background: rgba(255, 235, 201, 0.025);
+}
+
+.cloud-catalog-card:hover,
+.cloud-catalog-card.is-selected {
+  border-color: rgba(220, 170, 93, 0.58);
+  background: rgba(133, 87, 43, 0.1);
+}
+
+.cloud-catalog-card--owned {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.cloud-catalog-card__check {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+.cloud-catalog-card__check input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: #c9944f;
+}
+
+.cloud-catalog-card__body {
+  min-width: 0;
+}
+
+.cloud-catalog-card__body > strong {
+  display: block;
+  overflow: hidden;
+  color: #ead0a1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-catalog-card__body > p {
+  margin: 0.2rem 0 0;
+  color: #b8a68d;
+  font-size: 0.78rem;
+}
+
+.cloud-catalog-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem 0.8rem;
+  margin-top: 0.35rem;
+}
+
+.cloud-catalog-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.42rem;
+}
+
+.cloud-catalog-selection-bar {
+  position: sticky;
+  bottom: -1.35rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1rem -1.35rem -1.35rem;
+  padding: 0.82rem 1.35rem;
+  border-top: 1px solid rgba(222, 170, 91, 0.32);
+  background: rgba(24, 15, 11, 0.98);
+  box-shadow: 0 -12px 24px rgba(0, 0, 0, 0.28);
+}
+
+.cloud-catalog-selection-bar > span {
+  color: #c7b293;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.cloud-catalog-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.cloud-catalog-preview__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(4, 3, 2, 0.82);
+  backdrop-filter: blur(5px);
+}
+
+.cloud-catalog-preview__panel {
+  position: relative;
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: min(40rem, calc(100vh - 2rem));
+  overflow: auto;
+  padding: 1.2rem;
+  border: 1px solid rgba(219, 170, 94, 0.52);
+  border-radius: 1rem;
+  color: #d5c2a2;
+  background: linear-gradient(155deg, #2a1b13, #100b08);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.65);
+}
+
+.cloud-catalog-preview__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.cloud-catalog-preview__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.62rem;
+  margin-top: 1rem;
+}
+
+.cloud-catalog-preview__stats span {
+  padding: 0.72rem;
+  border: 1px solid rgba(202, 152, 81, 0.2);
+  border-radius: 0.65rem;
+  background: rgba(255, 235, 201, 0.035);
+}
+
+.cloud-catalog-preview__details {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.35fr) minmax(0, 1fr);
+  gap: 0.42rem 0.8rem;
+  margin-top: 1rem;
+}
+
+.cloud-catalog-preview__details dt {
+  color: #bd9760;
+  font-weight: 700;
+}
+
+.cloud-catalog-preview__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .account-campaign-card {
   display: grid;
   gap: 0.72rem;
@@ -1549,6 +1776,38 @@ button.is-cloud-busy:disabled {
   .account-profile .account-action-button,
   .account-create-row .account-action-button {
     width: 100%;
+  }
+
+  .cloud-catalog-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-catalog-card,
+  .cloud-catalog-card--owned {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cloud-catalog-card--owned .cloud-catalog-card__body {
+    grid-column: 1 / -1;
+  }
+
+  .cloud-catalog-card__actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .cloud-catalog-card__actions .account-action-button {
+    flex: 1 1 auto;
+  }
+
+  .cloud-catalog-selection-bar {
+    bottom: -1rem;
+    margin: 1rem -1rem -1rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .cloud-catalog-preview__details {
+    grid-template-columns: 1fr;
   }
 }
 

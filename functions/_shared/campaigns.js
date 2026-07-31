@@ -1,5 +1,6 @@
 import { getAuthenticatedUser, requireAuthenticatedUser } from "./auth.js";
 import { removeCloudAssetReferences, syncCloudAssetReferences } from "./assets.js";
+import { syncCampaignCatalog, syncStoredCampaignCatalog } from "./catalog.js";
 import {
   assertSameOrigin,
   cleanText,
@@ -71,7 +72,7 @@ function campaignSummary(row, currentUserId = "") {
     payloadBytes: row.payloadBytes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    ownerName: isOwner ? row.ownerName || "Usuario de Mimic Dice" : "Usuario de Mimic Dice",
+    ownerName: row.ownerName || "Usuario de Mimic Dice",
     isOwner
   };
 }
@@ -172,6 +173,17 @@ async function createCampaign(context, user, sourceBody = null) {
   ];
   await context.env.DB.batch(statements);
   await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
+
+  if (isPublic === 1) {
+    await syncCampaignCatalog(context.env.DB, {
+      campaignId,
+      ownerId: user.id,
+      payload: body.payload,
+      isPublic: true,
+      forceVisibility: true
+    });
+  }
+
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(campaign, user.id) }, 201);
 }
@@ -244,6 +256,19 @@ async function updateCampaign(context, campaignId, user) {
     'DELETE FROM "campaign_chunks" WHERE "campaignId" = ? AND "payloadVersion" <> ?'
   ).bind(campaignId, payloadVersion).run();
   await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
+  const wasPublic = campaign.isPublic === 1;
+  const willBePublic = isPublic === 1;
+
+  if (wasPublic || willBePublic) {
+    await syncCampaignCatalog(context.env.DB, {
+      campaignId,
+      ownerId: user.id,
+      payload: body.payload,
+      isPublic: willBePublic,
+      forceVisibility: wasPublic === willBePublic ? null : willBePublic
+    });
+  }
+
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id) });
 }
@@ -272,6 +297,13 @@ async function updateCampaignVisibility(context, campaignId, user) {
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "revision_conflict", "Campaign changed in another session. Reload before saving.");
   }
+
+  await syncStoredCampaignCatalog(context.env.DB, {
+    campaignId,
+    ownerId: user.id,
+    isPublic: body.isPublic === true,
+    forceVisibility: body.isPublic === true
+  });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id) });

@@ -1,5 +1,6 @@
 import { getAuthenticatedUser, requireAuthenticatedUser } from "./auth.js";
 import { removeCloudAssetReferences, syncCloudAssetReferences } from "./assets.js";
+import { CATALOG_TYPES, readCatalogEntryPayload } from "./catalog.js";
 import {
   assertSameOrigin,
   cleanText,
@@ -80,16 +81,32 @@ function entrySummary(row, currentUserId = "") {
     payloadBytes: row.payloadBytes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    ownerName: isOwner ? row.ownerName || "Usuario de Mimic Dice" : "Usuario de Mimic Dice",
-    isOwner
+    ownerName: row.ownerName || "Usuario de Mimic Dice",
+    isOwner,
+    entryKind: row.entryKind || "manual",
+    sourceCampaignId: row.sourceCampaignId || "",
+    sourceCampaignName: row.sourceCampaignName || ""
   };
 }
 
 async function getEntryRecord(db, entryId) {
   return db.prepare(`
-    SELECT e.*, u."name" AS "ownerName"
+    SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
+           NULL AS "sourceCampaignId", NULL AS "sourceCampaignName"
     FROM "cloud_library_entries" e
     INNER JOIN "users" u ON u."id" = e."ownerId"
+    WHERE e."id" = ?
+    LIMIT 1
+  `).bind(entryId).first();
+}
+
+async function getCatalogEntryRecord(db, entryId) {
+  return db.prepare(`
+    SELECT e.*, u."name" AS "ownerName", c."name" AS "sourceCampaignName",
+           'campaign' AS "entryKind"
+    FROM "cloud_catalog_entries" e
+    INNER JOIN "users" u ON u."id" = e."ownerId"
+    INNER JOIN "campaigns" c ON c."id" = e."sourceCampaignId"
     WHERE e."id" = ?
     LIMIT 1
   `).bind(entryId).first();
@@ -123,39 +140,80 @@ function chunkStatements(db, entryId, payloadVersion, chunks) {
 }
 
 async function listOwnedEntries(context, user) {
-  const result = await context.env.DB.prepare(`
-    SELECT e.*, u."name" AS "ownerName"
+  const [manualResult, catalogResult] = await Promise.all([
+    context.env.DB.prepare(`
+    SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
+           NULL AS "sourceCampaignId", NULL AS "sourceCampaignName"
     FROM "cloud_library_entries" e
     INNER JOIN "users" u ON u."id" = e."ownerId"
     WHERE e."ownerId" = ?
     ORDER BY e."updatedAt" DESC
     LIMIT ?
-  `).bind(user.id, MAX_ENTRIES_PER_USER).all();
-  return jsonResponse({ entries: result.results.map((row) => entrySummary(row, user.id)) });
+  `).bind(user.id, MAX_ENTRIES_PER_USER).all(),
+    context.env.DB.prepare(`
+      SELECT e.*, u."name" AS "ownerName", c."name" AS "sourceCampaignName",
+             'campaign' AS "entryKind"
+      FROM "cloud_catalog_entries" e
+      INNER JOIN "users" u ON u."id" = e."ownerId"
+      INNER JOIN "campaigns" c ON c."id" = e."sourceCampaignId"
+      WHERE e."ownerId" = ?
+      ORDER BY e."updatedAt" DESC
+      LIMIT 2000
+    `).bind(user.id).all()
+  ]);
+  const entries = [
+    ...(Array.isArray(manualResult.results) ? manualResult.results : []),
+    ...(Array.isArray(catalogResult.results) ? catalogResult.results : [])
+  ]
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+    .map((row) => entrySummary(row, user.id));
+  return jsonResponse({ entries });
 }
 
 async function listPublicEntries(context, user, url) {
   const requestedType = cleanText(url.searchParams.get("type"), 30).toLowerCase();
-  const type = requestedType ? normalizeType(requestedType) : "";
-  const query = type
-    ? context.env.DB.prepare(`
-        SELECT e.*, u."name" AS "ownerName"
+  const type = requestedType && CATALOG_TYPES.has(requestedType) ? requestedType : "";
+
+  if (requestedType && !type) {
+    throw new HttpError(400, "invalid_library_type", "Unknown cloud library entry type.");
+  }
+
+  const manualStatement = context.env.DB.prepare(`
+        SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
+               NULL AS "sourceCampaignId", NULL AS "sourceCampaignName"
         FROM "cloud_library_entries" e
         INNER JOIN "users" u ON u."id" = e."ownerId"
-        WHERE e."isPublic" = 1 AND e."type" = ?
+        WHERE e."isPublic" = 1${type ? ' AND e."type" = ?' : ''}
         ORDER BY e."updatedAt" DESC
-        LIMIT 100
-      `).bind(type)
-    : context.env.DB.prepare(`
-        SELECT e.*, u."name" AS "ownerName"
-        FROM "cloud_library_entries" e
-        INNER JOIN "users" u ON u."id" = e."ownerId"
-        WHERE e."isPublic" = 1
-        ORDER BY e."updatedAt" DESC
-        LIMIT 100
+        LIMIT 500
       `);
-  const result = await query.all();
-  return jsonResponse({ entries: result.results.map((row) => entrySummary(row, user?.id || "")) });
+  const manualPromise = type && !ALLOWED_TYPES.has(type)
+    ? Promise.resolve({ results: [] })
+    : type
+      ? manualStatement.bind(type).all()
+      : manualStatement.all();
+  const catalogQuery = context.env.DB.prepare(`
+    SELECT e.*, u."name" AS "ownerName", c."name" AS "sourceCampaignName",
+           'campaign' AS "entryKind"
+    FROM "cloud_catalog_entries" e
+    INNER JOIN "users" u ON u."id" = e."ownerId"
+    INNER JOIN "campaigns" c ON c."id" = e."sourceCampaignId"
+    WHERE e."isPublic" = 1${type ? ' AND e."type" = ?' : ''}
+    ORDER BY e."updatedAt" DESC
+    LIMIT 2000
+  `);
+  const [manualResult, catalogResult] = await Promise.all([
+    manualPromise,
+    type ? catalogQuery.bind(type).all() : catalogQuery.all()
+  ]);
+  const entries = [
+    ...(Array.isArray(manualResult.results) ? manualResult.results : []),
+    ...(Array.isArray(catalogResult.results) ? catalogResult.results : [])
+  ]
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+    .slice(0, 2000)
+    .map((row) => entrySummary(row, user?.id || ""));
+  return jsonResponse({ entries });
 }
 
 async function createEntry(context, user) {
@@ -213,7 +271,8 @@ async function createEntry(context, user) {
 }
 
 async function getEntry(context, entryId, user) {
-  const entry = await getEntryRecord(context.env.DB, entryId);
+  const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
+  const entry = catalogEntry || await getEntryRecord(context.env.DB, entryId);
 
   if (!entry || (entry.ownerId !== user?.id && entry.isPublic !== 1)) {
     throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
@@ -221,12 +280,15 @@ async function getEntry(context, entryId, user) {
 
   return jsonResponse({
     entry: entrySummary(entry, user?.id || ""),
-    payload: await readEntryPayload(context.env.DB, entry)
+    payload: catalogEntry
+      ? await readCatalogEntryPayload(context.env.DB, catalogEntry)
+      : await readEntryPayload(context.env.DB, entry)
   });
 }
 
 async function updateEntryVisibility(context, entryId, user) {
-  const entry = await getEntryRecord(context.env.DB, entryId);
+  const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
+  const entry = catalogEntry || await getEntryRecord(context.env.DB, entryId);
 
   if (!entry || entry.ownerId !== user.id) {
     throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
@@ -240,8 +302,9 @@ async function updateEntryVisibility(context, entryId, user) {
   }
 
   const now = new Date().toISOString();
+  const tableName = catalogEntry ? "cloud_catalog_entries" : "cloud_library_entries";
   const result = await context.env.DB.prepare(`
-    UPDATE "cloud_library_entries"
+    UPDATE "${tableName}"
     SET "isPublic" = ?, "revision" = "revision" + 1, "updatedAt" = ?
     WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
   `).bind(body.isPublic === true ? 1 : 0, now, entryId, user.id, baseRevision).run();
@@ -250,10 +313,27 @@ async function updateEntryVisibility(context, entryId, user) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");
   }
 
-  return jsonResponse({ entry: entrySummary(await getEntryRecord(context.env.DB, entryId), user.id) });
+  const updatedEntry = catalogEntry
+    ? await getCatalogEntryRecord(context.env.DB, entryId)
+    : await getEntryRecord(context.env.DB, entryId);
+  return jsonResponse({ entry: entrySummary(updatedEntry, user.id) });
 }
 
 async function deleteEntry(context, entryId, user) {
+  const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
+
+  if (catalogEntry) {
+    const result = await context.env.DB.prepare(
+      'DELETE FROM "cloud_catalog_entries" WHERE "id" = ? AND "ownerId" = ?'
+    ).bind(entryId, user.id).run();
+
+    if (Number(result.meta?.changes || 0) < 1) {
+      throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
+    }
+
+    return new Response(null, { status: 204 });
+  }
+
   const result = await context.env.DB.prepare(
     'DELETE FROM "cloud_library_entries" WHERE "id" = ? AND "ownerId" = ?'
   ).bind(entryId, user.id).run();
