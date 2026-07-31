@@ -1,4 +1,5 @@
 import { getAuthenticatedUser, requireAuthenticatedUser } from "./auth.js";
+import { removeCloudAssetReferences, syncCloudAssetReferences } from "./assets.js";
 import {
   assertSameOrigin,
   cleanText,
@@ -9,7 +10,8 @@ import {
   readJsonBody
 } from "./http.js";
 
-const MAX_CAMPAIGN_BYTES = 12 * 1024 * 1024;
+const MAX_CAMPAIGN_BYTES = 24 * 1024 * 1024;
+const MAX_CAMPAIGN_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;
 const MAX_CAMPAIGNS_PER_USER = 50;
 const CHUNK_CHARACTER_COUNT = 300_000;
 
@@ -26,7 +28,7 @@ function serializeCampaign(payload) {
   const payloadBytes = new TextEncoder().encode(serialized).byteLength;
 
   if (payloadBytes > MAX_CAMPAIGN_BYTES) {
-    throw new HttpError(413, "campaign_too_large", "Campaign exceeds 12 MiB cloud limit.");
+    throw new HttpError(413, "campaign_too_large", "Campaign exceeds 24 MiB cloud limit.");
   }
 
   return { serialized, payloadBytes };
@@ -147,6 +149,13 @@ async function createCampaign(context, user, sourceBody = null) {
 
   const name = cleanText(body.name || body.payload?.campaign?.name || "Campaña sin nombre", 120) || "Campaña sin nombre";
   const { serialized, payloadBytes } = serializeCampaign(body.payload);
+  const storage = await context.env.DB.prepare(
+    'SELECT COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "campaigns" WHERE "ownerId" = ?'
+  ).bind(user.id).first();
+
+  if (Number(storage?.bytes || 0) + payloadBytes > MAX_CAMPAIGN_STORAGE_BYTES_PER_USER) {
+    throw new HttpError(413, "storage_quota", "Campaign cloud storage quota exceeded.");
+  }
   const chunks = splitCampaign(serialized);
   const campaignId = crypto.randomUUID();
   const payloadVersion = crypto.randomUUID();
@@ -162,6 +171,7 @@ async function createCampaign(context, user, sourceBody = null) {
     ...createChunkStatements(context.env.DB, campaignId, payloadVersion, chunks)
   ];
   await context.env.DB.batch(statements);
+  await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(campaign, user.id) }, 201);
 }
@@ -194,6 +204,13 @@ async function updateCampaign(context, campaignId, user) {
   const name = cleanText(body.name || body.payload?.campaign?.name || campaign.name, 120) || campaign.name;
   const isPublic = body.isPublic === true ? 1 : 0;
   const { serialized, payloadBytes } = serializeCampaign(body.payload);
+  const storage = await context.env.DB.prepare(
+    'SELECT COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "campaigns" WHERE "ownerId" = ?'
+  ).bind(user.id).first();
+
+  if (Number(storage?.bytes || 0) - Number(campaign.payloadBytes || 0) + payloadBytes > MAX_CAMPAIGN_STORAGE_BYTES_PER_USER) {
+    throw new HttpError(413, "storage_quota", "Campaign cloud storage quota exceeded.");
+  }
   const chunks = splitCampaign(serialized);
   const payloadVersion = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -226,6 +243,7 @@ async function updateCampaign(context, campaignId, user) {
   await context.env.DB.prepare(
     'DELETE FROM "campaign_chunks" WHERE "campaignId" = ? AND "payloadVersion" <> ?'
   ).bind(campaignId, payloadVersion).run();
+  await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id) });
 }
@@ -267,6 +285,8 @@ async function deleteCampaign(context, campaignId, user) {
   if (Number(result.meta?.changes || 0) < 1) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
+
+  await removeCloudAssetReferences(context.env.DB, "campaign", campaignId);
 
   return new Response(null, { status: 204 });
 }

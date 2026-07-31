@@ -7,3 +7,7 @@ binding = "DB"
 database_name = "mimic-dice-production"
 database_id = "301fab7e-6255-427f-889a-639420d1ceb5"
 migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "CLOUD_ASSETS"
+bucket_name = "mimic-dice-assets"

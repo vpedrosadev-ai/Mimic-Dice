@@ -1355,6 +1355,23 @@ table {
   border-top: 1px solid rgba(202, 152, 81, 0.18);
 }
 
+.account-library-card__type {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--accent, #b68a4a);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-library-card__description {
+  margin: 0;
+  color: var(--text-muted, #a8a29b);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .account-dialog__section-heading h3,
 .account-dialog__section > h3 {
   font-size: 1.08rem;

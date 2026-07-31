@@ -84,14 +84,21 @@ import {
   cloneCloudCampaign,
   CloudApiError,
   createCloudCampaign,
+  createCloudLibraryEntry,
   deleteCloudCampaign,
+  deleteCloudLibraryEntry,
   fetchAuthSession,
   getCloudCampaign,
+  getCloudLibraryEntry,
   listCloudCampaigns,
+  listCloudLibraryEntries,
   listPublicCloudCampaigns,
+  listPublicCloudLibraryEntries,
   setCloudCampaignVisibility,
+  setCloudLibraryEntryVisibility,
   signOutAccount,
-  updateCloudCampaign
+  updateCloudCampaign,
+  uploadCloudImage
 } from "./cloud/cloudClient.js";
 import appIconUrl from "../build-resources/icon.png";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
@@ -392,6 +399,7 @@ let cloudCampaignSaveInProgress = null;
 let cloudCampaignSaveSuspended = false;
 let lastCloudCampaignSnapshot = "";
 let cloudCampaignVisibilityHandlerRegistered = false;
+const cloudImageUploadCache = new Map();
 let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
@@ -659,6 +667,9 @@ state = {
   accountError: "",
   cloudCampaigns: [],
   publicCloudCampaigns: [],
+  cloudLibraryEntries: [],
+  publicCloudLibraryEntries: [],
+  cloudLibraryBusy: false,
   cloudCampaignId: "",
   cloudCampaignRevision: 0,
   cloudCampaignIsPublic: false,
@@ -1480,6 +1491,8 @@ async function handleClick(event) {
 
     if (state.accountDialogView === "public") {
       await refreshPublicCloudCampaigns();
+    } else if (state.accountDialogView === "library") {
+      await refreshCloudLibrary();
     }
     return;
   }
@@ -1531,6 +1544,26 @@ async function handleClick(event) {
 
   if (action === "load-public-campaign-local") {
     await loadPublicCampaignLocally(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "publish-current-cloud-entry") {
+    await publishCurrentCloudLibraryEntry(actionButton.dataset.cloudEntryType);
+    return;
+  }
+
+  if (action === "import-cloud-library-entry") {
+    await importCloudLibraryEntry(actionButton.dataset.cloudEntryId);
+    return;
+  }
+
+  if (action === "toggle-cloud-library-public") {
+    await toggleCloudLibraryEntryPublic(actionButton.dataset.cloudEntryId);
+    return;
+  }
+
+  if (action === "delete-cloud-library-entry") {
+    await removeCloudLibraryEntry(actionButton.dataset.cloudEntryId);
     return;
   }
 
@@ -6708,6 +6741,45 @@ function renderCloudCampaignCard(campaign, options = {}) {
   `;
 }
 
+function getCloudLibraryTypeLabel(type) {
+  return {
+    character: "Personaje",
+    encounter: "Encuentro",
+    spell: "Hechizo",
+    item: "Objeto",
+    monster: "Criatura"
+  }[cleanText(type).toLowerCase()] || "Contenido";
+}
+
+function renderCloudLibraryCard(entry, options = {}) {
+  const publicLibrary = options.publicLibrary === true;
+
+  return `
+    <article class="account-campaign-card account-library-card">
+      <div class="account-campaign-card__header">
+        <div>
+          <span class="account-library-card__type">${escapeHtml(getCloudLibraryTypeLabel(entry.type))}</span>
+          <strong>${escapeHtml(entry.name || "Contenido sin nombre")}</strong>
+          <small>
+            ${escapeHtml(formatCampaignSavedAt(entry.updatedAt) || "Sin fecha")}
+            · ${escapeHtml(formatCloudCampaignSize(entry.payloadBytes))}
+            ${publicLibrary ? ` · por ${escapeHtml(entry.ownerName || "Usuario")}` : ""}
+          </small>
+        </div>
+        <span class="account-campaign-card__visibility ${entry.isPublic ? "is-public" : ""}">${entry.isPublic ? "Público" : "Privado"}</span>
+      </div>
+      ${entry.description ? `<p class="account-library-card__description">${escapeHtml(entry.description)}</p>` : ""}
+      <div class="account-campaign-card__actions">
+        <button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(entry.id)}">Añadir a mi campaña</button>
+        ${!publicLibrary && entry.isOwner ? `
+          <button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-library-public" data-cloud-entry-id="${escapeHtml(entry.id)}">${entry.isPublic ? "Hacer privado" : "Hacer público"}</button>
+          <button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(entry.id)}">Eliminar</button>
+        ` : ""}
+      </div>
+    </article>
+  `;
+}
+
 function renderAccountDialog() {
   if (!state.accountDialogOpen) {
     return "";
@@ -6716,6 +6788,7 @@ function renderAccountDialog() {
   const user = state.accountSession?.user ?? null;
   const isAuthenticated = Boolean(user?.id);
   const publicView = state.accountDialogView === "public";
+  const libraryView = state.accountDialogView === "library";
 
   return `
     <div class="account-dialog" data-account-dialog-root role="presentation">
@@ -6724,13 +6797,36 @@ function renderAccountDialog() {
         <div class="account-dialog__header">
           <div>
             <p class="account-dialog__eyebrow">Mimic Dice Cloud</p>
-            <h2 id="account-dialog-title">${publicView ? "Campañas públicas" : isAuthenticated ? "Tu cuenta" : "Acceso de usuario"}</h2>
+            <h2 id="account-dialog-title">${libraryView ? "Biblioteca de la comunidad" : publicView ? "Campañas públicas" : isAuthenticated ? "Tu cuenta" : "Acceso de usuario"}</h2>
           </div>
           <button class="account-dialog__close" type="button" data-action="dismiss-account-dialog" aria-label="Cerrar">×</button>
         </div>
         ${state.accountError ? `<p class="account-dialog__error" role="alert">${escapeHtml(state.accountError)}</p>` : ""}
         ${
-          publicView
+          libraryView
+            ? `
+              <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
+              <p class="account-dialog__intro">Contenido individual reutilizable. Al añadirlo se crea una copia dentro de tu campaña actual.</p>
+              ${isAuthenticated ? `
+                <section class="account-dialog__section">
+                  <div class="account-dialog__section-heading"><h3>Tus publicaciones</h3></div>
+                  <div class="account-campaign-list">
+                    ${state.cloudLibraryEntries.length > 0
+                      ? state.cloudLibraryEntries.map((entry) => renderCloudLibraryCard(entry)).join("")
+                      : `<p class="account-dialog__empty">Todavía no has publicado contenido individual.</p>`}
+                  </div>
+                </section>
+              ` : ""}
+              <section class="account-dialog__section">
+                <h3>Contenido público</h3>
+                <div class="account-campaign-list">
+                  ${state.publicCloudLibraryEntries.length > 0
+                    ? state.publicCloudLibraryEntries.map((entry) => renderCloudLibraryCard(entry, { publicLibrary: true })).join("")
+                    : `<p class="account-dialog__empty">No hay contenido público disponible.</p>`}
+                </div>
+              </section>
+            `
+            : publicView
             ? `
               <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
               <p class="account-dialog__intro">Copias compartidas por otros usuarios. La copia original nunca puede ser modificada por ti.</p>
@@ -6773,6 +6869,7 @@ function renderAccountDialog() {
                       : `<p class="account-dialog__empty">Todavía no tienes campañas cloud.</p>`}
                   </div>
                 </section>
+                <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="library">Explorar personajes, encuentros y compendios</button>
                 <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="public">Explorar campañas públicas</button>
               `
               : `
@@ -6791,6 +6888,7 @@ function renderAccountDialog() {
                     <span>G</span> Registrarse con Google
                   </button>
                 `}
+                <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="library">Explorar personajes, encuentros y compendios</button>
                 <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="public">Explorar campañas públicas</button>
               `
         }
@@ -8417,6 +8515,9 @@ function renderEncounterInventoryPanel(activeEncounter) {
             <button class="toolbar-button" type="button" data-action="open-encounter-import-export">
               ${escapeHtml(t("import_export_button"))}
             </button>
+            <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="encounter" ${activeEncounter ? "" : "disabled"}>
+              Publicar encuentro
+            </button>
           </div>
         </div>
         <div class="encounter-list__items">
@@ -8810,6 +8911,10 @@ function renderBestiary() {
       ${renderEncounterInventorySection()}
 
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
+        <div class="compendium-create-row compendium-create-row--toolbar">
+          <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="bestiary">Crear criatura</button>
+          <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="monster" ${selectedEntry ? "" : "disabled"}>Publicar criatura</button>
+        </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderBestiaryQueryField()}
           <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-bestiary-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
@@ -8847,6 +8952,7 @@ function renderItems() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="items">
             ${escapeHtml(t("create_item"))}
           </button>
+          <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="item" ${selectedEntry ? "" : "disabled"}>Publicar objeto</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
@@ -8885,6 +8991,7 @@ function renderArcanum() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="arcanum">
             ${escapeHtml(t("create_spell"))}
           </button>
+          <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="spell" ${selectedEntry ? "" : "disabled"}>Publicar hechizo</button>
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
@@ -11363,6 +11470,9 @@ function renderCharactersScreen() {
         </button>
         <button class="toolbar-button" type="button" data-action="open-character-import-export">
           ${escapeHtml(t("import_export_button"))}
+        </button>
+        <button class="toolbar-button" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="character" ${activeCharacter ? "" : "disabled"}>
+          Publicar personaje
         </button>
         <button
           class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
@@ -21147,7 +21257,14 @@ function getCloudErrorMessage(error) {
     unauthorized: "La sesión ha caducado. Inicia sesión de nuevo.",
     revision_conflict: "Esta campaña cambió en otra sesión. Recárgala antes de guardar.",
     campaign_limit: "Has alcanzado el límite de campañas cloud.",
-    campaign_too_large: "La campaña supera el límite cloud de 12 MB.",
+    campaign_too_large: "La campaña supera el límite cloud de 24 MB después de separar las imágenes.",
+    payload_too_large: "Los datos enviados superan el límite cloud permitido.",
+    library_entry_too_large: "El contenido supera el límite cloud de 16 MB.",
+    library_entry_limit: "Has alcanzado el límite de publicaciones cloud.",
+    library_revision_conflict: "La publicación cambió en otra sesión. Actualiza antes de modificarla.",
+    storage_quota: "Has alcanzado tu cuota de almacenamiento cloud.",
+    asset_too_large: "Una imagen supera el límite cloud de 5 MB después de convertirla.",
+    asset_storage_unavailable: "El almacenamiento de imágenes cloud no está disponible.",
     server_not_configured: "Servicio cloud pendiente de configuración.",
     auth_unavailable: "Servicio de acceso no disponible.",
     cloud_unavailable: "Cuentas cloud solo disponibles en versión web."
@@ -21158,6 +21275,149 @@ function getCloudErrorMessage(error) {
   }
 
   return cleanText(error?.message) || "Error de servicio cloud.";
+}
+
+function isEmbeddedImageDataUrl(value) {
+  return typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value);
+}
+
+async function decodeCloudImage(blob) {
+  if (typeof window.createImageBitmap === "function") {
+    const bitmap = await window.createImageBitmap(blob);
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      close: () => bitmap.close()
+    };
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const image = new Image();
+  image.decoding = "async";
+  image.src = objectUrl;
+  await image.decode();
+  return {
+    source: image,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    close: () => URL.revokeObjectURL(objectUrl)
+  };
+}
+
+async function convertEmbeddedImageToWebp(dataUrl) {
+  const sourceBlob = await fetch(dataUrl).then((response) => response.blob());
+  const decoded = await decodeCloudImage(sourceBlob);
+  const maxDimension = 1024;
+  const scale = Math.min(1, maxDimension / Math.max(decoded.width, decoded.height, 1));
+  const width = Math.max(1, Math.round(decoded.width * scale));
+  const height = Math.max(1, Math.round(decoded.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: true });
+
+  if (!context) {
+    decoded.close();
+    throw new Error("No se pudo convertir una imagen para la nube.");
+  }
+
+  context.drawImage(decoded.source, 0, 0, width, height);
+  decoded.close();
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (result) => result ? resolve(result) : reject(new Error("El navegador no pudo generar WebP.")),
+      "image/webp",
+      0.82
+    );
+  });
+  return { blob, width, height };
+}
+
+async function uploadEmbeddedImageToCloud(dataUrl) {
+  if (!cloudImageUploadCache.has(dataUrl)) {
+    const upload = (async () => {
+      const converted = await convertEmbeddedImageToWebp(dataUrl);
+      const result = await uploadCloudImage(converted.blob, converted);
+      return cleanText(result?.asset?.url);
+    })();
+    cloudImageUploadCache.set(dataUrl, upload);
+    upload.catch(() => cloudImageUploadCache.delete(dataUrl));
+  }
+
+  return cloudImageUploadCache.get(dataUrl);
+}
+
+async function preparePayloadImagesForCloud(value, seen = new WeakMap()) {
+  if (isEmbeddedImageDataUrl(value)) {
+    return uploadEmbeddedImageToCloud(value);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (seen.has(value)) {
+    return seen.get(value);
+  }
+
+  if (Array.isArray(value)) {
+    const output = [];
+    seen.set(value, output);
+
+    for (const entry of value) {
+      output.push(await preparePayloadImagesForCloud(entry, seen));
+    }
+
+    return output;
+  }
+
+  const output = {};
+  seen.set(value, output);
+
+  for (const [key, entry] of Object.entries(value)) {
+    output[key] = await preparePayloadImagesForCloud(entry, seen);
+  }
+
+  return output;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("No se pudo copiar una imagen pública."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function materializePublicCloudAssetsForGuest(value, seen = new WeakMap()) {
+  if (typeof value === "string" && /^\/api\/assets\/[0-9a-f-]{36}(?:[?#].*)?$/i.test(value)) {
+    const response = await fetch(value, { credentials: "same-origin" });
+
+    if (!response.ok) {
+      throw new Error("No se pudo copiar una imagen pública.");
+    }
+
+    return blobToDataUrl(await response.blob());
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (seen.has(value)) {
+    return seen.get(value);
+  }
+
+  const output = Array.isArray(value) ? [] : {};
+  seen.set(value, output);
+
+  for (const [key, entry] of Object.entries(value)) {
+    output[key] = await materializePublicCloudAssetsForGuest(entry, seen);
+  }
+
+  return output;
 }
 
 function readStoredCloudCampaignMeta(userId) {
@@ -21308,6 +21568,304 @@ async function refreshPublicCloudCampaigns() {
   render();
 }
 
+async function refreshCloudLibrary() {
+  state.cloudLibraryBusy = true;
+  render();
+
+  try {
+    const [ownedResult, publicResult] = await Promise.all([
+      state.accountSession?.user?.id ? listCloudLibraryEntries() : Promise.resolve({ entries: [] }),
+      listPublicCloudLibraryEntries()
+    ]);
+    state.cloudLibraryEntries = Array.isArray(ownedResult.entries) ? ownedResult.entries : [];
+    state.publicCloudLibraryEntries = Array.isArray(publicResult.entries) ? publicResult.entries : [];
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  state.cloudLibraryBusy = false;
+  render();
+}
+
+function compendiumEntryToCsvRow(repositoryKey, entry) {
+  const propertyByHeader = {
+    Name: "name",
+    Source: "source",
+    Page: "page",
+    Size: "size",
+    Type: "type",
+    Alignment: "alignment",
+    AC: "ac",
+    HP: "hp",
+    Speed: "speed",
+    "Saving Throws": "savingThrows",
+    Skills: "skills",
+    "Damage Vulnerabilities": "damageVulnerabilities",
+    "Damage Resistances": "damageResistances",
+    "Damage Immunities": "damageImmunities",
+    "Condition Immunities": "conditionImmunities",
+    Senses: "senses",
+    Languages: "languages",
+    CR: "cr",
+    Environment: "environment",
+    Treasure: "treasure",
+    Traits: "traits",
+    Actions: "actions",
+    "Bonus Actions": "bonusActions",
+    Reactions: "reactions",
+    "Legendary Actions": "legendaryActions",
+    "Mythic Actions": "mythicActions",
+    "Lair Actions": "lairActions",
+    "Regional Effects": "regionalEffects",
+    Rarity: "rarity",
+    Attunement: "attunement",
+    Damage: "damage",
+    Properties: "properties",
+    Mastery: "mastery",
+    Weight: "weight",
+    Value: "value",
+    Text: "text",
+    Level: "level",
+    "Casting Time": "castingTime",
+    Duration: "duration",
+    School: "school",
+    Range: "range",
+    Components: "components",
+    Classes: "classes",
+    "Optional/Variant Classes": "optionalClasses",
+    Subclasses: "subclasses",
+    "At Higher Levels": "atHigherLevels"
+  };
+  const abilityByHeader = {
+    Strength: "STR",
+    Dexterity: "DEX",
+    Constitution: "CON",
+    Intelligence: "INT",
+    Wisdom: "WIS",
+    Charisma: "CHA"
+  };
+
+  return Object.fromEntries(getCompendiumCsvHeaders(repositoryKey).map((header) => {
+    const value = abilityByHeader[header]
+      ? entry?.abilities?.[abilityByHeader[header]]
+      : entry?.[propertyByHeader[header]];
+    return [header, String(value ?? "")];
+  }));
+}
+
+function getCurrentCloudLibraryDraft(type) {
+  const normalizedType = cleanText(type).toLowerCase();
+
+  if (normalizedType === "character") {
+    const character = getCharactersSaveData().find((entry) => entry.id === state.activeCharacterId);
+    return character ? {
+      type: normalizedType,
+      name: cleanText(character.name) || "Personaje sin nombre",
+      payload: {
+        ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_CHARACTERS),
+        characterSkills: { definitions: state.characterSkillDefinitions },
+        characters: [character]
+      }
+    } : null;
+  }
+
+  if (normalizedType === "encounter") {
+    const encounter = normalizeStoredEncounter(getActiveEncounter());
+
+    if (!encounter) {
+      return null;
+    }
+
+    const folder = state.encounterFolders.find((entry) => entry.id === encounter.folderId);
+    return {
+      type: normalizedType,
+      name: cleanText(encounter.name) || "Encuentro sin nombre",
+      payload: {
+        ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_ENCOUNTERS),
+        encounterInventory: {
+          folders: folder ? [normalizeStoredEncounterFolder(folder)].filter(Boolean) : [],
+          systemFolderExpanded: true,
+          encounters: [encounter]
+        }
+      }
+    };
+  }
+
+  const repositoryKey = normalizedType === "monster"
+    ? "bestiary"
+    : normalizedType === "item"
+      ? "items"
+      : normalizedType === "spell"
+        ? "arcanum"
+        : "";
+  const entry = repositoryKey === "bestiary"
+    ? getSelectedBestiaryEntry()
+    : repositoryKey === "items"
+      ? getSelectedItemEntry()
+      : repositoryKey === "arcanum"
+        ? getSelectedArcanumEntry()
+        : null;
+
+  if (!repositoryKey || !entry) {
+    return null;
+  }
+
+  return {
+    type: normalizedType,
+    name: cleanText(entry.name) || getCloudLibraryTypeLabel(normalizedType),
+    payload: {
+      schema: "mimic-dice:compendium-entry",
+      version: 1,
+      repositoryKey,
+      row: compendiumEntryToCsvRow(repositoryKey, entry),
+      assets: {
+        imageUrl: cleanText(entry.imageUrl),
+        tokenUrl: cleanText(entry.tokenUrl)
+      }
+    }
+  };
+}
+
+async function publishCurrentCloudLibraryEntry(type) {
+  if (!state.accountSession?.user?.id) {
+    state.accountDialogOpen = true;
+    state.accountDialogView = "account";
+    state.accountError = "Inicia sesión para publicar contenido en la nube.";
+    render();
+    return;
+  }
+
+  const draft = getCurrentCloudLibraryDraft(type);
+
+  if (!draft) {
+    pushNotification({ title: "Nada que publicar", message: "Selecciona primero una entidad válida.", tone: "danger" });
+    render();
+    return;
+  }
+
+  if (!window.confirm(`Publicar “${draft.name}” para que otros usuarios puedan añadir una copia a sus campañas?`)) {
+    return;
+  }
+
+  state.cloudLibraryBusy = true;
+
+  try {
+    const payload = await preparePayloadImagesForCloud(draft.payload);
+    await createCloudLibraryEntry({ ...draft, payload, isPublic: true });
+    await refreshCloudLibrary();
+    pushNotification({
+      title: `${getCloudLibraryTypeLabel(draft.type)} publicado`,
+      message: `${draft.name} ya está disponible en la biblioteca de la comunidad.`
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    pushNotification({ title: "No se pudo publicar", message: state.accountError, tone: "danger" });
+  }
+
+  state.cloudLibraryBusy = false;
+  render();
+}
+
+async function importCloudCompendiumEntry(payload) {
+  const repositoryKey = cleanText(payload?.repositoryKey).toLowerCase();
+  const row = isPlainObject(payload?.row) ? payload.row : null;
+
+  if (!COMPENDIUM_CREATION_FIELDS[repositoryKey] || !row || !cleanText(row.Name)) {
+    throw new Error("La publicación no contiene una entidad de compendio válida.");
+  }
+
+  const currentText = await loadRepositoryCsvRawText(repositoryKey);
+  const parsedRows = parseCsv(currentText);
+  const lineBreak = currentText.includes("\r\n") ? "\r\n" : "\n";
+  const headers = extractCsvHeaders(currentText, getCompendiumCsvHeaders(repositoryKey));
+  const normalizedRows = parsedRows.map((entry) => Object.fromEntries(headers.map((header) => [header, String(entry?.[header] ?? "")])));
+  const importedRow = Object.fromEntries(headers.map((header) => [header, String(row[header] ?? "")]));
+  await writeRepositoryCsvRawText(repositoryKey, serializeCsvRows(headers, [...normalizedRows, importedRow], lineBreak));
+
+  const mapKey = repositoryKey === "arcanum"
+    ? `${cleanText(row.Name)}||${cleanText(row.Source)}||${cleanText(row.Level)}`.toLowerCase()
+    : `${cleanText(row.Name)}||${cleanText(row.Source)}`.toLowerCase();
+  const assets = isPlainObject(payload.assets) ? payload.assets : {};
+
+  if (repositoryKey === "bestiary" && (assets.imageUrl || assets.tokenUrl)) {
+    saveBestiaryCustomImageMap({ ...state.customBestiaryImageMap, [mapKey]: assets });
+  } else if (repositoryKey === "items" && assets.imageUrl) {
+    saveItemCustomImageMap({ ...state.customItemImageMap, [mapKey]: { imageUrl: assets.imageUrl } });
+  }
+
+  await reloadCompendiumRepository(repositoryKey);
+  selectCompendiumEntryAfterCreate(repositoryKey, row);
+}
+
+async function importCloudLibraryEntry(entryId) {
+  state.cloudLibraryBusy = true;
+
+  try {
+    const result = await getCloudLibraryEntry(entryId);
+    const type = cleanText(result?.entry?.type).toLowerCase();
+    const payload = state.accountSession?.user?.id
+      ? result.payload
+      : await materializePublicCloudAssetsForGuest(result.payload);
+
+    if (type === "character") {
+      importCharactersFromPayload(payload);
+    } else if (type === "encounter") {
+      importEncountersFromPayload(payload);
+    } else if (["spell", "item", "monster"].includes(type)) {
+      await importCloudCompendiumEntry(payload);
+    } else {
+      throw new Error("Tipo de publicación desconocido.");
+    }
+
+    pushNotification({
+      title: "Contenido añadido",
+      message: `${result.entry.name} se ha copiado a tu campaña.`
+    });
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  state.cloudLibraryBusy = false;
+  render();
+}
+
+async function toggleCloudLibraryEntryPublic(entryId) {
+  const entry = state.cloudLibraryEntries.find((item) => item.id === entryId);
+
+  if (!entry) {
+    return;
+  }
+
+  try {
+    await setCloudLibraryEntryVisibility(entryId, {
+      isPublic: !entry.isPublic,
+      baseRevision: entry.revision
+    });
+    await refreshCloudLibrary();
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    render();
+  }
+}
+
+async function removeCloudLibraryEntry(entryId) {
+  const entry = state.cloudLibraryEntries.find((item) => item.id === entryId);
+
+  if (!entry || !window.confirm(`Eliminar “${entry.name}” de la nube?`)) {
+    return;
+  }
+
+  try {
+    await deleteCloudLibraryEntry(entryId);
+    await refreshCloudLibrary();
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    render();
+  }
+}
+
 async function startGoogleAccountFlow(register) {
   if (register && !cleanText(state.accountRegistrationCode)) {
     state.accountError = "Escribe el código de registro.";
@@ -21406,11 +21964,11 @@ async function saveCurrentCampaignToCloud() {
 
   const campaignName = cleanText(state.accountCampaignName) || cleanText(state.campaignName) || "Campaña sin nombre";
   state.campaignName = campaignName;
-  const payload = createCampaignSavePayload();
   state.cloudAutosaveStatus = "saving";
   syncCloudAccountUi();
 
   try {
+    const payload = await preparePayloadImagesForCloud(createCampaignSavePayload());
     const result = await createCloudCampaign({ name: campaignName, payload });
     activateCloudCampaign(result.campaign, payload);
     state.accountError = "";
@@ -21531,7 +22089,7 @@ async function autosaveCloudCampaign(options = {}) {
     return activeSave;
   }
 
-  const payload = createCampaignSavePayload();
+  const payload = await preparePayloadImagesForCloud(createCampaignSavePayload());
   const comparableSnapshot = getComparableCampaignSnapshot(payload);
   const isPublic = options.isPublic ?? state.cloudCampaignIsPublic;
 

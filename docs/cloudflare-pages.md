@@ -98,6 +98,16 @@ Aplicar migraciones de produccion con:
 npx wrangler d1 migrations apply mimic-dice-production --remote
 ```
 
+## Almacenamiento cloud
+
+- D1 guarda usuarios, metadatos, campañas y publicaciones individuales por fragmentos.
+- R2 (`mimic-dice-assets`, binding `CLOUD_ASSETS`) guarda imágenes privadas.
+- Antes del primer guardado cloud, las imágenes `data:` se redimensionan a un máximo de 1024 px y se convierten a WebP.
+- Los objetos R2 se deduplican por SHA-256 dentro de cada usuario. D1 solo conserva sus URL y relaciones de acceso.
+- Una imagen es accesible por su propietario y por usuarios propietarios de una campaña que la referencia. El acceso anónimo solo se permite si alguna campaña o publicación relacionada es pública.
+
+La biblioteca comunitaria admite personajes, encuentros, hechizos, objetos y criaturas. Importar crea una copia en la campaña actual; no modifica la publicación original.
+
 El backend devuelve `404` tanto para campanas privadas ajenas como inexistentes. Publicar una campana permite leerla y copiarla, pero nunca modificar el original. Cada copia queda privada y pertenece al usuario que la crea.
 
 ## Siguiente paso opcional: mover imagenes a R2

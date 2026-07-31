@@ -172,3 +172,65 @@ export async function cloneCloudCampaign(campaignId) {
     body: "{}"
   });
 }
+
+export async function uploadCloudImage(blob, { width = 0, height = 0 } = {}) {
+  if (!(blob instanceof Blob) || blob.type !== "image/webp") {
+    throw new CloudApiError("Cloud image must be WebP.", 0, "invalid_asset_type");
+  }
+
+  const response = await fetch("/api/assets", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "image/webp",
+      "X-Image-Width": String(Math.max(0, Number(width) || 0)),
+      "X-Image-Height": String(Math.max(0, Number(height) || 0))
+    },
+    body: blob
+  });
+  return parseResponse(response);
+}
+
+export async function listCloudLibraryEntries() {
+  return requestJson("/api/library");
+}
+
+export async function listPublicCloudLibraryEntries(type = "") {
+  const query = type ? `?type=${encodeURIComponent(type)}` : "";
+  return requestJson(`/api/library/public${query}`);
+}
+
+export async function getCloudLibraryEntry(entryId) {
+  return requestJson(`/api/library/${encodeURIComponent(entryId)}`);
+}
+
+export async function createCloudLibraryEntry({ type, name, description = "", isPublic = false, payload }) {
+  return requestJson("/api/library", {
+    method: "POST",
+    body: JSON.stringify({ type, name, description, isPublic, payload })
+  });
+}
+
+export async function setCloudLibraryEntryVisibility(entryId, { isPublic, baseRevision }) {
+  return requestJson(`/api/library/${encodeURIComponent(entryId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isPublic, baseRevision })
+  });
+}
+
+export async function deleteCloudLibraryEntry(entryId) {
+  const response = await fetch(`/api/library/${encodeURIComponent(entryId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
+
+  if (!response.ok) {
+    return parseResponse(response);
+  }
+
+  return null;
+}
