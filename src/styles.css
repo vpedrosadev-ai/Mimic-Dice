@@ -1010,6 +1010,464 @@ table {
   text-transform: uppercase;
 }
 
+.brand__campaign-row {
+  display: flex;
+  align-items: center;
+  gap: 0.58rem;
+  margin-top: calc(0.62rem * var(--topbar-scale));
+  min-width: 0;
+}
+
+.brand__campaign-row .brand__campaign-name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-chip-root {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  max-width: 11rem;
+  min-height: 2rem;
+  padding: 0.24rem 0.62rem 0.24rem 0.3rem;
+  border: 1px solid rgba(202, 155, 88, 0.42);
+  border-radius: 999px;
+  color: #e5c997;
+  background: linear-gradient(180deg, rgba(69, 43, 25, 0.92), rgba(27, 18, 13, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 235, 198, 0.06);
+  cursor: pointer;
+}
+
+.account-chip:hover,
+.account-chip:focus-visible,
+.account-chip.is-authenticated {
+  border-color: rgba(237, 186, 100, 0.72);
+  color: #ffe0a6;
+}
+
+.account-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.account-chip__status {
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #6f9e62;
+  box-shadow: 0 0 0 2px rgba(111, 158, 98, 0.16);
+}
+
+.account-chip__status--pending,
+.account-chip__status--saving {
+  background: #e1ad55;
+}
+
+.account-chip__status--error,
+.account-chip__status--conflict {
+  background: #d66c62;
+}
+
+.account-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  color: #f1d4a0;
+  background: rgba(211, 162, 87, 0.13);
+}
+
+.account-avatar__image,
+.account-avatar__icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.account-avatar__image {
+  object-fit: cover;
+}
+
+.account-avatar__icon {
+  width: 0.92rem;
+  height: 0.92rem;
+  fill: currentColor;
+}
+
+.account-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+}
+
+.account-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(5, 3, 2, 0.78);
+  backdrop-filter: blur(7px);
+  cursor: default;
+}
+
+.account-dialog__panel {
+  position: relative;
+  width: min(46rem, calc(100vw - 2rem));
+  max-height: min(48rem, calc(100vh - 2rem));
+  overflow: auto;
+  padding: 1.35rem;
+  border: 1px solid rgba(219, 170, 94, 0.5);
+  border-radius: 1.2rem;
+  background:
+    radial-gradient(circle at top right, rgba(174, 112, 48, 0.12), transparent 32%),
+    linear-gradient(155deg, rgba(40, 25, 17, 0.995), rgba(15, 10, 8, 0.998));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.58), inset 0 1px 0 rgba(255, 226, 176, 0.06);
+}
+
+.account-dialog__header,
+.account-dialog__section-heading,
+.account-profile,
+.account-campaign-card__header,
+.account-campaign-card__actions,
+.account-create-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.account-dialog__header,
+.account-dialog__section-heading,
+.account-campaign-card__header {
+  justify-content: space-between;
+}
+
+.account-dialog__header h2,
+.account-dialog__section h3 {
+  margin: 0;
+  color: #f0d19a;
+  font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
+}
+
+.account-dialog__eyebrow {
+  margin: 0 0 0.25rem;
+  color: #c68f48;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.account-dialog__close {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid rgba(214, 165, 92, 0.34);
+  border-radius: 50%;
+  color: #e5c58e;
+  background: rgba(72, 43, 24, 0.54);
+  font-size: 1.35rem;
+  cursor: pointer;
+}
+
+.account-dialog__intro,
+.account-dialog__empty,
+.account-dialog__section > small {
+  color: #bfae96;
+  line-height: 1.55;
+}
+
+.account-dialog__error {
+  margin: 1rem 0;
+  padding: 0.72rem 0.86rem;
+  border: 1px solid rgba(211, 91, 79, 0.48);
+  border-radius: 0.72rem;
+  color: #ffd2cc;
+  background: rgba(118, 38, 32, 0.25);
+}
+
+.account-google-button,
+.account-public-library-button,
+.account-action-button {
+  border: 1px solid rgba(216, 166, 92, 0.46);
+  border-radius: 0.68rem;
+  color: #f2d6a2;
+  background: linear-gradient(180deg, rgba(112, 69, 34, 0.88), rgba(56, 34, 20, 0.96));
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-google-button:hover,
+.account-public-library-button:hover,
+.account-action-button:hover,
+.account-google-button:focus-visible,
+.account-public-library-button:focus-visible,
+.account-action-button:focus-visible {
+  border-color: rgba(242, 196, 118, 0.78);
+  filter: brightness(1.08);
+}
+
+.account-google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-height: 3rem;
+  margin-top: 1rem;
+}
+
+.account-google-button span {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  color: #2d2119;
+  background: #fff;
+  font-family: Arial, sans-serif;
+  font-weight: 800;
+}
+
+.account-google-button--register {
+  background: linear-gradient(180deg, rgba(84, 100, 52, 0.94), rgba(42, 55, 28, 0.98));
+}
+
+.account-dialog__divider {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 1.15rem 0;
+  color: #998670;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.account-dialog__divider::before,
+.account-dialog__divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: rgba(206, 157, 86, 0.22);
+}
+
+.account-dialog__field {
+  display: grid;
+  gap: 0.42rem;
+  color: #cfb58d;
+  font-size: 0.82rem;
+}
+
+.account-dialog__field input,
+.account-create-row input {
+  min-width: 0;
+  min-height: 2.7rem;
+  padding: 0.62rem 0.76rem;
+  border: 1px solid rgba(201, 151, 82, 0.34);
+  border-radius: 0.64rem;
+  color: #f3dfbd;
+  background: rgba(12, 8, 6, 0.72);
+}
+
+.account-public-library-button {
+  width: 100%;
+  min-height: 2.65rem;
+  margin-top: 1rem;
+  background: rgba(62, 43, 30, 0.72);
+}
+
+.account-profile {
+  margin: 1rem 0;
+  padding: 0.9rem;
+  border: 1px solid rgba(202, 152, 81, 0.24);
+  border-radius: 0.85rem;
+  background: rgba(255, 231, 187, 0.035);
+}
+
+.account-profile__avatar {
+  width: 2.8rem;
+  height: 2.8rem;
+}
+
+.account-profile > div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.account-profile strong {
+  color: #f0d09a;
+}
+
+.account-profile small,
+.account-campaign-card small,
+.account-autosave-status small {
+  display: block;
+  color: #a9957b;
+}
+
+.account-autosave-status {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 1rem;
+  padding: 0.68rem 0.82rem;
+  border-left: 3px solid #7ca46a;
+  border-radius: 0.5rem;
+  color: #d7c5a5;
+  background: rgba(68, 91, 52, 0.16);
+}
+
+.account-autosave-status--pending,
+.account-autosave-status--saving {
+  border-left-color: #dda94f;
+}
+
+.account-autosave-status--error,
+.account-autosave-status--conflict {
+  border-left-color: #d3685d;
+  background: rgba(112, 39, 34, 0.16);
+}
+
+.account-dialog__section {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(202, 152, 81, 0.18);
+}
+
+.account-dialog__section-heading h3,
+.account-dialog__section > h3 {
+  font-size: 1.08rem;
+}
+
+.account-create-row input {
+  flex: 1 1 auto;
+}
+
+.account-action-button {
+  min-height: 2.25rem;
+  padding: 0.42rem 0.72rem;
+  font-size: 0.76rem;
+}
+
+.account-action-button--ghost {
+  color: #cdb794;
+  background: rgba(54, 39, 28, 0.66);
+}
+
+.account-action-button--danger {
+  border-color: rgba(190, 82, 72, 0.42);
+  color: #f0b2aa;
+  background: rgba(98, 37, 32, 0.32);
+}
+
+.account-campaign-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.account-campaign-card {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.82rem;
+  border: 1px solid rgba(190, 143, 79, 0.22);
+  border-radius: 0.82rem;
+  background: rgba(255, 235, 201, 0.025);
+}
+
+.account-campaign-card.is-active {
+  border-color: rgba(220, 170, 93, 0.66);
+  background: rgba(158, 101, 43, 0.12);
+}
+
+.account-campaign-card__header > div {
+  min-width: 0;
+}
+
+.account-campaign-card__header strong {
+  display: block;
+  overflow: hidden;
+  color: #ead0a1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-campaign-card__visibility {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.46rem;
+  border-radius: 999px;
+  color: #b8a891;
+  background: rgba(111, 96, 75, 0.24);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.account-campaign-card__visibility.is-public {
+  color: #cbe0ad;
+  background: rgba(93, 126, 64, 0.26);
+}
+
+.account-campaign-card__actions {
+  flex-wrap: wrap;
+}
+
+.account-dialog__back {
+  margin: 0.9rem 0 0;
+  border: 0;
+  color: #d7b77f;
+  background: transparent;
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .brand__campaign-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .account-dialog {
+    padding: 0.55rem;
+  }
+
+  .account-dialog__panel {
+    width: calc(100vw - 1.1rem);
+    max-height: calc(100vh - 1.1rem);
+    padding: 1rem;
+  }
+
+  .account-profile,
+  .account-create-row,
+  .account-campaign-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-profile .account-action-button,
+  .account-create-row .account-action-button {
+    width: 100%;
+  }
+}
+
 .brand__version {
   display: inline-flex;
   align-items: center;

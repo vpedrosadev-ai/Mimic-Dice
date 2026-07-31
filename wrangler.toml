@@ -1,3 +1,9 @@
 name = "mimicdice"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-05-18"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mimic-dice-production"
+database_id = "301fab7e-6255-427f-889a-639420d1ceb5"
+migrations_dir = "migrations"

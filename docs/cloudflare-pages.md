@@ -11,10 +11,10 @@ Esta rama prepara Mimic Dice para funcionar como una app web normal en Cloudflar
 - Root directory: dejar vacio
 - Node version: `22.16.0`
 
-La URL gratuita de Cloudflare se genera a partir del nombre del proyecto:
+La URL de produccion actual es:
 
 ```text
-https://mimicdice.pages.dev
+https://mimic-dice.pages.dev
 ```
 
 Si ese subdominio no esta disponible, elige otro nombre de proyecto en Cloudflare, por ejemplo:
@@ -65,6 +65,40 @@ Las cabeceras de Cloudflare estan configuradas en `public/_headers`:
 - los CSV/JSON se refrescan facil tras cada deploy
 
 No hace falta archivo `_redirects` para esta app. Cloudflare Pages ya tiene fallback SPA por defecto para navegaciones de navegador que no coinciden con un archivo real.
+
+## Cuentas, Auth.js y D1
+
+La web mantiene el modo invitado local y anade cuentas Google opcionales. Los invitados siguen usando `localStorage` y archivos JSON. Las cuentas guardan campanas privadas en D1, con autoguardado y publicacion voluntaria.
+
+Recursos de produccion:
+
+- D1: `mimic-dice-production`
+- Binding: `DB`
+- Migraciones: `migrations/`
+- Callback Google: `https://mimic-dice.pages.dev/api/auth/callback/google`
+
+Secrets requeridos en Pages (nunca se guardan en Git):
+
+```text
+AUTH_SECRET
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+REGISTRATION_CODE
+```
+
+Para desarrollo local, crear `.dev.vars` con esos nombres y valores de desarrollo. El archivo esta ignorado por Git. Aplicar migraciones locales con:
+
+```powershell
+npx wrangler d1 migrations apply mimic-dice-production --local
+```
+
+Aplicar migraciones de produccion con:
+
+```powershell
+npx wrangler d1 migrations apply mimic-dice-production --remote
+```
+
+El backend devuelve `404` tanto para campanas privadas ajenas como inexistentes. Publicar una campana permite leerla y copiarla, pero nunca modificar el original. Cada copia queda privada y pertenece al usuario que la crea.
 
 ## Siguiente paso opcional: mover imagenes a R2
 

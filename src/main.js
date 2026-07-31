@@ -78,6 +78,21 @@ import {
   uniqueSortedStrings
 } from "./shared/text.js";
 import { getVirtualStartIndex, getVirtualWindow } from "./shared/virtualList.js";
+import {
+  beginGoogleAuth,
+  canUseCloudAccounts,
+  cloneCloudCampaign,
+  CloudApiError,
+  createCloudCampaign,
+  deleteCloudCampaign,
+  fetchAuthSession,
+  getCloudCampaign,
+  listCloudCampaigns,
+  listPublicCloudCampaigns,
+  setCloudCampaignVisibility,
+  signOutAccount,
+  updateCloudCampaign
+} from "./cloud/cloudClient.js";
 import appIconUrl from "../build-resources/icon.png";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
 import combatHitDiceIconUrl from "./assets/buttons-icons/Dados_golpe.png";
@@ -263,6 +278,7 @@ const defaultRepositoryCsvPaths = {
 const BESTIARY_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:bestiary-custom-image-map`;
 const ITEMS_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:items-custom-image-map`;
 const ARCANUM_CUSTOM_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:arcanum-custom-map`;
+const CLOUD_CAMPAIGN_META_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:cloud-campaign:v1`;
 const REPOSITORY_CSV_UPLOAD_DB_NAME = "mimic-dice-repository-csv";
 const REPOSITORY_CSV_UPLOAD_STORE_NAME = "uploads";
 const defaultDataCsvFiles = Object.values(defaultRepositoryCsvPaths);
@@ -370,6 +386,12 @@ let lastSavedCampaignSnapshot = "";
 let initialDataLoadQueued = false;
 let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
+let cloudCampaignAutosaveTimer = 0;
+let cloudCampaignAutosaveInterval = 0;
+let cloudCampaignSaveInProgress = null;
+let cloudCampaignSaveSuspended = false;
+let lastCloudCampaignSnapshot = "";
+let cloudCampaignVisibilityHandlerRegistered = false;
 let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
@@ -628,6 +650,22 @@ state = {
     arcanum: { ...blankContentSourceMeta }
   },
   campaignMessage: "",
+  accountSession: null,
+  accountStatus: canUseCloudAccounts() ? "loading" : "unavailable",
+  accountDialogOpen: false,
+  accountDialogView: "account",
+  accountRegistrationCode: "",
+  accountCampaignName: cleanText(initialCampaignMeta.name) || "Campaña sin nombre",
+  accountError: "",
+  cloudCampaigns: [],
+  publicCloudCampaigns: [],
+  cloudCampaignId: "",
+  cloudCampaignRevision: 0,
+  cloudCampaignIsPublic: false,
+  cloudCampaignUpdatedAt: "",
+  cloudAutosaveStatus: "idle",
+  cloudAutosaveMessage: "",
+  campaignLoadedFromPublic: false,
   notifications: [],
   menuHubOpen: false,
   fileMenuOpen: false,
@@ -1001,6 +1039,7 @@ startCampaignAutosave();
 registerCampaignCloseAutosave();
 render();
 queueInitialDataLoad();
+initializeCloudAccount();
 
 async function handleClick(event) {
   const screenButton = event.target.closest("[data-screen]");
@@ -1415,6 +1454,85 @@ async function handleClick(event) {
   }
 
   const { action } = actionButton.dataset;
+
+  if (action === "toggle-account-dialog") {
+    if (state.accountDialogOpen) {
+      state.accountDialogOpen = false;
+      render();
+      return;
+    }
+
+    await openAccountDialog();
+    return;
+  }
+
+  if (action === "dismiss-account-dialog") {
+    state.accountDialogOpen = false;
+    state.accountError = "";
+    render();
+    return;
+  }
+
+  if (action === "set-account-dialog-view") {
+    state.accountDialogView = cleanText(actionButton.dataset.accountDialogView) || "account";
+    state.accountError = "";
+    render();
+
+    if (state.accountDialogView === "public") {
+      await refreshPublicCloudCampaigns();
+    }
+    return;
+  }
+
+  if (action === "account-login-google") {
+    await startGoogleAccountFlow(false);
+    return;
+  }
+
+  if (action === "account-register-google") {
+    await startGoogleAccountFlow(true);
+    return;
+  }
+
+  if (action === "account-sign-out") {
+    await handleAccountSignOut();
+    return;
+  }
+
+  if (action === "refresh-cloud-campaigns") {
+    await refreshCloudCampaigns();
+    return;
+  }
+
+  if (action === "create-cloud-campaign") {
+    await saveCurrentCampaignToCloud();
+    return;
+  }
+
+  if (action === "load-cloud-campaign") {
+    await loadCloudCampaignById(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "toggle-cloud-campaign-public") {
+    await toggleCloudCampaignPublic(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "delete-cloud-campaign") {
+    await removeCloudCampaign(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "clone-cloud-campaign") {
+    await clonePublicCampaign(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "load-public-campaign-local") {
+    await loadPublicCampaignLocally(actionButton.dataset.cloudCampaignId);
+    return;
+  }
 
   if (action === "open-character-import-export") {
     openImportExportDialog(DATA_EXCHANGE_CATEGORY_CHARACTERS);
@@ -3452,6 +3570,18 @@ function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
+
+  if (target.matches("[data-account-registration-code]")) {
+    state.accountRegistrationCode = target.value;
+    state.accountError = "";
+    return;
+  }
+
+  if (target.matches("[data-account-campaign-name]")) {
+    state.accountCampaignName = target.value;
+    state.accountError = "";
+    return;
+  }
 
   if (target.matches("[data-campaign-save-name-input]")) {
     state.campaignSaveNameDialogValue = target.value;
@@ -6379,7 +6509,10 @@ function render(focusState = null) {
                 ${escapeHtml(APP_VERSION)}
               </button>
             </h1>
-            <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
+            <div class="brand__campaign-row">
+              ${renderAccountChip()}
+              <p class="brand__campaign-name">${escapeHtml(getCampaignDisplayName())}</p>
+            </div>
           </div>
         </div>
         ${renderTopbarNavigation()}
@@ -6403,6 +6536,7 @@ function render(focusState = null) {
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
       ${renderCompendiumCreateDialog()}
       ${renderMulticlassLevelUpDialog()}
+      ${renderAccountDialog()}
     </div>
   `;
 
@@ -6443,6 +6577,226 @@ function render(focusState = null) {
   if (initialDataLoadQueued) {
     queueCompendiumLoadsForScreen(state.activeScreen);
   }
+}
+
+function getSafeAccountImageUrl(value) {
+  const imageUrl = cleanText(value);
+
+  if (!imageUrl) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(imageUrl, window.location.origin);
+    return ["http:", "https:"].includes(parsedUrl.protocol) ? parsedUrl.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function renderAccountAvatar(user = null) {
+  const imageUrl = getSafeAccountImageUrl(user?.image);
+
+  if (imageUrl) {
+    return `<img class="account-avatar__image" src="${escapeHtml(imageUrl)}" alt="" referrerpolicy="no-referrer" />`;
+  }
+
+  return `
+    <svg class="account-avatar__icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.35-8 5.25V21h16v-1.75C20 16.35 16.4 14 12 14Z" />
+    </svg>
+  `;
+}
+
+function getAccountDisplayName() {
+  return cleanText(state.accountSession?.user?.name)
+    || cleanText(state.accountSession?.user?.email)
+    || "Invitado";
+}
+
+function getCloudAutosaveLabel() {
+  if (!state.cloudCampaignId) {
+    return "Sin campaña activa en la nube";
+  }
+
+  const labels = {
+    idle: "Autoguardado preparado",
+    pending: "Cambios pendientes",
+    saving: "Guardando...",
+    saved: state.cloudCampaignUpdatedAt
+      ? `Guardado ${formatCampaignSavedAt(state.cloudCampaignUpdatedAt)}`
+      : "Guardado",
+    error: "Error de autoguardado",
+    conflict: "Conflicto: recarga la campaña"
+  };
+  return labels[state.cloudAutosaveStatus] || labels.idle;
+}
+
+function renderAccountChip() {
+  const user = state.accountSession?.user ?? null;
+  const isAuthenticated = Boolean(user?.id);
+
+  return `
+    <span class="account-chip-root" data-account-chip-root>
+      <button
+        class="account-chip ${isAuthenticated ? "is-authenticated" : ""}"
+        type="button"
+        data-action="toggle-account-dialog"
+        aria-label="${escapeHtml(isAuthenticated ? `Abrir cuenta de ${getAccountDisplayName()}` : "Abrir acceso de usuario invitado") }"
+        title="${escapeHtml(isAuthenticated ? getCloudAutosaveLabel() : "Acceso local como invitado") }"
+      >
+        <span class="account-avatar">${renderAccountAvatar(user)}</span>
+        <span class="account-chip__label">${escapeHtml(getAccountDisplayName())}</span>
+        ${isAuthenticated ? `<span class="account-chip__status account-chip__status--${escapeHtml(state.cloudAutosaveStatus)}" aria-hidden="true"></span>` : ""}
+      </button>
+    </span>
+  `;
+}
+
+function formatCloudCampaignSize(bytes) {
+  const numericBytes = Math.max(0, Number(bytes) || 0);
+
+  if (numericBytes < 1024) {
+    return `${numericBytes} B`;
+  }
+
+  if (numericBytes < 1024 * 1024) {
+    return `${Math.round(numericBytes / 1024)} KB`;
+  }
+
+  return `${(numericBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderCloudCampaignCard(campaign, options = {}) {
+  const isActive = campaign.id === state.cloudCampaignId;
+  const publicLibrary = options.publicLibrary === true;
+  const canClone = Boolean(state.accountSession?.user?.id);
+
+  return `
+    <article class="account-campaign-card ${isActive ? "is-active" : ""}">
+      <div class="account-campaign-card__header">
+        <div>
+          <strong>${escapeHtml(campaign.name || "Campaña sin nombre")}</strong>
+          <small>
+            ${escapeHtml(formatCampaignSavedAt(campaign.updatedAt) || "Sin fecha")}
+            · ${escapeHtml(formatCloudCampaignSize(campaign.payloadBytes))}
+            ${publicLibrary ? ` · por ${escapeHtml(campaign.ownerName || "Usuario")}` : ""}
+          </small>
+        </div>
+        <span class="account-campaign-card__visibility ${campaign.isPublic ? "is-public" : ""}">
+          ${campaign.isPublic ? "Pública" : "Privada"}
+        </span>
+      </div>
+      <div class="account-campaign-card__actions">
+        ${
+          publicLibrary
+            ? canClone
+              ? `<button class="account-action-button" type="button" data-action="clone-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Usar una copia</button>`
+              : `<button class="account-action-button" type="button" data-action="load-public-campaign-local" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Cargar localmente</button>`
+            : `
+              <button class="account-action-button" type="button" data-action="load-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">
+                ${isActive ? "Recargar" : "Cargar"}
+              </button>
+              <button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-campaign-public" data-cloud-campaign-id="${escapeHtml(campaign.id)}">
+                ${campaign.isPublic ? "Hacer privada" : "Hacer pública"}
+              </button>
+              <button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Eliminar</button>
+            `
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderAccountDialog() {
+  if (!state.accountDialogOpen) {
+    return "";
+  }
+
+  const user = state.accountSession?.user ?? null;
+  const isAuthenticated = Boolean(user?.id);
+  const publicView = state.accountDialogView === "public";
+
+  return `
+    <div class="account-dialog" data-account-dialog-root role="presentation">
+      <button class="account-dialog__backdrop" type="button" data-action="dismiss-account-dialog" aria-label="Cerrar cuenta"></button>
+      <section class="account-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
+        <div class="account-dialog__header">
+          <div>
+            <p class="account-dialog__eyebrow">Mimic Dice Cloud</p>
+            <h2 id="account-dialog-title">${publicView ? "Campañas públicas" : isAuthenticated ? "Tu cuenta" : "Acceso de usuario"}</h2>
+          </div>
+          <button class="account-dialog__close" type="button" data-action="dismiss-account-dialog" aria-label="Cerrar">×</button>
+        </div>
+        ${state.accountError ? `<p class="account-dialog__error" role="alert">${escapeHtml(state.accountError)}</p>` : ""}
+        ${
+          publicView
+            ? `
+              <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
+              <p class="account-dialog__intro">Copias compartidas por otros usuarios. La copia original nunca puede ser modificada por ti.</p>
+              <div class="account-campaign-list">
+                ${state.publicCloudCampaigns.length > 0
+                  ? state.publicCloudCampaigns.map((campaign) => renderCloudCampaignCard(campaign, { publicLibrary: true })).join("")
+                  : `<p class="account-dialog__empty">No hay campañas públicas disponibles.</p>`}
+              </div>
+            `
+            : isAuthenticated
+              ? `
+                <div class="account-profile">
+                  <span class="account-profile__avatar account-avatar">${renderAccountAvatar(user)}</span>
+                  <div>
+                    <strong>${escapeHtml(getAccountDisplayName())}</strong>
+                    <small>${escapeHtml(cleanText(user.email))}</small>
+                  </div>
+                  <button class="account-action-button account-action-button--ghost" type="button" data-action="account-sign-out">Cerrar sesión</button>
+                </div>
+                <div class="account-autosave-status account-autosave-status--${escapeHtml(state.cloudAutosaveStatus)}" data-cloud-save-status>
+                  <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
+                  ${state.cloudAutosaveMessage ? `<small>${escapeHtml(state.cloudAutosaveMessage)}</small>` : ""}
+                </div>
+                <section class="account-dialog__section">
+                  <h3>Guardar campaña actual</h3>
+                  <div class="account-create-row">
+                    <input type="text" maxlength="120" value="${escapeHtml(state.accountCampaignName)}" data-account-campaign-name aria-label="Nombre de campaña en la nube" />
+                    <button class="account-action-button" type="button" data-action="create-cloud-campaign">Guardar en nube</button>
+                  </div>
+                  <small>Autoguardado empieza cuando cargas o creas una campaña cloud. JSON local sigue disponible.</small>
+                </section>
+                <section class="account-dialog__section">
+                  <div class="account-dialog__section-heading">
+                    <h3>Tus campañas</h3>
+                    <button class="account-action-button account-action-button--ghost" type="button" data-action="refresh-cloud-campaigns">Actualizar</button>
+                  </div>
+                  <div class="account-campaign-list">
+                    ${state.cloudCampaigns.length > 0
+                      ? state.cloudCampaigns.map((campaign) => renderCloudCampaignCard(campaign)).join("")
+                      : `<p class="account-dialog__empty">Todavía no tienes campañas cloud.</p>`}
+                  </div>
+                </section>
+                <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="public">Explorar campañas públicas</button>
+              `
+              : `
+                <p class="account-dialog__intro">Como invitado, todo sigue funcionando localmente con almacenamiento del navegador y archivos JSON.</p>
+                ${state.accountStatus === "loading" ? `<p class="account-dialog__empty">Comprobando sesión...</p>` : ""}
+                ${state.accountStatus === "unavailable" ? `<p class="account-dialog__empty">Cuentas cloud solo disponibles en versión web.</p>` : `
+                  <button class="account-google-button" type="button" data-action="account-login-google">
+                    <span>G</span> Iniciar sesión con Google
+                  </button>
+                  <div class="account-dialog__divider"><span>Registro por invitación</span></div>
+                  <label class="account-dialog__field">
+                    <span>Código de registro</span>
+                    <input type="password" autocomplete="one-time-code" value="${escapeHtml(state.accountRegistrationCode)}" data-account-registration-code />
+                  </label>
+                  <button class="account-google-button account-google-button--register" type="button" data-action="account-register-google">
+                    <span>G</span> Registrarse con Google
+                  </button>
+                `}
+                <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="public">Explorar campañas públicas</button>
+              `
+        }
+      </section>
+    </div>
+  `;
 }
 
 function renderTopbarNavigation() {
@@ -6822,7 +7176,9 @@ function syncTopbarNavigationMetrics() {
 }
 
 function getCampaignDisplayName() {
-  return state.campaignFileName ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName) : "Sin campaña";
+  return state.campaignFileName || state.cloudCampaignId || state.campaignLoadedFromPublic
+    ? cleanText(state.campaignName) || getCampaignNameFromFileName(state.campaignFileName)
+    : "Sin campaña";
 }
 
 function normalizeStoredAppLanguage(value) {
@@ -18909,6 +19265,8 @@ function saveBestiaryCustomImageMap(imageMap) {
   if (typeof desktopApi?.writeAssetText === "function") {
     desktopApi.writeAssetText("data/BestiaryImages.custom.json", `${JSON.stringify(state.customBestiaryImageMap, null, 2)}\n`).catch(() => {});
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function loadItemCustomImageMap() {
@@ -18924,6 +19282,8 @@ function saveItemCustomImageMap(imageMap) {
   if (typeof desktopApi?.writeAssetText === "function") {
     desktopApi.writeAssetText("data/ItemsImages.custom.json", `${JSON.stringify(state.customItemImageMap, null, 2)}\n`).catch(() => {});
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function loadArcanumCustomMap() {
@@ -18939,6 +19299,8 @@ function saveArcanumCustomMap(arcanumMap) {
   if (typeof desktopApi?.writeAssetText === "function") {
     desktopApi.writeAssetText("data/Spells.custom.json", `${JSON.stringify(state.customArcanumMap, null, 2)}\n`).catch(() => {});
   }
+
+  scheduleDesktopCampaignDirtyStateSync(60);
 }
 
 function reloadCompendiumContent() {
@@ -20779,6 +21141,633 @@ function getArcanumFilterDisplayValue(key, value) {
   return value;
 }
 
+function getCloudErrorMessage(error) {
+  const messages = {
+    invalid_registration_code: "Código de registro incorrecto.",
+    unauthorized: "La sesión ha caducado. Inicia sesión de nuevo.",
+    revision_conflict: "Esta campaña cambió en otra sesión. Recárgala antes de guardar.",
+    campaign_limit: "Has alcanzado el límite de campañas cloud.",
+    campaign_too_large: "La campaña supera el límite cloud de 12 MB.",
+    server_not_configured: "Servicio cloud pendiente de configuración.",
+    auth_unavailable: "Servicio de acceso no disponible.",
+    cloud_unavailable: "Cuentas cloud solo disponibles en versión web."
+  };
+
+  if (error instanceof CloudApiError) {
+    return messages[error.code] || cleanText(error.message) || "Error de servicio cloud.";
+  }
+
+  return cleanText(error?.message) || "Error de servicio cloud.";
+}
+
+function readStoredCloudCampaignMeta(userId) {
+  if (typeof window === "undefined" || !userId) {
+    return null;
+  }
+
+  try {
+    const value = JSON.parse(window.localStorage.getItem(CLOUD_CAMPAIGN_META_STORAGE_KEY) || "null");
+    return isPlainObject(value) && cleanText(value.userId) === cleanText(userId) && cleanText(value.campaignId)
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveActiveCloudCampaignMeta() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const userId = cleanText(state.accountSession?.user?.id);
+  const campaignId = cleanText(state.cloudCampaignId);
+
+  try {
+    if (!userId || !campaignId) {
+      window.localStorage.removeItem(CLOUD_CAMPAIGN_META_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(CLOUD_CAMPAIGN_META_STORAGE_KEY, JSON.stringify({
+      userId,
+      campaignId,
+      revision: state.cloudCampaignRevision,
+      updatedAt: state.cloudCampaignUpdatedAt
+    }));
+  } catch {
+    // Cloud metadata is convenience only; campaign remains in D1.
+  }
+}
+
+function cleanCloudAuthQuery() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  const hadCloudQuery = url.searchParams.has("cloud") || url.searchParams.has("error");
+  url.searchParams.delete("cloud");
+  url.searchParams.delete("error");
+
+  if (hadCloudQuery) {
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
+
+async function initializeCloudAccount() {
+  if (!canUseCloudAccounts()) {
+    return;
+  }
+
+  const currentUrl = new URL(window.location.href);
+  const shouldChooseCampaign = currentUrl.searchParams.get("cloud") === "choose";
+  const authError = cleanText(currentUrl.searchParams.get("error"));
+
+  try {
+    const session = await fetchAuthSession();
+    state.accountSession = session;
+    state.accountStatus = "ready";
+
+    if (session?.user?.id) {
+      startCloudCampaignAutosave();
+      await refreshCloudCampaigns({ renderAfter: false });
+
+      if (shouldChooseCampaign) {
+        state.accountDialogOpen = true;
+        state.accountDialogView = "account";
+      } else {
+        const storedMeta = readStoredCloudCampaignMeta(session.user.id);
+
+        if (storedMeta?.campaignId) {
+          const loaded = await loadCloudCampaignById(storedMeta.campaignId, { silent: true });
+
+          if (loaded) {
+            cleanCloudAuthQuery();
+            return;
+          }
+        }
+      }
+    }
+
+    if (authError) {
+      state.accountDialogOpen = true;
+      state.accountDialogView = "account";
+      state.accountError = authError === "AccessDenied"
+        ? "Registro cerrado o cuenta no autorizada. Usa el código de invitación para crear una cuenta nueva."
+        : "Google no pudo completar el acceso.";
+    }
+  } catch (error) {
+    state.accountStatus = "error";
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  cleanCloudAuthQuery();
+  render();
+}
+
+async function openAccountDialog() {
+  state.accountDialogOpen = true;
+  state.accountDialogView = "account";
+  state.accountError = "";
+  state.accountCampaignName = cleanText(state.campaignName) || "Campaña sin nombre";
+  render();
+
+  if (state.accountSession?.user?.id) {
+    await refreshCloudCampaigns();
+  }
+}
+
+async function refreshCloudCampaigns(options = {}) {
+  if (!state.accountSession?.user?.id) {
+    state.cloudCampaigns = [];
+    return;
+  }
+
+  try {
+    const result = await listCloudCampaigns();
+    state.cloudCampaigns = Array.isArray(result.campaigns) ? result.campaigns : [];
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
+async function refreshPublicCloudCampaigns() {
+  try {
+    const result = await listPublicCloudCampaigns();
+    state.publicCloudCampaigns = Array.isArray(result.campaigns) ? result.campaigns : [];
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  render();
+}
+
+async function startGoogleAccountFlow(register) {
+  if (register && !cleanText(state.accountRegistrationCode)) {
+    state.accountError = "Escribe el código de registro.";
+    render({ focusSelector: "[data-account-registration-code]" });
+    return;
+  }
+
+  state.accountError = "";
+
+  try {
+    await beginGoogleAuth({
+      register,
+      registrationCode: state.accountRegistrationCode
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    render();
+  }
+}
+
+function stopCloudCampaignAutosave() {
+  if (typeof window !== "undefined" && cloudCampaignAutosaveTimer) {
+    window.clearTimeout(cloudCampaignAutosaveTimer);
+  }
+
+  if (typeof window !== "undefined" && cloudCampaignAutosaveInterval) {
+    window.clearInterval(cloudCampaignAutosaveInterval);
+  }
+
+  cloudCampaignAutosaveTimer = 0;
+  cloudCampaignAutosaveInterval = 0;
+}
+
+function detachActiveCloudCampaign(options = {}) {
+  if (cloudCampaignAutosaveTimer) {
+    window.clearTimeout(cloudCampaignAutosaveTimer);
+  }
+
+  cloudCampaignAutosaveTimer = 0;
+  state.cloudCampaignId = "";
+  state.cloudCampaignRevision = 0;
+  state.cloudCampaignIsPublic = false;
+  state.cloudCampaignUpdatedAt = "";
+  state.cloudAutosaveStatus = "idle";
+  state.cloudAutosaveMessage = "";
+  lastCloudCampaignSnapshot = "";
+
+  if (options.keepLocalLabel === true) {
+    state.campaignLoadedFromPublic = true;
+  }
+
+  saveActiveCloudCampaignMeta();
+}
+
+async function handleAccountSignOut() {
+  try {
+    await autosaveCloudCampaign();
+    const result = await signOutAccount();
+    stopCloudCampaignAutosave();
+    detachActiveCloudCampaign({ keepLocalLabel: true });
+    state.accountSession = null;
+    state.cloudCampaigns = [];
+    state.accountDialogOpen = false;
+    state.accountStatus = "ready";
+
+    if (result?.url) {
+      window.location.assign(result.url);
+      return;
+    }
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  render();
+}
+
+function activateCloudCampaign(campaign, payload) {
+  state.cloudCampaignId = cleanText(campaign?.id);
+  state.cloudCampaignRevision = Math.max(0, Number(campaign?.revision) || 0);
+  state.cloudCampaignIsPublic = campaign?.isPublic === true;
+  state.cloudCampaignUpdatedAt = cleanText(campaign?.updatedAt);
+  state.cloudAutosaveStatus = "saved";
+  state.cloudAutosaveMessage = "";
+  state.campaignLoadedFromPublic = false;
+  state.campaignName = cleanText(campaign?.name) || cleanText(payload?.campaign?.name) || state.campaignName;
+  state.accountCampaignName = state.campaignName;
+  lastCloudCampaignSnapshot = getComparableCampaignSnapshot(payload);
+  saveActiveCloudCampaignMeta();
+}
+
+async function saveCurrentCampaignToCloud() {
+  if (!state.accountSession?.user?.id) {
+    state.accountError = "Inicia sesión para guardar en la nube.";
+    render();
+    return;
+  }
+
+  const campaignName = cleanText(state.accountCampaignName) || cleanText(state.campaignName) || "Campaña sin nombre";
+  state.campaignName = campaignName;
+  const payload = createCampaignSavePayload();
+  state.cloudAutosaveStatus = "saving";
+  syncCloudAccountUi();
+
+  try {
+    const result = await createCloudCampaign({ name: campaignName, payload });
+    activateCloudCampaign(result.campaign, payload);
+    state.accountError = "";
+    await refreshCloudCampaigns({ renderAfter: false });
+    pushNotification({
+      title: "Campaña cloud creada",
+      message: "Autoguardado activado para esta campaña."
+    });
+  } catch (error) {
+    state.cloudAutosaveStatus = "error";
+    state.accountError = getCloudErrorMessage(error);
+  }
+  render();
+}
+
+async function prepareToReplaceActiveCloudCampaign({ allowConflict = false } = {}) {
+  if (!state.cloudCampaignId) {
+    return true;
+  }
+
+  if (state.cloudAutosaveStatus === "conflict") {
+    if (allowConflict) {
+      return true;
+    }
+
+    state.accountError = "Recarga la campaña cloud activa antes de cambiar de campaña.";
+    return false;
+  }
+
+  const saved = await autosaveCloudCampaign();
+
+  if (saved !== false) {
+    return true;
+  }
+
+  state.accountError = state.cloudAutosaveMessage || "No se pudo guardar la campaña cloud activa.";
+  return false;
+}
+
+async function loadCloudCampaignById(campaignId, options = {}) {
+  const normalizedId = cleanText(campaignId);
+
+  if (!normalizedId) {
+    return false;
+  }
+
+  const canReplace = await prepareToReplaceActiveCloudCampaign({
+    allowConflict: normalizedId === state.cloudCampaignId
+  });
+
+  if (!canReplace) {
+    if (options.silent !== true) {
+      render();
+    }
+    return false;
+  }
+
+  cloudCampaignSaveSuspended = true;
+
+  try {
+    const result = await getCloudCampaign(normalizedId);
+    const campaign = normalizeCampaignSave(result.payload);
+    state.campaignFileName = "";
+    state.campaignFilePath = "";
+    applyCampaignSave(campaign);
+    activateCloudCampaign(result.campaign, result.payload);
+    state.accountDialogOpen = options.silent === true ? state.accountDialogOpen : false;
+    state.campaignMessage = `Campaña cloud cargada: ${campaign.name}`;
+    state.accountError = "";
+    cloudCampaignSaveSuspended = false;
+    render();
+    return true;
+  } catch (error) {
+    cloudCampaignSaveSuspended = false;
+    state.accountError = getCloudErrorMessage(error);
+
+    if (error instanceof CloudApiError && error.status === 404) {
+      detachActiveCloudCampaign();
+    }
+
+    if (options.silent !== true) {
+      render();
+    }
+    return false;
+  }
+}
+
+function updateCloudCampaignSummary(campaign) {
+  state.cloudCampaigns = state.cloudCampaigns.map((entry) => entry.id === campaign.id ? campaign : entry);
+  state.publicCloudCampaigns = state.publicCloudCampaigns
+    .filter((entry) => entry.id !== campaign.id || campaign.isPublic)
+    .map((entry) => entry.id === campaign.id ? campaign : entry);
+}
+
+async function autosaveCloudCampaign(options = {}) {
+  if (
+    cloudCampaignSaveSuspended
+    || !state.accountSession?.user?.id
+    || !state.cloudCampaignId
+    || state.cloudAutosaveStatus === "conflict"
+  ) {
+    return true;
+  }
+
+  if (cloudCampaignSaveInProgress) {
+    const activeSave = cloudCampaignSaveInProgress;
+
+    if (options.isPublic !== undefined) {
+      const saved = await activeSave;
+
+      if (state.cloudAutosaveStatus !== "conflict") {
+        return autosaveCloudCampaign(options);
+      }
+
+      return saved;
+    }
+
+    return activeSave;
+  }
+
+  const payload = createCampaignSavePayload();
+  const comparableSnapshot = getComparableCampaignSnapshot(payload);
+  const isPublic = options.isPublic ?? state.cloudCampaignIsPublic;
+
+  if (options.force !== true && comparableSnapshot === lastCloudCampaignSnapshot && isPublic === state.cloudCampaignIsPublic) {
+    return true;
+  }
+
+  state.cloudAutosaveStatus = "saving";
+  state.cloudAutosaveMessage = "";
+  syncCloudAccountUi();
+
+  cloudCampaignSaveInProgress = updateCloudCampaign(state.cloudCampaignId, {
+    name: cleanText(state.campaignName) || "Campaña sin nombre",
+    isPublic,
+    baseRevision: state.cloudCampaignRevision,
+    payload
+  })
+    .then((result) => {
+      activateCloudCampaign(result.campaign, payload);
+      updateCloudCampaignSummary(result.campaign);
+      syncCloudAccountUi();
+      return true;
+    })
+    .catch((error) => {
+      state.cloudAutosaveStatus = error instanceof CloudApiError && error.code === "revision_conflict"
+        ? "conflict"
+        : "error";
+      state.cloudAutosaveMessage = getCloudErrorMessage(error);
+      state.accountError = state.cloudAutosaveMessage;
+      pushNotification({
+        title: state.cloudAutosaveStatus === "conflict" ? "Conflicto de campaña" : "Error de autoguardado",
+        message: state.cloudAutosaveMessage,
+        tone: "danger",
+        durationMs: 8000
+      });
+      syncNotificationUi();
+      syncCloudAccountUi();
+      return false;
+    })
+    .finally(() => {
+      cloudCampaignSaveInProgress = null;
+
+      if (
+        state.cloudAutosaveStatus === "saved"
+        && getComparableCampaignSnapshot() !== lastCloudCampaignSnapshot
+      ) {
+        scheduleCloudCampaignAutosave(1500);
+      }
+    });
+
+  return cloudCampaignSaveInProgress;
+}
+
+function scheduleCloudCampaignAutosave(delay = 4000) {
+  if (
+    typeof window === "undefined"
+    || cloudCampaignSaveSuspended
+    || !state.accountSession?.user?.id
+    || !state.cloudCampaignId
+    || state.cloudAutosaveStatus === "conflict"
+  ) {
+    return;
+  }
+
+  if (cloudCampaignAutosaveTimer) {
+    window.clearTimeout(cloudCampaignAutosaveTimer);
+  }
+
+  state.cloudAutosaveStatus = "pending";
+  syncCloudAccountUi();
+  cloudCampaignAutosaveTimer = window.setTimeout(() => {
+    cloudCampaignAutosaveTimer = 0;
+    autosaveCloudCampaign();
+  }, Math.max(1500, Number(delay) || 4000));
+}
+
+function startCloudCampaignAutosave() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!cloudCampaignAutosaveInterval) {
+    cloudCampaignAutosaveInterval = window.setInterval(() => {
+      autosaveCloudCampaign();
+    }, 60_000);
+  }
+
+  if (!cloudCampaignVisibilityHandlerRegistered) {
+    cloudCampaignVisibilityHandlerRegistered = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        autosaveCloudCampaign();
+      }
+    });
+  }
+}
+
+function syncCloudAccountUi() {
+  if (!app) {
+    return;
+  }
+
+  const currentChip = app.querySelector("[data-account-chip-root]");
+  const nextChip = createTranslatedMarkupElement(renderAccountChip());
+
+  if (currentChip && nextChip) {
+    currentChip.replaceWith(nextChip);
+  }
+
+  const saveStatus = app.querySelector("[data-cloud-save-status]");
+
+  if (saveStatus) {
+    saveStatus.className = `account-autosave-status account-autosave-status--${state.cloudAutosaveStatus}`;
+    saveStatus.innerHTML = `
+      <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
+      ${state.cloudAutosaveMessage ? `<small>${escapeHtml(state.cloudAutosaveMessage)}</small>` : ""}
+    `;
+    applyInterfaceTranslations(saveStatus);
+  }
+}
+
+async function toggleCloudCampaignPublic(campaignId) {
+  const summary = state.cloudCampaigns.find((campaign) => campaign.id === campaignId);
+
+  if (!summary) {
+    return;
+  }
+
+  const nextPublic = !summary.isPublic;
+
+  if (
+    nextPublic
+    && !window.confirm("Hacer pública esta campaña permite que cualquiera copie todo su contenido, incluido diario y contenido personalizado. ¿Continuar?")
+  ) {
+    return;
+  }
+
+  const isActiveCampaign = campaignId === state.cloudCampaignId;
+
+  if (isActiveCampaign) {
+    state.cloudAutosaveStatus = "saving";
+    syncCloudAccountUi();
+  }
+
+  try {
+    if (isActiveCampaign) {
+      await autosaveCloudCampaign({ force: true, isPublic: nextPublic });
+    } else {
+      const result = await setCloudCampaignVisibility(campaignId, {
+        isPublic: nextPublic,
+        baseRevision: summary.revision
+      });
+      updateCloudCampaignSummary(result.campaign);
+    }
+
+    await refreshCloudCampaigns({ renderAfter: false });
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  render();
+}
+
+async function removeCloudCampaign(campaignId) {
+  const summary = state.cloudCampaigns.find((campaign) => campaign.id === campaignId);
+
+  if (!summary || !window.confirm(`Eliminar “${summary.name}” de la nube? Esta acción no se puede deshacer.`)) {
+    return;
+  }
+
+  const deletingActiveCampaign = campaignId === state.cloudCampaignId;
+
+  if (deletingActiveCampaign) {
+    cloudCampaignSaveSuspended = true;
+
+    if (cloudCampaignSaveInProgress) {
+      await cloudCampaignSaveInProgress;
+    }
+  }
+
+  try {
+    await deleteCloudCampaign(campaignId);
+
+    if (deletingActiveCampaign) {
+      detachActiveCloudCampaign({ keepLocalLabel: true });
+      state.campaignMessage = "Campaña cloud eliminada. Copia actual sigue disponible localmente.";
+    }
+
+    await refreshCloudCampaigns({ renderAfter: false });
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  cloudCampaignSaveSuspended = false;
+  render();
+}
+
+async function clonePublicCampaign(campaignId) {
+  try {
+    const result = await cloneCloudCampaign(campaignId);
+    await refreshCloudCampaigns({ renderAfter: false });
+    await loadCloudCampaignById(result.campaign.id);
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    render();
+  }
+}
+
+async function loadPublicCampaignLocally(campaignId) {
+  if (!await prepareToReplaceActiveCloudCampaign()) {
+    render();
+    return;
+  }
+
+  cloudCampaignSaveSuspended = true;
+
+  try {
+    const result = await getCloudCampaign(campaignId);
+    const campaign = normalizeCampaignSave(result.payload);
+    detachActiveCloudCampaign();
+    state.campaignFileName = "";
+    state.campaignFilePath = "";
+    applyCampaignSave(campaign);
+    state.campaignLoadedFromPublic = true;
+    state.campaignName = campaign.name;
+    state.campaignMessage = `Copia pública cargada localmente: ${campaign.name}`;
+    state.accountDialogOpen = false;
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  cloudCampaignSaveSuspended = false;
+  render();
+}
+
 function getCampaignSaveNameDialogDefaultValue() {
   return cleanText(state.campaignName)
     || getCampaignNameFromFileName(cleanText(state.campaignFileName))
@@ -20928,6 +21917,13 @@ async function createNewCampaign() {
   const blankPayload = createBlankCampaignSavePayload();
 
   try {
+    if (!await prepareToReplaceActiveCloudCampaign()) {
+      render();
+      return;
+    }
+
+    detachActiveCloudCampaign();
+    state.campaignLoadedFromPublic = false;
     clearPersistedCampaignState();
     clearActiveCampaignFileSelection();
     resetCampaignStateFromPayload(blankPayload);
@@ -21015,6 +22011,11 @@ function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
         elapsedMs: 0,
         isRunning: false
       }
+    },
+    compendiumCustomMaps: {
+      bestiary: {},
+      items: {},
+      arcanum: {}
     },
     ui: {
       activeScreen: "combat-tracker",
@@ -21177,6 +22178,13 @@ async function loadDesktopCampaignFile(loadCampaign) {
 
     const campaign = normalizeCampaignSave(result?.payload);
 
+    if (!await prepareToReplaceActiveCloudCampaign()) {
+      render();
+      return;
+    }
+
+    detachActiveCloudCampaign();
+    state.campaignLoadedFromPublic = false;
     applyCampaignSave(campaign, result);
     state.campaignMessage = `Campaña cargada: ${campaign.name}`;
     render();
@@ -21196,6 +22204,13 @@ async function loadCampaignFile(file) {
     const parsedValue = JSON.parse(rawValue);
     const campaign = normalizeCampaignSave(parsedValue);
 
+    if (!await prepareToReplaceActiveCloudCampaign()) {
+      render();
+      return;
+    }
+
+    detachActiveCloudCampaign();
+    state.campaignLoadedFromPublic = false;
     applyCampaignSave(campaign, {
       fileName: file.name,
       name: campaign.name,
@@ -21388,6 +22403,8 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
     return;
   }
 
+  scheduleCloudCampaignAutosave(4000);
+
   if (campaignDirtyStateSyncTimer) {
     window.clearTimeout(campaignDirtyStateSyncTimer);
   }
@@ -21421,6 +22438,11 @@ function createCampaignSavePayload(options = {}) {
       includeBattleTimer: true
     }),
     repositoryCsvOverrides: getRepositoryCsvOverridesSaveData(),
+    compendiumCustomMaps: {
+      bestiary: isPlainObject(state.customBestiaryImageMap) ? state.customBestiaryImageMap : {},
+      items: isPlainObject(state.customItemImageMap) ? state.customItemImageMap : {},
+      arcanum: isPlainObject(state.customArcanumMap) ? state.customArcanumMap : {}
+    },
     ui: {
       activeScreen: state.activeScreen,
       activeEncounterId: state.activeEncounterId,
@@ -21473,6 +22495,7 @@ function normalizeCampaignSave(value) {
   const savedAt = cleanText(value.savedAt);
   const ui = isPlainObject(value.ui) ? value.ui : {};
   const campaign = isPlainObject(value.campaign) ? value.campaign : {};
+  const compendiumCustomMaps = isPlainObject(value.compendiumCustomMaps) ? value.compendiumCustomMaps : {};
   const name = cleanText(campaign.name) || cleanText(value.name) || "Campaña sin nombre";
 
   return {
@@ -21492,7 +22515,12 @@ function normalizeCampaignSave(value) {
     includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(ui.includeNpcInCombatExperience),
     soundSettings: normalizeStoredSoundSettings(ui.soundSettings),
     repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths),
-    repositoryCsvOverrides: normalizeStoredRepositoryCsvOverrides(value.repositoryCsvOverrides)
+    repositoryCsvOverrides: normalizeStoredRepositoryCsvOverrides(value.repositoryCsvOverrides),
+    compendiumCustomMaps: {
+      bestiary: isPlainObject(compendiumCustomMaps.bestiary) ? compendiumCustomMaps.bestiary : {},
+      items: isPlainObject(compendiumCustomMaps.items) ? compendiumCustomMaps.items : {},
+      arcanum: isPlainObject(compendiumCustomMaps.arcanum) ? compendiumCustomMaps.arcanum : {}
+    }
   };
 }
 
@@ -21552,6 +22580,9 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.soundSettings = campaign.soundSettings;
   state.repositoryCsvPaths = campaign.repositoryCsvPaths;
   state.repositoryCsvUploads = { ...blankRepositoryCsvUploads };
+  saveBestiaryCustomImageMap(campaign.compendiumCustomMaps?.bestiary ?? {});
+  saveItemCustomImageMap(campaign.compendiumCustomMaps?.items ?? {});
+  saveArcanumCustomMap(campaign.compendiumCustomMaps?.arcanum ?? {});
   Object.entries(campaign.repositoryCsvOverrides ?? {}).forEach(([repositoryKey, override]) => {
     if (!defaultRepositoryCsvPaths[repositoryKey] || !isPlainObject(override)) {
       return;
