@@ -25045,7 +25045,14 @@ function clearPrivateCloudAccountState() {
 
 async function handleAccountSignOut() {
   try {
-    await autosaveCloudCampaign();
+    const saved = await autosaveCloudCampaign();
+
+    if (saved === false) {
+      state.accountError = state.cloudAutosaveMessage || "No se pudo guardar la campaña cloud. No se ha cerrado la sesión.";
+      render();
+      return;
+    }
+
     const result = await signOutAccount();
     stopCloudCampaignAutosave();
     detachActiveCloudCampaign();
