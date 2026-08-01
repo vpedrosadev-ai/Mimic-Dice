@@ -13907,6 +13907,32 @@ body.is-table-resizing * {
   overflow-wrap: anywhere;
 }
 
+.compendium-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid rgba(240, 200, 121, 0.18);
+}
+
+.compendium-detail-actions > div {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.compendium-detail-actions__badge {
+  color: var(--accent-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .arcanum-detail__title-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -15095,6 +15121,20 @@ body.is-table-resizing * {
 }
 
 @media (max-width: 640px) {
+  .compendium-detail-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compendium-detail-actions > div,
+  .compendium-detail-actions .toolbar-button {
+    width: 100%;
+  }
+
+  .compendium-detail-actions .toolbar-button {
+    justify-content: center;
+  }
+
   .diary-editor__meta-grid,
   .diary-date-card__grid,
   .diary-date-card__harptos-fields {

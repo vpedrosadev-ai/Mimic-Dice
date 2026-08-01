@@ -735,6 +735,8 @@ state = {
   campaignSaveNameDialogError: "",
   compendiumCreateDialogOpen: false,
   compendiumCreateKind: "",
+  compendiumCreateMode: "create",
+  compendiumEditRowKey: "",
   compendiumCreateDraft: {},
   compendiumCreateError: "",
   characterSpellbookAbilityDescriptionDialogOpen: false,
@@ -1843,6 +1845,22 @@ async function handleClick(event) {
   if (action === "open-create-compendium-entity") {
     openCompendiumCreateDialog(actionButton.dataset.repositoryKey);
     render();
+    return;
+  }
+
+  if (action === "open-edit-compendium-entity") {
+    await openCompendiumEditDialog(
+      actionButton.dataset.repositoryKey,
+      actionButton.dataset.compendiumEntryId
+    );
+    return;
+  }
+
+  if (action === "delete-compendium-entity") {
+    await deleteCustomCompendiumEntity(
+      actionButton.dataset.repositoryKey,
+      actionButton.dataset.compendiumEntryId
+    );
     return;
   }
 
@@ -5960,6 +5978,8 @@ function openCompendiumCreateDialog(kind) {
 
   state.compendiumCreateDialogOpen = true;
   state.compendiumCreateKind = kind;
+  state.compendiumCreateMode = "create";
+  state.compendiumEditRowKey = "";
   state.compendiumCreateDraft = createBlankCompendiumDraft(kind);
   state.compendiumCreateError = "";
 }
@@ -5967,8 +5987,186 @@ function openCompendiumCreateDialog(kind) {
 function closeCompendiumCreateDialog() {
   state.compendiumCreateDialogOpen = false;
   state.compendiumCreateKind = "";
+  state.compendiumCreateMode = "create";
+  state.compendiumEditRowKey = "";
   state.compendiumCreateDraft = {};
   state.compendiumCreateError = "";
+}
+
+function getCompendiumEntryById(repositoryKey, entryId) {
+  return getCurrentCompendiumEntries(repositoryKey)
+    .find((entry) => cleanText(entry?.id) === cleanText(entryId)) || null;
+}
+
+async function openCompendiumEditDialog(repositoryKey, entryId) {
+  const entry = getCompendiumEntryById(repositoryKey, entryId);
+
+  if (!entry?.isCustom) {
+    return;
+  }
+
+  try {
+    const currentText = await loadRepositoryCsvRawText(repositoryKey);
+    const rowKey = cleanText(entry.repositoryRowKey);
+    const sourceRow = parseCsv(currentText)
+      .find((row) => getCloudCatalogCompendiumRowKey(repositoryKey, row) === rowKey);
+
+    if (!sourceRow) {
+      throw new Error("No se encontró la entidad personalizada en el CSV activo.");
+    }
+
+    state.compendiumCreateDialogOpen = true;
+    state.compendiumCreateKind = repositoryKey;
+    state.compendiumCreateMode = "edit";
+    state.compendiumEditRowKey = rowKey;
+    state.compendiumCreateDraft = Object.fromEntries(getCompendiumCreateFields(repositoryKey)
+      .map((field) => [field.key, String(sourceRow[field.key] ?? "")]));
+    state.compendiumCreateError = "";
+    render();
+  } catch (error) {
+    pushNotification({
+      title: "No se pudo editar",
+      message: getErrorMessage(error) || "No se pudo leer la entidad personalizada.",
+      tone: "danger"
+    });
+    render();
+  }
+}
+
+function getCompendiumCustomMap(repositoryKey) {
+  if (repositoryKey === "bestiary") {
+    return state.customBestiaryImageMap;
+  }
+
+  if (repositoryKey === "items") {
+    return state.customItemImageMap;
+  }
+
+  return state.customArcanumMap;
+}
+
+function saveCompendiumCustomMap(repositoryKey, value) {
+  if (repositoryKey === "bestiary") {
+    saveBestiaryCustomImageMap(value);
+  } else if (repositoryKey === "items") {
+    saveItemCustomImageMap(value);
+  } else {
+    saveArcanumCustomMap(value);
+  }
+}
+
+function getCompendiumCustomMapKeys(repositoryKey, row) {
+  const name = cleanText(row?.Name);
+  const source = cleanText(row?.Source);
+  const level = cleanText(row?.Level);
+  const directKey = repositoryKey === "arcanum"
+    ? `${name}||${source}||${level}`.toLowerCase()
+    : `${name}||${source}`.toLowerCase();
+  const compositeKey = repositoryKey === "bestiary"
+    ? buildBestiaryCompositeKey(name, source)
+    : repositoryKey === "items"
+      ? buildItemCompositeKey(name, source)
+      : buildArcanumCompositeKey(name, source, level);
+
+  return [...new Set([
+    directKey,
+    getCloudCatalogCompendiumRowKey(repositoryKey, row).toLowerCase(),
+    cleanText(compositeKey).toLowerCase()
+  ].filter(Boolean))];
+}
+
+function moveCompendiumCustomMapEntry(repositoryKey, previousRow, nextRow = null) {
+  const currentMap = { ...getCompendiumCustomMap(repositoryKey) };
+  const previousKeys = getCompendiumCustomMapKeys(repositoryKey, previousRow);
+  const preservedValue = previousKeys
+    .find((key) => Object.prototype.hasOwnProperty.call(currentMap, key));
+  const value = preservedValue ? currentMap[preservedValue] : undefined;
+
+  previousKeys.forEach((key) => delete currentMap[key]);
+
+  if (nextRow && value !== undefined) {
+    const [nextKey] = getCompendiumCustomMapKeys(repositoryKey, nextRow);
+    currentMap[nextKey] = value;
+  }
+
+  saveCompendiumCustomMap(repositoryKey, currentMap);
+}
+
+function updateCloudImportRefsAfterCompendiumEdit(repositoryKey, previousRowKey, nextRowKey = "", nextMapKey = "") {
+  const sourceType = getCloudCatalogCompendiumType(repositoryKey);
+  state.cloudImportedEntries = state.cloudImportedEntries.flatMap((record) => {
+    if (
+      cleanText(record?.sourceType).toLowerCase() !== sourceType
+      || cleanText(record?.localRefs?.repositoryKey) !== repositoryKey
+      || cleanText(record?.localRefs?.rowKey) !== previousRowKey
+    ) {
+      return [record];
+    }
+
+    if (!nextRowKey) {
+      return [];
+    }
+
+    return [{
+      ...record,
+      localRefs: {
+        ...record.localRefs,
+        rowKey: nextRowKey,
+        mapKey: nextMapKey
+      }
+    }];
+  });
+  const importRecordIds = new Set(state.cloudImportedEntries.map((record) => record.id));
+  state.cloudImportUpdateCandidates = state.cloudImportUpdateCandidates
+    .filter((candidate) => importRecordIds.has(candidate.record?.id));
+  state.cloudImportUpdateSelectedIds = new Set([...state.cloudImportUpdateSelectedIds]
+    .filter((recordId) => importRecordIds.has(recordId)));
+}
+
+async function deleteCustomCompendiumEntity(repositoryKey, entryId) {
+  const entry = getCompendiumEntryById(repositoryKey, entryId);
+
+  if (!entry?.isCustom || !window.confirm(`¿Eliminar “${entry.name}” del CSV activo?`)) {
+    return;
+  }
+
+  try {
+    const currentText = await loadRepositoryCsvRawText(repositoryKey);
+    const lineBreak = currentText.includes("\r\n") ? "\r\n" : "\n";
+    const headers = extractCsvHeaders(currentText, getCompendiumCsvHeaders(repositoryKey));
+    const rowKey = cleanText(entry.repositoryRowKey);
+    let deletedRow = null;
+    const rows = parseCsv(currentText).flatMap((row) => {
+      if (getCloudCatalogCompendiumRowKey(repositoryKey, row) === rowKey) {
+        deletedRow = row;
+        return [];
+      }
+
+      return [Object.fromEntries(headers.map((header) => [header, String(row?.[header] ?? "")]))];
+    });
+
+    if (!deletedRow) {
+      throw new Error("No se encontró la entidad personalizada en el CSV activo.");
+    }
+
+    await writeRepositoryCsvRawText(repositoryKey, serializeCsvRows(headers, rows, lineBreak));
+    moveCompendiumCustomMapEntry(repositoryKey, deletedRow);
+    updateCloudImportRefsAfterCompendiumEdit(repositoryKey, rowKey);
+    scheduleDesktopCampaignDirtyStateSync(60);
+    await reloadCompendiumRepository(repositoryKey);
+    pushNotification({
+      title: "Entidad eliminada",
+      message: `${entry.name} ya no está en ${COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "el catálogo"}.`
+    });
+    render();
+  } catch (error) {
+    pushNotification({
+      title: "No se pudo eliminar",
+      message: getErrorMessage(error) || "No se pudo actualizar el CSV activo.",
+      tone: "danger"
+    });
+    render();
+  }
 }
 
 function updateCompendiumCreateDraftField(key, value) {
@@ -6157,6 +6355,7 @@ function selectCompendiumEntryAfterCreate(repositoryKey, row) {
 
 async function saveCompendiumEntityFromDialog() {
   const repositoryKey = cleanText(state.compendiumCreateKind);
+  const editMode = state.compendiumCreateMode === "edit";
   const row = buildCompendiumDraftRow(repositoryKey);
   const validationError = validateCompendiumDraft(repositoryKey, row);
 
@@ -6172,21 +6371,57 @@ async function saveCompendiumEntityFromDialog() {
     const lineBreak = currentText.includes("\r\n") ? "\r\n" : "\n";
     const headers = extractCsvHeaders(currentText, getCompendiumCsvHeaders(repositoryKey));
     const normalizedRows = parsedRows.map((entry) => Object.fromEntries(headers.map((header) => [header, String(entry?.[header] ?? "")])));
-    const nextText = serializeCsvRows(headers, [...normalizedRows, row], lineBreak);
+    const nextRowKey = getCloudCatalogCompendiumRowKey(repositoryKey, row);
+    const editRowKey = cleanText(state.compendiumEditRowKey);
+    const editIndex = editMode
+      ? parsedRows.findIndex((entry) => getCloudCatalogCompendiumRowKey(repositoryKey, entry) === editRowKey)
+      : -1;
+
+    if (editMode && editIndex < 0) {
+      throw new Error("No se encontró la entidad personalizada que querías editar.");
+    }
+
+    const duplicateIndex = parsedRows.findIndex((entry, index) => (
+      index !== editIndex
+      && getCloudCatalogCompendiumRowKey(repositoryKey, entry) === nextRowKey
+    ));
+
+    if (duplicateIndex >= 0) {
+      throw new Error("Ya existe una entidad con el mismo nombre, fuente y nivel.");
+    }
+
+    const previousRow = editMode ? parsedRows[editIndex] : null;
+    const replacementRow = editMode ? { ...previousRow, ...row } : row;
+    const nextRows = editMode
+      ? normalizedRows.map((entry, index) => index === editIndex
+        ? Object.fromEntries(headers.map((header) => [header, String(replacementRow?.[header] ?? "")]))
+        : entry)
+      : [...normalizedRows, row];
+    const nextText = serializeCsvRows(headers, nextRows, lineBreak);
 
     await writeRepositoryCsvRawText(repositoryKey, nextText);
+
+    if (editMode) {
+      const nextMapKey = getCompendiumCustomMapKeys(repositoryKey, replacementRow)[0] || "";
+      moveCompendiumCustomMapEntry(repositoryKey, previousRow, replacementRow);
+      updateCloudImportRefsAfterCompendiumEdit(repositoryKey, editRowKey, nextRowKey, nextMapKey);
+    }
+
+    scheduleDesktopCampaignDirtyStateSync(60);
     await reloadCompendiumRepository(repositoryKey);
-    selectCompendiumEntryAfterCreate(repositoryKey, row);
+    selectCompendiumEntryAfterCreate(repositoryKey, replacementRow);
     closeCompendiumCreateDialog();
     pushNotification({
-      title: "Entidad creada",
-      message: `${COMPENDIUM_KIND_LABELS[repositoryKey] || "Entidad"} anadida a ${COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "repositorio"}.`
+      title: editMode ? "Entidad actualizada" : "Entidad creada",
+      message: editMode
+        ? `${cleanText(replacementRow.Name)} guardada en ${COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "el catálogo"}.`
+        : `${COMPENDIUM_KIND_LABELS[repositoryKey] || "Entidad"} anadida a ${COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "repositorio"}.`
     });
     render();
   } catch (error) {
     const message = getErrorMessage(error);
     state.compendiumCreateError = message
-      ? `No se pudo guardar la entidad en el CSV activo. ${message}`
+      ? `No se pudo ${editMode ? "actualizar" : "guardar"} la entidad en el CSV activo. ${message}`
       : "No se pudo guardar la entidad en el CSV activo.";
     render();
   }
@@ -6523,6 +6758,7 @@ function renderCompendiumCreateDialog() {
   const repositoryKey = state.compendiumCreateKind;
   const nounLabel = COMPENDIUM_KIND_LABELS[repositoryKey] || "entidad";
   const repositoryLabel = COMPENDIUM_REPOSITORY_LABELS[repositoryKey] || "repositorio";
+  const editMode = state.compendiumCreateMode === "edit";
 
   return `
     <div class="campaign-save-dialog compendium-create-dialog" role="presentation">
@@ -6530,7 +6766,7 @@ function renderCompendiumCreateDialog() {
         class="campaign-save-dialog__backdrop"
         type="button"
         data-action="dismiss-compendium-create-dialog"
-        aria-label="Cerrar formulario de creacion"
+        aria-label="Cerrar formulario de ${editMode ? "edición" : "creación"}"
       ></button>
       <section
         class="campaign-save-dialog__panel compendium-create-dialog__panel"
@@ -6538,9 +6774,11 @@ function renderCompendiumCreateDialog() {
         aria-modal="true"
         aria-labelledby="compendium-create-dialog-title"
       >
-        <p class="campaign-save-dialog__eyebrow">Crear ${escapeHtml(nounLabel)}</p>
+        <p class="campaign-save-dialog__eyebrow">${editMode ? "Editar" : "Crear"} ${escapeHtml(nounLabel)}</p>
         <h2 class="campaign-save-dialog__title" id="compendium-create-dialog-title">${escapeHtml(repositoryLabel)}</h2>
-        <p class="campaign-save-dialog__text">Guardar escribira una nueva fila en el CSV activo de ${escapeHtml(repositoryLabel)}.</p>
+        <p class="campaign-save-dialog__text">${editMode
+          ? `Guardar reemplazará esta entidad personalizada en el CSV activo de ${escapeHtml(repositoryLabel)}.`
+          : `Guardar escribirá una nueva fila en el CSV activo de ${escapeHtml(repositoryLabel)}.`}</p>
         <div class="compendium-create-dialog__grid">
           ${getCompendiumCreateFields(repositoryKey).map((field) => renderCompendiumCreateField(field)).join("")}
         </div>
@@ -6554,7 +6792,7 @@ function renderCompendiumCreateDialog() {
             Cancelar
           </button>
           <button class="toolbar-button toolbar-button--accent" type="button" data-action="save-compendium-entity">
-            Guardar
+            ${editMode ? "Guardar cambios" : "Guardar"}
           </button>
         </div>
       </section>
@@ -10111,7 +10349,7 @@ function renderItemsContent(filteredEntries, selectedEntry) {
         ${renderItemList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
       <aside class="bestiary-detail panel panel--inner" data-item-detail-root>
-        ${selectedEntry ? renderItemDetail(selectedEntry) : renderItemDetailEmpty()}
+        ${selectedEntry ? renderSelectedCompendiumDetail("items", selectedEntry) : renderItemDetailEmpty()}
       </aside>
     </div>
   `;
@@ -10136,7 +10374,7 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
         ${renderArcanumList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
       <aside class="bestiary-detail panel panel--inner" data-arcanum-detail-root>
-        ${selectedEntry ? renderArcanumDetail(selectedEntry) : renderArcanumDetailEmpty()}
+        ${selectedEntry ? renderSelectedCompendiumDetail("arcanum", selectedEntry) : renderArcanumDetailEmpty()}
       </aside>
     </div>
   `;
@@ -10161,10 +10399,36 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
         ${renderBestiaryList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
       <aside class="bestiary-detail panel panel--inner" data-bestiary-detail-root>
-        ${selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty()}
+        ${selectedEntry ? renderSelectedCompendiumDetail("bestiary", selectedEntry) : renderBestiaryDetailEmpty()}
       </aside>
     </div>
   `;
+}
+
+function renderCompendiumDetailActions(repositoryKey, entry) {
+  if (!entry?.isCustom) {
+    return "";
+  }
+
+  const nounLabel = COMPENDIUM_KIND_LABELS[repositoryKey] || "entidad";
+  return `
+    <div class="compendium-detail-actions" aria-label="Acciones de ${escapeHtml(nounLabel)} personalizada">
+      <span class="compendium-detail-actions__badge">Contenido personalizado</span>
+      <div>
+        <button class="toolbar-button toolbar-button--subtle" type="button" data-action="open-edit-compendium-entity" data-repository-key="${escapeHtml(repositoryKey)}" data-compendium-entry-id="${escapeHtml(entry.id)}">Editar</button>
+        <button class="toolbar-button toolbar-button--subtle-danger" type="button" data-action="delete-compendium-entity" data-repository-key="${escapeHtml(repositoryKey)}" data-compendium-entry-id="${escapeHtml(entry.id)}">Eliminar</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSelectedCompendiumDetail(repositoryKey, entry) {
+  const detail = repositoryKey === "bestiary"
+    ? getCachedBestiaryDetailHtml(entry)
+    : repositoryKey === "items"
+      ? renderItemDetail(entry)
+      : renderArcanumDetail(entry);
+  return `${renderCompendiumDetailActions(repositoryKey, entry)}${detail}`;
 }
 
 function getBestiaryVirtualWindow(totalEntries) {
@@ -10263,7 +10527,7 @@ function updateBestiarySelectionUI(previousSelectedId, nextSelectedId) {
 
   const filteredEntries = getFilteredBestiary();
   const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
-  detailRoot.innerHTML = selectedEntry ? getCachedBestiaryDetailHtml(selectedEntry) : renderBestiaryDetailEmpty();
+  detailRoot.innerHTML = selectedEntry ? renderSelectedCompendiumDetail("bestiary", selectedEntry) : renderBestiaryDetailEmpty();
 }
 
 function getItemVirtualWindow(totalEntries) {
@@ -10336,7 +10600,7 @@ function updateItemSelectionUI(previousSelectedId, nextSelectedId) {
 
   const filteredEntries = getFilteredItems();
   const selectedEntry = getSelectedItemEntry(filteredEntries);
-  detailRoot.innerHTML = selectedEntry ? renderItemDetail(selectedEntry) : renderItemDetailEmpty();
+  detailRoot.innerHTML = selectedEntry ? renderSelectedCompendiumDetail("items", selectedEntry) : renderItemDetailEmpty();
 }
 
 function getArcanumVirtualWindow(totalEntries) {
@@ -10409,7 +10673,7 @@ function updateArcanumSelectionUI(previousSelectedId, nextSelectedId) {
 
   const filteredEntries = getFilteredArcanum();
   const selectedEntry = getSelectedArcanumEntry(filteredEntries);
-  detailRoot.innerHTML = selectedEntry ? renderArcanumDetail(selectedEntry) : renderArcanumDetailEmpty();
+  detailRoot.innerHTML = selectedEntry ? renderSelectedCompendiumDetail("arcanum", selectedEntry) : renderArcanumDetailEmpty();
 }
 
 function renderAssetLoadErrorState(message, debugInfo) {
@@ -20855,6 +21119,22 @@ async function loadLocalizedRepositoryRows(repositoryKey, kind, csvRelativePath)
   };
 }
 
+function addCompendiumEntryOrigin(repositoryKey, row, entry, baseRowKeys) {
+  const identityRow = {
+    ...row,
+    Name: cleanText(row?.__mimicIdentityBaseName) || cleanText(row?.Name),
+    Source: cleanText(row?.__mimicIdentityBaseSource) || cleanText(row?.Source),
+    Level: cleanText(row?.__mimicIdentityBaseLevel) || cleanText(row?.Level)
+  };
+  const repositoryRowKey = getCloudCatalogCompendiumRowKey(repositoryKey, identityRow);
+  return {
+    ...entry,
+    repositoryKey,
+    repositoryRowKey,
+    isCustom: baseRowKeys instanceof Set ? !baseRowKeys.has(repositoryRowKey) : false
+  };
+}
+
 async function loadBestiary() {
   const loadToken = ++compendiumLoadTokens.bestiary;
   state.bestiaryStatus = "loading";
@@ -20864,10 +21144,13 @@ async function loadBestiary() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("bestiary");
-    const [localizedData, imageMap, persistedCustomMap] = await Promise.all([
+    const [localizedData, imageMap, persistedCustomMap, baseRowKeys] = await Promise.all([
       loadLocalizedRepositoryRows("bestiary", "bestiary", csvRelativePath),
       loadBestiaryImages(),
-      loadBestiaryPersistedCustomImageMap()
+      loadBestiaryPersistedCustomImageMap(),
+      canUseVersionedCompendiumBundle("bestiary", csvRelativePath)
+        ? Promise.resolve(null)
+        : getCloudCatalogBaseRowKeys("bestiary")
     ]);
     const { rows, imageSourceRows, meta } = localizedData;
 
@@ -20887,9 +21170,14 @@ async function loadBestiary() {
 
     state.bestiaryImageMap = mergedImageMap;
     state.contentSourceMeta.bestiary = meta;
-    state.bestiary = normalizedRows.map((row, index) => normalizeBestiaryEntry(row, index, mergedImageMap, {
-      isPackagedDesktopApp: isPackagedDesktopApp()
-    }));
+    state.bestiary = normalizedRows.map((row, index) => addCompendiumEntryOrigin(
+      "bestiary",
+      row,
+      normalizeBestiaryEntry(row, index, mergedImageMap, {
+        isPackagedDesktopApp: isPackagedDesktopApp()
+      }),
+      baseRowKeys
+    ));
     hydrateBestiaryStaticOptions();
     resetBestiaryRenderCache();
     state.bestiaryStatus = "ready";
@@ -20925,10 +21213,13 @@ async function loadItems() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("items");
-    const [localizedData, imageMap, persistedCustomMap] = await Promise.all([
+    const [localizedData, imageMap, persistedCustomMap, baseRowKeys] = await Promise.all([
       loadLocalizedRepositoryRows("items", "items", csvRelativePath),
       loadItemImages(),
-      loadItemPersistedCustomImageMap()
+      loadItemPersistedCustomImageMap(),
+      canUseVersionedCompendiumBundle("items", csvRelativePath)
+        ? Promise.resolve(null)
+        : getCloudCatalogBaseRowKeys("items")
     ]);
     const { rows, imageSourceRows, meta } = localizedData;
 
@@ -20946,9 +21237,14 @@ async function loadItems() {
 
     state.itemImageMap = mergedImageMap;
     state.contentSourceMeta.items = meta;
-    state.items = rows.map((row, index) => normalizeItemEntry(row, index, mergedImageMap, {
-      contentLanguage: state.contentLanguage
-    }));
+    state.items = rows.map((row, index) => addCompendiumEntryOrigin(
+      "items",
+      row,
+      normalizeItemEntry(row, index, mergedImageMap, {
+        contentLanguage: state.contentLanguage
+      }),
+      baseRowKeys
+    ));
     resetItemVirtualScroll();
     state.itemStatus = "ready";
     state.itemDebugInfo = null;
@@ -20982,9 +21278,12 @@ async function loadArcanum() {
   try {
     render();
     const csvRelativePath = getRepositoryCsvPath("arcanum");
-    const [localizedData, persistedCustomMap] = await Promise.all([
+    const [localizedData, persistedCustomMap, baseRowKeys] = await Promise.all([
       loadLocalizedRepositoryRows("arcanum", "arcanum", csvRelativePath),
-      loadArcanumPersistedCustomMap()
+      loadArcanumPersistedCustomMap(),
+      canUseVersionedCompendiumBundle("arcanum", csvRelativePath)
+        ? Promise.resolve(null)
+        : getCloudCatalogBaseRowKeys("arcanum")
     ]);
     const { rows, meta } = localizedData;
 
@@ -20997,7 +21296,12 @@ async function loadArcanum() {
     saveArcanumCustomMap(reusableCustomMap);
 
     state.contentSourceMeta.arcanum = meta;
-    state.arcanum = rows.map((row, index) => normalizeSpellEntry(row, index));
+    state.arcanum = rows.map((row, index) => addCompendiumEntryOrigin(
+      "arcanum",
+      row,
+      normalizeSpellEntry(row, index),
+      baseRowKeys
+    ));
     resetBestiaryRenderCache();
     state.arcanumStatus = "ready";
     state.arcanumDebugInfo = null;
