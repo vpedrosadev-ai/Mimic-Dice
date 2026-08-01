@@ -10,7 +10,7 @@ import {
 
 const MAX_ASSET_BYTES = 5 * 1024 * 1024;
 const MAX_ASSET_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;
-const ASSET_ID_PATTERN = /\/api\/assets\/([0-9a-f-]{36})(?:[?#]|$)/gi;
+const ASSET_ID_PATTERN = /\/api\/assets\/([0-9a-f-]{36})(?![0-9a-f-])/gi;
 
 function assertAssetBucket(context) {
   if (!context.env.CLOUD_ASSETS) {
@@ -57,6 +57,14 @@ export async function syncCloudAssetReferences(db, ownerId, parentType, parentId
           SELECT 1 FROM "cloud_asset_references" r
           INNER JOIN "cloud_library_entries" e ON r."parentType" = 'library' AND e."id" = r."parentId"
           WHERE r."assetId" = a."id" AND e."isPublic" = 1
+        )
+        OR EXISTS (
+          SELECT 1 FROM "cloud_library_entries" e
+          WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."isPublic" = 1
+        )
+        OR EXISTS (
+          SELECT 1 FROM "cloud_catalog_entries" e
+          WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."isPublic" = 1
         )
       )
     `).bind(parentType, parentId, assetId, ownerId))
@@ -155,6 +163,12 @@ async function getAsset(context, assetId, user) {
         SELECT 1 FROM "cloud_asset_references" r
         INNER JOIN "cloud_library_entries" e ON r."parentType" = 'library' AND e."id" = r."parentId"
         WHERE r."assetId" = a."id" AND e."isPublic" = 1
+      ) OR EXISTS (
+        SELECT 1 FROM "cloud_library_entries" e
+        WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."isPublic" = 1
+      ) OR EXISTS (
+        SELECT 1 FROM "cloud_catalog_entries" e
+        WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."isPublic" = 1
       ) THEN 1 ELSE 0 END AS "isPublic",
       CASE WHEN a."ownerId" = ? OR EXISTS (
         SELECT 1 FROM "cloud_asset_references" r
@@ -164,11 +178,17 @@ async function getAsset(context, assetId, user) {
         SELECT 1 FROM "cloud_asset_references" r
         INNER JOIN "cloud_library_entries" e ON r."parentType" = 'library' AND e."id" = r."parentId"
         WHERE r."assetId" = a."id" AND e."ownerId" = ?
+      ) OR EXISTS (
+        SELECT 1 FROM "cloud_library_entries" e
+        WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."ownerId" = ?
+      ) OR EXISTS (
+        SELECT 1 FROM "cloud_catalog_entries" e
+        WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."ownerId" = ?
       ) THEN 1 ELSE 0 END AS "canAccess"
     FROM "cloud_assets" a
     WHERE a."id" = ?
     LIMIT 1
-  `).bind(userId, userId, userId, assetId).first();
+  `).bind(userId, userId, userId, userId, userId, assetId).first();
 
   if (!asset || (asset.canAccess !== 1 && asset.isPublic !== 1)) {
     throw new HttpError(404, "asset_not_found", "Cloud image not found.");

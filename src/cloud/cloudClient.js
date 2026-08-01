@@ -200,6 +200,13 @@ export async function updateCloudProfileImage(image) {
   });
 }
 
+export async function updateCloudProfileName(name) {
+  return requestJson("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ name })
+  });
+}
+
 export async function listCloudLibraryEntries() {
   return requestJson("/api/library");
 }
