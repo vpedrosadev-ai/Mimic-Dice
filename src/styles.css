@@ -5682,6 +5682,7 @@ button.is-cloud-busy:disabled {
 .combat-table {
   width: 100%;
   min-width: 1080px;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
@@ -6527,17 +6528,6 @@ input[type="number"]::-webkit-inner-spin-button {
 .combat-name-token-wrap:hover::after,
 .combat-name-token-wrap:focus-within::after {
   display: block;
-}
-
-.combat-table td:has(.combat-name-token-wrap:hover),
-.combat-table td:has(.combat-name-token-wrap:focus-within) {
-  position: relative;
-  z-index: 3200;
-}
-
-.combat-name-token-wrap:hover,
-.combat-name-token-wrap:focus-within {
-  z-index: 3200;
 }
 
 .combat-name-token-button {
@@ -7700,6 +7690,23 @@ input[type="number"]::-webkit-inner-spin-button {
   box-shadow:
     0 26px 56px rgba(0, 0, 0, 0.54),
     inset 0 0 0 1px rgba(240, 200, 121, 0.14);
+}
+
+.combat-spell-preview-overlay--entity {
+  width: min(38rem, calc(100vw - 1.5rem));
+  max-width: min(38rem, calc(100vw - 1.5rem));
+}
+
+.combat-spell-preview-overlay--entity .combat-token-preview--floating {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-height: min(72vh, 42rem);
+  opacity: 1;
+  overflow: auto;
+  pointer-events: auto;
+  transform: none;
+  transition: none;
 }
 
 .combat-spellbook-popover__spell-link-wrap .character-spellbook__preview {

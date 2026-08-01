@@ -399,9 +399,19 @@ let cloudCampaignAutosaveInterval = 0;
 let cloudCampaignSaveInProgress = null;
 let cloudCampaignSaveSuspended = false;
 let lastCloudCampaignSnapshot = "";
+let cloudCampaignChangeRevision = 0;
+let lastCloudCampaignSavedChangeRevision = 0;
 let cloudCampaignVisibilityHandlerRegistered = false;
 const cloudImageUploadCache = new Map();
 const cloudCatalogBaseRowsPromiseByRepository = new Map();
+const combatLookupCache = {
+  bestiaryEntries: null,
+  characters: null,
+  bestiaryByIdentity: new Map(),
+  bestiaryByAlias: new Map(),
+  charactersById: new Map(),
+  charactersByName: new Map()
+};
 let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
@@ -2288,12 +2298,14 @@ async function handleClick(event) {
   }
 
   if (action === "open-combatant-bestiary") {
+    clearActiveCombatPreview();
     openCombatantBestiary(actionButton.dataset.entryId);
     render();
     return;
   }
 
   if (action === "open-combatant-character") {
+    clearActiveCombatPreview();
     openCombatantCharacter(actionButton.dataset.characterId);
     render();
     return;
@@ -4013,7 +4025,7 @@ function handleInput(event) {
   if (target.matches("[data-combat-search]")) {
     state.combatSearchQuery = target.value;
     saveCombatTrackerState();
-    render({
+    scheduleRender({
       focusSelector: "[data-combat-search]",
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
@@ -10265,6 +10277,7 @@ function renderHeaderCell(column) {
 function renderCombatRow(combatant, activeTurnCombatantId = "") {
   const isDead = isCombatantDead(combatant);
   const isActiveTurn = combatant.id === activeTurnCombatantId;
+  const rowContext = getCombatRowContext(combatant);
 
   return `
     <tr
@@ -10295,7 +10308,7 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
           </span>
         </div>
       </td>
-      ${columns.map((column) => renderDataCell(combatant, column, isDead)).join("")}
+      ${columns.map((column) => renderDataCell(combatant, column, isDead, rowContext)).join("")}
     </tr>
   `;
 }
@@ -10473,7 +10486,7 @@ function syncNotificationUi() {
   applyInterfaceTranslations(notificationRoot);
 }
 
-function renderDataCell(combatant, column, isDead) {
+function renderDataCell(combatant, column, isDead, rowContext = getCombatRowContext(combatant)) {
   const value = getCombatantColumnValue(combatant, column.key);
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inputMode = column.type === "number" ? "numeric" : "text";
@@ -10504,11 +10517,11 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "nombre") {
-    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const { linkedCharacter, bestiaryEntry, tokenUrl } = rowContext;
     const isNameSearchActive = state.activeCombatNameSearchId === combatant.id;
     const suggestions = isNameSearchActive ? getCombatNameSuggestions(combatant) : [];
-    const sourceChip = renderCombatantSourceChip(combatant);
-    const token = renderCombatantNameToken(combatant, linkedCharacter);
+    const sourceChip = renderCombatantSourceChip(combatant, bestiaryEntry);
+    const token = renderCombatantNameToken(combatant, { linkedCharacter, bestiaryEntry, tokenUrl });
     const tagChip = renderCombatantTagChip(combatant);
     const npcChip = renderCombatantNpcChip(combatant, linkedCharacter);
     const nameInputStyle = getCombatNameInputStyle(value);
@@ -10619,7 +10632,7 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "pgAct") {
-    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const { linkedCharacter } = rowContext;
     const maxForBar = Math.max(1, getEffectivePgMax(combatant));
     const healthPercent = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxForBar) * 100)));
     const hpVisualFill = getCombatHealthVisualFill(healthPercent);
@@ -10761,7 +10774,7 @@ function renderDataCell(combatant, column, isDead) {
   }
 
   if (column.key === "crExp") {
-    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const { linkedCharacter } = rowContext;
 
     if (linkedCharacter && cleanText(combatant.tag).toUpperCase() === "ALIADO") {
       if (isNpcCharacter(linkedCharacter)) {
@@ -10812,24 +10825,93 @@ function renderDataCell(combatant, column, isDead) {
   `;
 }
 
+function addCombatLookupEntry(index, key, entry) {
+  if (!key) {
+    return;
+  }
+
+  const matches = index.get(key);
+
+  if (matches) {
+    matches.push(entry);
+  } else {
+    index.set(key, [entry]);
+  }
+}
+
+function ensureCombatLookupIndexes() {
+  if (combatLookupCache.bestiaryEntries !== state.bestiary) {
+    combatLookupCache.bestiaryEntries = state.bestiary;
+    combatLookupCache.bestiaryByIdentity = new Map();
+    combatLookupCache.bestiaryByAlias = new Map();
+
+    (Array.isArray(state.bestiary) ? state.bestiary : []).forEach((entry) => {
+      uniqueSortedStrings([
+        getCompendiumEntryIdentityKey(entry),
+        cleanText(entry.id),
+        cleanText(entry.compositeKey),
+        cleanText(entry.identityKey)
+      ].filter(Boolean)).forEach((identityKey) => {
+        addCombatLookupEntry(combatLookupCache.bestiaryByIdentity, identityKey, entry);
+      });
+      getBestiaryEntryNameAliases(entry).forEach((alias) => {
+        addCombatLookupEntry(combatLookupCache.bestiaryByAlias, alias, entry);
+      });
+    });
+  }
+
+  if (combatLookupCache.characters !== state.characters) {
+    combatLookupCache.characters = state.characters;
+    combatLookupCache.charactersById = new Map();
+    combatLookupCache.charactersByName = new Map();
+
+    (Array.isArray(state.characters) ? state.characters : []).forEach((character) => {
+      const characterId = cleanText(character.id);
+      const characterName = normalizeSearchText(character.name);
+
+      if (characterId) {
+        combatLookupCache.charactersById.set(characterId, character);
+      }
+
+      if (characterName && !combatLookupCache.charactersByName.has(characterName)) {
+        combatLookupCache.charactersByName.set(characterName, character);
+      }
+    });
+  }
+
+  return combatLookupCache;
+}
+
+function getCombatRowContext(combatant) {
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+
+  return {
+    linkedCharacter,
+    bestiaryEntry,
+    tokenUrl: getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry)
+  };
+}
+
 function getLinkedCharacterForCombatant(combatant) {
+  const lookups = ensureCombatLookupIndexes();
   const characterId = cleanText(combatant.characterId);
 
   if (characterId) {
-    const linkedById = state.characters.find((character) => character.id === characterId) ?? null;
+    const linkedById = lookups.charactersById.get(characterId) ?? null;
 
     if (linkedById) {
       return linkedById;
     }
   }
 
-  const normalizedName = cleanText(combatant.nombre).toLowerCase();
+  const normalizedName = normalizeSearchText(combatant.nombre);
 
   if (!normalizedName) {
     return null;
   }
 
-  return state.characters.find((character) => cleanText(character.name).toLowerCase() === normalizedName) ?? null;
+  return lookups.charactersByName.get(normalizedName) ?? null;
 }
 
 function renderCombatResourceIcon(iconUrl, tooltip, extraClassName = "") {
@@ -10930,6 +11012,36 @@ function renderCombatSpellPreviewOverlay() {
 
   if (!previewKind || !previewKey) {
     return "";
+  }
+
+  if (previewKind === "bestiary") {
+    const previewEntry = ensureCombatLookupIndexes().bestiaryByIdentity.get(previewKey)?.[0]
+      ?? state.bestiary.find((entry) => cleanText(entry.id) === previewKey)
+      ?? null;
+
+    if (!previewEntry) {
+      return "";
+    }
+
+    return `
+      <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+        ${renderCombatTokenPreview(previewEntry)}
+      </aside>
+    `;
+  }
+
+  if (previewKind === "character") {
+    const previewCharacter = ensureCombatLookupIndexes().charactersById.get(previewKey) ?? null;
+
+    if (!previewCharacter) {
+      return "";
+    }
+
+    return `
+      <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+        ${renderCombatCharacterPreview(previewCharacter)}
+      </aside>
+    `;
   }
 
   if (previewKind === "spell") {
@@ -11676,9 +11788,8 @@ function renderCombatNameSuggestion(combatantId, entry) {
   `;
 }
 
-function renderCombatantNameToken(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
-  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
-  const tokenUrl = getCombatantTokenUrl(combatant, linkedCharacter);
+function renderCombatantNameToken(combatant, context = getCombatRowContext(combatant)) {
+  const { linkedCharacter, bestiaryEntry, tokenUrl } = context;
   const initials = linkedCharacter
     ? getCharacterInitials(linkedCharacter)
     : getCombatantInitials(combatant);
@@ -11686,7 +11797,15 @@ function renderCombatantNameToken(combatant, linkedCharacter = getLinkedCharacte
   if (linkedCharacter) {
     return `
       <span class="combat-name-token-wrap combat-name-token-wrap--ally">
-        <span class="combat-name-token-static">
+        <button
+          class="combat-name-token-button combat-name-token-static"
+          type="button"
+          data-action="open-combatant-character"
+          data-character-id="${escapeHtml(linkedCharacter.id)}"
+          data-combat-preview-kind="character"
+          data-combat-preview-key="${escapeHtml(linkedCharacter.id)}"
+          aria-label="Abrir ficha de ${escapeHtml(linkedCharacter.name || combatant.nombre || "personaje")}"
+        >
           ${
             tokenUrl
               ? `<img
@@ -11698,8 +11817,7 @@ function renderCombatantNameToken(combatant, linkedCharacter = getLinkedCharacte
                 />`
               : `<span class="combat-name-token__placeholder">${escapeHtml(initials)}</span>`
           }
-        </span>
-        ${renderCombatCharacterPreview(linkedCharacter)}
+        </button>
       </span>
     `;
   }
@@ -11712,6 +11830,8 @@ function renderCombatantNameToken(combatant, linkedCharacter = getLinkedCharacte
           type="button"
           data-action="open-combatant-bestiary"
           data-entry-id="${escapeHtml(bestiaryEntry.id)}"
+          data-combat-preview-kind="bestiary"
+          data-combat-preview-key="${escapeHtml(getCompendiumEntryIdentityKey(bestiaryEntry) || bestiaryEntry.id)}"
           aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
         >
           <img
@@ -11723,7 +11843,6 @@ function renderCombatantNameToken(combatant, linkedCharacter = getLinkedCharacte
             aria-hidden="true"
           />
         </button>
-        ${renderCombatTokenPreview(bestiaryEntry)}
       </span>
     `;
   }
@@ -11763,7 +11882,7 @@ function renderCombatTokenPreview(entry) {
   const crLabel = entry.crBaseLabel || entry.crLabel || "-";
 
   return `
-    <div class="combat-token-preview" role="tooltip">
+    <div class="combat-token-preview combat-token-preview--floating">
       <div class="combat-token-preview__header">
         <div>
           <strong>${escapeHtml(entry.name)}</strong>
@@ -11811,7 +11930,7 @@ function renderCombatCharacterPreview(character) {
 
   return `
     <button
-      class="combat-token-preview combat-token-preview--character"
+      class="combat-token-preview combat-token-preview--character combat-token-preview--floating"
       type="button"
       data-action="open-combatant-character"
       data-character-id="${escapeHtml(character.id)}"
@@ -11968,12 +12087,11 @@ function renderCombatCharacterInventoryPreviewRow(row) {
   `;
 }
 
-function renderCombatantSourceChip(combatant) {
+function renderCombatantSourceChip(combatant, bestiaryEntry = getCombatantBestiaryEntry(combatant)) {
   if (!isEnemyCombatant(combatant)) {
     return "";
   }
 
-  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
   const sourceCode = combatant.source || bestiaryEntry?.source || "";
   const sourceOptions = getCombatantSourceOptions(combatant);
 
@@ -14803,19 +14921,46 @@ function getCombatantBestiaryEntry(combatant) {
     return null;
   }
 
-  return findCompendiumEntryByReference(state.bestiary, {
-    entryKey: combatant.entryKey,
-    entryId: combatant.entryId,
+  const lookups = ensureCombatLookupIndexes();
+  const source = cleanText(combatant.source);
+  const identityKeys = [combatant.entryKey, combatant.entryId]
+    .map((value) => cleanText(value))
+    .filter(Boolean);
+
+  for (const identityKey of identityKeys) {
+    const match = (lookups.bestiaryByIdentity.get(identityKey) ?? [])
+      .find((entry) => isSameCompendiumSource(entry, source));
+
+    if (match) {
+      return match;
+    }
+  }
+
+  const names = getEncounterRowNameCandidates({
     name,
     canonicalName: combatant.canonicalName,
-    localizedName: combatant.localizedName,
-    source: combatant.source
+    localizedName: combatant.localizedName
   });
+
+  for (const entryName of names) {
+    const match = (lookups.bestiaryByAlias.get(entryName) ?? [])
+      .find((entry) => isSameCompendiumSource(entry, source));
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
 }
 
-function getCombatantTokenUrl(combatant, linkedCharacter = getLinkedCharacterForCombatant(combatant)) {
+function getCombatantTokenUrl(
+  combatant,
+  linkedCharacter = getLinkedCharacterForCombatant(combatant),
+  bestiaryEntry = getCombatantBestiaryEntry(combatant)
+) {
   return cleanText(linkedCharacter?.tokenUrl)
-    || getCombatantBestiaryEntry(combatant)?.tokenUrl
+    || cleanText(bestiaryEntry?.tokenUrl)
     || cleanText(combatant.tokenUrl);
 }
 
@@ -14840,9 +14985,20 @@ function getCombatantSourceOptions(combatant) {
     return [];
   }
 
-  return state.bestiary
-    .filter((entry) => names.some((name) => getBestiaryEntryNameAliases(entry).includes(name)))
-    .sort((left, right) => {
+  const lookups = ensureCombatLookupIndexes();
+  const matches = [];
+  const seenEntries = new Set();
+
+  names.forEach((name) => {
+    (lookups.bestiaryByAlias.get(name) ?? []).forEach((entry) => {
+      if (!seenEntries.has(entry)) {
+        seenEntries.add(entry);
+        matches.push(entry);
+      }
+    });
+  });
+
+  return matches.sort((left, right) => {
       const leftSource = getBestiarySourceFullName(left.source) || cleanText(left.source);
       const rightSource = getBestiarySourceFullName(right.source) || cleanText(right.source);
       return leftSource.localeCompare(rightSource, "es", { sensitivity: "base" });
@@ -23183,6 +23339,8 @@ function detachActiveCloudCampaign(options = {}) {
   state.cloudAutosaveStatus = "idle";
   state.cloudAutosaveMessage = "";
   lastCloudCampaignSnapshot = "";
+  cloudCampaignChangeRevision = 0;
+  lastCloudCampaignSavedChangeRevision = 0;
 
   if (options.keepLocalLabel === true) {
     state.campaignLoadedFromPublic = true;
@@ -23212,7 +23370,7 @@ async function handleAccountSignOut() {
   render();
 }
 
-function activateCloudCampaign(campaign, payload) {
+function activateCloudCampaign(campaign, payload, options = {}) {
   state.cloudCampaignId = cleanText(campaign?.id);
   state.cloudCampaignRevision = Math.max(0, Number(campaign?.revision) || 0);
   state.cloudCampaignIsPublic = campaign?.isPublic === true;
@@ -23223,6 +23381,14 @@ function activateCloudCampaign(campaign, payload) {
   state.campaignName = cleanText(campaign?.name) || cleanText(payload?.campaign?.name) || state.campaignName;
   state.accountCampaignName = state.campaignName;
   lastCloudCampaignSnapshot = getComparableCampaignSnapshot(payload);
+
+  if (Number.isFinite(options.savedChangeRevision)) {
+    lastCloudCampaignSavedChangeRevision = options.savedChangeRevision;
+  } else {
+    cloudCampaignChangeRevision = 0;
+    lastCloudCampaignSavedChangeRevision = 0;
+  }
+
   saveActiveCloudCampaignMeta();
 }
 
@@ -23372,12 +23538,23 @@ async function autosaveCloudCampaign(options = {}) {
     return activeSave;
   }
 
+  const isPublic = options.isPublic ?? state.cloudCampaignIsPublic;
+  const saveChangeRevision = cloudCampaignChangeRevision;
+
+  if (
+    options.force !== true
+    && saveChangeRevision === lastCloudCampaignSavedChangeRevision
+    && isPublic === state.cloudCampaignIsPublic
+  ) {
+    return true;
+  }
+
   const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload());
   const payload = await preparePayloadImagesForCloud(catalogPayload);
   const comparableSnapshot = getComparableCampaignSnapshot(payload);
-  const isPublic = options.isPublic ?? state.cloudCampaignIsPublic;
 
   if (options.force !== true && comparableSnapshot === lastCloudCampaignSnapshot && isPublic === state.cloudCampaignIsPublic) {
+    lastCloudCampaignSavedChangeRevision = saveChangeRevision;
     return true;
   }
 
@@ -23392,7 +23569,7 @@ async function autosaveCloudCampaign(options = {}) {
     payload
   })
     .then((result) => {
-      activateCloudCampaign(result.campaign, payload);
+      activateCloudCampaign(result.campaign, payload, { savedChangeRevision: saveChangeRevision });
       updateCloudCampaignSummary(result.campaign);
       syncCloudAccountUi();
       return true;
@@ -23418,7 +23595,7 @@ async function autosaveCloudCampaign(options = {}) {
 
       if (
         state.cloudAutosaveStatus === "saved"
-        && getComparableCampaignSnapshot() !== lastCloudCampaignSnapshot
+        && cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision
       ) {
         scheduleCloudCampaignAutosave(1500);
       }
@@ -24258,6 +24435,14 @@ function syncDesktopCampaignDirtyState(force = false) {
 function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
   if (typeof window === "undefined") {
     return;
+  }
+
+  if (
+    !cloudCampaignSaveSuspended
+    && state.accountSession?.user?.id
+    && state.cloudCampaignId
+  ) {
+    cloudCampaignChangeRevision += 1;
   }
 
   scheduleCloudCampaignAutosave(4000);
