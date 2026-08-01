@@ -1602,15 +1602,17 @@ async function handleClick(event) {
     const groupKey = cleanText(actionButton.dataset.cloudCatalogSelectionGroup);
     const selectionKeys = cloudCatalogSelectionGroups.get(groupKey) || [];
     const nextSelection = new Set(state.cloudCatalogSelectedIds);
-    const allSelected = selectionKeys.length > 0 && selectionKeys.every((key) => nextSelection.has(key));
+    const allSelected = selectionKeys.length > 0 && selectionKeys.every(isCloudCatalogSelectionKeySelected);
     const newlySelected = [];
+    const newlyDeselected = [];
 
     selectionKeys.forEach((key) => {
       if (allSelected) {
         nextSelection.delete(key);
+        newlyDeselected.push(key);
       } else {
-        nextSelection.add(key);
-        if (!state.cloudCatalogSelectedIds.has(key)) {
+        if (!isCloudCatalogSelectionKeySelected(key)) {
+          nextSelection.add(key);
           newlySelected.push(key);
         }
       }
@@ -1620,6 +1622,8 @@ async function handleClick(event) {
     render();
     if (newlySelected.length > 0) {
       await importCloudCatalogSelectionKeys(newlySelected);
+    } else if (newlyDeselected.length > 0) {
+      await removeCloudCatalogSelectionKeys(newlyDeselected);
     }
     return;
   }
@@ -3390,6 +3394,8 @@ async function handleChange(event) {
     render();
     if (target.checked) {
       await importCloudCatalogSelectionKeys([selectionKey]);
+    } else {
+      await removeCloudCatalogSelectionKeys([selectionKey]);
     }
     return;
   }
@@ -7647,6 +7653,22 @@ function getCloudCatalogSelectionKey(item) {
   return `${item.catalogKind}:${item.id}`;
 }
 
+function getCloudImportedRecordsForSelectionKey(selectionKey) {
+  const normalizedKey = cleanText(selectionKey);
+
+  if (!normalizedKey.startsWith("entry:")) {
+    return [];
+  }
+
+  const entryId = normalizedKey.slice("entry:".length);
+  return state.cloudImportedEntries.filter((record) => cleanText(record.sourceEntryId) === entryId);
+}
+
+function isCloudCatalogSelectionKeySelected(selectionKey) {
+  return state.cloudCatalogSelectedIds.has(selectionKey)
+    || getCloudImportedRecordsForSelectionKey(selectionKey).length > 0;
+}
+
 function getCloudImportCandidatesForEntry(entryId) {
   const normalizedId = cleanText(entryId);
   return state.cloudImportUpdateCandidates.filter((candidate) => (
@@ -7762,7 +7784,7 @@ function renderOwnedCloudCatalogCard(item) {
 
 function renderPublicCloudCatalogCard(item) {
   const selectionKey = getCloudCatalogSelectionKey(item);
-  const checked = state.cloudCatalogSelectedIds.has(selectionKey);
+  const checked = isCloudCatalogSelectionKeySelected(selectionKey);
   const selection = `
     <label class="cloud-catalog-card__check">
       <input type="checkbox" data-cloud-catalog-select="${escapeHtml(selectionKey)}" ${checked ? "checked" : ""} />
@@ -7799,7 +7821,7 @@ function renderCloudCatalogGroup(key, title, items, owned, content, subtitle = "
   const selectionKeys = owned || state.cloudCatalogTab === "campaign"
     ? []
     : items.map(getCloudCatalogSelectionKey);
-  const allSelected = selectionKeys.length > 0 && selectionKeys.every((selectionKey) => state.cloudCatalogSelectedIds.has(selectionKey));
+  const allSelected = selectionKeys.length > 0 && selectionKeys.every(isCloudCatalogSelectionKeySelected);
 
   if (selectionKeys.length > 0) {
     cloudCatalogSelectionGroups.set(key, selectionKeys);
@@ -8027,11 +8049,11 @@ function renderCommunityCatalog() {
   const otherCampaignSelectionGroupKey = `other-campaigns-filtered:${state.cloudCatalogTab}`;
   const otherCampaignSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : otherCampaignItems.map(getCloudCatalogSelectionKey);
   const allOtherCampaignSelected = otherCampaignSelectionKeys.length > 0
-    && otherCampaignSelectionKeys.every((key) => state.cloudCatalogSelectedIds.has(key));
+    && otherCampaignSelectionKeys.every(isCloudCatalogSelectionKeySelected);
   const filteredSelectionGroupKey = `filtered:${state.cloudCatalogTab}`;
   const filteredSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : publicItems.map(getCloudCatalogSelectionKey);
   const allFilteredSelected = filteredSelectionKeys.length > 0
-    && filteredSelectionKeys.every((key) => state.cloudCatalogSelectedIds.has(key));
+    && filteredSelectionKeys.every(isCloudCatalogSelectionKeySelected);
 
   if (filteredSelectionKeys.length > 0) {
     cloudCatalogSelectionGroups.set(filteredSelectionGroupKey, filteredSelectionKeys);
@@ -8101,9 +8123,9 @@ function renderCommunityCatalog() {
       </div>
       ${publicItems.length > 0 ? renderGroupedCloudCatalogItems(publicItems, false, "community") : `<p class="account-dialog__empty">No hay contenido público con estos filtros.</p>`}
     </section>
-    ${isCloudOperationActive("loading", "catalog:import") ? `
+    ${isCloudOperationActive("loading", "catalog:import") || isCloudOperationActive("loading", "catalog:remove") ? `
       <div class="cloud-catalog-selection-bar" role="status">
-        <span class="cloud-button-label"><span class="cloud-button-spinner" aria-hidden="true"></span><span>Cargando contenido seleccionado...</span></span>
+        <span class="cloud-button-label"><span class="cloud-button-spinner" aria-hidden="true"></span><span>${isCloudOperationActive("loading", "catalog:remove") ? "Retirando contenido seleccionado..." : "Cargando contenido seleccionado..."}</span></span>
       </div>
     ` : ""}
   `;
@@ -24267,6 +24289,79 @@ async function removeCloudImportedMaterial(record) {
   }
 }
 
+function removeCloudCatalogSelectionKeys(selectionKeys) {
+  cloudCatalogImportQueue = cloudCatalogImportQueue.then(
+    () => performCloudCatalogSelectionRemoval(selectionKeys),
+    () => performCloudCatalogSelectionRemoval(selectionKeys)
+  );
+  return cloudCatalogImportQueue;
+}
+
+async function performCloudCatalogSelectionRemoval(selectionKeys) {
+  const keys = [...new Set((Array.isArray(selectionKeys) ? selectionKeys : [])
+    .map((value) => cleanText(value))
+    .filter(Boolean))];
+  const recordById = new Map();
+
+  keys.forEach((key) => {
+    getCloudImportedRecordsForSelectionKey(key).forEach((record) => {
+      recordById.set(record.id, record);
+    });
+  });
+
+  const records = [...recordById.values()];
+  const nextSelection = new Set(state.cloudCatalogSelectedIds);
+  keys.forEach((key) => nextSelection.delete(key));
+  state.cloudCatalogSelectedIds = nextSelection;
+
+  if (records.length === 0) {
+    render();
+    return;
+  }
+
+  const operationTarget = "catalog:remove";
+  const backup = normalizeCampaignSave(createCampaignSavePayload());
+  beginCloudOperation("loading", operationTarget);
+  render();
+
+  try {
+    for (const record of records) {
+      await removeCloudImportedMaterial(record);
+    }
+
+    const removedRecordIds = new Set(records.map((record) => record.id));
+    state.cloudImportedEntries = state.cloudImportedEntries.filter((record) => !removedRecordIds.has(record.id));
+    state.cloudImportUpdateCandidates = state.cloudImportUpdateCandidates.filter((candidate) => (
+      !removedRecordIds.has(candidate.record?.id)
+    ));
+    state.cloudImportUpdateSelectedIds = new Set([...state.cloudImportUpdateSelectedIds]
+      .filter((recordId) => !removedRecordIds.has(recordId)));
+    state.cloudImportUpdateDialogOpen = state.cloudImportUpdateCandidates.length > 0;
+
+    if (state.accountSession?.user?.id) {
+      state.cloudLocalCatalogItems = await getCurrentCampaignCloudCatalogItems();
+    }
+
+    scheduleDesktopCampaignDirtyStateSync(60);
+    state.accountError = "";
+    pushNotification({
+      title: "Contenido retirado",
+      message: `${records.length} ${records.length === 1 ? "publicación retirada" : "publicaciones retiradas"} de tu campaña.`
+    });
+  } catch (error) {
+    applyCampaignSave(backup);
+    state.accountError = getCloudErrorMessage(error);
+    pushNotification({
+      title: "No se pudo retirar el contenido",
+      message: state.accountError,
+      tone: "danger"
+    });
+  } finally {
+    endCloudOperation("loading", operationTarget);
+    render();
+  }
+}
+
 async function refreshCloudImportedRecord(recordId) {
   const record = state.cloudImportedEntries.find((entry) => entry.id === recordId);
 
@@ -26149,6 +26244,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.soundSettings = campaign.soundSettings;
   state.repositoryCsvPaths = campaign.repositoryCsvPaths;
   state.cloudImportedEntries = normalizeCloudImportedEntries(campaign.cloudImportedEntries);
+  state.cloudCatalogSelectedIds = new Set();
   state.cloudImportUpdateCandidates = [];
   state.cloudImportUpdateDialogOpen = false;
   state.cloudImportUpdateSelectedIds = new Set();
