@@ -222,11 +222,11 @@ function renderTableFolderGroup(folder) {
   `;
 }
 
-function renderTablePanel(table) {
+function renderTablePanel(table, options = {}) {
   const isActive = table.id === state.activeTableId;
   const columnCount = table.columns.length;
   const rowCount = table.rows.length;
-  const panelTitle = getTablePanelTitle(table);
+  const panelTitle = getTablePanelTitle(table, options.folderName);
   const isRolling = state.rollingTableId === table.id;
   const isTableProtected = isProtectedTable(table);
 
@@ -316,8 +316,8 @@ function renderTablePanel(table) {
   `;
 }
 
-function getTablePanelTitle(table) {
-  const folderName = getTableFolderNameById(table.folderId);
+function getTablePanelTitle(table, folderNameOverride = "") {
+  const folderName = cleanText(folderNameOverride) || getTableFolderNameById(table.folderId);
   const tableName = cleanText(table?.name) || "Tabla sin nombre";
   return folderName ? `${folderName} - ${tableName}` : tableName;
 }
@@ -647,6 +647,7 @@ function renderTableColGroup(table) {
 
   return {
     renderTablesScreen,
+    renderTablePanel,
     syncRolledTableRowIntoView,
     openItemFromLootTable,
     openSpellFromTable

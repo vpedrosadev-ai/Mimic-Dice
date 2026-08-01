@@ -85,14 +85,17 @@ function entrySummary(row, currentUserId = "") {
     isOwner,
     entryKind: row.entryKind || "manual",
     sourceCampaignId: row.sourceCampaignId || "",
-    sourceCampaignName: row.sourceCampaignName || ""
+    sourceCampaignName: row.sourceCampaignName || "",
+    sourceEntityKey: row.sourceEntityKey || "",
+    groupName: row.groupName || "",
+    imageUrl: row.imageUrl || ""
   };
 }
 
 async function getEntryRecord(db, entryId) {
   return db.prepare(`
     SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
-           NULL AS "sourceCampaignId", NULL AS "sourceCampaignName"
+           NULL AS "sourceCampaignId"
     FROM "cloud_library_entries" e
     INNER JOIN "users" u ON u."id" = e."ownerId"
     WHERE e."id" = ?
@@ -143,7 +146,7 @@ async function listOwnedEntries(context, user) {
   const [manualResult, catalogResult] = await Promise.all([
     context.env.DB.prepare(`
     SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
-           NULL AS "sourceCampaignId", NULL AS "sourceCampaignName"
+           NULL AS "sourceCampaignId"
     FROM "cloud_library_entries" e
     INNER JOIN "users" u ON u."id" = e."ownerId"
     WHERE e."ownerId" = ?
@@ -180,7 +183,7 @@ async function listPublicEntries(context, user, url) {
 
   const manualStatement = context.env.DB.prepare(`
         SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
-               NULL AS "sourceCampaignId", NULL AS "sourceCampaignName"
+               NULL AS "sourceCampaignId"
         FROM "cloud_library_entries" e
         INNER JOIN "users" u ON u."id" = e."ownerId"
         WHERE e."isPublic" = 1${type ? ' AND e."type" = ?' : ''}
@@ -243,18 +246,27 @@ async function createEntry(context, user) {
   const entryId = crypto.randomUUID();
   const payloadVersion = crypto.randomUUID();
   const now = new Date().toISOString();
+  const groupName = cleanText(body.groupName, 160);
+  const imageUrl = cleanText(body.imageUrl, 600);
+  const sourceEntityKey = cleanText(body.sourceEntityKey, 180);
+  const sourceCampaignName = cleanText(body.sourceCampaignName, 160);
   const statements = [
     context.env.DB.prepare(`
       INSERT INTO "cloud_library_entries" (
-        "id", "ownerId", "type", "name", "description", "isPublic", "revision",
+        "id", "ownerId", "type", "name", "description", "groupName", "imageUrl",
+        "sourceEntityKey", "sourceCampaignName", "isPublic", "revision",
         "payloadVersion", "payloadBytes", "chunkCount", "createdAt", "updatedAt"
-      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
     `).bind(
       entryId,
       user.id,
       type,
       name,
       cleanText(body.description, 500),
+      groupName,
+      imageUrl,
+      sourceEntityKey,
+      sourceCampaignName,
       body.isPublic === true ? 1 : 0,
       payloadVersion,
       payloadBytes,

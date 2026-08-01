@@ -48,6 +48,8 @@ function getAutomaticDescriptors(payload) {
         type: "character",
         name,
         description: "Personaje de campaña",
+        groupName: "",
+        imageUrl: cleanText(character?.tokenUrl, 600),
         entityKind: "character",
         entityId
       });
@@ -60,60 +62,39 @@ function getAutomaticDescriptors(payload) {
 
     if (entityId) {
       const rowCount = Array.isArray(encounter?.rows) ? encounter.rows.length : 0;
+      const folder = (Array.isArray(payload?.encounterInventory?.folders) ? payload.encounterInventory.folders : [])
+        .find((entry) => cleanText(entry?.id, 120) === cleanText(encounter?.folderId, 120));
       descriptors.push({
         key: `encounter:${entityId}`,
         type: "encounter",
         name,
         description: `${rowCount} entidades`,
+        groupName: cleanText(folder?.name, 160) || "Sin carpeta",
+        imageUrl: cleanText(encounter?.rows?.[0]?.tokenUrl, 600),
         entityKind: "encounter",
         entityId
       });
     }
   });
 
-  diaryFolders.forEach((folder) => {
-    const entityId = cleanText(folder?.id, 120);
-    const name = cleanText(folder?.name, 160) || "Carpeta de diario";
-
-    if (entityId) {
-      const noteCount = diaryNotes.filter((note) => cleanText(note?.folderId, 120) === entityId).length;
-      descriptors.push({
-        key: `diary-folder:${entityId}`,
-        type: "diary",
-        name,
-        description: `${noteCount} notas`,
-        entityKind: "diary-folder",
-        entityId
-      });
-    }
-  });
-
-  diaryNotes.filter((note) => !cleanText(note?.folderId, 120)).forEach((note) => {
+  diaryNotes.forEach((note) => {
     const entityId = cleanText(note?.id, 120);
     const name = cleanText(note?.title, 160) || "Nota sin título";
+    const folder = diaryFolders.find((entry) => cleanText(entry?.id, 120) === cleanText(note?.folderId, 120));
 
     if (entityId) {
       descriptors.push({
         key: `diary-note:${entityId}`,
         type: "diary",
         name,
-        description: "Nota sin carpeta",
+        description: cleanText(folder?.name, 160) || "Nota sin carpeta",
+        groupName: cleanText(folder?.name, 160) || "Sin carpeta",
+        imageUrl: "",
         entityKind: "diary-note",
         entityId
       });
     }
   });
-
-  if (payload?.diary?.harptosDayNotes && Object.keys(payload.diary.harptosDayNotes).length > 0) {
-    descriptors.push({
-      key: "diary-calendar:harptos",
-      type: "diary",
-      name: "Calendario de Harptos",
-      description: `${Object.keys(payload.diary.harptosDayNotes).length} anotaciones`,
-      entityKind: "diary-calendar",
-      entityId: "harptos"
-    });
-  }
 
   return descriptors;
 }
@@ -136,6 +117,8 @@ function normalizeDescriptor(value) {
     type,
     name,
     description: cleanText(value.description, 500),
+    groupName: cleanText(value.groupName, 160),
+    imageUrl: cleanText(value.imageUrl, 600),
     entityKind: cleanText(value.entityKind, 50),
     entityId: cleanText(value.entityId, 120),
     payload: value.payload && typeof value.payload === "object" && !Array.isArray(value.payload)
@@ -233,16 +216,12 @@ function buildDescriptorPayload(payload, descriptor) {
     const diary = payload?.diary || {};
     const folders = Array.isArray(diary.folders) ? diary.folders : [];
     const notes = Array.isArray(diary.notes) ? diary.notes : [];
-    const folder = descriptor.entityKind === "diary-folder"
-      ? folders.find((entry) => cleanText(entry?.id, 120) === descriptor.entityId)
-      : null;
-    const selectedNotes = folder
-      ? notes.filter((entry) => cleanText(entry?.folderId, 120) === descriptor.entityId)
-      : notes.filter((entry) => cleanText(entry?.id, 120) === descriptor.entityId);
+    const selectedNotes = notes.filter((entry) => cleanText(entry?.id, 120) === descriptor.entityId);
+    const folder = folders.find((entry) => cleanText(entry?.id, 120) === cleanText(selectedNotes[0]?.folderId, 120));
 
     const isCalendar = descriptor.entityKind === "diary-calendar";
 
-    if (!folder && selectedNotes.length === 0 && !isCalendar) {
+    if (selectedNotes.length === 0 && !isCalendar) {
       return null;
     }
 
@@ -264,14 +243,10 @@ function buildDescriptorPayload(payload, descriptor) {
     const tablesState = payload?.tables || {};
     const folders = Array.isArray(tablesState.folders) ? tablesState.folders : [];
     const tables = Array.isArray(tablesState.tables) ? tablesState.tables : [];
-    const folder = descriptor.entityKind === "table-folder"
-      ? folders.find((entry) => cleanText(entry?.id, 120) === descriptor.entityId)
-      : null;
-    const selectedTables = folder
-      ? tables.filter((entry) => cleanText(entry?.folderId, 120) === descriptor.entityId)
-      : tables.filter((entry) => cleanText(entry?.id, 120) === descriptor.entityId);
+    const selectedTables = tables.filter((entry) => cleanText(entry?.id, 120) === descriptor.entityId);
+    const folder = folders.find((entry) => cleanText(entry?.id, 120) === cleanText(selectedTables[0]?.folderId, 120));
 
-    if (!folder && selectedTables.length === 0) {
+    if (selectedTables.length === 0) {
       return null;
     }
 
@@ -325,8 +300,8 @@ export async function syncCampaignCatalog(db, {
       statements.push(db.prepare(`
         INSERT INTO "cloud_catalog_entries" (
           "id", "ownerId", "sourceCampaignId", "sourceEntityKey", "type", "name",
-          "description", "isPublic", "revision", "payloadBytes", "createdAt", "updatedAt"
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+          "description", "groupName", "imageUrl", "isPublic", "revision", "payloadBytes", "createdAt", "updatedAt"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
       `).bind(
         crypto.randomUUID(),
         ownerId,
@@ -335,6 +310,8 @@ export async function syncCampaignCatalog(db, {
         descriptor.type,
         descriptor.name,
         descriptor.description,
+        descriptor.groupName,
+        descriptor.imageUrl,
         nextVisibility,
         payloadBytes,
         now,
@@ -347,18 +324,22 @@ export async function syncCampaignCatalog(db, {
       existing.type !== descriptor.type
       || existing.name !== descriptor.name
       || (existing.description || "") !== descriptor.description
+      || (existing.groupName || "") !== descriptor.groupName
+      || (existing.imageUrl || "") !== descriptor.imageUrl
       || Number(existing.payloadBytes || 0) !== payloadBytes
       || Number(existing.isPublic || 0) !== Number(nextVisibility)
     ) {
       statements.push(db.prepare(`
         UPDATE "cloud_catalog_entries"
-        SET "type" = ?, "name" = ?, "description" = ?, "isPublic" = ?,
+        SET "type" = ?, "name" = ?, "description" = ?, "groupName" = ?, "imageUrl" = ?, "isPublic" = ?,
             "payloadBytes" = ?, "revision" = "revision" + 1, "updatedAt" = ?
         WHERE "id" = ? AND "ownerId" = ?
       `).bind(
         descriptor.type,
         descriptor.name,
         descriptor.description,
+        descriptor.groupName,
+        descriptor.imageUrl,
         nextVisibility,
         payloadBytes,
         now,

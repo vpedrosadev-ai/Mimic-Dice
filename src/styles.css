@@ -1298,6 +1298,18 @@ table {
   background: rgba(62, 43, 30, 0.72);
 }
 
+.account-public-library-button--featured {
+  min-height: 3.35rem;
+  margin: 0.9rem 0 0.25rem;
+  border-color: rgba(243, 191, 103, 0.72);
+  color: #fff0c9;
+  background:
+    radial-gradient(circle at 12% 0, rgba(255, 217, 143, 0.22), transparent 35%),
+    linear-gradient(180deg, rgba(151, 94, 42, 0.98), rgba(81, 46, 25, 0.98));
+  box-shadow: 0 0.55rem 1.4rem rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 232, 185, 0.16);
+  font-size: 0.92rem;
+}
+
 .account-profile {
   margin: 1rem 0;
   padding: 0.9rem;
@@ -1309,6 +1321,29 @@ table {
 .account-profile__avatar {
   width: 2.8rem;
   height: 2.8rem;
+}
+
+.account-profile__image-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.account-profile__image-button.is-cloud-busy {
+  cursor: wait;
+  pointer-events: none;
+}
+
+.account-profile__image-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .account-profile > div {
@@ -1444,6 +1479,13 @@ button.is-cloud-busy:disabled {
   font-size: 1.08rem;
 }
 
+.account-dialog__section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .account-create-row input {
   flex: 1 1 auto;
 }
@@ -1540,14 +1582,18 @@ button.is-cloud-busy:disabled {
 
 .cloud-catalog-list {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
 .cloud-catalog-card {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: 0.72rem;
+  min-height: 12rem;
   padding: 0.72rem;
   border: 1px solid rgba(190, 143, 79, 0.22);
   border-radius: 0.75rem;
@@ -1561,10 +1607,14 @@ button.is-cloud-busy:disabled {
 }
 
 .cloud-catalog-card--owned {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .cloud-catalog-card__check {
+  position: absolute;
+  top: 0.62rem;
+  right: 0.62rem;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 1.7rem;
@@ -1579,6 +1629,26 @@ button.is-cloud-busy:disabled {
 
 .cloud-catalog-card__body {
   min-width: 0;
+}
+
+.cloud-catalog-card__image {
+  width: 100%;
+  height: 8.5rem;
+  border: 1px solid rgba(214, 164, 92, 0.22);
+  border-radius: 0.58rem;
+  object-fit: cover;
+  background: rgba(10, 7, 5, 0.75);
+}
+
+.cloud-catalog-card__badges {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.cloud-catalog-card__badges .account-library-card__type {
+  margin: 0;
 }
 
 .cloud-catalog-card__body > strong {
@@ -1596,8 +1666,7 @@ button.is-cloud-busy:disabled {
 }
 
 .cloud-catalog-card__meta {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 0.32rem 0.8rem;
   margin-top: 0.35rem;
 }
@@ -1605,8 +1674,79 @@ button.is-cloud-busy:disabled {
 .cloud-catalog-card__actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  align-self: end;
+  justify-content: flex-start;
   gap: 0.42rem;
+}
+
+.cloud-catalog-groups {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.cloud-catalog-groups--nested {
+  padding-left: 0.75rem;
+  border-left: 1px solid rgba(205, 155, 83, 0.2);
+}
+
+.cloud-catalog-group {
+  overflow: hidden;
+  border: 1px solid rgba(190, 143, 79, 0.2);
+  border-radius: 0.75rem;
+  background: rgba(12, 8, 6, 0.28);
+}
+
+.cloud-catalog-group__toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.62rem;
+  width: 100%;
+  padding: 0.7rem 0.78rem;
+  border: 0;
+  color: #e2c596;
+  text-align: left;
+  background: rgba(93, 59, 32, 0.22);
+  cursor: pointer;
+}
+
+.cloud-catalog-group__toggle:hover,
+.cloud-catalog-group__toggle:focus-visible {
+  background: rgba(126, 78, 38, 0.32);
+}
+
+.cloud-catalog-group__toggle > span:nth-child(2) {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.cloud-catalog-group__toggle small {
+  color: #a99679;
+  font-size: 0.7rem;
+}
+
+.cloud-catalog-group__chevron {
+  font-size: 1.25rem;
+  transform: rotate(0deg);
+  transition: transform 150ms ease;
+}
+
+.cloud-catalog-group.is-expanded > .cloud-catalog-group__toggle .cloud-catalog-group__chevron {
+  transform: rotate(90deg);
+}
+
+.cloud-catalog-group__count {
+  min-width: 1.75rem;
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  color: #d8c09b;
+  text-align: center;
+  background: rgba(15, 10, 7, 0.6);
+  font-size: 0.72rem;
+}
+
+.cloud-catalog-group__content {
+  padding: 0.65rem;
 }
 
 .cloud-catalog-selection-bar {
@@ -1649,8 +1789,8 @@ button.is-cloud-busy:disabled {
 
 .cloud-catalog-preview__panel {
   position: relative;
-  width: min(44rem, calc(100vw - 2rem));
-  max-height: min(40rem, calc(100vh - 2rem));
+  width: min(84rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
   overflow: auto;
   padding: 1.2rem;
   border: 1px solid rgba(219, 170, 94, 0.52);
@@ -1658,6 +1798,18 @@ button.is-cloud-busy:disabled {
   color: #d5c2a2;
   background: linear-gradient(155deg, #2a1b13, #100b08);
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.65);
+}
+
+.cloud-catalog-preview__sheet {
+  margin-top: 1rem;
+  pointer-events: none;
+}
+
+.cloud-catalog-preview__sheet.characters-editor,
+.cloud-catalog-preview__sheet.encounter-editor,
+.cloud-catalog-preview__sheet.bestiary-detail {
+  width: 100%;
+  max-width: none;
 }
 
 .cloud-catalog-preview__loading {
@@ -1750,6 +1902,12 @@ button.is-cloud-busy:disabled {
   cursor: pointer;
 }
 
+@media (max-width: 1100px) {
+  .cloud-catalog-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
   .brand__campaign-row {
     align-items: flex-start;
@@ -1784,16 +1942,27 @@ button.is-cloud-busy:disabled {
 
   .cloud-catalog-card,
   .cloud-catalog-card--owned {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .cloud-catalog-card--owned .cloud-catalog-card__body {
-    grid-column: 1 / -1;
+  .cloud-catalog-list {
+    grid-template-columns: 1fr;
   }
 
   .cloud-catalog-card__actions {
-    grid-column: 1 / -1;
     justify-content: stretch;
+  }
+
+  .account-dialog__section-heading {
+    align-items: flex-start;
+  }
+
+  .account-dialog__section-actions {
+    justify-content: stretch;
+  }
+
+  .account-dialog__section-actions .account-action-button {
+    flex: 1 1 auto;
   }
 
   .cloud-catalog-card__actions .account-action-button {

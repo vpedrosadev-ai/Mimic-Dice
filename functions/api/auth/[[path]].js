@@ -87,7 +87,17 @@ export async function onRequest(context) {
         },
         async session({ session, token }) {
           if (session.user && token?.sub) {
-            session.user.id = String(token.sub);
+            const userId = String(token.sub);
+            const storedUser = await context.env.DB.prepare(
+              'SELECT "id", "name", "email", "image" FROM "users" WHERE "id" = ? LIMIT 1'
+            ).bind(userId).first();
+
+            session.user.id = userId;
+            if (storedUser) {
+              session.user.name = storedUser.name;
+              session.user.email = storedUser.email;
+              session.user.image = storedUser.image;
+            }
           }
           return session;
         },

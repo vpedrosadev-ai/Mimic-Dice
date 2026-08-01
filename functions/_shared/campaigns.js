@@ -174,15 +174,13 @@ async function createCampaign(context, user, sourceBody = null) {
   await context.env.DB.batch(statements);
   await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
 
-  if (isPublic === 1) {
-    await syncCampaignCatalog(context.env.DB, {
-      campaignId,
-      ownerId: user.id,
-      payload: body.payload,
-      isPublic: true,
-      forceVisibility: true
-    });
-  }
+  await syncCampaignCatalog(context.env.DB, {
+    campaignId,
+    ownerId: user.id,
+    payload: body.payload,
+    isPublic: isPublic === 1,
+    forceVisibility: isPublic === 1
+  });
 
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(campaign, user.id) }, 201);
@@ -259,15 +257,13 @@ async function updateCampaign(context, campaignId, user) {
   const wasPublic = campaign.isPublic === 1;
   const willBePublic = isPublic === 1;
 
-  if (wasPublic || willBePublic) {
-    await syncCampaignCatalog(context.env.DB, {
-      campaignId,
-      ownerId: user.id,
-      payload: body.payload,
-      isPublic: willBePublic,
-      forceVisibility: wasPublic === willBePublic ? null : willBePublic
-    });
-  }
+  await syncCampaignCatalog(context.env.DB, {
+    campaignId,
+    ownerId: user.id,
+    payload: body.payload,
+    isPublic: willBePublic,
+    forceVisibility: wasPublic === willBePublic ? null : willBePublic
+  });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
   return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id) });

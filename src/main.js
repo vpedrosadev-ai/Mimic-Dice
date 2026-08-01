@@ -98,6 +98,7 @@ import {
   setCloudLibraryEntryVisibility,
   signOutAccount,
   updateCloudCampaign,
+  updateCloudProfileImage,
   uploadCloudImage
 } from "./cloud/cloudClient.js";
 import appIconUrl from "../build-resources/icon.png";
@@ -676,6 +677,8 @@ state = {
   cloudCatalogOwner: "",
   cloudCatalogSort: "updated-desc",
   cloudCatalogSelectedIds: new Set(),
+  cloudCatalogExpandedGroups: new Set(),
+  cloudLocalCatalogItems: [],
   cloudCatalogPreview: null,
   cloudCatalogPreviewBusy: false,
   cloudOperationKind: "",
@@ -1527,6 +1530,21 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-cloud-catalog-group") {
+    const groupKey = cleanText(actionButton.dataset.cloudCatalogGroupKey);
+    const expanded = new Set(state.cloudCatalogExpandedGroups);
+
+    if (expanded.has(groupKey)) {
+      expanded.delete(groupKey);
+    } else {
+      expanded.add(groupKey);
+    }
+
+    state.cloudCatalogExpandedGroups = expanded;
+    render();
+    return;
+  }
+
   if (action === "preview-cloud-catalog-item") {
     await previewCloudCatalogItem(
       actionButton.dataset.cloudCatalogKind,
@@ -1544,6 +1562,11 @@ async function handleClick(event) {
 
   if (action === "import-cloud-catalog-selection") {
     await importCloudCatalogSelection();
+    return;
+  }
+
+  if (action === "publish-local-cloud-catalog-item") {
+    await publishLocalCloudCatalogItem(actionButton.dataset.cloudCatalogId);
     return;
   }
 
@@ -3191,6 +3214,12 @@ async function handleClick(event) {
 
 function handleChange(event) {
   const target = event.target;
+
+  if (target.matches("[data-account-profile-image]")) {
+    updateAccountProfileImage(target.files?.[0] ?? null);
+    target.value = "";
+    return;
+  }
 
   if (target.matches("[data-cloud-catalog-select]")) {
     const selectionKey = cleanText(target.dataset.cloudCatalogSelect);
@@ -6958,16 +6987,51 @@ function getCloudCatalogItems({ owned = false } = {}) {
   if (tab === "campaign") {
     const source = owned ? state.cloudCampaigns : state.publicCloudCampaigns;
     return source
-      .filter((campaign) => campaign.isPublic === true)
+      .filter((campaign) => owned || campaign.isPublic === true)
       .filter((campaign) => owned ? campaign.isOwner !== false : campaign.isOwner !== true)
       .map((campaign) => normalizeCloudCatalogItem(campaign, "campaign"));
   }
 
-  const source = owned ? state.cloudLibraryEntries : state.publicCloudLibraryEntries;
-  return source
-    .filter((entry) => cleanText(entry.type).toLowerCase() === tab && entry.isPublic === true)
-    .filter((entry) => owned ? entry.isOwner === true : entry.isOwner !== true)
+  if (!owned) {
+    return state.publicCloudLibraryEntries
+      .filter((entry) => cleanText(entry.type).toLowerCase() === tab && entry.isPublic === true && entry.isOwner !== true)
+      .map((entry) => normalizeCloudCatalogItem(entry, "entry"));
+  }
+
+  const cloudEntries = state.cloudLibraryEntries
+    .filter((entry) => cleanText(entry.type).toLowerCase() === tab && entry.isOwner === true);
+  const localEntries = state.cloudLocalCatalogItems
+    .filter((entry) => cleanText(entry.type).toLowerCase() === tab);
+  const activeCampaignId = cleanText(state.cloudCampaignId);
+  const cloudBySourceKey = new Map(cloudEntries
+    .filter((entry) => activeCampaignId && cleanText(entry.sourceCampaignId) === activeCampaignId && cleanText(entry.sourceEntityKey))
+    .map((entry) => [cleanText(entry.sourceEntityKey), entry]));
+  const mergedSourceKeys = new Set();
+  const mergedLocalEntries = localEntries.map((localEntry) => {
+    const cloudEntry = cloudBySourceKey.get(localEntry.sourceEntityKey);
+
+    if (!cloudEntry) {
+      return normalizeCloudCatalogItem(localEntry, "local");
+    }
+
+    mergedSourceKeys.add(localEntry.sourceEntityKey);
+    return normalizeCloudCatalogItem({
+      ...localEntry,
+      ...cloudEntry,
+      imageUrl: cleanText(cloudEntry.imageUrl || localEntry.imageUrl),
+      groupName: cleanText(cloudEntry.groupName || localEntry.groupName),
+      payload: localEntry.payload
+    }, "entry");
+  });
+  const remainingCloudEntries = cloudEntries
+    .filter((entry) => !(
+      activeCampaignId
+      && cleanText(entry.sourceCampaignId) === activeCampaignId
+      && mergedSourceKeys.has(cleanText(entry.sourceEntityKey))
+    ))
     .map((entry) => normalizeCloudCatalogItem(entry, "entry"));
+
+  return [...mergedLocalEntries, ...remainingCloudEntries];
 }
 
 function getCloudCatalogOwnerOptions(items) {
@@ -6991,7 +7055,8 @@ function filterAndSortCloudCatalogItems(items) {
       item.name,
       item.ownerName,
       item.description,
-      item.sourceCampaignName
+      item.sourceCampaignName,
+      item.groupName
     ].filter(Boolean).join(" ")).includes(query);
   });
 
@@ -7025,32 +7090,54 @@ function renderCloudCatalogMeta(item, showOwner = true) {
       ${showOwner ? `<span>Por ${escapeHtml(item.ownerName)}</span>` : ""}
       <span>Guardado ${escapeHtml(formatCampaignSavedAt(item.updatedAt) || "sin fecha")}</span>
       ${item.sourceCampaignName ? `<span>Campaña: ${escapeHtml(item.sourceCampaignName)}</span>` : ""}
+      ${item.groupName ? `<span>Carpeta: ${escapeHtml(item.groupName)}</span>` : ""}
     </small>
   `;
 }
 
+function renderCloudCatalogCardImage(item) {
+  if (!["character", "monster", "item", "spell"].includes(cleanText(item.type).toLowerCase()) || !cleanText(item.imageUrl)) {
+    return "";
+  }
+
+  return `<img class="cloud-catalog-card__image" src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" decoding="async" />`;
+}
+
 function renderOwnedCloudCatalogCard(item) {
-  const target = item.catalogKind === "campaign"
+  const isLocal = item.catalogKind === "local";
+  const target = isLocal
+    ? `local-visibility:${item.id}`
+    : item.catalogKind === "campaign"
     ? `campaign-visibility:${item.id}`
     : `library-visibility:${item.id}`;
-  const action = item.catalogKind === "campaign"
+  const action = isLocal
+    ? "publish-local-cloud-catalog-item"
+    : item.catalogKind === "campaign"
     ? "toggle-cloud-campaign-public"
     : "toggle-cloud-library-public";
-  const idAttribute = item.catalogKind === "campaign"
+  const idAttribute = isLocal
+    ? `data-cloud-catalog-id="${escapeHtml(item.id)}"`
+    : item.catalogKind === "campaign"
     ? `data-cloud-campaign-id="${escapeHtml(item.id)}"`
     : `data-cloud-entry-id="${escapeHtml(item.id)}"`;
+  const visibilityLabel = item.isPublic ? "Público" : "Privado";
+  const actionLabel = isLocal || !item.isPublic ? "Hacer público" : "Hacer privado";
 
   return `
     <article class="cloud-catalog-card cloud-catalog-card--owned">
+      ${renderCloudCatalogCardImage(item)}
       <div class="cloud-catalog-card__body">
-        <span class="account-library-card__type">${escapeHtml(getCloudLibraryTypeLabel(item.type))}</span>
+        <div class="cloud-catalog-card__badges">
+          <span class="account-library-card__type">${escapeHtml(getCloudLibraryTypeLabel(item.type))}</span>
+          <span class="account-campaign-card__visibility ${item.isPublic ? "is-public" : ""}">${visibilityLabel}</span>
+        </div>
         <strong>${escapeHtml(item.name || "Contenido sin nombre")}</strong>
         ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}
         ${renderCloudCatalogMeta(item, false)}
       </div>
       <div class="cloud-catalog-card__actions">
         <button class="account-action-button account-action-button--ghost" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
-        <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel("Hacer privado", "Guardando...", "saving", target)}</button>
+        <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>
       </div>
     </article>
   `;
@@ -7062,6 +7149,7 @@ function renderPublicCloudCatalogCard(item) {
 
   return `
     <article class="cloud-catalog-card ${checked ? "is-selected" : ""}">
+      ${renderCloudCatalogCardImage(item)}
       <label class="cloud-catalog-card__check">
         <input type="checkbox" data-cloud-catalog-select="${escapeHtml(selectionKey)}" ${checked ? "checked" : ""} />
         <span class="sr-only">Seleccionar ${escapeHtml(item.name || "contenido")}</span>
@@ -7077,6 +7165,61 @@ function renderPublicCloudCatalogCard(item) {
       </div>
     </article>
   `;
+}
+
+function renderCloudCatalogGrid(items, owned) {
+  const cardRenderer = owned ? renderOwnedCloudCatalogCard : renderPublicCloudCatalogCard;
+  return `<div class="cloud-catalog-list">${items.map(cardRenderer).join("")}</div>`;
+}
+
+function renderCloudCatalogGroup(key, title, items, owned, content, subtitle = "") {
+  const isExpanded = state.cloudCatalogExpandedGroups.has(key);
+  return `
+    <section class="cloud-catalog-group ${isExpanded ? "is-expanded" : ""}">
+      <button class="cloud-catalog-group__toggle" type="button" data-action="toggle-cloud-catalog-group" data-cloud-catalog-group-key="${escapeHtml(key)}" aria-expanded="${isExpanded}">
+        <span class="cloud-catalog-group__chevron" aria-hidden="true">›</span>
+        <span><strong>${escapeHtml(title)}</strong>${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ""}</span>
+        <span class="cloud-catalog-group__count">${items.length}</span>
+      </button>
+      ${isExpanded ? `<div class="cloud-catalog-group__content">${content}</div>` : ""}
+    </section>
+  `;
+}
+
+function renderGroupedCloudCatalogItems(items, owned) {
+  const tab = state.cloudCatalogTab;
+
+  if (!["encounter", "diary", "table"].includes(tab)) {
+    return renderCloudCatalogGrid(items, owned);
+  }
+
+  const scope = owned ? "owned" : "public";
+  const groupItems = (source, getKey) => source.reduce((groups, item) => {
+    const key = getKey(item);
+    groups.set(key, [...(groups.get(key) || []), item]);
+    return groups;
+  }, new Map());
+
+  if (tab === "table") {
+    const folders = groupItems(items, (item) => `${cleanText(item.sourceCampaignName) || "independent"}::${cleanText(item.groupName) || "Sin carpeta"}`);
+    return `<div class="cloud-catalog-groups">${[...folders.entries()].map(([folderKey, folderItems]) => {
+      const folderName = cleanText(folderItems[0]?.groupName) || "Sin carpeta";
+      const campaignName = cleanText(folderItems[0]?.sourceCampaignName);
+      const key = `${scope}:table:${folderKey}`;
+      return renderCloudCatalogGroup(key, folderName, folderItems, owned, renderCloudCatalogGrid(folderItems, owned), campaignName);
+    }).join("")}</div>`;
+  }
+
+  const campaigns = groupItems(items, (item) => cleanText(item.sourceCampaignName) || "Publicaciones independientes");
+  return `<div class="cloud-catalog-groups">${[...campaigns.entries()].map(([campaignName, campaignItems]) => {
+    const campaignKey = `${scope}:${tab}:campaign:${campaignName}`;
+    const folders = groupItems(campaignItems, (item) => cleanText(item.groupName) || "Sin carpeta");
+    const folderHtml = [...folders.entries()].map(([folderName, folderItems]) => {
+      const folderKey = `${campaignKey}:folder:${folderName}`;
+      return renderCloudCatalogGroup(folderKey, folderName, folderItems, owned, renderCloudCatalogGrid(folderItems, owned));
+    }).join("");
+    return renderCloudCatalogGroup(campaignKey, campaignName, campaignItems, owned, `<div class="cloud-catalog-groups cloud-catalog-groups--nested">${folderHtml}</div>`);
+  }).join("")}</div>`;
 }
 
 function renderCloudCatalogPreviewContent() {
@@ -7107,31 +7250,57 @@ function renderCloudCatalogPreviewContent() {
   const type = cleanText(preview.item?.type).toLowerCase();
 
   if (type === "character") {
-    const character = payload.characters?.[0] || {};
-    return `<dl class="cloud-catalog-preview__details"><dt>Nombre</dt><dd>${escapeHtml(character.name || preview.item.name)}</dd><dt>Raza</dt><dd>${escapeHtml(character.race || "—")}</dd><dt>Clases</dt><dd>${escapeHtml(getCloudCatalogCharacterDescription(character))}</dd></dl>`;
+    const character = normalizeStoredCharacter(payload.characters?.[0], payload.characterSkills?.definitions);
+    return character
+      ? `<div class="characters-editor cloud-catalog-preview__sheet" inert>${renderCharacterEditor(character)}</div>`
+      : `<p class="account-dialog__empty">Ficha de personaje no disponible.</p>`;
   }
 
   if (type === "encounter") {
-    const encounter = payload.encounterInventory?.encounters?.[0] || {};
-    const names = (Array.isArray(encounter.rows) ? encounter.rows : []).map((row) => cleanText(row.name)).filter(Boolean);
-    return `<p>${escapeHtml(names.length > 0 ? names.join(", ") : "Encuentro vacío")}</p>`;
+    const encounter = normalizeStoredEncounter(payload.encounterInventory?.encounters?.[0]);
+    return encounter
+      ? `<div class="encounter-editor cloud-catalog-preview__sheet" inert>${renderEncounterEditor(encounter)}</div>`
+      : `<p class="account-dialog__empty">Editor de encuentro no disponible.</p>`;
   }
 
   if (["monster", "item", "spell"].includes(type)) {
     const row = isPlainObject(payload.row) ? payload.row : {};
-    const fields = Object.entries(row).filter(([, value]) => cleanText(value)).slice(0, 24);
-    return `<dl class="cloud-catalog-preview__details">${fields.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd>`).join("")}</dl>`;
+    const assets = isPlainObject(payload.assets) ? payload.assets : {};
+    const imageKey = `${cleanText(row.Name)}||${cleanText(row.Source)}`.toLowerCase();
+
+    if (type === "monster") {
+      const entry = normalizeBestiaryEntry(row, 0, {
+        [imageKey]: { imageUrl: cleanText(assets.imageUrl), tokenUrl: cleanText(assets.tokenUrl) }
+      }, { isPackagedDesktopApp: isPackagedDesktopApp() });
+      return `<div class="bestiary-detail cloud-catalog-preview__sheet" inert>${renderBestiaryDetail(entry)}</div>`;
+    }
+
+    if (type === "item") {
+      const entry = normalizeItemEntry(row, 0, { [imageKey]: cleanText(assets.imageUrl) }, {
+        contentLanguage: state.contentLanguage
+      });
+      return `<div class="bestiary-detail cloud-catalog-preview__sheet" inert>${renderItemDetail(entry)}</div>`;
+    }
+
+    const entry = normalizeSpellEntry(row, 0);
+    const spellImage = cleanText(assets.imageUrl || preview.item?.imageUrl);
+    return `<div class="bestiary-detail cloud-catalog-preview__sheet" inert>${spellImage ? `<figure class="bestiary-portrait bestiary-portrait--item-image"><img class="bestiary-portrait__image bestiary-portrait__image--contain" src="${escapeHtml(spellImage)}" alt="" /></figure>` : ""}${renderArcanumDetail(entry)}</div>`;
   }
 
   if (type === "diary") {
-    const folders = Array.isArray(payload.diary?.folders) ? payload.diary.folders : [];
-    const notes = Array.isArray(payload.diary?.notes) ? payload.diary.notes : [];
-    return `<p><strong>${folders.length} carpetas · ${notes.length} notas</strong></p><ul>${notes.slice(0, 20).map((note) => `<li>${escapeHtml(note.title || "Nota sin título")}</li>`).join("")}</ul>`;
+    const note = normalizeStoredDiaryNote(payload.diary?.notes?.[0]);
+    return note
+      ? `<div class="cloud-catalog-preview__sheet" inert>${renderDiaryEditor(note)}</div>`
+      : `<p class="account-dialog__empty">El calendario no contiene una hoja individual para previsualizar.</p>`;
   }
 
   if (type === "table") {
-    const tables = Array.isArray(payload.tables?.tables) ? payload.tables.tables : [];
-    return `<p><strong>${tables.length} tablas</strong></p><ul>${tables.slice(0, 20).map((table) => `<li>${escapeHtml(table.name || "Tabla")}: ${Array.isArray(table.rows) ? table.rows.length : 0} filas</li>`).join("")}</ul>`;
+    const table = normalizeStoredTable(payload.tables?.tables?.[0], 0);
+    const folder = (Array.isArray(payload.tables?.folders) ? payload.tables.folders : [])
+      .find((entry) => cleanText(entry?.id) === cleanText(table?.folderId));
+    return table
+      ? `<div class="tables-screen cloud-catalog-preview__sheet" inert>${renderTablePanel({ ...table, collapsed: false }, { folderName: folder?.name })}</div>`
+      : `<p class="account-dialog__empty">Tabla no disponible.</p>`;
   }
 
   return `<p class="account-dialog__empty">Detalle preparado para importar.</p>`;
@@ -7162,7 +7331,10 @@ function renderCloudCatalogPreview() {
 function renderCommunityCatalog() {
   const ownedItems = filterAndSortCloudCatalogItems(getCloudCatalogItems({ owned: true }));
   const publicItems = filterAndSortCloudCatalogItems(getCloudCatalogItems());
-  const ownerOptions = getCloudCatalogOwnerOptions(getCloudCatalogItems());
+  const ownerOptions = getCloudCatalogOwnerOptions([
+    ...getCloudCatalogItems({ owned: true }),
+    ...getCloudCatalogItems()
+  ]);
   const currentSelectionCount = [...state.cloudCatalogSelectedIds]
     .filter((key) => key.startsWith(`${state.cloudCatalogTab === "campaign" ? "campaign" : "entry"}:`)).length;
   const importTarget = "catalog:import";
@@ -7187,13 +7359,13 @@ function renderCommunityCatalog() {
     </div>
     ${state.accountSession?.user?.id ? `
       <section class="account-dialog__section cloud-catalog-section">
-        <div class="account-dialog__section-heading"><h3>Tus publicaciones</h3><span>${ownedItems.length}</span></div>
-        <div class="cloud-catalog-list">${ownedItems.length > 0 ? ownedItems.map(renderOwnedCloudCatalogCard).join("") : `<p class="account-dialog__empty">No tienes publicaciones en esta categoría.</p>`}</div>
+        <div class="account-dialog__section-heading"><h3>Tus contenidos</h3><span>${ownedItems.length}</span></div>
+        ${ownedItems.length > 0 ? renderGroupedCloudCatalogItems(ownedItems, true) : `<p class="account-dialog__empty">No tienes contenido en esta categoría.</p>`}
       </section>
     ` : ""}
     <section class="account-dialog__section cloud-catalog-section">
       <div class="account-dialog__section-heading"><h3>Comunidad</h3><span>${publicItems.length}</span></div>
-      <div class="cloud-catalog-list">${publicItems.length > 0 ? publicItems.map(renderPublicCloudCatalogCard).join("") : `<p class="account-dialog__empty">No hay contenido público con estos filtros.</p>`}</div>
+      ${publicItems.length > 0 ? renderGroupedCloudCatalogItems(publicItems, false) : `<p class="account-dialog__empty">No hay contenido público con estos filtros.</p>`}
     </section>
     <div class="cloud-catalog-selection-bar">
       <span>${currentSelectionCount} seleccionados</span>
@@ -7225,6 +7397,7 @@ function renderAccountDialog() {
           <button class="account-dialog__close" type="button" data-action="dismiss-account-dialog" aria-label="Cerrar">×</button>
         </div>
         ${state.accountError ? `<p class="account-dialog__error" role="alert">${escapeHtml(state.accountError)}</p>` : ""}
+        ${!catalogView && !libraryView && !publicView ? `<button class="account-public-library-button account-public-library-button--featured" type="button" data-action="set-account-dialog-view" data-account-dialog-view="catalog">Abrir catálogo de la comunidad</button>` : ""}
         ${
           catalogView
             ? renderCommunityCatalog()
@@ -7269,24 +7442,30 @@ function renderAccountDialog() {
                     <strong>${escapeHtml(getAccountDisplayName())}</strong>
                     <small>${escapeHtml(cleanText(user.email))}</small>
                   </div>
+                  <label class="account-action-button account-action-button--ghost account-profile__image-button${getCloudButtonBusyClass("saving", "profile:image")}" ${isCloudOperationActive("saving", "profile:image") ? `aria-busy="true"` : ""}>
+                    ${renderCloudButtonLabel("Cambiar imagen", "Guardando...", "saving", "profile:image")}
+                    <input class="account-profile__image-input" type="file" accept="image/*" data-account-profile-image ${isCloudOperationActive("saving", "profile:image") ? "disabled" : ""} />
+                  </label>
                   <button class="account-action-button account-action-button--ghost" type="button" data-action="account-sign-out">Cerrar sesión</button>
                 </div>
-                <div class="account-autosave-status account-autosave-status--${escapeHtml(state.cloudAutosaveStatus)}" data-cloud-save-status>
-                  <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
-                  ${state.cloudAutosaveMessage ? `<small>${escapeHtml(state.cloudAutosaveMessage)}</small>` : ""}
-                </div>
                 <section class="account-dialog__section">
-                  <h3>Guardar campaña actual</h3>
+                  <h3>Nombre de la campaña en la nube</h3>
                   <div class="account-create-row">
                     <input type="text" maxlength="120" value="${escapeHtml(state.accountCampaignName)}" data-account-campaign-name aria-label="Nombre de campaña en la nube" />
-                    <button class="account-action-button${getCloudButtonBusyClass("saving", "campaign:create")}" type="button" data-action="create-cloud-campaign" ${renderCloudButtonBusyAttributes("saving", "campaign:create")}>${renderCloudButtonLabel("Guardar en nube", "Guardando...", "saving", "campaign:create")}</button>
+                  </div>
+                  <div class="account-autosave-status account-autosave-status--${escapeHtml(state.cloudAutosaveStatus)}" data-cloud-save-status>
+                    <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
+                    ${state.cloudAutosaveMessage ? `<small>${escapeHtml(state.cloudAutosaveMessage)}</small>` : ""}
                   </div>
                   <small>Autoguardado empieza cuando cargas o creas una campaña cloud. JSON local sigue disponible.</small>
                 </section>
                 <section class="account-dialog__section">
                   <div class="account-dialog__section-heading">
                     <h3>Tus campañas</h3>
-                    <button class="account-action-button account-action-button--ghost" type="button" data-action="refresh-cloud-campaigns">Actualizar</button>
+                    <div class="account-dialog__section-actions">
+                      <button class="account-action-button${getCloudButtonBusyClass("saving", "campaign:create")}" type="button" data-action="create-cloud-campaign" ${renderCloudButtonBusyAttributes("saving", "campaign:create")}>${renderCloudButtonLabel("Crear campaña", "Creando...", "saving", "campaign:create")}</button>
+                      <button class="account-action-button account-action-button--ghost" type="button" data-action="refresh-cloud-campaigns">Actualizar</button>
+                    </div>
                   </div>
                   <div class="account-campaign-list">
                     ${state.cloudCampaigns.length > 0
@@ -7294,7 +7473,6 @@ function renderAccountDialog() {
                       : `<p class="account-dialog__empty">Todavía no tienes campañas cloud.</p>`}
                   </div>
                 </section>
-                <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="catalog">Abrir catálogo de la comunidad</button>
               `
               : `
                 <p class="account-dialog__intro">Como invitado, todo sigue funcionando localmente con almacenamiento del navegador y archivos JSON.</p>
@@ -7312,7 +7490,6 @@ function renderAccountDialog() {
                     <span class="account-google-button__icon">G</span> ${renderCloudButtonLabel("Registrarse con Google", "Abriendo selector...", "loading", "auth:register")}
                   </button>
                 `}
-                <button class="account-public-library-button" type="button" data-action="set-account-dialog-view" data-account-dialog-view="catalog">Abrir catálogo de la comunidad</button>
               `
         }
       </section>
@@ -8939,9 +9116,9 @@ function renderEncounterInventoryPanel(activeEncounter) {
             <button class="toolbar-button" type="button" data-action="open-encounter-import-export">
               ${escapeHtml(t("import_export_button"))}
             </button>
-            <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:encounter")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="encounter" ${activeEncounter ? renderCloudButtonBusyAttributes("publishing", "publish:encounter") : "disabled"}>
+            ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:encounter")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="encounter" ${activeEncounter ? renderCloudButtonBusyAttributes("publishing", "publish:encounter") : "disabled"}>
               ${renderCloudButtonLabel("Publicar encuentro", "Publicando...", "publishing", "publish:encounter")}
-            </button>
+            </button>` : ""}
           </div>
         </div>
         <div class="encounter-list__items">
@@ -9337,7 +9514,7 @@ function renderBestiary() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="compendium-create-row compendium-create-row--toolbar">
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="bestiary">Crear criatura</button>
-          <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:monster")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="monster" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:monster") : "disabled"}>${renderCloudButtonLabel("Publicar criatura", "Publicando...", "publishing", "publish:monster")}</button>
+          ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:monster")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="monster" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:monster") : "disabled"}>${renderCloudButtonLabel("Publicar criatura", "Publicando...", "publishing", "publish:monster")}</button>` : ""}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderBestiaryQueryField()}
@@ -9376,7 +9553,7 @@ function renderItems() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="items">
             ${escapeHtml(t("create_item"))}
           </button>
-          <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:item")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="item" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:item") : "disabled"}>${renderCloudButtonLabel("Publicar objeto", "Publicando...", "publishing", "publish:item")}</button>
+          ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:item")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="item" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:item") : "disabled"}>${renderCloudButtonLabel("Publicar objeto", "Publicando...", "publishing", "publish:item")}</button>` : ""}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
@@ -9415,7 +9592,7 @@ function renderArcanum() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="arcanum">
             ${escapeHtml(t("create_spell"))}
           </button>
-          <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:spell")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="spell" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:spell") : "disabled"}>${renderCloudButtonLabel("Publicar hechizo", "Publicando...", "publishing", "publish:spell")}</button>
+          ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:spell")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="spell" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:spell") : "disabled"}>${renderCloudButtonLabel("Publicar hechizo", "Publicando...", "publishing", "publish:spell")}</button>` : ""}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
@@ -11895,9 +12072,9 @@ function renderCharactersScreen() {
         <button class="toolbar-button" type="button" data-action="open-character-import-export">
           ${escapeHtml(t("import_export_button"))}
         </button>
-        <button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:character")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="character" ${activeCharacter ? renderCloudButtonBusyAttributes("publishing", "publish:character") : "disabled"}>
+        ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:character")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="character" ${activeCharacter ? renderCloudButtonBusyAttributes("publishing", "publish:character") : "disabled"}>
           ${renderCloudButtonLabel("Publicar personaje", "Publicando...", "publishing", "publish:character")}
-        </button>
+        </button>` : ""}
         <button
           class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
           type="button"
@@ -11937,7 +12114,7 @@ function renderCharactersScreen() {
   `;
 }
 
-const { renderDiaryScreen } = createDiaryRenderers({
+const { renderDiaryScreen, renderDiaryEditor } = createDiaryRenderers({
   state: appStateProxy,
   t,
   escapeHtml,
@@ -12527,6 +12704,7 @@ function isDiaryHarptosDateInRange(targetDate, startDate, endDate) {
 
 const {
   renderTablesScreen,
+  renderTablePanel,
   syncRolledTableRowIntoView,
   openItemFromLootTable,
   openSpellFromTable
@@ -21677,6 +21855,9 @@ function getArcanumFilterDisplayValue(key, value) {
 
 function getCloudErrorMessage(error) {
   const messages = {
+    invalid_asset_type: "La imagen seleccionada no es compatible.",
+    invalid_profile_image: "No se pudo usar esa imagen de perfil.",
+    asset_not_found: "La imagen cloud no esta disponible.",
     invalid_registration_code: "Código de registro incorrecto.",
     unauthorized: "La sesión ha caducado. Inicia sesión de nuevo.",
     revision_conflict: "Esta campaña cambió en otra sesión. Recárgala antes de guardar.",
@@ -21892,6 +22073,7 @@ async function attachCloudCatalogToCampaignPayload(payload) {
   const entries = [];
   const characters = Array.isArray(payload?.characters) ? payload.characters : [];
   const inventory = isPlainObject(payload?.encounterInventory) ? payload.encounterInventory : {};
+  const encounterFolders = Array.isArray(inventory.folders) ? inventory.folders : [];
   const encounters = Array.isArray(inventory.encounters) ? inventory.encounters : [];
   const diary = isPlainObject(payload?.diary) ? payload.diary : {};
   const diaryFolders = Array.isArray(diary.folders) ? diary.folders : [];
@@ -21911,6 +22093,8 @@ async function attachCloudCatalogToCampaignPayload(payload) {
         type: "character",
         name,
         description: getCloudCatalogCharacterDescription(character),
+        groupName: "",
+        imageUrl: cleanText(character?.tokenUrl),
         entityKind: "character",
         entityId
       });
@@ -21921,76 +22105,41 @@ async function attachCloudCatalogToCampaignPayload(payload) {
     const entityId = cleanText(encounter?.id);
 
     if (entityId) {
+      const folder = encounterFolders.find((entry) => cleanText(entry?.id) === cleanText(encounter?.folderId));
       entries.push({
         key: `encounter:${entityId}`,
         type: "encounter",
         name: cleanText(encounter?.name) || "Encuentro sin nombre",
         description: `${Array.isArray(encounter?.rows) ? encounter.rows.length : 0} entidades`,
+        groupName: cleanText(folder?.name) || "Sin carpeta",
+        imageUrl: cleanText(encounter?.rows?.[0]?.tokenUrl),
         entityKind: "encounter",
         entityId
       });
     }
   });
 
-  diaryFolders.forEach((folder) => {
-    const entityId = cleanText(folder?.id);
-
-    if (entityId) {
-      entries.push({
-        key: `diary-folder:${entityId}`,
-        type: "diary",
-        name: cleanText(folder?.name) || "Carpeta de diario",
-        description: `${diaryNotes.filter((note) => cleanText(note?.folderId) === entityId).length} notas`,
-        entityKind: "diary-folder",
-        entityId
-      });
-    }
-  });
-
-  diaryNotes.filter((note) => !cleanText(note?.folderId)).forEach((note) => {
+  diaryNotes.forEach((note) => {
     const entityId = cleanText(note?.id);
+    const folder = diaryFolders.find((entry) => cleanText(entry?.id) === cleanText(note?.folderId));
 
     if (entityId) {
       entries.push({
         key: `diary-note:${entityId}`,
         type: "diary",
         name: cleanText(note?.title) || "Nota sin título",
-        description: "Nota sin carpeta",
+        description: cleanText(folder?.name) || "Nota sin carpeta",
+        groupName: cleanText(folder?.name) || "Sin carpeta",
+        imageUrl: "",
         entityKind: "diary-note",
         entityId
       });
     }
   });
 
-  if (isPlainObject(diary.harptosDayNotes) && Object.keys(diary.harptosDayNotes).length > 0) {
-    entries.push({
-      key: "diary-calendar:harptos",
-      type: "diary",
-      name: "Calendario de Harptos",
-      description: `${Object.keys(diary.harptosDayNotes).length} anotaciones`,
-      entityKind: "diary-calendar",
-      entityId: "harptos"
-    });
-  }
-
-  tableFolders.forEach((folder) => {
-    const entityId = cleanText(folder?.id);
-    const folderTables = customTables.filter((table) => cleanText(table?.folderId) === entityId);
-
-    if (entityId && folderTables.length > 0) {
-      entries.push({
-        key: `table-folder:${entityId}`,
-        type: "table",
-        name: cleanText(folder?.name) || "Carpeta de tablas",
-        description: `${folderTables.length} tablas`,
-        entityKind: "table-folder",
-        entityId
-      });
-    }
-  });
-
-  customTables.filter((table) => !cleanText(table?.folderId)).forEach((table) => {
+  customTables.forEach((table) => {
     const entityId = cleanText(table?.id);
+    const folder = tableFolders.find((entry) => cleanText(entry?.id) === cleanText(table?.folderId));
 
     if (entityId) {
       entries.push({
@@ -21998,6 +22147,8 @@ async function attachCloudCatalogToCampaignPayload(payload) {
         type: "table",
         name: cleanText(table?.name) || "Tabla sin nombre",
         description: `${Array.isArray(table?.rows) ? table.rows.length : 0} filas`,
+        groupName: cleanText(folder?.name) || "Sin carpeta",
+        imageUrl: "",
         entityKind: "table",
         entityId
       });
@@ -22030,6 +22181,7 @@ async function attachCloudCatalogToCampaignPayload(payload) {
         return;
       }
 
+      const assets = getCloudCatalogCompendiumAssets(payload, repositoryKey, row);
       entries.push({
         key: `compendium:${type}:${rowKey}`.slice(0, 220),
         type,
@@ -22037,6 +22189,8 @@ async function attachCloudCatalogToCampaignPayload(payload) {
         description: [cleanText(row.Source), type === "spell" ? cleanText(row.Level) : cleanText(row.CR || row.Rarity)]
           .filter(Boolean)
           .join(" · "),
+        groupName: "",
+        imageUrl: cleanText(assets.imageUrl || row.Image || row.ImageUrl),
         entityKind: "compendium",
         entityId: rowKey.slice(0, 120),
         payload: {
@@ -22044,7 +22198,7 @@ async function attachCloudCatalogToCampaignPayload(payload) {
           version: 1,
           repositoryKey,
           row,
-          assets: getCloudCatalogCompendiumAssets(payload, repositoryKey, row)
+          assets
         }
       });
     });
@@ -22058,6 +22212,105 @@ async function attachCloudCatalogToCampaignPayload(payload) {
       entries: uniqueEntries
     }
   };
+}
+
+function buildCloudCatalogDescriptorPayload(payload, descriptor) {
+  if (isPlainObject(descriptor?.payload)) {
+    return descriptor.payload;
+  }
+
+  const entityId = cleanText(descriptor?.entityId);
+
+  if (descriptor?.entityKind === "character") {
+    const character = (Array.isArray(payload?.characters) ? payload.characters : [])
+      .find((entry) => cleanText(entry?.id) === entityId);
+    return character ? {
+      ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_CHARACTERS),
+      characterSkills: payload.characterSkills || { definitions: state.characterSkillDefinitions },
+      characters: [character]
+    } : null;
+  }
+
+  if (descriptor?.entityKind === "encounter") {
+    const inventory = isPlainObject(payload?.encounterInventory) ? payload.encounterInventory : {};
+    const encounter = (Array.isArray(inventory.encounters) ? inventory.encounters : [])
+      .find((entry) => cleanText(entry?.id) === entityId);
+    const folder = (Array.isArray(inventory.folders) ? inventory.folders : [])
+      .find((entry) => cleanText(entry?.id) === cleanText(encounter?.folderId));
+    return encounter ? {
+      ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_ENCOUNTERS),
+      encounterInventory: { folders: folder ? [folder] : [], systemFolderExpanded: true, encounters: [encounter] }
+    } : null;
+  }
+
+  if (descriptor?.entityKind === "diary-note") {
+    const diary = isPlainObject(payload?.diary) ? payload.diary : {};
+    const note = (Array.isArray(diary.notes) ? diary.notes : [])
+      .find((entry) => cleanText(entry?.id) === entityId);
+    const folder = (Array.isArray(diary.folders) ? diary.folders : [])
+      .find((entry) => cleanText(entry?.id) === cleanText(note?.folderId));
+    return note ? {
+      schema: CAMPAIGN_FILE_SCHEMA,
+      version: CAMPAIGN_FILE_VERSION,
+      diary: { version: diary.version || 1, folders: folder ? [folder] : [], notes: [note], harptosDayNotes: {} }
+    } : null;
+  }
+
+  if (descriptor?.entityKind === "diary-calendar") {
+    const diary = isPlainObject(payload?.diary) ? payload.diary : {};
+    return {
+      schema: CAMPAIGN_FILE_SCHEMA,
+      version: CAMPAIGN_FILE_VERSION,
+      diary: { version: diary.version || 1, folders: [], notes: [], harptosDayNotes: diary.harptosDayNotes || {} }
+    };
+  }
+
+  if (descriptor?.entityKind === "table") {
+    const tablesState = isPlainObject(payload?.tables) ? payload.tables : {};
+    const table = (Array.isArray(tablesState.tables) ? tablesState.tables : [])
+      .find((entry) => cleanText(entry?.id) === entityId);
+    const folder = (Array.isArray(tablesState.folders) ? tablesState.folders : [])
+      .find((entry) => cleanText(entry?.id) === cleanText(table?.folderId));
+    return table ? {
+      schema: CAMPAIGN_FILE_SCHEMA,
+      version: CAMPAIGN_FILE_VERSION,
+      tables: { version: tablesState.version || 1, folders: folder ? [folder] : [], tables: [table] }
+    } : null;
+  }
+
+  return null;
+}
+
+async function getCurrentCampaignCloudCatalogItems() {
+  if (!state.accountSession?.user?.id) {
+    return [];
+  }
+
+  const campaignPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload());
+  const descriptors = Array.isArray(campaignPayload?.cloudCatalog?.entries) ? campaignPayload.cloudCatalog.entries : [];
+  const ownerName = getAccountDisplayName();
+  const updatedAt = cleanText(state.cloudCampaignUpdatedAt || state.campaignSavedAt) || new Date().toISOString();
+  const sourceCampaignName = cleanText(state.campaignName) || "Campaña sin nombre";
+
+  return descriptors.map((descriptor) => ({
+    id: descriptor.key,
+    catalogKind: "local",
+    entryKind: "campaign",
+    type: descriptor.type,
+    name: descriptor.name,
+    description: descriptor.description || "",
+    groupName: descriptor.groupName || "",
+    imageUrl: descriptor.imageUrl || "",
+    sourceEntityKey: descriptor.key,
+    sourceCampaignId: cleanText(state.cloudCampaignId),
+    sourceCampaignName,
+    ownerName,
+    isOwner: true,
+    isPublic: false,
+    revision: 0,
+    updatedAt,
+    payload: buildCloudCatalogDescriptorPayload(campaignPayload, descriptor)
+  })).filter((entry) => entry.payload);
 }
 
 function blobToDataUrl(blob) {
@@ -22151,6 +22404,58 @@ function cleanCloudAuthQuery() {
   if (hadCloudQuery) {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
+}
+
+async function updateAccountProfileImage(file) {
+  if (!state.accountSession?.user?.id) {
+    return;
+  }
+
+  if (!file || !cleanText(file.type).toLowerCase().startsWith("image/")) {
+    state.accountError = "Selecciona un archivo de imagen valido.";
+    render();
+    return;
+  }
+
+  if (file.size > 25 * 1024 * 1024) {
+    state.accountError = "La imagen original no puede superar 25 MB.";
+    render();
+    return;
+  }
+
+  const operationTarget = "profile:image";
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const converted = await convertEmbeddedImageToWebp(dataUrl);
+    const uploadResult = await uploadCloudImage(converted.blob, converted);
+    const imageUrl = cleanText(uploadResult?.asset?.url);
+
+    if (!imageUrl) {
+      throw new Error("La imagen no pudo guardarse en la nube.");
+    }
+
+    const profileResult = await updateCloudProfileImage(imageUrl);
+    state.accountSession = {
+      ...state.accountSession,
+      user: {
+        ...state.accountSession.user,
+        ...(profileResult?.user || {}),
+        image: cleanText(profileResult?.user?.image) || imageUrl
+      }
+    };
+    state.accountError = "";
+    pushNotification({
+      title: "Imagen de perfil guardada",
+      message: "Tu nueva imagen ya aparece en la cuenta y en la barra superior."
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
 }
 
 async function initializeCloudAccount() {
@@ -22273,16 +22578,18 @@ async function refreshCommunityCatalog() {
 
   try {
     const isAuthenticated = Boolean(state.accountSession?.user?.id);
-    const [ownedCampaigns, publicCampaigns, ownedEntries, publicEntries] = await Promise.all([
+    const [ownedCampaigns, publicCampaigns, ownedEntries, publicEntries, localEntries] = await Promise.all([
       isAuthenticated ? listCloudCampaigns() : Promise.resolve({ campaigns: [] }),
       listPublicCloudCampaigns(),
       isAuthenticated ? listCloudLibraryEntries() : Promise.resolve({ entries: [] }),
-      listPublicCloudLibraryEntries()
+      listPublicCloudLibraryEntries(),
+      isAuthenticated ? getCurrentCampaignCloudCatalogItems() : Promise.resolve([])
     ]);
     state.cloudCampaigns = Array.isArray(ownedCampaigns.campaigns) ? ownedCampaigns.campaigns : [];
     state.publicCloudCampaigns = Array.isArray(publicCampaigns.campaigns) ? publicCampaigns.campaigns : [];
     state.cloudLibraryEntries = Array.isArray(ownedEntries.entries) ? ownedEntries.entries : [];
     state.publicCloudLibraryEntries = Array.isArray(publicEntries.entries) ? publicEntries.entries : [];
+    state.cloudLocalCatalogItems = Array.isArray(localEntries) ? localEntries : [];
     state.accountError = "";
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
@@ -22303,6 +22610,10 @@ function findCloudCatalogItem(kind, itemId) {
     return campaign ? normalizeCloudCatalogItem(campaign, "campaign") : null;
   }
 
+  if (normalizedKind === "local") {
+    return state.cloudLocalCatalogItems.find((candidate) => candidate.id === normalizedId) || null;
+  }
+
   const entry = [...state.cloudLibraryEntries, ...state.publicCloudLibraryEntries]
     .find((candidate) => candidate.id === normalizedId);
   return entry ? normalizeCloudCatalogItem(entry, "entry") : null;
@@ -22315,9 +22626,13 @@ async function previewCloudCatalogItem(kind, itemId) {
     return;
   }
 
-  state.cloudCatalogPreview = { kind: item.catalogKind, item, payload: null };
-  state.cloudCatalogPreviewBusy = true;
+  state.cloudCatalogPreview = { kind: item.catalogKind, item, payload: item.payload || null };
+  state.cloudCatalogPreviewBusy = !item.payload;
   render();
+
+  if (item.payload) {
+    return;
+  }
 
   try {
     const result = item.catalogKind === "campaign"
@@ -22412,6 +22727,9 @@ function getCurrentCloudLibraryDraft(type) {
     return character ? {
       type: normalizedType,
       name: cleanText(character.name) || "Personaje sin nombre",
+      imageUrl: cleanText(character.tokenUrl),
+      sourceEntityKey: `character:${cleanText(character.id)}`,
+      sourceCampaignName: cleanText(state.campaignName),
       payload: {
         ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_CHARACTERS),
         characterSkills: { definitions: state.characterSkillDefinitions },
@@ -22431,6 +22749,10 @@ function getCurrentCloudLibraryDraft(type) {
     return {
       type: normalizedType,
       name: cleanText(encounter.name) || "Encuentro sin nombre",
+      groupName: cleanText(folder?.name) || "Sin carpeta",
+      imageUrl: cleanText(encounter.rows?.[0]?.tokenUrl),
+      sourceEntityKey: `encounter:${cleanText(encounter.id)}`,
+      sourceCampaignName: cleanText(state.campaignName),
       payload: {
         ...createSelectionExportBasePayload(DATA_EXCHANGE_CATEGORY_ENCOUNTERS),
         encounterInventory: {
@@ -22464,6 +22786,9 @@ function getCurrentCloudLibraryDraft(type) {
   return {
     type: normalizedType,
     name: cleanText(entry.name) || getCloudLibraryTypeLabel(normalizedType),
+    imageUrl: cleanText(entry.imageUrl || entry.tokenUrl),
+    sourceEntityKey: `compendium:${normalizedType}:${getCloudCatalogCompendiumRowKey(repositoryKey, compendiumEntryToCsvRow(repositoryKey, entry))}`.slice(0, 220),
+    sourceCampaignName: cleanText(state.campaignName),
     payload: {
       schema: "mimic-dice:compendium-entry",
       version: 1,
@@ -22504,7 +22829,12 @@ async function publishCurrentCloudLibraryEntry(type) {
 
   try {
     const payload = await preparePayloadImagesForCloud(draft.payload);
-    await createCloudLibraryEntry({ ...draft, payload, isPublic: true });
+    const imageUrl = draft.type === "character"
+      ? cleanText(payload.characters?.[0]?.tokenUrl)
+      : draft.type === "encounter"
+        ? cleanText(payload.encounterInventory?.encounters?.[0]?.rows?.[0]?.tokenUrl)
+        : cleanText(payload.assets?.imageUrl || payload.assets?.tokenUrl);
+    await createCloudLibraryEntry({ ...draft, imageUrl, payload, isPublic: true });
     await refreshCloudLibrary();
     pushNotification({
       title: `${getCloudLibraryTypeLabel(draft.type)} publicado`,
@@ -22725,6 +23055,61 @@ async function toggleCloudLibraryEntryPublic(entryId) {
       baseRevision: entry.revision
     });
     await refreshCloudLibrary();
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+async function publishLocalCloudCatalogItem(sourceEntityKey) {
+  const localEntry = state.cloudLocalCatalogItems.find((entry) => entry.id === cleanText(sourceEntityKey));
+
+  if (!localEntry || !state.accountSession?.user?.id) {
+    return;
+  }
+
+  const operationTarget = `local-visibility:${localEntry.id}`;
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    if (!state.cloudCampaignId) {
+      state.accountCampaignName = cleanText(state.accountCampaignName || state.campaignName) || "Campaña sin nombre";
+      await saveCurrentCampaignToCloud();
+
+      if (!state.cloudCampaignId) {
+        throw new Error(state.accountError || "No se pudo crear la campaña cloud.");
+      }
+    } else {
+      const saved = await autosaveCloudCampaign({ force: true });
+
+      if (saved === false) {
+        throw new Error(state.cloudAutosaveMessage || "No se pudo guardar la campaña cloud.");
+      }
+    }
+
+    const ownedResult = await listCloudLibraryEntries();
+    state.cloudLibraryEntries = Array.isArray(ownedResult.entries) ? ownedResult.entries : [];
+    const cloudEntry = state.cloudLibraryEntries.find((entry) => (
+      cleanText(entry.sourceCampaignId) === cleanText(state.cloudCampaignId)
+      && cleanText(entry.sourceEntityKey) === localEntry.id
+    ));
+
+    if (!cloudEntry) {
+      throw new Error("El contenido no pudo prepararse para publicar.");
+    }
+
+    await setCloudLibraryEntryVisibility(cloudEntry.id, {
+      isPublic: true,
+      baseRevision: cloudEntry.revision
+    });
+    await refreshCommunityCatalog();
+    pushNotification({
+      title: `${getCloudLibraryTypeLabel(localEntry.type)} publicado`,
+      message: `${localEntry.name} ya está disponible en la comunidad.`
+    });
+    state.accountError = "";
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
   }

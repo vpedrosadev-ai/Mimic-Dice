@@ -193,6 +193,13 @@ export async function uploadCloudImage(blob, { width = 0, height = 0 } = {}) {
   return parseResponse(response);
 }
 
+export async function updateCloudProfileImage(image) {
+  return requestJson("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ image })
+  });
+}
+
 export async function listCloudLibraryEntries() {
   return requestJson("/api/library");
 }
@@ -206,10 +213,30 @@ export async function getCloudLibraryEntry(entryId) {
   return requestJson(`/api/library/${encodeURIComponent(entryId)}`);
 }
 
-export async function createCloudLibraryEntry({ type, name, description = "", isPublic = false, payload }) {
+export async function createCloudLibraryEntry({
+  type,
+  name,
+  description = "",
+  groupName = "",
+  imageUrl = "",
+  sourceEntityKey = "",
+  sourceCampaignName = "",
+  isPublic = false,
+  payload
+}) {
   return requestJson("/api/library", {
     method: "POST",
-    body: JSON.stringify({ type, name, description, isPublic, payload })
+    body: JSON.stringify({
+      type,
+      name,
+      description,
+      groupName,
+      imageUrl,
+      sourceEntityKey,
+      sourceCampaignName,
+      isPublic,
+      payload
+    })
   });
 }
 

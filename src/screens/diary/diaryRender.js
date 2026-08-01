@@ -733,6 +733,7 @@ function renderDiaryHarptosLegendItem(seasonKey, label) {
 
   return {
     renderDiaryScreen,
+    renderDiaryEditor,
     getHarptosVisibleMonthPeriodId
   };
 }
