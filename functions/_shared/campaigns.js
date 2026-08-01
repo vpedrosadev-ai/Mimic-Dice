@@ -306,9 +306,15 @@ async function updateCampaignVisibility(context, campaignId, user) {
 }
 
 async function deleteCampaign(context, campaignId, user) {
-  const result = await context.env.DB.prepare(
-    'DELETE FROM "campaigns" WHERE "id" = ? AND "ownerId" = ?'
-  ).bind(campaignId, user.id).run();
+  const results = await context.env.DB.batch([
+    context.env.DB.prepare(
+      'DELETE FROM "cloud_catalog_entries" WHERE "sourceCampaignId" = ? AND "ownerId" = ?'
+    ).bind(campaignId, user.id),
+    context.env.DB.prepare(
+      'DELETE FROM "campaigns" WHERE "id" = ? AND "ownerId" = ?'
+    ).bind(campaignId, user.id)
+  ]);
+  const result = results[1];
 
   if (Number(result.meta?.changes || 0) < 1) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");

@@ -7731,15 +7731,17 @@ function renderCloudCatalogRefreshButton(item) {
 }
 
 function renderCloudCatalogMeta(item) {
-  const importedMeta = item.loadedOrigin === "imported"
-    ? `<span>Importado de ${escapeHtml(item.importedFromOwnerName || "otro usuario")}${item.importedFromCampaignName ? ` · ${escapeHtml(item.importedFromCampaignName)}` : ""}</span>`
-    : "";
-  const campaignLabel = getCloudCatalogCampaignLabel(item);
+  const isImported = item.loadedOrigin === "imported";
+  const ownerName = isImported
+    ? cleanText(item.importedFromOwnerName) || item.ownerName
+    : item.ownerName;
+  const campaignLabel = isImported
+    ? cleanText(item.importedFromCampaignName) || getCloudCatalogCampaignLabel(item)
+    : getCloudCatalogCampaignLabel(item);
   return `
     <small class="cloud-catalog-card__meta">
-      <span>Usuario: ${escapeHtml(item.ownerName)}</span>
+      <span>Usuario: ${escapeHtml(ownerName)}</span>
       <span>Campaña: ${escapeHtml(campaignLabel)}</span>
-      ${importedMeta}
       <span>Guardado ${escapeHtml(formatCampaignSavedAt(item.updatedAt) || "sin fecha")}</span>
       ${item.groupName ? `<span>Carpeta: ${escapeHtml(item.groupName)}</span>` : ""}
     </small>
@@ -25525,10 +25527,28 @@ async function removeCloudCampaign(campaignId) {
 
   try {
     await deleteCloudCampaign(campaignId);
+    const removedCatalogEntryIds = new Set([
+      ...state.cloudLibraryEntries,
+      ...state.publicCloudLibraryEntries
+    ]
+      .filter((entry) => cleanText(entry?.sourceCampaignId) === campaignId)
+      .map((entry) => cleanText(entry?.id))
+      .filter(Boolean));
+    state.cloudCampaigns = state.cloudCampaigns.filter((campaign) => cleanText(campaign?.id) !== campaignId);
+    state.publicCloudCampaigns = state.publicCloudCampaigns.filter((campaign) => cleanText(campaign?.id) !== campaignId);
+    state.cloudLibraryEntries = state.cloudLibraryEntries.filter((entry) => cleanText(entry?.sourceCampaignId) !== campaignId);
+    state.publicCloudLibraryEntries = state.publicCloudLibraryEntries.filter((entry) => cleanText(entry?.sourceCampaignId) !== campaignId);
+    state.cloudCatalogSelectedIds = new Set([...state.cloudCatalogSelectedIds].filter((selectionKey) => (
+      !removedCatalogEntryIds.has(cleanText(selectionKey).replace(/^entry:/, ""))
+    )));
+    state.cloudImportUpdateCandidates = state.cloudImportUpdateCandidates.filter((candidate) => (
+      !removedCatalogEntryIds.has(cleanText(candidate?.latest?.id))
+    ));
 
     if (deletingActiveCampaign) {
-      detachActiveCloudCampaign({ keepLocalLabel: true });
-      state.campaignMessage = "Campaña cloud eliminada. Copia actual sigue disponible localmente.";
+      detachActiveCloudCampaign();
+      resetUnloadedCampaignWorkspace();
+      state.campaignMessage = "Campaña cloud eliminada. No hay ninguna campaña cargada.";
     }
 
     await refreshCloudCampaigns({ renderAfter: false });
