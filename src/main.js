@@ -656,6 +656,7 @@ const compendiumLoadTokens = {
   arcanum: 0
 };
 const queuedCompendiumLoads = new Set();
+let compendiumLoadGeneration = 0;
 let arcanumSpellLinkCache = {
   signature: "",
   pattern: null,
@@ -5101,8 +5102,14 @@ function queueCompendiumLoad(kind, delay = 0) {
   }
 
   queuedCompendiumLoads.add(kind);
+  const loadGeneration = compendiumLoadGeneration;
   window.setTimeout(() => {
     queuedCompendiumLoads.delete(kind);
+
+    if (loadGeneration !== compendiumLoadGeneration) {
+      return;
+    }
+
     ensureCompendiumLoaded(kind);
   }, Math.max(0, delay));
 }
@@ -21025,6 +21032,48 @@ function reloadCompendiumContent() {
   }
 }
 
+function unloadCompendiumContent() {
+  compendiumLoadGeneration += 1;
+  queuedCompendiumLoads.clear();
+  compendiumLoadTokens.bestiary += 1;
+  compendiumLoadTokens.items += 1;
+  compendiumLoadTokens.arcanum += 1;
+  compendiumLoadPromises.bestiary = null;
+  compendiumLoadPromises.items = null;
+  compendiumLoadPromises.arcanum = null;
+  state.bestiary = [];
+  state.bestiaryImageMap = {};
+  state.bestiarySelectedId = "";
+  state.bestiaryStatus = "idle";
+  state.bestiaryMessage = "";
+  state.bestiaryDebugInfo = null;
+  state.items = [];
+  state.itemImageMap = {};
+  state.itemSelectedId = "";
+  state.itemStatus = "idle";
+  state.itemMessage = "";
+  state.itemDebugInfo = null;
+  state.arcanum = [];
+  state.arcanumSelectedId = "";
+  state.arcanumStatus = "idle";
+  state.arcanumMessage = "";
+  state.arcanumDebugInfo = null;
+  state.contentSourceMeta = {
+    bestiary: { ...blankContentSourceMeta },
+    items: { ...blankContentSourceMeta },
+    arcanum: { ...blankContentSourceMeta }
+  };
+  arcanumSpellLinkCache = {
+    signature: "",
+    pattern: null,
+    namesByLower: new Map()
+  };
+  resetBestiaryVirtualScroll();
+  resetItemVirtualScroll();
+  resetArcanumVirtualScroll();
+  resetBestiaryRenderCache();
+}
+
 async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
   const baseRows = parseCsv(csvText);
   const detectedLanguage = detectCsvContentLanguage(baseRows, kind);
@@ -23594,12 +23643,13 @@ async function initializeCloudAccount() {
     if (session?.user?.id) {
       startCloudCampaignAutosave();
       await refreshCloudCampaigns({ renderAfter: false });
+      let storedMeta = null;
 
       if (shouldChooseCampaign) {
         state.accountDialogOpen = true;
         state.accountDialogView = "account";
       } else {
-        const storedMeta = readStoredCloudCampaignMeta(session.user.id);
+        storedMeta = readStoredCloudCampaignMeta(session.user.id);
 
         if (storedMeta?.campaignId) {
           const loaded = await loadCloudCampaignById(storedMeta.campaignId, { silent: true });
@@ -23610,6 +23660,14 @@ async function initializeCloudAccount() {
           }
         }
       }
+
+      detachActiveCloudCampaign({ preserveStoredMeta: Boolean(storedMeta?.campaignId) });
+      resetUnloadedCampaignWorkspace();
+    } else {
+      stopCloudCampaignAutosave();
+      detachActiveCloudCampaign();
+      clearPrivateCloudAccountState();
+      resetUnloadedCampaignWorkspace();
     }
 
     if (authError) {
@@ -24965,9 +25023,24 @@ function detachActiveCloudCampaign(options = {}) {
 
   if (options.keepLocalLabel === true) {
     state.campaignLoadedFromPublic = true;
+  } else {
+    state.campaignLoadedFromPublic = false;
   }
 
-  saveActiveCloudCampaignMeta();
+  if (options.preserveStoredMeta !== true) {
+    saveActiveCloudCampaignMeta();
+  }
+}
+
+function clearPrivateCloudAccountState() {
+  state.cloudCampaigns = [];
+  state.cloudLibraryEntries = [];
+  state.cloudLocalCatalogItems = [];
+  state.cloudCatalogSelectedIds = new Set();
+  state.cloudCatalogPreview = null;
+  state.cloudCatalogPreviewBusy = false;
+  state.accountProfileNameDraft = "";
+  state.accountProfileNameEditing = false;
 }
 
 async function handleAccountSignOut() {
@@ -24975,11 +25048,12 @@ async function handleAccountSignOut() {
     await autosaveCloudCampaign();
     const result = await signOutAccount();
     stopCloudCampaignAutosave();
-    detachActiveCloudCampaign({ keepLocalLabel: true });
+    detachActiveCloudCampaign();
     state.accountSession = null;
-    state.cloudCampaigns = [];
+    clearPrivateCloudAccountState();
     state.accountDialogOpen = false;
     state.accountStatus = "ready";
+    resetUnloadedCampaignWorkspace();
 
     if (result?.url) {
       window.location.assign(result.url);
@@ -25600,6 +25674,20 @@ function resetCampaignStateFromPayload(payload, fileResult = null) {
   }
 
   applyCampaignSave(campaign, fileResult);
+}
+
+function resetUnloadedCampaignWorkspace() {
+  const campaign = normalizeCampaignSave(createBlankCampaignSavePayload());
+
+  state.campaignFileName = "";
+  state.campaignFilePath = "";
+  applyCampaignSave(campaign, null, {
+    isUnloaded: true,
+    unloadCompendiums: true
+  });
+  state.accountCampaignName = "Campaña sin nombre";
+  state.cloudLocalCatalogItems = [];
+  state.campaignMessage = "";
 }
 
 function applyCampaignFileResult(result) {
@@ -26237,13 +26325,13 @@ function resetTransientCampaignUiState() {
   hideDiaryMentionSuggestions();
 }
 
-function applyCampaignSave(campaign, fileResult = null) {
+function applyCampaignSave(campaign, fileResult = null, options = {}) {
   stopBattleTimerInterval();
 
-  state.campaignName = campaign.name;
-  state.campaignSavedAt = cleanText(campaign.savedAt);
-  state.campaignFileName = cleanText(fileResult?.fileName) || state.campaignFileName;
-  state.campaignFilePath = cleanText(fileResult?.filePath) || state.campaignFilePath;
+  state.campaignName = options.isUnloaded === true ? "" : campaign.name;
+  state.campaignSavedAt = options.isUnloaded === true ? "" : cleanText(campaign.savedAt);
+  state.campaignFileName = options.isUnloaded === true ? "" : cleanText(fileResult?.fileName) || state.campaignFileName;
+  state.campaignFilePath = options.isUnloaded === true ? "" : cleanText(fileResult?.filePath) || state.campaignFilePath;
   state.activeScreen = campaign.activeScreen;
   state.contentLanguage = campaign.contentLanguage;
   state.includeNpcInCombatExperience = campaign.includeNpcInCombatExperience;
@@ -26331,7 +26419,12 @@ function applyCampaignSave(campaign, fileResult = null) {
   saveEncounterInventory();
   saveDiaryState();
   saveTablesState();
-  reloadCompendiumContent();
+
+  if (options.unloadCompendiums === true) {
+    unloadCompendiumContent();
+  } else {
+    reloadCompendiumContent();
+  }
 
   if (fileResult) {
     applyCampaignFileResult(fileResult);
