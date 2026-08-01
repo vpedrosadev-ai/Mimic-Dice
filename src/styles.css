@@ -1169,6 +1169,27 @@ table {
   font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
 }
 
+.account-dialog__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.7rem;
+}
+
+.account-dialog__campaign-name {
+  max-width: min(28rem, 48vw);
+  overflow: hidden;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid rgba(94, 183, 166, 0.34);
+  border-radius: 999px;
+  color: #b7ddd5;
+  background: rgba(37, 92, 82, 0.2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .account-dialog__eyebrow {
   margin: 0 0 0.25rem;
   color: #c68f48;

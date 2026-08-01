@@ -81,6 +81,7 @@ function entrySummary(row, currentUserId = "") {
     payloadBytes: row.payloadBytes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ownerId: row.ownerId || "",
     ownerName: row.ownerName || "Usuario de Mimic Dice",
     isOwner,
     entryKind: row.entryKind || "manual",

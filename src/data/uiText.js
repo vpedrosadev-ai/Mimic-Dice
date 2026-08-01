@@ -725,6 +725,8 @@ export const UI_TEXT_TRANSLATIONS_EN = new Map([
   ["Contenido personalizado", "Custom content"],
   ["Otros contenidos tuyos de otras campañas", "Your content from other campaigns"],
   ["No hay contenido de otras campañas con estos filtros.", "No content from other campaigns matches these filters."],
+  ["Plegar todo", "Collapse all"],
+  ["Desplegar todo", "Expand all"],
   ["Descripcion de habilidad", "Ability description"],
   ["Editar descripcion", "Edit description"],
   ["Experiencia ganada", "Experience gained"],
@@ -809,6 +811,8 @@ export const UI_ATTRIBUTE_TRANSLATIONS_EN = new Map([
   ["Combat tracker", "Combat tracker"]
 ]);
 export const UI_REGEX_TRANSLATIONS_EN = [
+  [/^Usuario: (.+)$/u, "User: $1"],
+  [/^Campaña: (.+)$/u, "Campaign: $1"],
   [/^CSV activo: (.+)$/u, "Active CSV: $1"],
   [/^(\d+) visibles$/u, "$1 visible"],
   [/^(\d+) totales$/u, "$1 total"],
