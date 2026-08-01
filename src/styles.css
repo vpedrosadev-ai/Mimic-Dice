@@ -1564,7 +1564,7 @@ button.is-cloud-busy:disabled {
 
 .cloud-catalog-filters {
   display: grid;
-  grid-template-columns: minmax(13rem, 1fr) repeat(3, minmax(9rem, 0.52fr)) auto;
+  grid-template-columns: minmax(13rem, 1fr) repeat(4, minmax(8.5rem, 0.5fr)) auto;
   align-items: end;
   gap: 0.65rem;
   padding: 0.78rem;

@@ -693,6 +693,7 @@ state = {
   cloudCatalogTab: "campaign",
   cloudCatalogQuery: "",
   cloudCatalogOwner: "",
+  cloudCatalogCampaign: "",
   cloudCatalogSort: "updated-desc",
   cloudCatalogGroupBy: "none",
   cloudCatalogSelectedIds: new Set(),
@@ -1554,6 +1555,7 @@ async function handleClick(event) {
     if (CLOUD_CATALOG_TABS.some((tab) => tab.id === nextTab)) {
       state.cloudCatalogTab = nextTab;
       state.cloudCatalogOwner = "";
+      state.cloudCatalogCampaign = "";
       state.cloudCatalogPreview = null;
       render();
     }
@@ -3399,6 +3401,12 @@ async function handleChange(event) {
 
   if (target.matches("[data-cloud-catalog-owner]")) {
     state.cloudCatalogOwner = target.value;
+    render();
+    return;
+  }
+
+  if (target.matches("[data-cloud-catalog-campaign]")) {
+    state.cloudCatalogCampaign = target.value;
     render();
     return;
   }
@@ -7228,11 +7236,26 @@ function getCloudCatalogOwnerOptions(items) {
     .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
 
+function getCloudCatalogCampaignLabel(item) {
+  return cleanText(item.sourceCampaignName)
+    || (cleanText(item.type).toLowerCase() === "campaign" ? cleanText(item.name) : "Publicaciones independientes");
+}
+
+function getCloudCatalogCampaignOptions(items) {
+  return [...new Set(items.map(getCloudCatalogCampaignLabel).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+}
+
 function filterAndSortCloudCatalogItems(items) {
   const query = normalizeSearchText(state.cloudCatalogQuery);
   const owner = cleanText(state.cloudCatalogOwner);
+  const campaign = cleanText(state.cloudCatalogCampaign);
   const filtered = items.filter((item) => {
     if (owner && item.ownerName !== owner) {
+      return false;
+    }
+
+    if (campaign && getCloudCatalogCampaignLabel(item) !== campaign) {
       return false;
     }
 
@@ -7676,12 +7699,13 @@ function renderCloudCatalogSelectedPanel() {
 
 function renderCommunityCatalog() {
   cloudCatalogSelectionGroups.clear();
-  const ownedItems = filterAndSortCloudCatalogItems(getCloudCatalogItems({ owned: true }));
-  const publicItems = filterAndSortCloudCatalogItems(getCloudCatalogItems());
-  const ownerOptions = getCloudCatalogOwnerOptions([
-    ...getCloudCatalogItems({ owned: true }),
-    ...getCloudCatalogItems()
-  ]);
+  const ownedCatalogItems = getCloudCatalogItems({ owned: true });
+  const publicCatalogItems = getCloudCatalogItems();
+  const allCatalogItems = [...ownedCatalogItems, ...publicCatalogItems];
+  const ownedItems = filterAndSortCloudCatalogItems(ownedCatalogItems);
+  const publicItems = filterAndSortCloudCatalogItems(publicCatalogItems);
+  const ownerOptions = getCloudCatalogOwnerOptions(allCatalogItems);
+  const campaignOptions = getCloudCatalogCampaignOptions(allCatalogItems);
   const currentSelectionCount = getSelectedCloudCatalogItems().length;
   const filteredSelectionGroupKey = `filtered:${state.cloudCatalogTab}`;
   const filteredSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : publicItems.map(getCloudCatalogSelectionKey);
@@ -7701,6 +7725,7 @@ function renderCommunityCatalog() {
     <div class="cloud-catalog-filters">
       <label><span>Buscar</span><input type="search" value="${escapeHtml(state.cloudCatalogQuery)}" placeholder="Nombre, usuario o campaña" data-cloud-catalog-query /></label>
       <label><span>Usuario</span><select data-cloud-catalog-owner><option value="">Todos</option>${ownerOptions.map((owner) => `<option value="${escapeHtml(owner)}" ${state.cloudCatalogOwner === owner ? "selected" : ""}>${escapeHtml(owner)}</option>`).join("")}</select></label>
+      <label><span>Campaña</span><select data-cloud-catalog-campaign><option value="">Todas</option>${campaignOptions.map((campaign) => `<option value="${escapeHtml(campaign)}" ${state.cloudCatalogCampaign === campaign ? "selected" : ""}>${escapeHtml(campaign)}</option>`).join("")}</select></label>
       <label><span>Orden</span><select data-cloud-catalog-sort>
         <option value="updated-desc" ${state.cloudCatalogSort === "updated-desc" ? "selected" : ""}>Más recientes</option>
         <option value="updated-asc" ${state.cloudCatalogSort === "updated-asc" ? "selected" : ""}>Más antiguos</option>
