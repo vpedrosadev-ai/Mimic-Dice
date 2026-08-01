@@ -9,6 +9,132 @@ const DOCX_PATH = path.join(REPO_ROOT, "NOTAS DE VERSION.docx");
 const OUTPUT_PATH = path.join(REPO_ROOT, "src", "data", "releaseNotes.js");
 const TODAY = new Date().toISOString().slice(0, 10);
 
+const CURATED_RELEASES = [
+  {
+    version: "v1.2",
+    versionNumber: "1.2",
+    contentHash: "curated-v1.2-users-cloud-community-catalog",
+    content: {
+      es: {
+        heading: "Version 1.2",
+        modifiedLabel: "Ultima modificacion",
+        sidebarModifiedLabel: "Notas modificadas",
+        summary: "Nuevo sistema de usuarios, campañas en la nube, autoguardado y catálogo de la comunidad.",
+        groups: [
+          {
+            title: "Cuentas de usuario",
+            sections: [
+              {
+                title: "Acceso y perfil",
+                changes: [
+                  "Inicia sesión con Google desde el chip Invitado o desde Opciones > Tu cuenta. El código de invitación solo se solicita al registrar una cuenta nueva.",
+                  "Desde Tu cuenta puedes cambiar tu nombre y foto de perfil. Las imágenes se convierten a WebP antes de guardarse.",
+                  "El modo invitado sigue funcionando como antes mediante archivos JSON y no requiere cuenta."
+                ]
+              }
+            ]
+          },
+          {
+            title: "Campañas en la nube",
+            sections: [
+              {
+                title: "Guardar y recuperar",
+                changes: [
+                  "Crea, carga y administra campañas desde Tu cuenta. Cada campaña privada solo puede verla su propietario.",
+                  "El autoguardado sincroniza los cambios de la campaña activa después de una breve pausa y muestra cuándo está guardando o cuándo terminó.",
+                  "Las imágenes pesadas se almacenan aparte en Cloudflare R2 para mantener ligeros los datos de campaña.",
+                  "Al copiar una campaña pública se crea una copia privada independiente: tus cambios nunca sobrescriben el original de otra persona."
+                ]
+              }
+            ]
+          },
+          {
+            title: "Catálogo de la comunidad",
+            sections: [
+              {
+                title: "Cómo abrirlo y navegar",
+                changes: [
+                  "Abre el catálogo desde Opciones > Catálogo de la comunidad o desde el botón destacado de Tu cuenta.",
+                  "Usa las pestañas para explorar campañas, personajes, enemigos, encuentros, objetos, hechizos, diarios y tablas.",
+                  "La primera sección muestra lo cargado en la campaña actual; la segunda muestra contenido tuyo guardado en otras campañas; Comunidad muestra publicaciones de otros usuarios.",
+                  "Filtra por nombre, usuario o campaña; ordena por nombre o fecha; agrupa por campaña, usuario y carpetas; usa Ver detalle para revisar una ficha antes de copiarla."
+                ]
+              },
+              {
+                title: "Importar, publicar y actualizar",
+                changes: [
+                  "Marca una casilla y el contenido se copia inmediatamente a la campaña actual. También puedes seleccionar grupos completos o todo lo filtrado.",
+                  "Publica o vuelve privado tu contenido desde el propio catálogo. Publicar una campaña también ofrece sus entidades personalizadas en sus pestañas correspondientes.",
+                  "Las copias importadas no cambian solas. Cuando existe una versión nueva, el catálogo ofrece Actualizar para elegir qué entidades refrescar.",
+                  "Si publicas una alternativa basada en contenido ajeno, debes cambiar el nombre y modificar su contenido para evitar duplicados idénticos."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      en: {
+        heading: "Version 1.2",
+        modifiedLabel: "Last modified",
+        sidebarModifiedLabel: "Notes modified",
+        summary: "New user accounts, cloud campaigns, autosave, and Community Catalog.",
+        groups: [
+          {
+            title: "User Accounts",
+            sections: [
+              {
+                title: "Sign-in and profile",
+                changes: [
+                  "Sign in with Google from the Guest chip or Options > Your account. Invitation code is requested only when registering a new account.",
+                  "Your account lets you change display name and profile picture. Images are converted to WebP before storage.",
+                  "Guest mode still works through JSON files and requires no account."
+                ]
+              }
+            ]
+          },
+          {
+            title: "Cloud Campaigns",
+            sections: [
+              {
+                title: "Save and restore",
+                changes: [
+                  "Create, load, and manage campaigns from Your account. Private campaigns remain visible only to their owner.",
+                  "Autosave syncs active-campaign changes after a short pause and shows saving and completion states.",
+                  "Large images are stored separately in Cloudflare R2 to keep campaign data small.",
+                  "Copying a public campaign creates an independent private copy; your changes never overwrite another person's original."
+                ]
+              }
+            ]
+          },
+          {
+            title: "Community Catalog",
+            sections: [
+              {
+                title: "Open and browse",
+                changes: [
+                  "Open catalog from Options > Community Catalog or the featured button in Your account.",
+                  "Use tabs to browse campaigns, characters, monsters, encounters, items, spells, diaries, and tables.",
+                  "First section shows content loaded in current campaign; second shows your content stored under other campaigns; Community shows publications from other users.",
+                  "Filter by name, user, or campaign; sort by name or date; group by campaign, user, and folders; use View details before copying."
+                ]
+              },
+              {
+                title: "Import, publish, and update",
+                changes: [
+                  "Select a checkbox and content copies immediately into current campaign. Whole groups or all filtered results can also be selected.",
+                  "Publish or make your content private from catalog. Publishing a campaign also exposes its custom entities in their matching tabs.",
+                  "Imported copies do not change automatically. When a newer version exists, catalog offers Update so you choose what to refresh.",
+                  "Publishing an alternative based on another person's content requires a new name and meaningful content changes, preventing identical duplicates."
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+];
+
 const MANUAL_ENGLISH_BY_HASH = {
   c2590f80f085ec4e18769294e67adabe66d7acab73606ae03cb1f914a3dfd109: {
     heading: "Version 1.0",
@@ -341,20 +467,30 @@ async function main() {
   const documentXml = readZipEntry(docxBuffer, "word/document.xml");
   const releases = parseVersions(extractParagraphs(documentXml));
   const existingByVersion = new Map(existingReleaseNotes.map((release) => [release.version, release]));
-  const nextReleaseNotes = releases.map((release) => {
-    const existingRelease = existingByVersion.get(release.version);
+  const curatedVersions = new Set(CURATED_RELEASES.map((release) => release.version));
+  const nextReleaseNotes = [
+    ...CURATED_RELEASES.map((release) => {
+      const existingRelease = existingByVersion.get(release.version);
+      return {
+        ...release,
+        modifiedDate: getModifiedDate(release, existingRelease)
+      };
+    }),
+    ...releases.filter((release) => !curatedVersions.has(release.version)).map((release) => {
+      const existingRelease = existingByVersion.get(release.version);
 
-    return {
-      version: release.version,
-      versionNumber: release.versionNumber,
-      contentHash: release.contentHash,
-      modifiedDate: getModifiedDate(release, existingRelease),
-      content: {
-        es: buildSpanishContent(release),
-        en: buildEnglishContent(release, existingRelease)
-      }
-    };
-  });
+      return {
+        version: release.version,
+        versionNumber: release.versionNumber,
+        contentHash: release.contentHash,
+        modifiedDate: getModifiedDate(release, existingRelease),
+        content: {
+          es: buildSpanishContent(release),
+          en: buildEnglishContent(release, existingRelease)
+        }
+      };
+    })
+  ];
 
   const output = `export const releaseNotesSourceDocument = "NOTAS DE VERSION.docx";
 

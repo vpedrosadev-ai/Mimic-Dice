@@ -1,6 +1,8 @@
 export const UI_STRINGS = {
   es: {
     menu_file: "Archivo",
+    menu_account: "Tu cuenta",
+    menu_community_catalog: "Catálogo de la comunidad",
     menu_options: "Opciones",
     menu_settings: "Ajustes",
     menu_release_notes: "Notas de version",
@@ -262,6 +264,8 @@ export const UI_STRINGS = {
   },
   en: {
     menu_file: "File",
+    menu_account: "Your account",
+    menu_community_catalog: "Community catalog",
     menu_options: "Options",
     menu_settings: "Settings",
     menu_release_notes: "Release notes",
@@ -719,6 +723,8 @@ export const UI_TEXT_TRANSLATIONS_EN = new Map([
   ["Editar", "Edit"],
   ["Guardar cambios", "Save changes"],
   ["Contenido personalizado", "Custom content"],
+  ["Otros contenidos tuyos de otras campañas", "Your content from other campaigns"],
+  ["No hay contenido de otras campañas con estos filtros.", "No content from other campaigns matches these filters."],
   ["Descripcion de habilidad", "Ability description"],
   ["Editar descripcion", "Edit description"],
   ["Experiencia ganada", "Experience gained"],

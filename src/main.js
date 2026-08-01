@@ -1550,6 +1550,21 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-account-dialog-view") {
+    const nextView = cleanText(actionButton.dataset.accountDialogView) === "catalog" ? "catalog" : "account";
+    state.menuHubOpen = false;
+    state.fileMenuOpen = false;
+    state.optionsMenuOpen = false;
+    await openAccountDialog();
+
+    if (nextView === "catalog") {
+      state.accountDialogView = "catalog";
+      render();
+      await refreshCommunityCatalog();
+    }
+    return;
+  }
+
   if (action === "set-cloud-catalog-tab") {
     const nextTab = cleanText(actionButton.dataset.cloudCatalogTab).toLowerCase();
 
@@ -7499,6 +7514,64 @@ function getCloudCatalogItems({ owned = false } = {}) {
   return mergedLocalEntries;
 }
 
+function getCloudCatalogCampaignEntityKey(entry) {
+  if (cleanText(entry?.type).toLowerCase() === "campaign" || entry?.catalogKind === "campaign") {
+    return `campaign:${cleanText(entry?.id)}`;
+  }
+
+  return [
+    cleanText(entry?.type).toLowerCase(),
+    normalizeSearchText(entry?.sourceCampaignName),
+    cleanText(entry?.sourceEntityKey) || normalizeSearchText(entry?.name)
+  ].join("||");
+}
+
+function getCloudCatalogOtherCampaignItems() {
+  if (!state.accountSession?.user?.id) {
+    return [];
+  }
+
+  const tab = state.cloudCatalogTab;
+  const activeCampaignId = cleanText(state.cloudCampaignId);
+  const activeCampaignName = normalizeSearchText(state.campaignName);
+
+  if (tab === "campaign") {
+    return state.cloudCampaigns
+      .filter((campaign) => campaign.isOwner !== false && cleanText(campaign.id) !== activeCampaignId)
+      .map((campaign) => normalizeCloudCatalogItem(campaign, "campaign"));
+  }
+
+  const loadedSourceEntryIds = getLoadedCloudImportSourceEntryIds();
+  const candidateEntries = state.cloudLibraryEntries
+    .filter((entry) => cleanText(entry.type).toLowerCase() === tab && entry.isOwner === true)
+    .filter((entry) => {
+      const sourceCampaignId = cleanText(entry.sourceCampaignId);
+      const sourceCampaignName = normalizeSearchText(entry.sourceCampaignName);
+
+      if (sourceCampaignId) {
+        return sourceCampaignId !== activeCampaignId;
+      }
+      return Boolean(sourceCampaignName && sourceCampaignName !== activeCampaignName);
+    });
+  const loadedEntryKeys = new Set(candidateEntries
+    .filter((entry) => loadedSourceEntryIds.has(cleanText(entry.id)))
+    .map(getCloudCatalogCampaignEntityKey));
+  const candidates = candidateEntries
+    .filter((entry) => !loadedEntryKeys.has(getCloudCatalogCampaignEntityKey(entry)))
+    .sort((left, right) => (left.entryKind === "campaign" ? -1 : 1) - (right.entryKind === "campaign" ? -1 : 1));
+  const uniqueEntries = new Map();
+
+  candidates.forEach((entry) => {
+    const key = getCloudCatalogCampaignEntityKey(entry);
+
+    if (!uniqueEntries.has(key)) {
+      uniqueEntries.set(key, entry);
+    }
+  });
+
+  return [...uniqueEntries.values()].map((entry) => normalizeCloudCatalogItem(entry, "entry"));
+}
+
 function getCloudCatalogOwnerOptions(items) {
   return [...new Set(items.flatMap((item) => [
     cleanText(item.ownerName),
@@ -7794,7 +7867,7 @@ function getCloudCatalogGroupingLevels() {
   return levels;
 }
 
-function renderCloudCatalogHierarchy(items, owned, levels, depth = 0, path = "") {
+function renderCloudCatalogHierarchy(items, owned, levels, depth = 0, path = "", scope = "") {
   if (depth >= levels.length) {
     return renderCloudCatalogGrid(items, owned);
   }
@@ -7805,16 +7878,16 @@ function renderCloudCatalogHierarchy(items, owned, levels, depth = 0, path = "")
     result.set(value, [...(result.get(value) || []), item]);
     return result;
   }, new Map());
-  const scope = owned ? "owned" : "public";
+  const hierarchyScope = scope || (owned ? "owned" : "public");
   const content = [...groups.entries()].map(([value, groupItems]) => {
     const firstItem = groupItems[0] || {};
-    const key = `${path || `${scope}:${state.cloudCatalogTab}`}:${level.id}:${value}`;
+    const key = `${path || `${hierarchyScope}:${state.cloudCatalogTab}`}:${level.id}:${value}`;
     return renderCloudCatalogGroup(
       key,
       level.title(firstItem),
       groupItems,
       owned,
-      renderCloudCatalogHierarchy(groupItems, owned, levels, depth + 1, key),
+      renderCloudCatalogHierarchy(groupItems, owned, levels, depth + 1, key, hierarchyScope),
       level.subtitle(firstItem)
     );
   }).join("");
@@ -7822,10 +7895,10 @@ function renderCloudCatalogHierarchy(items, owned, levels, depth = 0, path = "")
   return `<div class="cloud-catalog-groups ${depth > 0 ? "cloud-catalog-groups--nested" : ""}">${content}</div>`;
 }
 
-function renderGroupedCloudCatalogItems(items, owned) {
+function renderGroupedCloudCatalogItems(items, owned, scope = "") {
   const levels = getCloudCatalogGroupingLevels();
   return levels.length > 0
-    ? renderCloudCatalogHierarchy(items, owned, levels)
+    ? renderCloudCatalogHierarchy(items, owned, levels, 0, "", scope)
     : renderCloudCatalogGrid(items, owned);
 }
 
@@ -7939,14 +8012,22 @@ function renderCloudCatalogPreview() {
 function renderCommunityCatalog() {
   cloudCatalogSelectionGroups.clear();
   const ownedCatalogItems = getCloudCatalogItems({ owned: true });
-  const publicCatalogItems = getCloudCatalogItems();
-  const allCatalogItems = [...ownedCatalogItems, ...publicCatalogItems];
+  const otherCampaignCatalogItems = getCloudCatalogOtherCampaignItems();
+  const otherCampaignItemKeys = new Set(otherCampaignCatalogItems.map(getCloudCatalogCampaignEntityKey));
+  const publicCatalogItems = getCloudCatalogItems()
+    .filter((item) => !otherCampaignItemKeys.has(getCloudCatalogCampaignEntityKey(item)));
+  const allCatalogItems = [...ownedCatalogItems, ...otherCampaignCatalogItems, ...publicCatalogItems];
   const ownedItems = filterAndSortCloudCatalogItems(ownedCatalogItems);
+  const otherCampaignItems = filterAndSortCloudCatalogItems(otherCampaignCatalogItems);
   const publicItems = filterAndSortCloudCatalogItems(publicCatalogItems);
   const originalItems = ownedItems.filter((item) => item.loadedOrigin !== "imported");
   const importedItems = ownedItems.filter((item) => item.loadedOrigin === "imported");
   const ownerOptions = getCloudCatalogOwnerOptions(allCatalogItems);
   const campaignOptions = getCloudCatalogCampaignOptions(allCatalogItems);
+  const otherCampaignSelectionGroupKey = `other-campaigns-filtered:${state.cloudCatalogTab}`;
+  const otherCampaignSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : otherCampaignItems.map(getCloudCatalogSelectionKey);
+  const allOtherCampaignSelected = otherCampaignSelectionKeys.length > 0
+    && otherCampaignSelectionKeys.every((key) => state.cloudCatalogSelectedIds.has(key));
   const filteredSelectionGroupKey = `filtered:${state.cloudCatalogTab}`;
   const filteredSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : publicItems.map(getCloudCatalogSelectionKey);
   const allFilteredSelected = filteredSelectionKeys.length > 0
@@ -7954,6 +8035,10 @@ function renderCommunityCatalog() {
 
   if (filteredSelectionKeys.length > 0) {
     cloudCatalogSelectionGroups.set(filteredSelectionGroupKey, filteredSelectionKeys);
+  }
+
+  if (otherCampaignSelectionKeys.length > 0) {
+    cloudCatalogSelectionGroups.set(otherCampaignSelectionGroupKey, otherCampaignSelectionKeys);
   }
 
   return `
@@ -7987,13 +8072,23 @@ function renderCommunityCatalog() {
         <div class="cloud-catalog-loaded-groups">
           <section class="cloud-catalog-loaded-group">
             <div class="cloud-catalog-loaded-group__heading"><h4>Originales de esta campaña</h4><span>${originalItems.length}</span></div>
-            ${originalItems.length > 0 ? renderGroupedCloudCatalogItems(originalItems, true) : `<p class="account-dialog__empty">No hay contenido original de esta categoría.</p>`}
+            ${originalItems.length > 0 ? renderGroupedCloudCatalogItems(originalItems, true, "loaded-original") : `<p class="account-dialog__empty">No hay contenido original de esta categoría.</p>`}
           </section>
           <section class="cloud-catalog-loaded-group cloud-catalog-loaded-group--imported">
             <div class="cloud-catalog-loaded-group__heading"><h4>Importados de otras campañas o usuarios</h4><span>${importedItems.length}</span></div>
-            ${importedItems.length > 0 ? renderGroupedCloudCatalogItems(importedItems, true) : `<p class="account-dialog__empty">No hay contenido importado de esta categoría.</p>`}
+            ${importedItems.length > 0 ? renderGroupedCloudCatalogItems(importedItems, true, "loaded-imported") : `<p class="account-dialog__empty">No hay contenido importado de esta categoría.</p>`}
           </section>
         </div>
+      </section>
+      <section class="account-dialog__section cloud-catalog-section">
+        <div class="account-dialog__section-heading">
+          <h3>Otros contenidos tuyos de otras campañas</h3>
+          <div class="account-dialog__section-actions">
+            <span>${otherCampaignItems.length}</span>
+            ${otherCampaignSelectionKeys.length > 0 ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-catalog-group-selection" data-cloud-catalog-selection-group="${escapeHtml(otherCampaignSelectionGroupKey)}" aria-pressed="${allOtherCampaignSelected}">${allOtherCampaignSelected ? "Quitar selección filtrada" : "Seleccionar todo lo filtrado"}</button>` : ""}
+          </div>
+        </div>
+        ${otherCampaignItems.length > 0 ? renderGroupedCloudCatalogItems(otherCampaignItems, false, "own-other-campaigns") : `<p class="account-dialog__empty">No hay contenido de otras campañas con estos filtros.</p>`}
       </section>
     ` : ""}
     <section class="account-dialog__section cloud-catalog-section">
@@ -8004,7 +8099,7 @@ function renderCommunityCatalog() {
           ${filteredSelectionKeys.length > 0 ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-catalog-group-selection" data-cloud-catalog-selection-group="${escapeHtml(filteredSelectionGroupKey)}" aria-pressed="${allFilteredSelected}">${allFilteredSelected ? "Quitar selección filtrada" : "Seleccionar todo lo filtrado"}</button>` : ""}
         </div>
       </div>
-      ${publicItems.length > 0 ? renderGroupedCloudCatalogItems(publicItems, false) : `<p class="account-dialog__empty">No hay contenido público con estos filtros.</p>`}
+      ${publicItems.length > 0 ? renderGroupedCloudCatalogItems(publicItems, false, "community") : `<p class="account-dialog__empty">No hay contenido público con estos filtros.</p>`}
     </section>
     ${isCloudOperationActive("loading", "catalog:import") ? `
       <div class="cloud-catalog-selection-bar" role="status">
@@ -8283,6 +8378,12 @@ function renderFileMenu() {
             <div class="file-menu__popover" role="menu">
               <button class="file-menu__item" type="button" role="menuitem" data-action="open-file-menu-section">
                 ${escapeHtml(t("menu_file"))}
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="open-account-dialog-view" data-account-dialog-view="account">
+                ${escapeHtml(t("menu_account"))}
+              </button>
+              <button class="file-menu__item" type="button" role="menuitem" data-action="open-account-dialog-view" data-account-dialog-view="catalog">
+                ${escapeHtml(t("menu_community_catalog"))}
               </button>
               <button class="file-menu__item" type="button" role="menuitem" data-action="open-options-menu-section">
                 ${escapeHtml(t("menu_settings"))}
