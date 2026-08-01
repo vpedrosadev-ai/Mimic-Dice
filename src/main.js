@@ -625,13 +625,22 @@ const {
 });
 
 resetDesktopLocalStorageIfNeeded();
-const initialCampaignMeta = loadCampaignMeta();
-const initialCharacterSkillDefinitions = loadCharacterSkillDefinitions();
-const initialCharacters = loadCharacters(initialCharacterSkillDefinitions);
-const initialEncounterInventory = loadEncounterInventory();
-const initialCombatTrackerState = loadCombatTrackerState();
-const initialTablesState = loadTablesState();
-const initialDiaryState = loadDiaryState();
+const storedCampaignPreferences = loadCampaignMeta();
+const initialCampaignMeta = {
+  ...storedCampaignPreferences,
+  name: "",
+  fileName: "",
+  filePath: "",
+  savedAt: "",
+  includeNpcInCombatExperience: false,
+  repositoryCsvPaths: { ...defaultRepositoryCsvPaths }
+};
+const initialCharacterSkillDefinitions = getDefaultCharacterSkillDefinitions();
+const initialCharacters = [];
+const initialEncounterInventory = { folders: [], encounters: [], systemFolderExpanded: true };
+const initialCombatTrackerState = getDefaultCombatTrackerState();
+const initialTablesState = getDefaultTablesState();
+const initialDiaryState = getDefaultDiaryState();
 let scheduledRenderTimer = 0;
 let scheduledRenderFocusState = null;
 let lastRenderedScreen = "";
@@ -665,9 +674,9 @@ state = {
   soundSettings: normalizeStoredSoundSettings(initialCampaignMeta.soundSettings),
   repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(initialCampaignMeta.repositoryCsvPaths),
   repositoryCsvUploads: { ...blankRepositoryCsvUploads },
-  customBestiaryImageMap: loadBestiaryCustomImageMap(),
-  customItemImageMap: loadItemCustomImageMap(),
-  customArcanumMap: loadArcanumCustomMap(),
+  customBestiaryImageMap: {},
+  customItemImageMap: {},
+  customArcanumMap: {},
   dataCsvFiles: [...defaultDataCsvFiles],
   contentSourceMeta: {
     bestiary: { ...blankContentSourceMeta },
@@ -1118,6 +1127,7 @@ async function handleClick(event) {
     state.optionsMenuOpen = false;
     state.combatEncounterPickerOpen = false;
     state.combatAddPickerMode = "";
+    queueCompendiumLoadsForScreen(state.activeScreen);
     render();
     return;
   }
@@ -5026,7 +5036,6 @@ function queueInitialDataLoad() {
   schedule(() => {
     schedule(() => {
       loadDataCsvFileOptions();
-      queueCompendiumLoadsForScreen(state.activeScreen);
     });
   });
 }
@@ -5130,7 +5139,7 @@ function ensureCompendiumLoaded(kind) {
 }
 
 function isAppBootLoading() {
-  return state.bestiary.length === 0 && ["idle", "loading"].includes(state.bestiaryStatus);
+  return state.bestiary.length === 0 && state.bestiaryStatus === "loading";
 }
 
 function getAppBootProgress() {
@@ -7164,9 +7173,6 @@ function render(focusState = null) {
 
   saveCombatTrackerState();
 
-  if (initialDataLoadQueued) {
-    queueCompendiumLoadsForScreen(state.activeScreen);
-  }
 }
 
 function getSafeAccountImageUrl(value) {
@@ -21458,7 +21464,7 @@ async function loadBestiaryPersistedCustomImageMap() {
 
   return {
     ...customImageMap,
-    ...loadBestiaryCustomImageMap()
+    ...state.customBestiaryImageMap
   };
 }
 
@@ -21471,7 +21477,7 @@ async function loadItemPersistedCustomImageMap() {
 
   return {
     ...customImageMap,
-    ...loadItemCustomImageMap()
+    ...state.customItemImageMap
   };
 }
 
@@ -21480,7 +21486,7 @@ async function loadArcanumPersistedCustomMap() {
 
   return {
     ...customMap,
-    ...loadArcanumCustomMap()
+    ...state.customArcanumMap
   };
 }
 

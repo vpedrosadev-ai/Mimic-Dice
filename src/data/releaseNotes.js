@@ -4,7 +4,7 @@ export const releaseNotes = Object.freeze([
   {
     "version": "v1.2",
     "versionNumber": "1.2",
-    "contentHash": "curated-v1.2-users-cloud-community-catalog-guest-imports",
+    "contentHash": "curated-v1.2-users-cloud-community-catalog-guest-lazy-boot",
     "content": {
       "es": {
         "heading": "Version 1.2",
@@ -55,6 +55,7 @@ export const releaseNotes = Object.freeze([
                 "title": "Importar, publicar y actualizar",
                 "changes": [
                   "Con o sin cuenta, marca una casilla y el contenido se copia inmediatamente a la campaña actual; desmárcala para retirarlo. Los invitados conservan las copias al guardar su archivo JSON local.",
+                  "Al abrir o refrescar la web como invitado se empieza sin campaña cargada. Carga tu JSON cuando quieras continuar; los compendios pesados se descargan solo cuando hacen falta.",
                   "Publica o vuelve privado tu contenido desde el propio catálogo. Publicar una campaña también ofrece sus entidades personalizadas en sus pestañas correspondientes.",
                   "Las copias importadas no cambian solas. Cuando existe una versión nueva, el catálogo ofrece Actualizar para elegir qué entidades refrescar.",
                   "Si publicas una alternativa basada en contenido ajeno, debes cambiar el nombre y modificar su contenido para evitar duplicados idénticos."
@@ -113,6 +114,7 @@ export const releaseNotes = Object.freeze([
                 "title": "Import, publish, and update",
                 "changes": [
                   "With or without an account, select a checkbox to copy content immediately into current campaign, or clear it to remove that copy. Guest imports remain available when the local JSON file is saved.",
+                  "Opening or refreshing web app as Guest now starts without loaded campaign. Load your JSON when ready; large compendiums download only when needed.",
                   "Publish or make your content private from catalog. Publishing a campaign also exposes its custom entities in their matching tabs.",
                   "Imported copies do not change automatically. When a newer version exists, catalog offers Update so you choose what to refresh.",
                   "Publishing an alternative based on another person's content requires a new name and meaningful content changes, preventing identical duplicates."
