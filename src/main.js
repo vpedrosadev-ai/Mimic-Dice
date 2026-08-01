@@ -397,6 +397,8 @@ let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
 let cloudCampaignAutosaveTimer = 0;
 let cloudCampaignAutosaveInterval = 0;
+let cloudImportUpdateCheckTimer = 0;
+let cloudCatalogImportQueue = Promise.resolve();
 let cloudCampaignSaveInProgress = null;
 let cloudCampaignSaveSuspended = false;
 let lastCloudCampaignSnapshot = "";
@@ -678,6 +680,7 @@ state = {
   accountDialogOpen: false,
   accountDialogView: "account",
   accountRegistrationCode: "",
+  accountRegistrationPromptOpen: false,
   accountCampaignName: cleanText(initialCampaignMeta.name) || "Campaña sin nombre",
   accountProfileNameDraft: "",
   accountProfileNameEditing: false,
@@ -693,6 +696,7 @@ state = {
   cloudCatalogSort: "updated-desc",
   cloudCatalogGroupBy: "none",
   cloudCatalogSelectedIds: new Set(),
+  cloudCatalogSelectionOpen: false,
   cloudCatalogExpandedGroups: new Set(),
   cloudLocalCatalogItems: [],
   cloudCatalogPreview: null,
@@ -703,6 +707,10 @@ state = {
   cloudCampaignRevision: 0,
   cloudCampaignIsPublic: false,
   cloudCampaignUpdatedAt: "",
+  cloudImportedEntries: [],
+  cloudImportUpdateCandidates: [],
+  cloudImportUpdateDialogOpen: false,
+  cloudImportUpdateSelectedIds: new Set(),
   cloudAutosaveStatus: "idle",
   cloudAutosaveMessage: "",
   campaignLoadedFromPublic: false,
@@ -1519,6 +1527,7 @@ async function handleClick(event) {
 
   if (action === "dismiss-account-dialog") {
     state.accountDialogOpen = false;
+    state.accountRegistrationPromptOpen = false;
     state.accountError = "";
     render();
     return;
@@ -1545,7 +1554,6 @@ async function handleClick(event) {
     if (CLOUD_CATALOG_TABS.some((tab) => tab.id === nextTab)) {
       state.cloudCatalogTab = nextTab;
       state.cloudCatalogOwner = "";
-      state.cloudCatalogSelectedIds = new Set();
       state.cloudCatalogPreview = null;
       render();
     }
@@ -1577,16 +1585,45 @@ async function handleClick(event) {
     const selectionKeys = cloudCatalogSelectionGroups.get(groupKey) || [];
     const nextSelection = new Set(state.cloudCatalogSelectedIds);
     const allSelected = selectionKeys.length > 0 && selectionKeys.every((key) => nextSelection.has(key));
+    const newlySelected = [];
 
     selectionKeys.forEach((key) => {
       if (allSelected) {
         nextSelection.delete(key);
       } else {
         nextSelection.add(key);
+        if (!state.cloudCatalogSelectedIds.has(key)) {
+          newlySelected.push(key);
+        }
       }
     });
 
     state.cloudCatalogSelectedIds = nextSelection;
+    render();
+    if (newlySelected.length > 0) {
+      await importCloudCatalogSelectionKeys(newlySelected);
+    }
+    return;
+  }
+
+  if (action === "toggle-cloud-catalog-selection-panel") {
+    state.cloudCatalogSelectionOpen = !state.cloudCatalogSelectionOpen;
+    render();
+    return;
+  }
+
+  if (action === "clear-cloud-catalog-selection") {
+    state.cloudCatalogSelectedIds = new Set();
+    state.cloudCatalogSelectionOpen = false;
+    render();
+    return;
+  }
+
+  if (action === "remove-cloud-catalog-selection") {
+    const nextSelection = new Set(state.cloudCatalogSelectedIds);
+    nextSelection.delete(cleanText(actionButton.dataset.cloudCatalogSelectionKey));
+    state.cloudCatalogSelectedIds = nextSelection;
+    state.cloudCatalogSelectionOpen = nextSelection.size > 0 && state.cloudCatalogSelectionOpen;
     render();
     return;
   }
@@ -1606,8 +1643,8 @@ async function handleClick(event) {
     return;
   }
 
-  if (action === "import-cloud-catalog-selection") {
-    await importCloudCatalogSelection();
+  if (action === "refresh-cloud-import-entry") {
+    await refreshCloudImportedEntryCopies(actionButton.dataset.cloudEntryId);
     return;
   }
 
@@ -1622,7 +1659,41 @@ async function handleClick(event) {
   }
 
   if (action === "account-register-google") {
+    if (!state.accountRegistrationPromptOpen) {
+      state.accountRegistrationPromptOpen = true;
+      state.accountError = "";
+      render({ focusSelector: "[data-account-registration-code]" });
+      return;
+    }
     await startGoogleAccountFlow(true);
+    return;
+  }
+
+  if (action === "cancel-account-registration") {
+    state.accountRegistrationPromptOpen = false;
+    state.accountRegistrationCode = "";
+    state.accountError = "";
+    render();
+    return;
+  }
+
+  if (action === "dismiss-cloud-import-update-dialog") {
+    state.cloudImportUpdateDialogOpen = false;
+    render();
+    return;
+  }
+
+  if (action === "toggle-all-cloud-import-updates") {
+    const candidateIds = state.cloudImportUpdateCandidates.map((candidate) => candidate.record.id);
+    const allSelected = candidateIds.length > 0
+      && candidateIds.every((id) => state.cloudImportUpdateSelectedIds.has(id));
+    state.cloudImportUpdateSelectedIds = allSelected ? new Set() : new Set(candidateIds);
+    render();
+    return;
+  }
+
+  if (action === "refresh-selected-cloud-import-updates") {
+    await refreshCloudImportedRecords([...state.cloudImportUpdateSelectedIds]);
     return;
   }
 
@@ -3281,7 +3352,7 @@ async function handleClick(event) {
   }
 }
 
-function handleChange(event) {
+async function handleChange(event) {
   const target = event.target;
 
   if (target.matches("[data-account-profile-image]")) {
@@ -3305,12 +3376,29 @@ function handleChange(event) {
 
     state.cloudCatalogSelectedIds = nextSelection;
     render();
+    if (target.checked) {
+      await importCloudCatalogSelectionKeys([selectionKey]);
+    }
+    return;
+  }
+
+  if (target.matches("[data-cloud-import-update-select]")) {
+    const recordId = cleanText(target.dataset.cloudImportUpdateSelect);
+    const nextSelection = new Set(state.cloudImportUpdateSelectedIds);
+
+    if (target.checked) {
+      nextSelection.add(recordId);
+    } else {
+      nextSelection.delete(recordId);
+    }
+
+    state.cloudImportUpdateSelectedIds = nextSelection;
+    render();
     return;
   }
 
   if (target.matches("[data-cloud-catalog-owner]")) {
     state.cloudCatalogOwner = target.value;
-    state.cloudCatalogSelectedIds = new Set();
     render();
     return;
   }
@@ -3800,7 +3888,6 @@ function handleInput(event) {
 
   if (target.matches("[data-cloud-catalog-query]")) {
     state.cloudCatalogQuery = target.value;
-    state.cloudCatalogSelectedIds = new Set();
     scheduleRender({
       focusSelector: "[data-cloud-catalog-query]",
       selectionStart: target.selectionStart,
@@ -5764,6 +5851,7 @@ function importCharactersFromPayload(payload, options = {}) {
       message: `${importedCharacters.length} personajes anadidos.`
     });
   }
+  return { entityIds: importedCharacters.map((character) => character.id) };
 }
 
 function importEncountersFromPayload(payload, options = {}) {
@@ -5807,6 +5895,10 @@ function importEncountersFromPayload(payload, options = {}) {
       message: `${importedEncounters.length} encuentros anadidos.`
     });
   }
+  return {
+    entityIds: importedEncounters.map((encounter) => encounter.id),
+    folderIds: importedFolders.map((folder) => folder.id)
+  };
 }
 
 function importDiaryFromPayload(payload, options = {}) {
@@ -5869,6 +5961,11 @@ function importDiaryFromPayload(payload, options = {}) {
       message: `${importedFolders.length} carpetas y ${importedNotes.length} notas anadidas.`
     });
   }
+  return {
+    entityIds: importedNotes.map((note) => note.id),
+    folderIds: importedFolders.map((folder) => folder.id),
+    dayNotes: importedHarptosDayNotes
+  };
 }
 
 function openCompendiumCreateDialog(kind) {
@@ -6785,6 +6882,7 @@ function render(focusState = null) {
       ${renderCompendiumCreateDialog()}
       ${renderMulticlassLevelUpDialog()}
       ${renderAccountDialog()}
+      ${renderCloudImportUpdateDialog()}
     </div>
   `;
 
@@ -7070,15 +7168,22 @@ function getCloudCatalogItems({ owned = false } = {}) {
 
   if (tab === "campaign") {
     const source = owned ? state.cloudCampaigns : state.publicCloudCampaigns;
+    const activeCampaignId = cleanText(state.cloudCampaignId);
     return source
       .filter((campaign) => owned || campaign.isPublic === true)
-      .filter((campaign) => owned ? campaign.isOwner !== false : campaign.isOwner !== true)
+      .filter((campaign) => owned
+        ? campaign.isOwner !== false
+        : campaign.isOwner !== true || !activeCampaignId || cleanText(campaign.id) !== activeCampaignId)
       .map((campaign) => normalizeCloudCatalogItem(campaign, "campaign"));
   }
 
   if (!owned) {
+    const activeCampaignId = cleanText(state.cloudCampaignId);
     return state.publicCloudLibraryEntries
-      .filter((entry) => cleanText(entry.type).toLowerCase() === tab && entry.isPublic === true && entry.isOwner !== true)
+      .filter((entry) => cleanText(entry.type).toLowerCase() === tab && entry.isPublic === true)
+      .filter((entry) => entry.isOwner !== true
+        || !activeCampaignId
+        || cleanText(entry.sourceCampaignId) !== activeCampaignId)
       .map((entry) => normalizeCloudCatalogItem(entry, "entry"));
   }
 
@@ -7168,6 +7273,28 @@ function getCloudCatalogSelectionKey(item) {
   return `${item.catalogKind}:${item.id}`;
 }
 
+function getCloudImportCandidatesForEntry(entryId) {
+  const normalizedId = cleanText(entryId);
+  return state.cloudImportUpdateCandidates.filter((candidate) => (
+    cleanText(candidate.latest?.id) === normalizedId
+  ));
+}
+
+function renderCloudCatalogRefreshButton(item) {
+  if (item.catalogKind !== "entry") {
+    return "";
+  }
+
+  const candidates = getCloudImportCandidatesForEntry(item.id);
+
+  if (candidates.length === 0) {
+    return "";
+  }
+
+  const target = `import-refresh:${item.id}`;
+  return `<button class="account-action-button${getCloudButtonBusyClass("loading", target)}" type="button" data-action="refresh-cloud-import-entry" data-cloud-entry-id="${escapeHtml(item.id)}" ${renderCloudButtonBusyAttributes("loading", target)}>${renderCloudButtonLabel(candidates.length > 1 ? `Actualizar ${candidates.length} copias` : "Actualizar copia", "Actualizando...", "loading", target)}</button>`;
+}
+
 function renderCloudCatalogMeta(item, showOwner = true) {
   return `
     <small class="cloud-catalog-card__meta">
@@ -7244,8 +7371,9 @@ function renderOwnedCloudCatalogCard(item) {
     <article class="cloud-catalog-card cloud-catalog-card--owned">
       ${renderCloudCatalogCardMain(item, body)}
       <div class="cloud-catalog-card__actions">
-        <button class="account-action-button account-action-button--ghost" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
         <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>
+        ${renderCloudCatalogRefreshButton(item)}
+        <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
       </div>
     </article>
   `;
@@ -7273,7 +7401,8 @@ function renderPublicCloudCatalogCard(item) {
     <article class="cloud-catalog-card ${checked ? "is-selected" : ""}">
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
-        <button class="account-action-button account-action-button--ghost" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
+        ${renderCloudCatalogRefreshButton(item)}
+        <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
       </div>
     </article>
   `;
@@ -7499,6 +7628,52 @@ function renderCloudCatalogPreview() {
   `;
 }
 
+function getSelectedCloudCatalogItems() {
+  const candidates = [
+    ...state.publicCloudCampaigns.map((item) => normalizeCloudCatalogItem(item, "campaign")),
+    ...state.publicCloudLibraryEntries.map((item) => normalizeCloudCatalogItem(item, "entry"))
+  ];
+  const bySelectionKey = new Map(candidates.map((item) => [getCloudCatalogSelectionKey(item), item]));
+  return [...state.cloudCatalogSelectedIds]
+    .map((selectionKey) => ({ selectionKey, item: bySelectionKey.get(selectionKey) }))
+    .filter((entry) => entry.item);
+}
+
+function renderCloudCatalogSelectedPanel() {
+  if (!state.cloudCatalogSelectionOpen) {
+    return "";
+  }
+
+  const selected = getSelectedCloudCatalogItems();
+  const groups = selected.reduce((result, entry) => {
+    const type = cleanText(entry.item.type).toLowerCase() || "content";
+    result.set(type, [...(result.get(type) || []), entry]);
+    return result;
+  }, new Map());
+
+  return `
+    <section class="cloud-catalog-selected-panel" aria-label="Contenido seleccionado">
+      <div class="account-dialog__section-heading">
+        <h3>Tu selección agrupada</h3>
+        <span>${selected.length}</span>
+      </div>
+      ${selected.length > 0 ? [...groups.entries()].map(([type, entries]) => `
+        <div class="cloud-catalog-selected-group">
+          <strong>${escapeHtml(getCloudLibraryTypeLabel(type))}</strong>
+          <div>
+            ${entries.map(({ selectionKey, item }) => `
+              <span class="cloud-catalog-selected-chip">
+                <span><b>${escapeHtml(item.name || "Contenido sin nombre")}</b><small>${escapeHtml(item.ownerName)}${item.sourceCampaignName ? ` · ${escapeHtml(item.sourceCampaignName)}` : ""}</small></span>
+                <button type="button" data-action="remove-cloud-catalog-selection" data-cloud-catalog-selection-key="${escapeHtml(selectionKey)}" aria-label="Quitar ${escapeHtml(item.name)}">×</button>
+              </span>
+            `).join("")}
+          </div>
+        </div>
+      `).join("") : `<p class="account-dialog__empty">No hay contenido seleccionado.</p>`}
+    </section>
+  `;
+}
+
 function renderCommunityCatalog() {
   cloudCatalogSelectionGroups.clear();
   const ownedItems = filterAndSortCloudCatalogItems(getCloudCatalogItems({ owned: true }));
@@ -7507,9 +7682,7 @@ function renderCommunityCatalog() {
     ...getCloudCatalogItems({ owned: true }),
     ...getCloudCatalogItems()
   ]);
-  const currentSelectionCount = [...state.cloudCatalogSelectedIds]
-    .filter((key) => key.startsWith(`${state.cloudCatalogTab === "campaign" ? "campaign" : "entry"}:`)).length;
-  const importTarget = "catalog:import";
+  const currentSelectionCount = getSelectedCloudCatalogItems().length;
   const filteredSelectionGroupKey = `filtered:${state.cloudCatalogTab}`;
   const filteredSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : publicItems.map(getCloudCatalogSelectionKey);
   const allFilteredSelected = filteredSelectionKeys.length > 0
@@ -7521,7 +7694,7 @@ function renderCommunityCatalog() {
 
   return `
     <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
-    <p class="account-dialog__intro">Selecciona contenido de otros usuarios para copiarlo. Campañas crean una copia privada nueva; nunca modifican el original.</p>
+    <p class="account-dialog__intro">Selecciona contenido para copiarlo inmediatamente. Campañas crean una copia privada nueva; nunca modifican el original.</p>
     <nav class="cloud-catalog-tabs" aria-label="Categorías del catálogo">
       ${CLOUD_CATALOG_TABS.map((tab) => `<button class="cloud-catalog-tab ${state.cloudCatalogTab === tab.id ? "is-active" : ""}" type="button" data-action="set-cloud-catalog-tab" data-cloud-catalog-tab="${tab.id}">${escapeHtml(tab.label)}</button>`).join("")}
     </nav>
@@ -7559,9 +7732,13 @@ function renderCommunityCatalog() {
       </div>
       ${publicItems.length > 0 ? renderGroupedCloudCatalogItems(publicItems, false) : `<p class="account-dialog__empty">No hay contenido público con estos filtros.</p>`}
     </section>
+    ${renderCloudCatalogSelectedPanel()}
     <div class="cloud-catalog-selection-bar">
-      <span>${currentSelectionCount} seleccionados</span>
-      <button class="account-action-button${getCloudButtonBusyClass("loading", importTarget)}" type="button" data-action="import-cloud-catalog-selection" ${currentSelectionCount > 0 ? renderCloudButtonBusyAttributes("loading", importTarget) : "disabled"}>${renderCloudButtonLabel(state.cloudCatalogTab === "campaign" ? "Cargar campaña seleccionada" : "Añadir selección a mi campaña", "Cargando...", "loading", importTarget)}</button>
+      <span>${isCloudOperationActive("loading", "catalog:import") ? `<span class="cloud-button-label"><span class="cloud-button-spinner" aria-hidden="true"></span><span>Cargando selección...</span></span>` : `${currentSelectionCount} seleccionados`}</span>
+      <div class="cloud-catalog-selection-bar__actions">
+        <button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-cloud-catalog-selection-panel" ${currentSelectionCount > 0 ? "" : "disabled"}>${state.cloudCatalogSelectionOpen ? "Ocultar selección" : "Ver selección agrupada"}</button>
+        <button class="account-action-button account-action-button--ghost" type="button" data-action="clear-cloud-catalog-selection" ${currentSelectionCount > 0 ? "" : "disabled"}>Limpiar</button>
+      </div>
     </div>
   `;
 }
@@ -7682,18 +7859,75 @@ function renderAccountDialog() {
                     <span class="account-google-button__icon">G</span> ${renderCloudButtonLabel("Iniciar sesión con Google", "Abriendo selector...", "loading", "auth:login")}
                   </button>
                   <div class="account-dialog__divider"><span>Registro por invitación</span></div>
-                  <label class="account-dialog__field">
-                    <span>Código de registro</span>
-                    <input type="password" autocomplete="one-time-code" value="${escapeHtml(state.accountRegistrationCode)}" data-account-registration-code />
-                  </label>
-                  <button class="account-google-button account-google-button--register${getCloudButtonBusyClass("loading", "auth:register")}" type="button" data-action="account-register-google" ${renderCloudButtonBusyAttributes("loading", "auth:register")}>
-                    <span class="account-google-button__icon">G</span> ${renderCloudButtonLabel("Registrarse con Google", "Abriendo selector...", "loading", "auth:register")}
-                  </button>
+                  ${state.accountRegistrationPromptOpen ? `
+                    <label class="account-dialog__field">
+                      <span>Código de registro</span>
+                      <input type="password" autocomplete="one-time-code" value="${escapeHtml(state.accountRegistrationCode)}" data-account-registration-code />
+                    </label>
+                    <div class="account-registration-actions">
+                      <button class="account-google-button account-google-button--register${getCloudButtonBusyClass("loading", "auth:register")}" type="button" data-action="account-register-google" ${renderCloudButtonBusyAttributes("loading", "auth:register")}>
+                        <span class="account-google-button__icon">G</span> ${renderCloudButtonLabel("Continuar con Google", "Abriendo selector...", "loading", "auth:register")}
+                      </button>
+                      <button class="account-action-button account-action-button--ghost" type="button" data-action="cancel-account-registration">Cancelar</button>
+                    </div>
+                  ` : `
+                    <button class="account-google-button account-google-button--register" type="button" data-action="account-register-google">
+                      <span class="account-google-button__icon">G</span> Registrarse con Google
+                    </button>
+                  `}
                 `}
               `
         }
       </section>
       ${renderCloudCatalogPreview()}
+    </div>
+  `;
+}
+
+function renderCloudImportUpdateDialog() {
+  if (!state.cloudImportUpdateDialogOpen || state.cloudImportUpdateCandidates.length === 0) {
+    return "";
+  }
+
+  const allSelected = state.cloudImportUpdateCandidates.every((candidate) => (
+    state.cloudImportUpdateSelectedIds.has(candidate.record.id)
+  ));
+  const selectedCount = state.cloudImportUpdateSelectedIds.size;
+  const operationTarget = "import-refresh:selection";
+
+  return `
+    <div class="cloud-import-update-dialog" role="presentation">
+      <button class="cloud-import-update-dialog__backdrop" type="button" data-action="dismiss-cloud-import-update-dialog" aria-label="Ignorar por ahora"></button>
+      <section class="cloud-import-update-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="cloud-import-update-title">
+        <div class="account-dialog__header">
+          <div>
+            <p class="account-dialog__eyebrow">Contenido de la comunidad</p>
+            <h2 id="cloud-import-update-title">Hay versiones nuevas</h2>
+          </div>
+          <button class="account-dialog__close" type="button" data-action="dismiss-cloud-import-update-dialog" aria-label="Ignorar por ahora">×</button>
+        </div>
+        <p class="account-dialog__intro">Tu copia no cambia sola. Elige qué entidades quieres reemplazar por la última versión publicada.</p>
+        <div class="cloud-import-update-dialog__toolbar">
+          <button class="account-action-button account-action-button--ghost" type="button" data-action="toggle-all-cloud-import-updates">${allSelected ? "Quitar todas" : "Seleccionar todas"}</button>
+          <span>${selectedCount} seleccionadas</span>
+        </div>
+        <div class="cloud-import-update-list">
+          ${state.cloudImportUpdateCandidates.map(({ record, latest }) => `
+            <label class="cloud-import-update-card">
+              <input type="checkbox" data-cloud-import-update-select="${escapeHtml(record.id)}" ${state.cloudImportUpdateSelectedIds.has(record.id) ? "checked" : ""} />
+              <span>
+                <strong>${escapeHtml(latest.name || record.sourceName)}</strong>
+                <small>${escapeHtml(getCloudLibraryTypeLabel(latest.type || record.sourceType))} · ${escapeHtml(latest.ownerName || record.sourceOwnerName)}${latest.sourceCampaignName || record.sourceCampaignName ? ` · ${escapeHtml(latest.sourceCampaignName || record.sourceCampaignName)}` : ""}</small>
+                <small>Tu versión: ${escapeHtml(formatCampaignSavedAt(record.sourceUpdatedAt) || "sin fecha")} · Nueva: ${escapeHtml(formatCampaignSavedAt(latest.updatedAt) || "sin fecha")}</small>
+              </span>
+            </label>
+          `).join("")}
+        </div>
+        <div class="cloud-import-update-dialog__actions">
+          <button class="account-action-button account-action-button--ghost" type="button" data-action="dismiss-cloud-import-update-dialog">Ignorar por ahora</button>
+          <button class="account-action-button${getCloudButtonBusyClass("loading", operationTarget)}" type="button" data-action="refresh-selected-cloud-import-updates" ${selectedCount > 0 ? renderCloudButtonBusyAttributes("loading", operationTarget) : "disabled"}>${renderCloudButtonLabel("Actualizar selección", "Actualizando...", "loading", operationTarget)}</button>
+        </div>
+      </section>
     </div>
   `;
 }
@@ -9316,9 +9550,6 @@ function renderEncounterInventoryPanel(activeEncounter) {
             <button class="toolbar-button" type="button" data-action="open-encounter-import-export">
               ${escapeHtml(t("import_export_button"))}
             </button>
-            ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:encounter")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="encounter" ${activeEncounter ? renderCloudButtonBusyAttributes("publishing", "publish:encounter") : "disabled"}>
-              ${renderCloudButtonLabel("Publicar encuentro", "Publicando...", "publishing", "publish:encounter")}
-            </button>` : ""}
           </div>
         </div>
         <div class="encounter-list__items">
@@ -9714,7 +9945,6 @@ function renderBestiary() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="compendium-create-row compendium-create-row--toolbar">
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="bestiary">Crear criatura</button>
-          ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:monster")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="monster" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:monster") : "disabled"}>${renderCloudButtonLabel("Publicar criatura", "Publicando...", "publishing", "publish:monster")}</button>` : ""}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderBestiaryQueryField()}
@@ -9753,7 +9983,6 @@ function renderItems() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="items">
             ${escapeHtml(t("create_item"))}
           </button>
-          ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:item")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="item" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:item") : "disabled"}>${renderCloudButtonLabel("Publicar objeto", "Publicando...", "publishing", "publish:item")}</button>` : ""}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
@@ -9792,7 +10021,6 @@ function renderArcanum() {
           <button class="toolbar-button" type="button" data-action="open-create-compendium-entity" data-repository-key="arcanum">
             ${escapeHtml(t("create_spell"))}
           </button>
-          ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:spell")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="spell" ${selectedEntry ? renderCloudButtonBusyAttributes("publishing", "publish:spell") : "disabled"}>${renderCloudButtonLabel("Publicar hechizo", "Publicando...", "publishing", "publish:spell")}</button>` : ""}
         </div>
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
@@ -12378,9 +12606,6 @@ function renderCharactersScreen() {
         <button class="toolbar-button" type="button" data-action="open-character-import-export">
           ${escapeHtml(t("import_export_button"))}
         </button>
-        ${state.accountSession?.user?.id ? `<button class="toolbar-button${getCloudButtonBusyClass("publishing", "publish:character")}" type="button" data-action="publish-current-cloud-entry" data-cloud-entry-type="character" ${activeCharacter ? renderCloudButtonBusyAttributes("publishing", "publish:character") : "disabled"}>
-          ${renderCloudButtonLabel("Publicar personaje", "Publicando...", "publishing", "publish:character")}
-        </button>` : ""}
         <button
           class="toolbar-button characters-toolbar__skills-action ${state.characterSkillConfigOpen ? "is-active" : ""}"
           type="button"
@@ -22997,6 +23222,10 @@ async function refreshCloudLibrary() {
     ]);
     state.cloudLibraryEntries = Array.isArray(ownedResult.entries) ? ownedResult.entries : [];
     state.publicCloudLibraryEntries = Array.isArray(publicResult.entries) ? publicResult.entries : [];
+    updateCloudImportCandidatesFromEntries([
+      ...state.cloudLibraryEntries,
+      ...state.publicCloudLibraryEntries
+    ]);
     state.accountError = "";
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
@@ -23029,6 +23258,10 @@ async function refreshCommunityCatalog() {
     state.cloudLibraryEntries = filteredOwnedEntries;
     state.publicCloudLibraryEntries = filteredPublicEntries;
     state.cloudLocalCatalogItems = Array.isArray(localEntries) ? localEntries : [];
+    updateCloudImportCandidatesFromEntries([
+      ...state.cloudLibraryEntries,
+      ...state.publicCloudLibraryEntries
+    ]);
     state.accountError = "";
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
@@ -23318,6 +23551,11 @@ async function importCloudCompendiumEntry(payload) {
 
   await reloadCompendiumRepository(repositoryKey);
   selectCompendiumEntryAfterCreate(repositoryKey, row);
+  return {
+    repositoryKey,
+    rowKey: getCloudCatalogCompendiumRowKey(repositoryKey, row),
+    mapKey
+  };
 }
 
 function importCloudTableEntry(payload, options = {}) {
@@ -23375,6 +23613,311 @@ function importCloudTableEntry(payload, options = {}) {
       message: `${importedTables.length} tablas añadidas.`
     });
   }
+  return {
+    entityIds: importedTables.map((table) => table.id),
+    folderIds: importedFolders.map((folder) => folder.id)
+  };
+}
+
+function normalizeCloudImportedEntries(value) {
+  const entries = Array.isArray(value?.entries) ? value.entries : Array.isArray(value) ? value : [];
+  return entries.map((record) => {
+    if (!isPlainObject(record) || !cleanText(record.sourceEntryId)) {
+      return null;
+    }
+
+    const refs = isPlainObject(record.localRefs) ? record.localRefs : {};
+    return {
+      id: cleanText(record.id) || createStableId("cloud-import"),
+      sourceEntryId: cleanText(record.sourceEntryId),
+      sourceRevision: Math.max(0, Math.floor(toNumber(record.sourceRevision))),
+      sourceContentHash: cleanText(record.sourceContentHash),
+      sourceUpdatedAt: cleanText(record.sourceUpdatedAt),
+      sourceName: cleanText(record.sourceName) || "Contenido de la comunidad",
+      sourceType: cleanText(record.sourceType).toLowerCase(),
+      sourceOwnerName: cleanText(record.sourceOwnerName) || "Usuario de Mimic Dice",
+      sourceCampaignName: cleanText(record.sourceCampaignName),
+      importedAt: cleanText(record.importedAt),
+      localRefs: {
+        entityIds: Array.isArray(refs.entityIds) ? refs.entityIds.map((value) => cleanText(value)).filter(Boolean) : [],
+        folderIds: Array.isArray(refs.folderIds) ? refs.folderIds.map((value) => cleanText(value)).filter(Boolean) : [],
+        dayNotes: isPlainObject(refs.dayNotes) ? refs.dayNotes : {},
+        repositoryKey: cleanText(refs.repositoryKey).toLowerCase(),
+        rowKey: cleanText(refs.rowKey),
+        mapKey: cleanText(refs.mapKey)
+      }
+    };
+  }).filter(Boolean);
+}
+
+function createCloudImportedEntryRecord(result, localRefs, recordId = "") {
+  const entry = result?.entry || {};
+  return normalizeCloudImportedEntries({ entries: [{
+    id: recordId || createStableId("cloud-import"),
+    sourceEntryId: entry.id,
+    sourceRevision: entry.revision,
+    sourceContentHash: entry.contentHash,
+    sourceUpdatedAt: entry.updatedAt,
+    sourceName: entry.name,
+    sourceType: entry.type,
+    sourceOwnerName: entry.ownerName,
+    sourceCampaignName: entry.sourceCampaignName,
+    importedAt: new Date().toISOString(),
+    localRefs
+  }] })[0];
+}
+
+function recordCloudLibraryImport(result, localRefs) {
+  const record = createCloudImportedEntryRecord(result, localRefs);
+
+  if (!record) {
+    return null;
+  }
+
+  state.cloudImportedEntries = [...state.cloudImportedEntries, record];
+  scheduleDesktopCampaignDirtyStateSync(60);
+  return record;
+}
+
+function hasCloudImportedEntryChanged(record, latest) {
+  const previousHash = cleanText(record.sourceContentHash);
+  const latestHash = cleanText(latest?.contentHash);
+
+  if (previousHash && latestHash) {
+    return previousHash !== latestHash;
+  }
+
+  if (cleanText(latest?.entryKind).toLowerCase() === "manual" && !latestHash) {
+    return false;
+  }
+
+  return Math.max(0, Math.floor(toNumber(latest?.revision))) > record.sourceRevision;
+}
+
+function updateCloudImportCandidatesFromEntries(entries, options = {}) {
+  const latestById = new Map((Array.isArray(entries) ? entries : [])
+    .filter((entry) => cleanText(entry?.id))
+    .map((entry) => [cleanText(entry.id), entry]));
+  const candidates = state.cloudImportedEntries.map((record) => {
+    const latest = latestById.get(record.sourceEntryId);
+    return latest && hasCloudImportedEntryChanged(record, latest) ? { record, latest } : null;
+  }).filter(Boolean);
+  state.cloudImportUpdateCandidates = candidates;
+
+  if (options.showDialog === true && candidates.length > 0) {
+    state.cloudImportUpdateSelectedIds = new Set(candidates.map((candidate) => candidate.record.id));
+    state.cloudImportUpdateDialogOpen = true;
+  } else {
+    const candidateIds = new Set(candidates.map((candidate) => candidate.record.id));
+    state.cloudImportUpdateSelectedIds = new Set(
+      [...state.cloudImportUpdateSelectedIds].filter((id) => candidateIds.has(id))
+    );
+  }
+}
+
+async function checkCloudImportedEntryUpdates(options = {}) {
+  if (state.cloudImportedEntries.length === 0 || !canUseCloudAccounts()) {
+    state.cloudImportUpdateCandidates = [];
+    return;
+  }
+
+  try {
+    const [ownedResult, publicResult] = await Promise.all([
+      state.accountSession?.user?.id ? listCloudLibraryEntries() : Promise.resolve({ entries: [] }),
+      listPublicCloudLibraryEntries()
+    ]);
+    const [ownedEntries, publicEntries] = await Promise.all([
+      filterBundledBaseCloudCatalogEntries(ownedResult.entries),
+      filterBundledBaseCloudCatalogEntries(publicResult.entries)
+    ]);
+    const latestById = new Map([...ownedEntries, ...publicEntries].map((entry) => [entry.id, entry]));
+    updateCloudImportCandidatesFromEntries([...latestById.values()], options);
+  } catch {
+    // Imported copies stay usable offline or when their source is no longer public.
+  }
+
+  render();
+}
+
+function queueCloudImportedEntryUpdateCheck() {
+  if (typeof window === "undefined" || state.cloudImportedEntries.length === 0) {
+    return;
+  }
+
+  if (cloudImportUpdateCheckTimer) {
+    window.clearTimeout(cloudImportUpdateCheckTimer);
+  }
+
+  cloudImportUpdateCheckTimer = window.setTimeout(() => {
+    cloudImportUpdateCheckTimer = 0;
+    void checkCloudImportedEntryUpdates({ showDialog: true });
+  }, 250);
+}
+
+async function removeCloudImportedMaterial(record) {
+  const refs = record.localRefs || {};
+  const entityIds = new Set(refs.entityIds || []);
+  const folderIds = new Set(refs.folderIds || []);
+
+  if (record.sourceType === "character") {
+    state.characters = state.characters.filter((entry) => !entityIds.has(entry.id));
+    state.activeCharacterId = state.characters.some((entry) => entry.id === state.activeCharacterId)
+      ? state.activeCharacterId
+      : state.characters[0]?.id || "";
+    state.selectedCharacterIds = new Set([...state.selectedCharacterIds].filter((id) => !entityIds.has(id)));
+    saveCharacters();
+    return;
+  }
+
+  if (record.sourceType === "encounter") {
+    state.encounters = state.encounters.filter((entry) => !entityIds.has(entry.id));
+    const usedFolderIds = new Set(state.encounters.map((entry) => entry.folderId).filter(Boolean));
+    state.encounterFolders = state.encounterFolders.filter((folder) => !folderIds.has(folder.id) || usedFolderIds.has(folder.id));
+    state.activeEncounterId = state.encounters.some((entry) => entry.id === state.activeEncounterId)
+      ? state.activeEncounterId
+      : state.encounters[0]?.id || "";
+    state.activeEncounterFolderId = state.encounters.find((entry) => entry.id === state.activeEncounterId)?.folderId || "";
+    saveEncounterInventory();
+    return;
+  }
+
+  if (record.sourceType === "diary") {
+    state.diaryNotes = state.diaryNotes.filter((entry) => !entityIds.has(entry.id));
+    const usedFolderIds = new Set(state.diaryNotes.map((entry) => entry.folderId).filter(Boolean));
+    state.diaryFolders = state.diaryFolders.filter((folder) => !folderIds.has(folder.id) || usedFolderIds.has(folder.id));
+    const nextDayNotes = { ...state.diaryHarptosDayNotes };
+    Object.entries(refs.dayNotes || {}).forEach(([key, value]) => {
+      if (JSON.stringify(nextDayNotes[key]) === JSON.stringify(value)) {
+        delete nextDayNotes[key];
+      }
+    });
+    state.diaryHarptosDayNotes = nextDayNotes;
+    reconcileDiaryUiState();
+    saveDiaryState();
+    return;
+  }
+
+  if (record.sourceType === "table") {
+    state.tables = state.tables.filter((entry) => !entityIds.has(entry.id));
+    const usedFolderIds = new Set(state.tables.map((entry) => entry.folderId).filter(Boolean));
+    state.tableFolders = state.tableFolders.filter((folder) => !folderIds.has(folder.id) || usedFolderIds.has(folder.id));
+    reconcileTablesUiState();
+    saveTablesState();
+    return;
+  }
+
+  if (["spell", "item", "monster"].includes(record.sourceType) && refs.repositoryKey && refs.rowKey) {
+    const currentText = await loadRepositoryCsvRawText(refs.repositoryKey);
+    const lineBreak = currentText.includes("\r\n") ? "\r\n" : "\n";
+    const headers = extractCsvHeaders(currentText, getCompendiumCsvHeaders(refs.repositoryKey));
+    const rows = parseCsv(currentText)
+      .filter((row) => getCloudCatalogCompendiumRowKey(refs.repositoryKey, row) !== refs.rowKey)
+      .map((row) => Object.fromEntries(headers.map((header) => [header, String(row?.[header] ?? "")])));
+    await writeRepositoryCsvRawText(refs.repositoryKey, serializeCsvRows(headers, rows, lineBreak));
+
+    if (refs.repositoryKey === "bestiary" && refs.mapKey) {
+      const nextMap = { ...state.customBestiaryImageMap };
+      delete nextMap[refs.mapKey];
+      saveBestiaryCustomImageMap(nextMap);
+    } else if (refs.repositoryKey === "items" && refs.mapKey) {
+      const nextMap = { ...state.customItemImageMap };
+      delete nextMap[refs.mapKey];
+      saveItemCustomImageMap(nextMap);
+    }
+
+    await reloadCompendiumRepository(refs.repositoryKey);
+  }
+}
+
+async function refreshCloudImportedRecord(recordId) {
+  const record = state.cloudImportedEntries.find((entry) => entry.id === recordId);
+
+  if (!record) {
+    return false;
+  }
+
+  const result = await getCloudLibraryEntry(record.sourceEntryId);
+
+  if (cleanText(result?.entry?.type).toLowerCase() !== record.sourceType) {
+    throw new Error("La publicación cambió de tipo y no se puede actualizar con seguridad.");
+  }
+
+  const backup = normalizeCampaignSave(createCampaignSavePayload());
+
+  try {
+    await removeCloudImportedMaterial(record);
+    const localRefs = await applyCloudLibraryEntryResult(result, { notify: false });
+    const updatedRecord = createCloudImportedEntryRecord(result, localRefs, record.id);
+
+    if (!updatedRecord) {
+      throw new Error("No se pudo vincular la nueva versión.");
+    }
+
+    state.cloudImportedEntries = state.cloudImportedEntries.map((entry) => (
+      entry.id === record.id ? updatedRecord : entry
+    ));
+    return true;
+  } catch (error) {
+    applyCampaignSave(backup);
+    throw error;
+  }
+}
+
+function refreshCloudImportedRecords(recordIds, options = {}) {
+  cloudCatalogImportQueue = cloudCatalogImportQueue.then(
+    () => performCloudImportedRecordsRefresh(recordIds, options),
+    () => performCloudImportedRecordsRefresh(recordIds, options)
+  );
+  return cloudCatalogImportQueue;
+}
+
+async function performCloudImportedRecordsRefresh(recordIds, options = {}) {
+  const ids = [...new Set(recordIds.map((value) => cleanText(value)).filter(Boolean))];
+
+  if (ids.length === 0) {
+    return;
+  }
+
+  const operationTarget = options.operationTarget || "import-refresh:selection";
+  beginCloudOperation("loading", operationTarget);
+  let refreshed = 0;
+  const failures = [];
+
+  for (const recordId of ids) {
+    try {
+      refreshed += await refreshCloudImportedRecord(recordId) ? 1 : 0;
+    } catch (error) {
+      failures.push(getCloudErrorMessage(error));
+    }
+  }
+
+  if (refreshed > 0) {
+    scheduleDesktopCampaignDirtyStateSync(60);
+    pushNotification({
+      title: "Contenido actualizado",
+      message: `${refreshed} ${refreshed === 1 ? "entidad actualizada" : "entidades actualizadas"} a la última versión.`
+    });
+  }
+
+  if (failures.length > 0) {
+    state.accountError = `${failures.length} actualizaciones fallaron. ${failures[0]}`;
+  }
+
+  updateCloudImportCandidatesFromEntries([
+    ...state.cloudLibraryEntries,
+    ...state.publicCloudLibraryEntries
+  ]);
+  state.cloudImportUpdateDialogOpen = state.cloudImportUpdateCandidates.length > 0;
+  endCloudOperation("loading", operationTarget);
+  render();
+}
+
+async function refreshCloudImportedEntryCopies(entryId) {
+  const candidates = getCloudImportCandidatesForEntry(entryId);
+  await refreshCloudImportedRecords(
+    candidates.map((candidate) => candidate.record.id),
+    { operationTarget: `import-refresh:${entryId}` }
+  );
 }
 
 async function applyCloudLibraryEntryResult(result, options = {}) {
@@ -23384,15 +23927,15 @@ async function applyCloudLibraryEntryResult(result, options = {}) {
     : await materializePublicCloudAssetsForGuest(result.payload);
 
   if (type === "character") {
-    importCharactersFromPayload(payload, options);
+    return importCharactersFromPayload(payload, options);
   } else if (type === "encounter") {
-    importEncountersFromPayload(payload, options);
+    return importEncountersFromPayload(payload, options);
   } else if (type === "diary") {
-    importDiaryFromPayload(payload, options);
+    return importDiaryFromPayload(payload, options);
   } else if (type === "table") {
-    importCloudTableEntry(payload, options);
+    return importCloudTableEntry(payload, options);
   } else if (["spell", "item", "monster"].includes(type)) {
-    await importCloudCompendiumEntry(payload);
+    return importCloudCompendiumEntry(payload);
   } else {
     throw new Error("Tipo de publicación desconocido.");
   }
@@ -23405,7 +23948,8 @@ async function importCloudLibraryEntry(entryId) {
 
   try {
     const result = await getCloudLibraryEntry(entryId);
-    await applyCloudLibraryEntryResult(result);
+    const localRefs = await applyCloudLibraryEntryResult(result);
+    recordCloudLibraryImport(result, localRefs);
 
     pushNotification({
       title: "Contenido añadido",
@@ -23421,20 +23965,25 @@ async function importCloudLibraryEntry(entryId) {
   render();
 }
 
-async function importCloudCatalogSelection() {
-  const selectionPrefix = state.cloudCatalogTab === "campaign" ? "campaign:" : "entry:";
-  const selectedIds = [...state.cloudCatalogSelectedIds]
-    .filter((key) => key.startsWith(selectionPrefix))
-    .map((key) => key.slice(selectionPrefix.length))
-    .filter(Boolean);
+function importCloudCatalogSelectionKeys(selectionKeys) {
+  cloudCatalogImportQueue = cloudCatalogImportQueue.then(
+    () => performCloudCatalogSelectionImport(selectionKeys),
+    () => performCloudCatalogSelectionImport(selectionKeys)
+  );
+  return cloudCatalogImportQueue;
+}
 
-  if (selectedIds.length === 0) {
+async function performCloudCatalogSelectionImport(selectionKeys) {
+  const keys = [...new Set((Array.isArray(selectionKeys) ? selectionKeys : []).map((value) => cleanText(value)).filter(Boolean))];
+
+  if (keys.length === 0) {
     return;
   }
 
-  if (state.cloudCatalogTab === "campaign") {
-    const [campaignId] = selectedIds;
-    state.cloudCatalogSelectedIds = new Set();
+  const campaignKey = keys.find((key) => key.startsWith("campaign:"));
+
+  if (campaignKey) {
+    const campaignId = campaignKey.slice("campaign:".length);
 
     if (state.accountSession?.user?.id) {
       await clonePublicCampaign(campaignId);
@@ -23447,25 +23996,50 @@ async function importCloudCatalogSelection() {
   const operationTarget = "catalog:import";
   beginCloudOperation("loading", operationTarget);
   let importedCount = 0;
+  let alreadyLoadedCount = 0;
   const failures = [];
+  const failedSelectionKeys = [];
+  const selectedIds = keys
+    .filter((key) => key.startsWith("entry:"))
+    .map((key) => key.slice("entry:".length))
+    .filter(Boolean);
 
   for (const entryId of selectedIds) {
+    if (state.cloudImportedEntries.some((record) => record.sourceEntryId === entryId)) {
+      alreadyLoadedCount += 1;
+      continue;
+    }
+
     try {
       const result = await getCloudLibraryEntry(entryId);
-      await applyCloudLibraryEntryResult(result, { notify: false });
+      const localRefs = await applyCloudLibraryEntryResult(result, { notify: false });
+      recordCloudLibraryImport(result, localRefs);
       importedCount += 1;
     } catch (error) {
       failures.push(getCloudErrorMessage(error));
+      failedSelectionKeys.push(`entry:${entryId}`);
     }
   }
 
-  state.cloudCatalogSelectedIds = new Set();
+  if (failedSelectionKeys.length > 0) {
+    const nextSelection = new Set(state.cloudCatalogSelectedIds);
+    failedSelectionKeys.forEach((key) => nextSelection.delete(key));
+    state.cloudCatalogSelectedIds = nextSelection;
+  }
+
   endCloudOperation("loading", operationTarget);
 
   if (importedCount > 0) {
     pushNotification({
       title: "Contenido añadido",
       message: `${importedCount} publicaciones copiadas a tu campaña.`
+    });
+  }
+
+  if (alreadyLoadedCount > 0 && importedCount === 0) {
+    pushNotification({
+      title: "Contenido ya cargado",
+      message: "Esta publicación ya tiene una copia vinculada en la campaña actual."
     });
   }
 
@@ -24768,6 +25342,10 @@ function createCampaignSavePayload(options = {}) {
       items: isPlainObject(state.customItemImageMap) ? state.customItemImageMap : {},
       arcanum: isPlainObject(state.customArcanumMap) ? state.customArcanumMap : {}
     },
+    cloudImports: {
+      version: 1,
+      entries: normalizeCloudImportedEntries(state.cloudImportedEntries)
+    },
     ui: {
       activeScreen: state.activeScreen,
       activeEncounterId: state.activeEncounterId,
@@ -24822,6 +25400,7 @@ function normalizeCampaignSave(value) {
   const ui = isPlainObject(value.ui) ? value.ui : {};
   const campaign = isPlainObject(value.campaign) ? value.campaign : {};
   const compendiumCustomMaps = isPlainObject(value.compendiumCustomMaps) ? value.compendiumCustomMaps : {};
+  const cloudImportedEntries = normalizeCloudImportedEntries(value.cloudImports);
   const name = cleanText(campaign.name) || cleanText(value.name) || "Campaña sin nombre";
 
   return {
@@ -24842,6 +25421,7 @@ function normalizeCampaignSave(value) {
     soundSettings: normalizeStoredSoundSettings(ui.soundSettings),
     repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths),
     repositoryCsvOverrides: normalizeStoredRepositoryCsvOverrides(value.repositoryCsvOverrides),
+    cloudImportedEntries,
     compendiumCustomMaps: {
       bestiary: isPlainObject(compendiumCustomMaps.bestiary) ? compendiumCustomMaps.bestiary : {},
       items: isPlainObject(compendiumCustomMaps.items) ? compendiumCustomMaps.items : {},
@@ -24905,6 +25485,10 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.includeNpcInCombatExperience = campaign.includeNpcInCombatExperience;
   state.soundSettings = campaign.soundSettings;
   state.repositoryCsvPaths = campaign.repositoryCsvPaths;
+  state.cloudImportedEntries = normalizeCloudImportedEntries(campaign.cloudImportedEntries);
+  state.cloudImportUpdateCandidates = [];
+  state.cloudImportUpdateDialogOpen = false;
+  state.cloudImportUpdateSelectedIds = new Set();
   state.repositoryCsvUploads = { ...blankRepositoryCsvUploads };
   saveBestiaryCustomImageMap(campaign.compendiumCustomMaps?.bestiary ?? {});
   saveItemCustomImageMap(campaign.compendiumCustomMaps?.items ?? {});
@@ -24958,6 +25542,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   state.diaryFolders = campaign.diary.folders;
   state.systemDiaryFolderExpanded = campaign.diary.systemFolderExpanded;
   state.diaryTagColors = campaign.diary.tagColors;
+  state.diaryHarptosDayNotes = campaign.diary.harptosDayNotes;
   state.diaryNotes = campaign.diary.notes.map((note) => ({
     ...note,
     contentHtml: normalizeDiaryContentHtml(note.contentHtml)
@@ -24990,6 +25575,7 @@ function applyCampaignSave(campaign, fileResult = null) {
   saveCampaignMeta();
   lastSavedCampaignSnapshot = getComparableCampaignSnapshot();
   scheduleDesktopCampaignDirtyStateSync();
+  queueCloudImportedEntryUpdateCheck();
 }
 
 function normalizeCampaignActiveEncounterId(value, encounters) {

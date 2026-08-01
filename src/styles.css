@@ -1742,8 +1742,12 @@ button.is-cloud-busy:disabled {
   display: flex;
   flex-wrap: wrap;
   align-self: end;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 0.42rem;
+}
+
+.cloud-catalog-card__detail {
+  margin-left: auto;
 }
 
 .cloud-catalog-groups {
@@ -1864,6 +1868,166 @@ button.is-cloud-busy:disabled {
   color: #c7b293;
   font-size: 0.8rem;
   font-weight: 700;
+}
+
+.cloud-catalog-selection-bar__actions,
+.account-registration-actions,
+.cloud-import-update-dialog__actions,
+.cloud-import-update-dialog__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cloud-catalog-selected-panel {
+  display: grid;
+  gap: 0.72rem;
+  margin-top: 1rem;
+  padding: 0.82rem;
+  border: 1px solid rgba(222, 170, 91, 0.3);
+  border-radius: 0.78rem;
+  background: rgba(55, 35, 23, 0.48);
+}
+
+.cloud-catalog-selected-group {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 0.6rem;
+}
+
+.cloud-catalog-selected-group > strong {
+  color: #d8bb8a;
+  font-size: 0.78rem;
+}
+
+.cloud-catalog-selected-group > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.cloud-catalog-selected-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 20rem;
+  padding: 0.38rem 0.42rem 0.38rem 0.58rem;
+  border: 1px solid rgba(202, 152, 81, 0.26);
+  border-radius: 999px;
+  color: #dbc39d;
+  background: rgba(20, 13, 9, 0.72);
+}
+
+.cloud-catalog-selected-chip > span {
+  display: grid;
+  min-width: 0;
+}
+
+.cloud-catalog-selected-chip b,
+.cloud-catalog-selected-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-catalog-selected-chip small {
+  color: #a99577;
+  font-size: 0.62rem;
+}
+
+.cloud-catalog-selected-chip button {
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #d6bd95;
+  background: rgba(105, 67, 36, 0.5);
+  cursor: pointer;
+}
+
+.cloud-import-update-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.cloud-import-update-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(4, 3, 2, 0.82);
+  backdrop-filter: blur(5px);
+}
+
+.cloud-import-update-dialog__panel {
+  position: relative;
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  padding: 1.2rem;
+  border: 1px solid rgba(219, 170, 94, 0.52);
+  border-radius: 1rem;
+  color: #d5c2a2;
+  background: linear-gradient(155deg, #2a1b13, #100b08);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.65);
+}
+
+.cloud-import-update-dialog__toolbar {
+  justify-content: space-between;
+  margin: 0.8rem 0;
+}
+
+.cloud-import-update-list {
+  display: grid;
+  gap: 0.5rem;
+  max-height: min(48vh, 28rem);
+  overflow: auto;
+}
+
+.cloud-import-update-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(202, 152, 81, 0.22);
+  border-radius: 0.68rem;
+  background: rgba(255, 235, 201, 0.035);
+  cursor: pointer;
+}
+
+.cloud-import-update-card input {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0.12rem 0 0;
+  accent-color: #c9944f;
+}
+
+.cloud-import-update-card > span {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.cloud-import-update-card strong {
+  color: #ead0a1;
+}
+
+.cloud-import-update-card small {
+  color: #ab987d;
+}
+
+.cloud-import-update-dialog__actions {
+  margin-top: 0.9rem;
 }
 
 .cloud-catalog-preview {
@@ -2068,6 +2232,14 @@ button.is-cloud-busy:disabled {
 
   .cloud-catalog-card__actions .account-action-button {
     flex: 1 1 auto;
+  }
+
+  .cloud-catalog-card__detail {
+    margin-left: 0;
+  }
+
+  .cloud-catalog-selected-group {
+    grid-template-columns: 1fr;
   }
 
   .cloud-catalog-group__header {

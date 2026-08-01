@@ -16,6 +16,14 @@ function byteLength(value) {
   return new TextEncoder().encode(JSON.stringify(value ?? {})).byteLength;
 }
 
+async function contentHash(value) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value ?? {}));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((part) => part.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function selectionExportBase(category, payload) {
   return {
     schema: "mimic-dice-selection-export",
@@ -286,12 +294,18 @@ export async function syncCampaignCatalog(db, {
   const activeKeys = new Set();
   const now = new Date().toISOString();
   const statements = [];
+  const preparedDescriptors = await Promise.all(descriptors.map(async (descriptor) => {
+    const descriptorPayload = buildDescriptorPayload(payload, descriptor);
+    return {
+      descriptor,
+      payloadBytes: descriptorPayload ? byteLength(descriptorPayload) : 0,
+      descriptorContentHash: descriptorPayload ? await contentHash(descriptorPayload) : ""
+    };
+  }));
 
-  descriptors.forEach((descriptor) => {
+  for (const { descriptor, payloadBytes, descriptorContentHash } of preparedDescriptors) {
     activeKeys.add(descriptor.key);
     const existing = existingByKey.get(descriptor.key);
-    const descriptorPayload = buildDescriptorPayload(payload, descriptor);
-    const payloadBytes = descriptorPayload ? byteLength(descriptorPayload) : 0;
     const nextVisibility = forceVisibility === null
       ? existing ? existing.isPublic : (isPublic ? 1 : 0)
       : forceVisibility ? 1 : 0;
@@ -300,8 +314,8 @@ export async function syncCampaignCatalog(db, {
       statements.push(db.prepare(`
         INSERT INTO "cloud_catalog_entries" (
           "id", "ownerId", "sourceCampaignId", "sourceEntityKey", "type", "name",
-          "description", "groupName", "imageUrl", "isPublic", "revision", "payloadBytes", "createdAt", "updatedAt"
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+          "description", "groupName", "imageUrl", "isPublic", "revision", "payloadBytes", "contentHash", "createdAt", "updatedAt"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
       `).bind(
         crypto.randomUUID(),
         ownerId,
@@ -314,10 +328,11 @@ export async function syncCampaignCatalog(db, {
         descriptor.imageUrl,
         nextVisibility,
         payloadBytes,
+        descriptorContentHash,
         now,
         now
       ));
-      return;
+      continue;
     }
 
     if (
@@ -327,12 +342,13 @@ export async function syncCampaignCatalog(db, {
       || (existing.groupName || "") !== descriptor.groupName
       || (existing.imageUrl || "") !== descriptor.imageUrl
       || Number(existing.payloadBytes || 0) !== payloadBytes
+      || (existing.contentHash || "") !== descriptorContentHash
       || Number(existing.isPublic || 0) !== Number(nextVisibility)
     ) {
       statements.push(db.prepare(`
         UPDATE "cloud_catalog_entries"
         SET "type" = ?, "name" = ?, "description" = ?, "groupName" = ?, "imageUrl" = ?, "isPublic" = ?,
-            "payloadBytes" = ?, "revision" = "revision" + 1, "updatedAt" = ?
+            "payloadBytes" = ?, "contentHash" = ?, "revision" = "revision" + 1, "updatedAt" = ?
         WHERE "id" = ? AND "ownerId" = ?
       `).bind(
         descriptor.type,
@@ -342,26 +358,19 @@ export async function syncCampaignCatalog(db, {
         descriptor.imageUrl,
         nextVisibility,
         payloadBytes,
+        descriptorContentHash,
         now,
         existing.id,
         ownerId
       ));
     }
-  });
+  }
 
   existingRows.filter((row) => !activeKeys.has(row.sourceEntityKey)).forEach((row) => {
     statements.push(db.prepare(
       'DELETE FROM "cloud_catalog_entries" WHERE "id" = ? AND "ownerId" = ?'
     ).bind(row.id, ownerId));
   });
-
-  if (descriptors.length > 0) {
-    statements.push(db.prepare(`
-      UPDATE "cloud_catalog_entries"
-      SET "updatedAt" = ?
-      WHERE "sourceCampaignId" = ? AND "ownerId" = ?
-    `).bind(now, campaignId, ownerId));
-  }
 
   if (statements.length > 0) {
     await executeBatches(db, statements);

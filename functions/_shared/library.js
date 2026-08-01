@@ -88,7 +88,8 @@ function entrySummary(row, currentUserId = "") {
     sourceCampaignName: row.sourceCampaignName || "",
     sourceEntityKey: row.sourceEntityKey || "",
     groupName: row.groupName || "",
-    imageUrl: row.imageUrl || ""
+    imageUrl: row.imageUrl || "",
+    contentHash: row.contentHash || ""
   };
 }
 
