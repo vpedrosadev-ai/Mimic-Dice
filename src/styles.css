@@ -1597,6 +1597,48 @@ button.is-cloud-busy:disabled {
   scroll-margin-top: 1rem;
 }
 
+.cloud-catalog-loaded-groups {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.cloud-catalog-loaded-group {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(202, 152, 81, 0.22);
+  border-radius: 0.78rem;
+  background: rgba(12, 8, 6, 0.34);
+}
+
+.cloud-catalog-loaded-group--imported {
+  border-color: rgba(94, 183, 166, 0.28);
+  background: rgba(35, 75, 68, 0.1);
+}
+
+.cloud-catalog-loaded-group__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.cloud-catalog-loaded-group__heading h4 {
+  margin: 0;
+  color: #e5cfa9;
+  font-size: 0.86rem;
+}
+
+.cloud-catalog-loaded-group__heading span {
+  min-width: 1.75rem;
+  padding: 0.15rem 0.42rem;
+  border-radius: 999px;
+  color: #d8c09b;
+  text-align: center;
+  background: rgba(15, 10, 7, 0.6);
+  font-size: 0.72rem;
+}
+
 .cloud-catalog-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1879,76 +1921,6 @@ button.is-cloud-busy:disabled {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 0.5rem;
-}
-
-.cloud-catalog-selected-panel {
-  display: grid;
-  gap: 0.72rem;
-  margin-top: 1rem;
-  padding: 0.82rem;
-  border: 1px solid rgba(222, 170, 91, 0.3);
-  border-radius: 0.78rem;
-  background: rgba(55, 35, 23, 0.48);
-}
-
-.cloud-catalog-selected-group {
-  display: grid;
-  grid-template-columns: minmax(7rem, 0.2fr) minmax(0, 1fr);
-  align-items: start;
-  gap: 0.6rem;
-}
-
-.cloud-catalog-selected-group > strong {
-  color: #d8bb8a;
-  font-size: 0.78rem;
-}
-
-.cloud-catalog-selected-group > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.42rem;
-}
-
-.cloud-catalog-selected-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  max-width: 20rem;
-  padding: 0.38rem 0.42rem 0.38rem 0.58rem;
-  border: 1px solid rgba(202, 152, 81, 0.26);
-  border-radius: 999px;
-  color: #dbc39d;
-  background: rgba(20, 13, 9, 0.72);
-}
-
-.cloud-catalog-selected-chip > span {
-  display: grid;
-  min-width: 0;
-}
-
-.cloud-catalog-selected-chip b,
-.cloud-catalog-selected-chip small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cloud-catalog-selected-chip small {
-  color: #a99577;
-  font-size: 0.62rem;
-}
-
-.cloud-catalog-selected-chip button {
-  display: grid;
-  place-items: center;
-  width: 1.45rem;
-  height: 1.45rem;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  color: #d6bd95;
-  background: rgba(105, 67, 36, 0.5);
-  cursor: pointer;
 }
 
 .cloud-import-update-dialog {
@@ -2236,10 +2208,6 @@ button.is-cloud-busy:disabled {
 
   .cloud-catalog-card__detail {
     margin-left: 0;
-  }
-
-  .cloud-catalog-selected-group {
-    grid-template-columns: 1fr;
   }
 
   .cloud-catalog-group__header {
@@ -13200,16 +13168,6 @@ body.is-table-resizing * {
 
 .bestiary-toolbar__clear {
   min-width: 0;
-}
-
-.compendium-create-row {
-  display: flex;
-  justify-content: flex-start;
-  margin-bottom: 1rem;
-}
-
-.compendium-create-row--bestiary {
-  margin-top: 1rem;
 }
 
 .bestiary-query {
