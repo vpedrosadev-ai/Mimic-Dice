@@ -188,6 +188,11 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     background: cleanText(character.background),
     size: cleanText(character.size) || "Mediano",
     proficiencyBonus: getDefaultCharacterProficiencyBonus(level),
+    proficiencyBonusOverride: character.proficiencyBonusOverride === ""
+      || character.proficiencyBonusOverride === undefined
+      || character.proficiencyBonusOverride === null
+      ? ""
+      : Math.max(0, Math.min(20, Math.floor(toNumber(normalizeStoredNumber(character.proficiencyBonusOverride)) || 0))),
     proficiencies: normalizeStoredCharacterProficiencies(character.proficiencies),
     tokenUrl: cleanText(character.tokenUrl),
     sheetPdfUrl: cleanText(character.sheetPdfUrl),

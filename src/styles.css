@@ -12623,6 +12623,26 @@ body.is-table-resizing * {
   font-size: 1.3rem;
 }
 
+.character-pdf-import-dialog__panel {
+  width: min(36rem, 100%);
+}
+
+.character-pdf-import-dialog__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.character-pdf-import-dialog__summary span {
+  padding: 0.42rem 0.65rem;
+  border: 1px solid rgba(240, 200, 121, 0.24);
+  border-radius: 999px;
+  background: rgba(240, 200, 121, 0.08);
+  color: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .character-rows-add {
   display: flex;
   justify-content: flex-start;

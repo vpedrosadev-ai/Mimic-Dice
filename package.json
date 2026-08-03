@@ -89,6 +89,7 @@
   "dependencies": {
     "@auth/core": "^0.41.3",
     "@auth/d1-adapter": "^1.11.3",
+    "pdf-lib": "^1.17.1",
     "xlsx": "^0.18.5"
   }
 }

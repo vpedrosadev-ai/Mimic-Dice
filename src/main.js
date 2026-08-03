@@ -47,6 +47,11 @@ import { parseCsv } from "./shared/csv.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
 import { createCompendiumListRenderers } from "./screens/compendiums/listRender.js";
 import { createCharacterStateController } from "./screens/characters/characterState.js";
+import {
+  extractCharacterDataFromPdf,
+  fillCharacterPdfTemplate,
+  getCharacterPdfImportLabels
+} from "./screens/characters/characterPdf.js";
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
@@ -104,6 +109,7 @@ import {
   uploadCloudPdf
 } from "./cloud/cloudClient.js";
 import appIconUrl from "../build-resources/icon.png";
+import characterPdfTemplateUrl from "./assets/templates/character-sheet-alternative-form-fillable.pdf?url";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
 import combatHitDiceIconUrl from "./assets/buttons-icons/Dados_golpe.png";
 import combatShieldIconUrl from "./assets/buttons-icons/Shield.png";
@@ -756,6 +762,9 @@ state = {
   characterSpellbookAbilityDescriptionDialogOpen: false,
   characterSpellbookAbilityDescriptionDialogRowId: "",
   characterSpellbookAbilityDescriptionDialogValue: "",
+  characterPdfImportDialogOpen: false,
+  characterPdfImportCharacterId: "",
+  characterPdfImportData: null,
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   charactersOverviewHidden: false,
@@ -2149,6 +2158,22 @@ async function handleClick(event) {
   if (action === "remove-character-image") {
     removeActiveCharacterImage();
     render();
+    return;
+  }
+
+  if (action === "export-character-pdf") {
+    await exportActiveCharacterPdf();
+    return;
+  }
+
+  if (action === "dismiss-character-pdf-import-dialog") {
+    closeCharacterPdfImportDialog();
+    render();
+    return;
+  }
+
+  if (action === "confirm-character-pdf-import-dialog") {
+    importPendingCharacterPdfData();
     return;
   }
 
@@ -4399,6 +4424,13 @@ function handleInput(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (state.characterPdfImportDialogOpen && event.key === "Escape") {
+    event.preventDefault();
+    closeCharacterPdfImportDialog();
+    render();
+    return;
+  }
+
   if (state.campaignSaveNameDialogOpen && event.key === "Escape") {
     event.preventDefault();
     closeCampaignSaveNameDialog();
@@ -7035,6 +7067,62 @@ function captureRenderViewportState() {
   };
 }
 
+function renderCharacterPdfImportDialog() {
+  if (!state.characterPdfImportDialogOpen || !state.characterPdfImportData) {
+    return "";
+  }
+
+  const character = state.characters.find((entry) => entry.id === state.characterPdfImportCharacterId) ?? null;
+  const labels = getCharacterPdfImportLabels(state.characterPdfImportData);
+
+  if (!character || labels.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="campaign-save-dialog character-pdf-import-dialog" role="presentation">
+      <div
+        class="campaign-save-dialog__backdrop"
+        data-action="dismiss-character-pdf-import-dialog"
+        aria-hidden="true"
+      ></div>
+      <section
+        class="campaign-save-dialog__panel character-pdf-import-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-pdf-import-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">Ficha PDF vinculada</p>
+        <h2 class="campaign-save-dialog__title" id="character-pdf-import-dialog-title">
+          ¿Importar los datos detectados?
+        </h2>
+        <p class="campaign-save-dialog__text">
+          Se copiarán a <strong>${escapeHtml(character.name || "el personaje seleccionado")}</strong>. La ficha PDF seguirá vinculada aunque decidas no importar.
+        </p>
+        <div class="character-pdf-import-dialog__summary" aria-label="Datos detectados">
+          ${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}
+        </div>
+        <div class="campaign-save-dialog__actions">
+          <button
+            class="summary-button summary-button--ghost"
+            type="button"
+            data-action="dismiss-character-pdf-import-dialog"
+          >
+            Ahora no
+          </button>
+          <button
+            class="summary-button"
+            type="button"
+            data-action="confirm-character-pdf-import-dialog"
+          >
+            Importar datos
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function restoreRenderViewportState(viewportState) {
   if (!viewportState || viewportState.screen !== state.activeScreen) {
     return;
@@ -7169,6 +7257,7 @@ function render(focusState = null) {
       ${renderCampaignSaveNameDialog()}
       ${renderDiaryHarptosDayNoteDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
+      ${renderCharacterPdfImportDialog()}
       ${renderCompendiumCreateDialog()}
       ${renderMulticlassLevelUpDialog()}
       ${renderAccountDialog()}
@@ -14235,13 +14324,10 @@ function getCharacterSheetPdfUrl(character) {
 function renderCharacterSheetPdfControls(character) {
   const pdfUrl = getCharacterSheetPdfUrl(character);
   const canUpload = Boolean(state.accountSession?.user?.id);
-
-  if (!pdfUrl && !canUpload) {
-    return "";
-  }
-
-  const operationTarget = `character-pdf:${character.id}`;
-  const isUploading = isCloudOperationActive("saving", operationTarget);
+  const uploadTarget = `character-pdf:${character.id}`;
+  const exportTarget = `character-pdf-export:${character.id}`;
+  const isUploading = isCloudOperationActive("saving", uploadTarget);
+  const isExporting = isCloudOperationActive("loading", exportTarget);
   const fileName = cleanText(character.sheetPdfName);
   const fileMeta = [
     fileName,
@@ -14258,9 +14344,17 @@ function renderCharacterSheetPdfControls(character) {
       <strong>Ficha PDF</strong>
       <div class="character-sheet-pdf-card__actions">
         ${pdfUrl ? `<a class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button" href="${escapeHtml(pdfUrl)}" target="_blank" rel="noopener noreferrer">Ver PDF</a>` : ""}
+        <button
+          class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("loading", exportTarget)}"
+          type="button"
+          data-action="export-character-pdf"
+          ${isExporting ? `disabled aria-busy="true"` : ""}
+        >
+          ${renderCloudButtonLabel("Exportar PDF", "Generando...", "loading", exportTarget)}
+        </button>
         ${canUpload ? `
-          <label class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("saving", operationTarget)}" ${isUploading ? `aria-busy="true"` : ""}>
-            ${renderCloudButtonLabel(pdfUrl ? "Reemplazar" : "Subir PDF", "Subiendo...", "saving", operationTarget)}
+          <label class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("saving", uploadTarget)}" ${isUploading ? `aria-busy="true"` : ""}>
+            ${renderCloudButtonLabel(pdfUrl ? "Reemplazar" : "Subir PDF", "Subiendo...", "saving", uploadTarget)}
             <input class="character-sheet-pdf-card__input" type="file" accept="application/pdf,.pdf" data-character-sheet-pdf ${isUploading ? "disabled" : ""} />
           </label>
         ` : ""}
@@ -15808,6 +15902,12 @@ function getCharacterSkillProgress(skillTrack) {
 }
 
 function getCharacterProficiencyBonus(character) {
+  if (character?.proficiencyBonusOverride !== ""
+    && character?.proficiencyBonusOverride !== undefined
+    && character?.proficiencyBonusOverride !== null) {
+    return Math.max(0, Math.min(20, Math.floor(toNumber(character.proficiencyBonusOverride) || 0)));
+  }
+
   return getCharacterLevelProgressionEntry(character.level).proficiencyBonus;
 }
 
@@ -16607,6 +16707,7 @@ function createDefaultCharacter(overrides = {}) {
     background: "",
     size: "Mediano",
     proficiencyBonus: getDefaultCharacterProficiencyBonus(1),
+    proficiencyBonusOverride: "",
     proficiencies: [],
     tokenUrl: "",
     sheetPdfUrl: "",
@@ -16808,6 +16909,9 @@ function addExperienceToCharacters(characterIds, totalExperiencePoints) {
     return normalizeStoredCharacter({
       ...character,
       classEntries: nextClassEntries,
+      proficiencyBonusOverride: nextProgress.level !== toNumber(character.level)
+        ? ""
+        : character.proficiencyBonusOverride,
       experiencePoints: nextProgress.experiencePoints,
       totalExperiencePoints: nextProgress.totalExperiencePoints
     });
@@ -16978,6 +17082,7 @@ function applyMulticlassLevelUpChoice(characterId, classEntryId) {
 
     return normalizeStoredCharacter({
       ...character,
+      proficiencyBonusOverride: key === "level" ? "" : character.proficiencyBonusOverride,
       classEntries
     });
   });
@@ -17932,7 +18037,10 @@ async function updateActiveCharacterSheetPdf(file) {
   beginCloudOperation("saving", operationTarget);
 
   try {
-    const result = await uploadCloudPdf(file);
+    const [result, pdfImportData] = await Promise.all([
+      uploadCloudPdf(file),
+      extractCharacterDataFromPdf(file).catch(() => null)
+    ]);
     const pdfUrl = cleanText(result?.asset?.url);
 
     if (!CLOUD_PDF_ASSET_PATH_PATTERN.test(pdfUrl)) {
@@ -17954,6 +18062,17 @@ async function updateActiveCharacterSheetPdf(file) {
       title: character.sheetPdfUrl ? "Ficha PDF reemplazada" : "Ficha PDF guardada",
       message: `${cleanText(file.name) || "Ficha de personaje.pdf"} ya está vinculada al personaje.`
     });
+
+    if (pdfImportData && getCharacterPdfImportLabels(pdfImportData).length > 0) {
+      state.characterPdfImportDialogOpen = true;
+      state.characterPdfImportCharacterId = characterId;
+      state.characterPdfImportData = pdfImportData;
+    } else {
+      pushNotification({
+        title: "Sin datos compatibles",
+        message: "El PDF quedó vinculado, pero no contiene campos rellenables reconocidos."
+      });
+    }
   } catch (error) {
     const message = getCloudErrorMessage(error);
     state.accountError = message;
@@ -17961,6 +18080,155 @@ async function updateActiveCharacterSheetPdf(file) {
   }
 
   endCloudOperation("saving", operationTarget);
+  render();
+}
+
+function closeCharacterPdfImportDialog() {
+  state.characterPdfImportDialogOpen = false;
+  state.characterPdfImportCharacterId = "";
+  state.characterPdfImportData = null;
+}
+
+function importPendingCharacterPdfData() {
+  const characterId = cleanText(state.characterPdfImportCharacterId);
+  const importedData = isPlainObject(state.characterPdfImportData) ? state.characterPdfImportData : null;
+  const character = state.characters.find((entry) => entry.id === characterId) ?? null;
+
+  if (!character || !importedData) {
+    closeCharacterPdfImportDialog();
+    render();
+    return;
+  }
+
+  const importedTotalExperience = importedData.experiencePoints === undefined
+    ? null
+    : Math.max(0, Math.floor(toNumber(importedData.experiencePoints) || 0));
+  const inferredProgress = importedTotalExperience !== null && importedData.level === undefined
+    ? getCharacterProgressStateFromTotalExperience(importedTotalExperience)
+    : null;
+  const importedLevel = Math.max(1, Math.min(20, Math.floor(toNumber(importedData.level ?? inferredProgress?.level ?? character.level) || 1)));
+  const currentClassEntries = normalizeStoredCharacterClassEntries(character.classEntries, character);
+  const primaryClassEntry = currentClassEntries[0] ?? createDefaultCharacterClassEntry({ level: importedLevel });
+  const shouldUpdateClass = importedData.className !== undefined
+    || importedData.subclassName !== undefined
+    || importedData.level !== undefined
+    || inferredProgress !== null;
+  const nextClassEntries = shouldUpdateClass
+    ? [
+      {
+        ...primaryClassEntry,
+        name: importedData.className ?? primaryClassEntry.name,
+        subclassName: importedData.subclassName ?? primaryClassEntry.subclassName,
+        level: importedLevel
+      },
+      ...currentClassEntries.slice(1)
+    ]
+    : currentClassEntries;
+  const nextData = { ...importedData };
+
+  delete nextData.className;
+  delete nextData.subclassName;
+  delete nextData.level;
+  delete nextData.experiencePoints;
+  delete nextData.proficiencyBonus;
+
+  if (importedData.abilities) {
+    nextData.abilities = {
+      ...character.abilities,
+      ...importedData.abilities
+    };
+  }
+
+  if (importedData.maxHp !== undefined && importedData.currentHp === undefined) {
+    nextData.currentHp = importedData.maxHp;
+  }
+
+  if (importedData.proficiencyBonus !== undefined) {
+    const importedProficiencyBonus = Math.max(0, Math.min(20, Math.floor(toNumber(importedData.proficiencyBonus) || 0)));
+    nextData.proficiencyBonusOverride = importedProficiencyBonus === getDefaultCharacterProficiencyBonus(importedLevel)
+      ? ""
+      : importedProficiencyBonus;
+  }
+
+  if (importedTotalExperience !== null) {
+    const levelStartExperience = getCharacterLevelProgressionEntry(importedLevel).experiencePoints;
+    nextData.experiencePoints = Math.max(0, importedTotalExperience - levelStartExperience);
+    nextData.totalExperiencePoints = importedTotalExperience;
+  }
+
+  state.characters = state.characters.map((entry) => entry.id === characterId
+    ? normalizeStoredCharacter({
+      ...entry,
+      ...nextData,
+      classEntries: nextClassEntries
+    })
+    : entry);
+  const importedLabels = getCharacterPdfImportLabels(importedData);
+
+  closeCharacterPdfImportDialog();
+  saveCharacters();
+  syncLinkedCombatantsHitDice(characterId);
+  pushNotification({
+    title: "Datos del PDF importados",
+    message: `${importedLabels.length} bloques de datos se copiaron a la ficha seleccionada.`
+  });
+  render();
+}
+
+async function exportActiveCharacterPdf() {
+  const character = getActiveCharacter();
+
+  if (!character) {
+    return;
+  }
+
+  const previewWindow = window.open("", "_blank");
+
+  if (!previewWindow) {
+    pushNotification({
+      title: "No se pudo abrir el PDF",
+      message: "Permite las ventanas emergentes para revisar la ficha exportada.",
+      tone: "danger"
+    });
+    render();
+    return;
+  }
+
+  previewWindow.opener = null;
+  previewWindow.document.title = "Generando ficha PDF...";
+  previewWindow.document.body.innerHTML = "<p style=\"font:16px system-ui;padding:24px\">Generando ficha PDF...</p>";
+
+  const operationTarget = `character-pdf-export:${character.id}`;
+  beginCloudOperation("loading", operationTarget);
+
+  try {
+    const response = await fetch(characterPdfTemplateUrl, { cache: "force-cache" });
+
+    if (!response.ok) {
+      throw new Error("No se pudo cargar la plantilla PDF.");
+    }
+
+    const pdfBytes = await fillCharacterPdfTemplate(await response.arrayBuffer(), character);
+    const safeName = slugify(character.name || "personaje") || "personaje";
+    const pdfFile = new File([pdfBytes], `${safeName}-ficha.pdf`, { type: "application/pdf" });
+    const previewUrl = URL.createObjectURL(pdfFile);
+
+    previewWindow.location.replace(previewUrl);
+    window.setTimeout(() => URL.revokeObjectURL(previewUrl), 10 * 60 * 1000);
+    pushNotification({
+      title: "Ficha PDF generada",
+      message: "Revisa el resultado en la nueva pestaña y descárgalo desde el visor PDF."
+    });
+  } catch (error) {
+    previewWindow.close();
+    pushNotification({
+      title: "No se pudo exportar el PDF",
+      message: cleanText(error?.message) || "No se pudo rellenar la plantilla PDF.",
+      tone: "danger"
+    });
+  }
+
+  endCloudOperation("loading", operationTarget);
   render();
 }
 
