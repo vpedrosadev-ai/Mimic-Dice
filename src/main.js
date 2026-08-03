@@ -110,6 +110,7 @@ import {
 } from "./cloud/cloudClient.js";
 import appIconUrl from "../build-resources/icon.png";
 import characterPdfTemplateUrl from "./assets/templates/character-sheet-alternative-form-fillable.pdf?url";
+import characterSpellPdfTemplateUrl from "./assets/templates/dnd-5e-spell-sheet-form-fillable.pdf?url";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
 import combatHitDiceIconUrl from "./assets/buttons-icons/Dados_golpe.png";
 import combatShieldIconUrl from "./assets/buttons-icons/Shield.png";
@@ -18182,45 +18183,47 @@ async function exportActiveCharacterPdf() {
     return;
   }
 
-  const previewWindow = window.open("", "_blank");
-
-  if (!previewWindow) {
-    pushNotification({
-      title: "No se pudo abrir el PDF",
-      message: "Permite las ventanas emergentes para revisar la ficha exportada.",
-      tone: "danger"
-    });
-    render();
-    return;
-  }
-
-  previewWindow.opener = null;
-  previewWindow.document.title = "Generando ficha PDF...";
-  previewWindow.document.body.innerHTML = "<p style=\"font:16px system-ui;padding:24px\">Generando ficha PDF...</p>";
-
   const operationTarget = `character-pdf-export:${character.id}`;
+  const operationStartedAt = Date.now();
   beginCloudOperation("loading", operationTarget);
 
   try {
-    const response = await fetch(characterPdfTemplateUrl, { cache: "force-cache" });
+    const [characterTemplateResponse, spellTemplateResponse] = await Promise.all([
+      fetch(characterPdfTemplateUrl, { cache: "force-cache" }),
+      fetch(characterSpellPdfTemplateUrl, { cache: "force-cache" })
+    ]);
 
-    if (!response.ok) {
-      throw new Error("No se pudo cargar la plantilla PDF.");
+    if (!characterTemplateResponse.ok || !spellTemplateResponse.ok) {
+      throw new Error("No se pudieron cargar las plantillas PDF.");
     }
 
-    const pdfBytes = await fillCharacterPdfTemplate(await response.arrayBuffer(), character);
-    const safeName = slugify(character.name || "personaje") || "personaje";
-    const pdfFile = new File([pdfBytes], `${safeName}-ficha.pdf`, { type: "application/pdf" });
+    const pdfBytes = await fillCharacterPdfTemplate(
+      await characterTemplateResponse.arrayBuffer(),
+      character,
+      await spellTemplateResponse.arrayBuffer()
+    );
+    const pdfFile = new File([pdfBytes], getCharacterPdfFileName(character), { type: "application/pdf" });
     const previewUrl = URL.createObjectURL(pdfFile);
+    const remainingAnimationMs = Math.max(0, 500 - (Date.now() - operationStartedAt));
 
-    previewWindow.location.replace(previewUrl);
+    if (remainingAnimationMs > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, remainingAnimationMs));
+    }
+
+    const previewWindow = window.open(previewUrl, "_blank");
+
+    if (!previewWindow) {
+      URL.revokeObjectURL(previewUrl);
+      throw new Error("Permite las ventanas emergentes para abrir la ficha generada.");
+    }
+
+    previewWindow.opener = null;
     window.setTimeout(() => URL.revokeObjectURL(previewUrl), 10 * 60 * 1000);
     pushNotification({
       title: "Ficha PDF generada",
       message: "Revisa el resultado en la nueva pestaña y descárgalo desde el visor PDF."
     });
   } catch (error) {
-    previewWindow.close();
     pushNotification({
       title: "No se pudo exportar el PDF",
       message: cleanText(error?.message) || "No se pudo rellenar la plantilla PDF.",
@@ -18230,6 +18233,16 @@ async function exportActiveCharacterPdf() {
 
   endCloudOperation("loading", operationTarget);
   render();
+}
+
+function getCharacterPdfFileName(character) {
+  const rawName = cleanText(character?.name).replace(/\.pdf$/i, "");
+  const safeName = rawName
+    .replace(/[\u0000-\u001f<>:"/\\|?*]/g, "-")
+    .replace(/[. ]+$/g, "")
+    .trim()
+    .slice(0, 120);
+  return `${safeName || "Ficha de personaje"}.pdf`;
 }
 
 function removeActiveCharacterImage() {

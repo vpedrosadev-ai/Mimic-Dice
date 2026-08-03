@@ -65,6 +65,27 @@ const TEMPLATE_SKILL_FIELDS = Object.freeze({
   persuasion: { value: "Persuasion", checkbox: "ChBx Persuasion" }
 });
 
+const SPELL_SHEET_LEVEL_FIELDS = Object.freeze({
+  0: ["Spells 1014", "Spells 1016", "Spells 1017", "Spells 1018", "Spells 1019", "Spells 1020", "Spells 1021", "Spells 1022"],
+  1: ["Spells 1015", "Spells 1023", "Spells 1024", "Spells 1025", "Spells 1026", "Spells 1027", "Spells 1028", "Spells 1029", "Spells 1030", "Spells 1031", "Spells 1032", "Spells 1033"],
+  2: ["Spells 1046", "Spells 1034", "Spells 1035", "Spells 1036", "Spells 1037", "Spells 1038", "Spells 1039", "Spells 1040", "Spells 1041", "Spells 1042", "Spells 1043", "Spells 1044", "Spells 1045"],
+  3: ["Spells 1048", "Spells 1047", "Spells 1049", "Spells 1050", "Spells 1051", "Spells 1052", "Spells 1053", "Spells 1054", "Spells 1055", "Spells 1056", "Spells 1057", "Spells 1058", "Spells 1059"],
+  4: ["Spells 1061", "Spells 1060", "Spells 1062", "Spells 1063", "Spells 1064", "Spells 1065", "Spells 1066", "Spells 1067", "Spells 1068", "Spells 1069", "Spells 1070", "Spells 1071", "Spells 1072"],
+  5: ["Spells 1074", "Spells 1073", "Spells 1075", "Spells 1076", "Spells 1077", "Spells 1078", "Spells 1079", "Spells 1080", "Spells 1081"],
+  6: ["Spells 1083", "Spells 1082", "Spells 1084", "Spells 1085", "Spells 1086", "Spells 1087", "Spells 1088", "Spells 1089", "Spells 1090"],
+  7: ["Spells 1092", "Spells 1091", "Spells 1093", "Spells 1094", "Spells 1095", "Spells 1096", "Spells 1097", "Spells 1098", "Spells 1099"],
+  8: ["Spells 10101", "Spells 10100", "Spells 10102", "Spells 10103", "Spells 10104", "Spells 10105", "Spells 10106"],
+  9: ["Spells 10108", "Spells 10107", "Spells 10109", "Spells 101010", "Spells 101011", "Spells 101012", "Spells 101013"]
+});
+
+const SPELL_SHEET_SLOT_FIELDS = Object.freeze(Object.fromEntries(
+  Array.from({ length: 9 }, (_, index) => {
+    const level = index + 1;
+    const fieldSuffix = index + 19;
+    return [level, { total: `SlotsTotal ${fieldSuffix}`, remaining: `SlotsRemaining ${fieldSuffix}` }];
+  })
+));
+
 function normalizeFieldName(value) {
   return String(value ?? "")
     .normalize("NFD")
@@ -408,8 +429,162 @@ function getCharacterSpellsText(character) {
     .join("\n");
 }
 
-export async function fillCharacterPdfTemplate(templateBytes, character) {
-  const { PDFDocument, StandardFonts, ...pdfFieldTypes } = await loadPdfLibrary();
+function getCharacterSpellcastingClassLabel(character) {
+  const entries = Array.isArray(character?.classEntries) ? character.classEntries : [];
+  const visibleEntries = character?.isMulticlass === true ? entries : entries.slice(0, 1);
+  const classNames = visibleEntries
+    .map((entry) => cleanPdfText(entry?.name ?? entry?.className))
+    .filter(Boolean);
+  return classNames.join(" / ") || cleanPdfText(character?.className);
+}
+
+function getCharacterSpellcastingAbility(character) {
+  const explicitAbility = cleanPdfText(character?.spellcastingAbility).toUpperCase();
+
+  if (explicitAbility) {
+    return explicitAbility;
+  }
+
+  const normalizedClasses = getCharacterSpellcastingClassLabel(character)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const inferredAbilities = [];
+  const classAbilityGroups = [
+    { ability: "INT", classes: ["artificer", "artificiero", "wizard", "mago"] },
+    { ability: "WIS", classes: ["cleric", "clerigo", "druid", "druida", "ranger", "explorador", "monk", "monje"] },
+    { ability: "CHA", classes: ["bard", "bardo", "paladin", "sorcerer", "hechicero", "warlock", "brujo"] }
+  ];
+
+  classAbilityGroups.forEach(({ ability, classes }) => {
+    if (classes.some((className) => normalizedClasses.includes(className))) {
+      inferredAbilities.push(ability);
+    }
+  });
+
+  return [...new Set(inferredAbilities)].join(" / ");
+}
+
+function getCharacterSpellLevel(value) {
+  const normalizedValue = cleanPdfText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (["0", "c", "cantrip", "truco", "pot"].includes(normalizedValue)) {
+    return 0;
+  }
+
+  const match = normalizedValue.match(/(?:^|\D)([1-9])(?:\D|$)/);
+  return match ? Number(match[1]) : null;
+}
+
+function createPreparedCheckboxResolver(form, pdfLibrary) {
+  const { PDFCheckBox, PDFTextField } = pdfLibrary;
+  const fields = form.getFields();
+  const fieldsByName = new Map(fields.map((field) => [normalizeFieldName(field.getName()), field]));
+  const checkboxes = fields.filter((field) => field instanceof PDFCheckBox);
+  const getRectangle = (field) => field?.acroField?.getWidgets?.()[0]?.getRectangle?.() ?? null;
+
+  return (textFieldName) => {
+    const textField = fieldsByName.get(normalizeFieldName(textFieldName));
+    const textRectangle = textField instanceof PDFTextField ? getRectangle(textField) : null;
+
+    if (!textRectangle) {
+      return "";
+    }
+
+    const nearestCheckbox = checkboxes
+      .map((checkbox) => ({ checkbox, rectangle: getRectangle(checkbox) }))
+      .filter(({ rectangle }) => rectangle
+        && rectangle.x < textRectangle.x
+        && textRectangle.x - rectangle.x <= 16
+        && Math.abs(rectangle.y - textRectangle.y) <= 3)
+      .sort((left, right) => {
+        const leftDistance = Math.abs(left.rectangle.x - textRectangle.x) + Math.abs(left.rectangle.y - textRectangle.y);
+        const rightDistance = Math.abs(right.rectangle.x - textRectangle.x) + Math.abs(right.rectangle.y - textRectangle.y);
+        return leftDistance - rightDistance;
+      })[0]?.checkbox ?? null;
+
+    return nearestCheckbox?.getName?.() ?? "";
+  };
+}
+
+async function appendCharacterSpellSheet(document, spellTemplateBytes, character, pdfLibrary) {
+  if (!spellTemplateBytes) {
+    return;
+  }
+
+  const { PDFDocument, StandardFonts } = pdfLibrary;
+  const sourceBytes = spellTemplateBytes instanceof Uint8Array
+    ? spellTemplateBytes
+    : new Uint8Array(spellTemplateBytes);
+  const spellDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const spellForm = spellDocument.getForm();
+  const writer = createPdfFieldWriter(spellForm, pdfLibrary);
+  const resolvePreparedCheckbox = createPreparedCheckboxResolver(spellForm, pdfLibrary);
+  const spells = (Array.isArray(character?.spells) ? character.spells : [])
+    .filter((spell) => cleanPdfText(spell?.name));
+
+  writer.setText("Spellcasting Class 2", getCharacterSpellcastingClassLabel(character));
+  writer.setText("SpellcastingAbility 2", getCharacterSpellcastingAbility(character));
+  writer.setText("SpellSaveDC  2", character?.spellSaveDc);
+
+  if (character?.spellAttackModifier !== "" && character?.spellAttackModifier !== undefined && character?.spellAttackModifier !== null) {
+    writer.setText("SpellAtkBonus 2", formatSigned(character.spellAttackModifier));
+  }
+
+  Object.entries(SPELL_SHEET_LEVEL_FIELDS).forEach(([rawLevel, fieldNames]) => {
+    const level = Number(rawLevel);
+    const levelSpells = spells.filter((spell) => getCharacterSpellLevel(spell.level) === level);
+
+    fieldNames.forEach((fieldName, index) => {
+      const spell = levelSpells[index];
+
+      if (!spell) {
+        return;
+      }
+
+      writer.setText(fieldName, spell.name);
+      const preparedCheckboxName = resolvePreparedCheckbox(fieldName);
+
+      if (preparedCheckboxName) {
+        writer.setChecked(preparedCheckboxName, spell.prepared === true);
+      }
+    });
+  });
+
+  const spellSlots = Array.isArray(character?.spellSlots) ? character.spellSlots : [];
+
+  Object.entries(SPELL_SHEET_SLOT_FIELDS).forEach(([rawLevel, fieldNames]) => {
+    const level = Number(rawLevel);
+    const slotEntry = spellSlots.find((entry) => Number(entry?.level) === level);
+
+    if (!slotEntry) {
+      return;
+    }
+
+    const totalSlots = Math.max(0, Math.floor(Number(slotEntry.slots) || 0));
+    const spentSlots = (Array.isArray(slotEntry.spent) ? slotEntry.spent : [])
+      .filter((spent) => spent === true)
+      .length;
+    writer.setText(fieldNames.total, totalSlots);
+    writer.setText(fieldNames.remaining, Math.max(0, totalSlots - spentSlots));
+  });
+
+  const spellFont = await spellDocument.embedFont(StandardFonts.Helvetica);
+  spellForm.updateFieldAppearances(spellFont);
+  spellForm.flatten({ updateFieldAppearances: false });
+  const copiedPages = await document.copyPages(
+    spellDocument,
+    spellDocument.getPages().map((_, index) => index)
+  );
+  copiedPages.forEach((page) => document.addPage(page));
+}
+
+export async function fillCharacterPdfTemplate(templateBytes, character, spellTemplateBytes = null) {
+  const pdfLibrary = await loadPdfLibrary();
+  const { PDFDocument, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
   const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
   const document = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const form = document.getForm();
@@ -459,6 +634,11 @@ export async function fillCharacterPdfTemplate(templateBytes, character) {
 
   const font = await document.embedFont(StandardFonts.Helvetica);
   form.updateFieldAppearances(font);
+  await appendCharacterSpellSheet(document, spellTemplateBytes, character, pdfLibrary);
+  document.setTitle(toPdfText(character?.name) || "Ficha de personaje");
+  document.setAuthor("Mimic Dice");
+  document.setCreator("Mimic Dice");
+  document.setProducer("Mimic Dice");
   return document.save({ updateFieldAppearances: false });
 }
 
