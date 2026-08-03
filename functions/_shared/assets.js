@@ -8,13 +8,14 @@ import {
   methodNotAllowed
 } from "./http.js";
 
-const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_ASSET_BYTES = 5 * 1024 * 1024;
+const MAX_PDF_ASSET_BYTES = 20 * 1024 * 1024;
 const MAX_ASSET_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;
 const ASSET_ID_PATTERN = /\/api\/assets\/([0-9a-f-]{36})(?![0-9a-f-])/gi;
 
 function assertAssetBucket(context) {
   if (!context.env.CLOUD_ASSETS) {
-    throw new HttpError(503, "asset_storage_unavailable", "Cloud image storage is not configured.");
+    throw new HttpError(503, "asset_storage_unavailable", "Cloud asset storage is not configured.");
   }
 }
 
@@ -81,21 +82,34 @@ export async function removeCloudAssetReferences(db, parentType, parentId) {
 async function uploadAsset(context, user) {
   assertAssetBucket(context);
   const contentType = cleanText(context.request.headers.get("Content-Type"), 100).toLowerCase().split(";")[0];
+  const assetConfig = contentType === "image/webp"
+    ? { extension: "webp", maxBytes: MAX_IMAGE_ASSET_BYTES, tooLargeCode: "asset_too_large", tooLargeMessage: "Cloud image exceeds 5 MiB limit." }
+    : contentType === "application/pdf"
+      ? { extension: "pdf", maxBytes: MAX_PDF_ASSET_BYTES, tooLargeCode: "pdf_too_large", tooLargeMessage: "Character sheet PDF exceeds 20 MiB limit." }
+      : null;
 
-  if (contentType !== "image/webp") {
-    throw new HttpError(415, "invalid_asset_type", "Cloud images must be WebP.");
+  if (!assetConfig) {
+    throw new HttpError(415, "invalid_asset_type", "Cloud assets must be WebP images or PDF documents.");
   }
 
   const declaredBytes = Number(context.request.headers.get("Content-Length") || 0);
 
-  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_ASSET_BYTES) {
-    throw new HttpError(413, "asset_too_large", "Cloud image exceeds 5 MiB limit.");
+  if (Number.isFinite(declaredBytes) && declaredBytes > assetConfig.maxBytes) {
+    throw new HttpError(413, assetConfig.tooLargeCode, assetConfig.tooLargeMessage);
   }
 
   const bytes = await context.request.arrayBuffer();
 
-  if (bytes.byteLength < 1 || bytes.byteLength > MAX_ASSET_BYTES) {
-    throw new HttpError(413, "asset_too_large", "Cloud image exceeds 5 MiB limit.");
+  if (bytes.byteLength < 1 || bytes.byteLength > assetConfig.maxBytes) {
+    throw new HttpError(413, assetConfig.tooLargeCode, assetConfig.tooLargeMessage);
+  }
+
+  if (contentType === "application/pdf") {
+    const signature = new TextDecoder().decode(bytes.slice(0, 5));
+
+    if (signature !== "%PDF-") {
+      throw new HttpError(415, "invalid_pdf", "Character sheet is not a valid PDF document.");
+    }
   }
 
   const sha256 = bytesToHex(await crypto.subtle.digest("SHA-256", bytes));
@@ -120,31 +134,35 @@ async function uploadAsset(context, user) {
   ).bind(user.id).first();
 
   if (Number(storage?.bytes || 0) + bytes.byteLength > MAX_ASSET_STORAGE_BYTES_PER_USER) {
-    throw new HttpError(413, "storage_quota", "Cloud image storage quota exceeded.");
+    throw new HttpError(413, "storage_quota", "Cloud asset storage quota exceeded.");
   }
 
   const assetId = crypto.randomUUID();
-  const objectKey = `users/${user.id}/${sha256}.webp`;
-  const width = Math.max(0, Math.min(8192, Number(context.request.headers.get("X-Image-Width")) || 0));
-  const height = Math.max(0, Math.min(8192, Number(context.request.headers.get("X-Image-Height")) || 0));
+  const objectKey = `users/${user.id}/${sha256}.${assetConfig.extension}`;
+  const width = contentType === "image/webp"
+    ? Math.max(0, Math.min(8192, Number(context.request.headers.get("X-Image-Width")) || 0))
+    : 0;
+  const height = contentType === "image/webp"
+    ? Math.max(0, Math.min(8192, Number(context.request.headers.get("X-Image-Height")) || 0))
+    : 0;
   const now = new Date().toISOString();
 
   await context.env.CLOUD_ASSETS.put(objectKey, bytes, {
-    httpMetadata: { contentType: "image/webp" },
+    httpMetadata: { contentType },
     customMetadata: { ownerId: user.id, assetId }
   });
   await context.env.DB.prepare(`
     INSERT INTO "cloud_assets" (
       "id", "ownerId", "objectKey", "sha256", "mimeType", "byteSize", "width", "height", "createdAt"
-    ) VALUES (?, ?, ?, ?, 'image/webp', ?, ?, ?, ?)
-  `).bind(assetId, user.id, objectKey, sha256, bytes.byteLength, width, height, now).run();
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(assetId, user.id, objectKey, sha256, contentType, bytes.byteLength, width, height, now).run();
 
   return jsonResponse({
     asset: {
       id: assetId,
       url: assetUrl(assetId),
       byteSize: bytes.byteLength,
-      mimeType: "image/webp",
+      mimeType: contentType,
       deduplicated: false
     }
   }, 201);
@@ -208,7 +226,13 @@ async function getAsset(context, assetId, user) {
   headers.set("ETag", object.httpEtag);
   headers.set("Cache-Control", asset.isPublic === 1
     ? "public, max-age=86400, stale-while-revalidate=604800"
-    : "private, max-age=3600");
+    : asset.mimeType === "application/pdf"
+      ? "private, no-store"
+      : "private, max-age=3600");
+  if (asset.mimeType === "application/pdf") {
+    headers.set("Content-Disposition", 'inline; filename="character-sheet.pdf"');
+    headers.set("Content-Security-Policy", "sandbox");
+  }
   return new Response(object.body, { headers });
 }
 

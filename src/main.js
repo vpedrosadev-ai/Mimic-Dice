@@ -100,7 +100,8 @@ import {
   updateCloudCampaign,
   updateCloudProfileImage,
   updateCloudProfileName,
-  uploadCloudImage
+  uploadCloudImage,
+  uploadCloudPdf
 } from "./cloud/cloudClient.js";
 import appIconUrl from "../build-resources/icon.png";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
@@ -288,6 +289,8 @@ const BESTIARY_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:bes
 const ITEMS_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:items-custom-image-map`;
 const ARCANUM_CUSTOM_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:arcanum-custom-map`;
 const CLOUD_CAMPAIGN_META_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:cloud-campaign:v1`;
+const CHARACTER_SHEET_PDF_MAX_BYTES = 20 * 1024 * 1024;
+const CLOUD_PDF_ASSET_PATH_PATTERN = /^\/api\/assets\/[0-9a-f-]{36}$/i;
 const REPOSITORY_CSV_UPLOAD_DB_NAME = "mimic-dice-repository-csv";
 const REPOSITORY_CSV_UPLOAD_STORE_NAME = "uploads";
 const defaultDataCsvFiles = Object.values(defaultRepositoryCsvPaths);
@@ -3674,6 +3677,13 @@ async function handleChange(event) {
   if (target.matches("[data-character-image]")) {
     updateActiveCharacterImage(target.files?.[0] ?? null);
     target.value = "";
+    return;
+  }
+
+  if (target.matches("[data-character-sheet-pdf]")) {
+    const file = target.files?.[0] ?? null;
+    target.value = "";
+    await updateActiveCharacterSheetPdf(file);
     return;
   }
 
@@ -14205,6 +14215,7 @@ function renderCharacterSkillSummary(character) {
 function renderCharacterHeaderAside(character) {
   return `
     <div class="character-sheet__header-side">
+      ${renderCharacterSheetPdfControls(character)}
       ${renderCharacterCarryLoadCard(character)}
       <div class="character-header-support">
         <div class="character-experience-panel">
@@ -14213,6 +14224,49 @@ function renderCharacterHeaderAside(character) {
         ${renderCharacterExperienceControls(character, { sheetLayout: true })}
       </div>
     </div>
+  `;
+}
+
+function getCharacterSheetPdfUrl(character) {
+  const value = cleanText(character?.sheetPdfUrl);
+  return CLOUD_PDF_ASSET_PATH_PATTERN.test(value) ? value : "";
+}
+
+function renderCharacterSheetPdfControls(character) {
+  const pdfUrl = getCharacterSheetPdfUrl(character);
+  const canUpload = Boolean(state.accountSession?.user?.id);
+
+  if (!pdfUrl && !canUpload) {
+    return "";
+  }
+
+  const operationTarget = `character-pdf:${character.id}`;
+  const isUploading = isCloudOperationActive("saving", operationTarget);
+  const fileName = cleanText(character.sheetPdfName);
+  const fileMeta = [
+    fileName,
+    Number(character.sheetPdfBytes) > 0 ? formatCloudCampaignSize(character.sheetPdfBytes) : ""
+  ].filter(Boolean).join(" · ");
+
+  return `
+    <section class="character-sheet-pdf-card" aria-label="Ficha PDF">
+      <div class="character-sheet-pdf-card__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M6 2h8l5 5v15H6V2Zm8 2.5V8h3.5L14 4.5ZM8.5 12v7h1.7v-2.1h1.1c1.8 0 2.9-.9 2.9-2.5 0-1.5-1.1-2.4-2.9-2.4H8.5Zm1.7 1.5h1c.8 0 1.2.3 1.2.9s-.4 1-1.2 1h-1v-1.9Zm4.7-1.5v7h2.2c2.3 0 3.7-1.3 3.7-3.5S19.4 12 17.1 12h-2.2Zm1.7 1.5h.5c1.3 0 1.9.6 1.9 2s-.6 2-1.9 2h-.5v-4Z"/>
+        </svg>
+      </div>
+      <strong>Ficha PDF</strong>
+      <div class="character-sheet-pdf-card__actions">
+        ${pdfUrl ? `<a class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button" href="${escapeHtml(pdfUrl)}" target="_blank" rel="noopener noreferrer">Ver PDF</a>` : ""}
+        ${canUpload ? `
+          <label class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("saving", operationTarget)}" ${isUploading ? `aria-busy="true"` : ""}>
+            ${renderCloudButtonLabel(pdfUrl ? "Reemplazar" : "Subir PDF", "Subiendo...", "saving", operationTarget)}
+            <input class="character-sheet-pdf-card__input" type="file" accept="application/pdf,.pdf" data-character-sheet-pdf ${isUploading ? "disabled" : ""} />
+          </label>
+        ` : ""}
+      </div>
+      ${fileMeta ? `<small title="${escapeHtml(fileMeta)}">${escapeHtml(fileMeta)}</small>` : ""}
+    </section>
   `;
 }
 
@@ -16555,6 +16609,10 @@ function createDefaultCharacter(overrides = {}) {
     proficiencyBonus: getDefaultCharacterProficiencyBonus(1),
     proficiencies: [],
     tokenUrl: "",
+    sheetPdfUrl: "",
+    sheetPdfName: "",
+    sheetPdfBytes: 0,
+    sheetPdfUploadedAt: "",
     armorClass: 10,
     maxHp,
     currentHp: maxHp,
@@ -17828,6 +17886,82 @@ async function updateActiveCharacterImage(file) {
   } catch {
     // The image is optional; keep the current character unchanged on read errors.
   }
+}
+
+async function updateActiveCharacterSheetPdf(file) {
+  const character = getActiveCharacter();
+
+  if (!file || !character) {
+    return;
+  }
+
+  if (!state.accountSession?.user?.id) {
+    pushNotification({
+      title: "Inicio de sesión necesario",
+      message: "Inicia sesión para almacenar fichas PDF en la nube.",
+      tone: "danger"
+    });
+    render();
+    return;
+  }
+
+  if (file.size < 1 || file.size > CHARACTER_SHEET_PDF_MAX_BYTES) {
+    pushNotification({
+      title: "PDF demasiado grande",
+      message: "La ficha PDF debe ocupar 20 MB o menos.",
+      tone: "danger"
+    });
+    render();
+    return;
+  }
+
+  const signature = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer());
+
+  if (signature !== "%PDF-") {
+    pushNotification({
+      title: "PDF no válido",
+      message: "Selecciona un archivo PDF válido.",
+      tone: "danger"
+    });
+    render();
+    return;
+  }
+
+  const characterId = character.id;
+  const operationTarget = `character-pdf:${characterId}`;
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    const result = await uploadCloudPdf(file);
+    const pdfUrl = cleanText(result?.asset?.url);
+
+    if (!CLOUD_PDF_ASSET_PATH_PATTERN.test(pdfUrl)) {
+      throw new Error("El servicio cloud no devolvió una ficha PDF válida.");
+    }
+
+    state.characters = state.characters.map((entry) => entry.id === characterId
+      ? normalizeStoredCharacter({
+        ...entry,
+        sheetPdfUrl: pdfUrl,
+        sheetPdfName: cleanText(file.name) || "Ficha de personaje.pdf",
+        sheetPdfBytes: Math.max(0, Number(result?.asset?.byteSize) || file.size),
+        sheetPdfUploadedAt: new Date().toISOString()
+      })
+      : entry);
+    saveCharacters();
+    state.accountError = "";
+    pushNotification({
+      title: character.sheetPdfUrl ? "Ficha PDF reemplazada" : "Ficha PDF guardada",
+      message: `${cleanText(file.name) || "Ficha de personaje.pdf"} ya está vinculada al personaje.`
+    });
+  } catch (error) {
+    const message = getCloudErrorMessage(error);
+    state.accountError = message;
+    pushNotification({ title: "No se pudo guardar el PDF", message, tone: "danger" });
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
 }
 
 function removeActiveCharacterImage() {
@@ -23033,6 +23167,7 @@ function getArcanumFilterDisplayValue(key, value) {
 function getCloudErrorMessage(error) {
   const messages = {
     invalid_asset_type: "La imagen seleccionada no es compatible.",
+    invalid_pdf: "La ficha seleccionada no es un PDF válido.",
     invalid_profile_image: "No se pudo usar esa imagen de perfil.",
     invalid_profile_name: "El nombre debe tener entre 2 y 80 caracteres.",
     asset_not_found: "La imagen cloud no esta disponible.",
@@ -23047,7 +23182,8 @@ function getCloudErrorMessage(error) {
     library_revision_conflict: "La publicación cambió en otra sesión. Actualiza antes de modificarla.",
     storage_quota: "Has alcanzado tu cuota de almacenamiento cloud.",
     asset_too_large: "Una imagen supera el límite cloud de 5 MB después de convertirla.",
-    asset_storage_unavailable: "El almacenamiento de imágenes cloud no está disponible.",
+    pdf_too_large: "La ficha PDF supera el límite cloud de 20 MB.",
+    asset_storage_unavailable: "El almacenamiento de archivos cloud no está disponible.",
     server_not_configured: "Servicio cloud pendiente de configuración.",
     auth_unavailable: "Servicio de acceso no disponible.",
     cloud_unavailable: "Cuentas cloud solo disponibles en versión web."

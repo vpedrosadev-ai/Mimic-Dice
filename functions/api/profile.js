@@ -43,7 +43,7 @@ async function updateProfile(context, user) {
     const asset = await context.env.DB.prepare(`
       SELECT "id"
       FROM "cloud_assets"
-      WHERE "id" = ? AND "ownerId" = ?
+      WHERE "id" = ? AND "ownerId" = ? AND "mimeType" = 'image/webp'
       LIMIT 1
     `).bind(assetId, user.id).first();
 

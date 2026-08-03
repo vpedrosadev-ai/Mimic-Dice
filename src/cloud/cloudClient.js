@@ -193,6 +193,24 @@ export async function uploadCloudImage(blob, { width = 0, height = 0 } = {}) {
   return parseResponse(response);
 }
 
+export async function uploadCloudPdf(blob) {
+  if (!(blob instanceof Blob)) {
+    throw new CloudApiError("Character sheet must be a PDF.", 0, "invalid_pdf");
+  }
+
+  const response = await fetch("/api/assets", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/pdf"
+    },
+    body: blob
+  });
+  return parseResponse(response);
+}
+
 export async function updateCloudProfileImage(image) {
   return requestJson("/api/profile", {
     method: "PATCH",
