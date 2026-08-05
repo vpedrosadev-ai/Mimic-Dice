@@ -471,6 +471,13 @@ table {
   transform: translateY(-1px);
 }
 
+.data-exchange-dialog__mode-card:disabled,
+.data-exchange-dialog__mode-card.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .data-exchange-dialog__mode-card span,
 .data-exchange-dialog__list-item span,
 .data-exchange-dialog__group-label {
@@ -10226,6 +10233,12 @@ body.is-table-resizing * {
   font-size: 0.72rem;
   text-decoration: none;
   cursor: pointer;
+}
+
+.character-sheet-pdf-card__button[data-action="export-character-pdf"] {
+  padding-inline: 0.3rem;
+  font-size: 0.64rem;
+  white-space: nowrap;
 }
 
 .character-sheet-pdf-card__input {

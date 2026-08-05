@@ -2163,6 +2163,9 @@ async function handleClick(event) {
   }
 
   if (action === "export-character-pdf") {
+    if (actionButton.closest(".data-exchange-dialog")) {
+      closeImportExportDialog();
+    }
     await exportActiveCharacterPdf();
     return;
   }
@@ -3708,7 +3711,13 @@ async function handleChange(event) {
 
   if (target.matches("[data-character-sheet-pdf]")) {
     const file = target.files?.[0] ?? null;
+    const openedFromImportExportDialog = Boolean(target.closest(".data-exchange-dialog"));
     target.value = "";
+
+    if (openedFromImportExportDialog) {
+      closeImportExportDialog();
+    }
+
     await updateActiveCharacterSheetPdf(file);
     return;
   }
@@ -5209,7 +5218,9 @@ function ensureCompendiumLoaded(kind) {
 }
 
 function isAppBootLoading() {
-  return state.bestiary.length === 0 && state.bestiaryStatus === "loading";
+  return state.activeScreen === "bestiary"
+    && state.bestiary.length === 0
+    && state.bestiaryStatus === "loading";
 }
 
 function getAppBootProgress() {
@@ -6568,7 +6579,7 @@ function renderImportExportDialog() {
         </p>
         ${
           mode === "menu"
-            ? renderImportExportModePicker()
+            ? renderImportExportModePicker(category)
             : mode === "export"
               ? renderImportExportSelectionPanel(category)
               : renderImportExportImportPanel(category)
@@ -6602,7 +6613,10 @@ function renderImportExportDialog() {
   `;
 }
 
-function renderImportExportModePicker() {
+function renderImportExportModePicker(category) {
+  const isCharacterExchange = category === DATA_EXCHANGE_CATEGORY_CHARACTERS;
+  const hasActiveCharacter = Boolean(getActiveCharacter());
+
   return `
     <div class="data-exchange-dialog__mode-grid">
       <button class="data-exchange-dialog__mode-card" type="button" data-action="set-import-export-mode" data-import-export-mode="export">
@@ -6613,6 +6627,28 @@ function renderImportExportModePicker() {
         <strong>${escapeHtml(t("import_export_mode_import"))}</strong>
         <span>${escapeHtml(t("import_export_mode_import_desc"))}</span>
       </button>
+      ${isCharacterExchange ? `
+        <button
+          class="data-exchange-dialog__mode-card"
+          type="button"
+          data-action="export-character-pdf"
+          ${hasActiveCharacter ? "" : "disabled"}
+        >
+          <strong>${escapeHtml(t("import_export_mode_export_pdf"))}</strong>
+          <span>${escapeHtml(t("import_export_mode_export_pdf_desc"))}</span>
+        </button>
+        <label class="data-exchange-dialog__mode-card${hasActiveCharacter ? "" : " is-disabled"}">
+          <strong>${escapeHtml(t("import_export_mode_import_pdf"))}</strong>
+          <span>${escapeHtml(t("import_export_mode_import_pdf_desc"))}</span>
+          <input
+            class="character-sheet-pdf-card__input"
+            type="file"
+            accept="application/pdf,.pdf"
+            data-character-sheet-pdf
+            ${hasActiveCharacter ? "" : "disabled"}
+          />
+        </label>
+      ` : ""}
     </div>
   `;
 }
@@ -12343,7 +12379,7 @@ function renderCombatPreparedSpellList(spellRows) {
 
 function renderCombatPreparedSpellRow(row) {
   const matchedSpell = getCharacterSpellMatchedEntry(row);
-  const spellName = matchedSpell?.name || row.name || "Sin nombre";
+  const spellName = getCharacterSpellDisplayName(row, matchedSpell) || "Sin nombre";
   const levelLabel = formatCompactSpellLevelLabel(matchedSpell?.levelValue ?? getCharacterSpellSortLevel(row));
 
   return `
@@ -14353,12 +14389,15 @@ function renderCharacterSheetPdfControls(character) {
         >
           ${renderCloudButtonLabel("Exportar PDF", "Generando...", "loading", exportTarget)}
         </button>
-        ${canUpload ? `
-          <label class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("saving", uploadTarget)}" ${isUploading ? `aria-busy="true"` : ""}>
-            ${renderCloudButtonLabel(pdfUrl ? "Reemplazar" : "Subir PDF", "Subiendo...", "saving", uploadTarget)}
-            <input class="character-sheet-pdf-card__input" type="file" accept="application/pdf,.pdf" data-character-sheet-pdf ${isUploading ? "disabled" : ""} />
-          </label>
-        ` : ""}
+        <label class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("saving", uploadTarget)}" ${isUploading ? `aria-busy="true"` : ""}>
+          ${renderCloudButtonLabel(
+            canUpload ? (pdfUrl ? "Reemplazar" : "Subir PDF") : "Importar PDF",
+            canUpload ? "Subiendo..." : "Analizando...",
+            "saving",
+            uploadTarget
+          )}
+          <input class="character-sheet-pdf-card__input" type="file" accept="application/pdf,.pdf" data-character-sheet-pdf ${isUploading ? "disabled" : ""} />
+        </label>
       </div>
       ${fileMeta ? `<small title="${escapeHtml(fileMeta)}">${escapeHtml(fileMeta)}</small>` : ""}
     </section>
@@ -14684,6 +14723,16 @@ function getCharacterSpellMatchedEntry(row) {
   });
 }
 
+function getCharacterSpellDisplayName(row, matchedSpell = getCharacterSpellMatchedEntry(row)) {
+  if (!matchedSpell) {
+    return cleanText(row?.name);
+  }
+
+  return isEnglishInterface()
+    ? cleanText(matchedSpell.canonicalName || matchedSpell.name || row?.name)
+    : cleanText(matchedSpell.localizedName || matchedSpell.name || row?.name);
+}
+
 function getCharacterSpellSortLevel(row) {
   const matchedSpell = getCharacterSpellMatchedEntry(row);
   const rawLevel = matchedSpell?.levelShort || row?.level || "";
@@ -14702,8 +14751,8 @@ function compareCharacterSpellRows(left, right) {
     return levelDifference;
   }
 
-  const leftName = cleanText(getCharacterSpellMatchedEntry(left)?.name || left?.name).toLowerCase();
-  const rightName = cleanText(getCharacterSpellMatchedEntry(right)?.name || right?.name).toLowerCase();
+  const leftName = getCharacterSpellDisplayName(left).toLowerCase();
+  const rightName = getCharacterSpellDisplayName(right).toLowerCase();
   const nameDifference = leftName.localeCompare(rightName, "es", { sensitivity: "base" });
 
   if (nameDifference !== 0) {
@@ -14737,6 +14786,7 @@ function renderCharacterSpellPreview(entry) {
 
 function renderCharacterSpellRow(row) {
   const matchedSpell = getCharacterSpellMatchedEntry(row);
+  const displayName = getCharacterSpellDisplayName(row, matchedSpell);
   const suggestions = getCharacterSpellSuggestions(row.id);
   const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
   const showSuggestions = state.showCharacterSpellSuggestions
@@ -14754,7 +14804,7 @@ function renderCharacterSpellRow(row) {
           <input
             class="filter-input character-spellbook__input${matchedSpell ? " character-spellbook__input--linked" : ""}"
             type="search"
-            value="${escapeHtml(row.name)}"
+            value="${escapeHtml(displayName)}"
             placeholder="Nombre del hechizo"
             data-character-spell-name="${escapeHtml(row.id)}"
           />
@@ -14804,7 +14854,7 @@ function renderCharacterSpellRow(row) {
         type="button"
         data-action="remove-character-spell-row"
         data-character-spell-row-id="${escapeHtml(row.id)}"
-        aria-label="Quitar ${escapeHtml(row.name || "hechizo")}"
+        aria-label="Quitar ${escapeHtml(displayName || "hechizo")}"
       >
         Quitar
       </button>
@@ -18001,16 +18051,6 @@ async function updateActiveCharacterSheetPdf(file) {
     return;
   }
 
-  if (!state.accountSession?.user?.id) {
-    pushNotification({
-      title: "Inicio de sesión necesario",
-      message: "Inicia sesión para almacenar fichas PDF en la nube.",
-      tone: "danger"
-    });
-    render();
-    return;
-  }
-
   if (file.size < 1 || file.size > CHARACTER_SHEET_PDF_MAX_BYTES) {
     pushNotification({
       title: "PDF demasiado grande",
@@ -18034,35 +18074,39 @@ async function updateActiveCharacterSheetPdf(file) {
   }
 
   const characterId = character.id;
+  const canUpload = Boolean(state.accountSession?.user?.id);
   const operationTarget = `character-pdf:${characterId}`;
   beginCloudOperation("saving", operationTarget);
 
   try {
     const [result, pdfImportData] = await Promise.all([
-      uploadCloudPdf(file),
+      canUpload ? uploadCloudPdf(file) : Promise.resolve(null),
       extractCharacterDataFromPdf(file).catch(() => null)
     ]);
-    const pdfUrl = cleanText(result?.asset?.url);
 
-    if (!CLOUD_PDF_ASSET_PATH_PATTERN.test(pdfUrl)) {
-      throw new Error("El servicio cloud no devolvió una ficha PDF válida.");
+    if (canUpload) {
+      const pdfUrl = cleanText(result?.asset?.url);
+
+      if (!CLOUD_PDF_ASSET_PATH_PATTERN.test(pdfUrl)) {
+        throw new Error("El servicio cloud no devolvió una ficha PDF válida.");
+      }
+
+      state.characters = state.characters.map((entry) => entry.id === characterId
+        ? normalizeStoredCharacter({
+          ...entry,
+          sheetPdfUrl: pdfUrl,
+          sheetPdfName: cleanText(file.name) || "Ficha de personaje.pdf",
+          sheetPdfBytes: Math.max(0, Number(result?.asset?.byteSize) || file.size),
+          sheetPdfUploadedAt: new Date().toISOString()
+        })
+        : entry);
+      saveCharacters();
+      state.accountError = "";
+      pushNotification({
+        title: character.sheetPdfUrl ? "Ficha PDF reemplazada" : "Ficha PDF guardada",
+        message: `${cleanText(file.name) || "Ficha de personaje.pdf"} ya está vinculada al personaje.`
+      });
     }
-
-    state.characters = state.characters.map((entry) => entry.id === characterId
-      ? normalizeStoredCharacter({
-        ...entry,
-        sheetPdfUrl: pdfUrl,
-        sheetPdfName: cleanText(file.name) || "Ficha de personaje.pdf",
-        sheetPdfBytes: Math.max(0, Number(result?.asset?.byteSize) || file.size),
-        sheetPdfUploadedAt: new Date().toISOString()
-      })
-      : entry);
-    saveCharacters();
-    state.accountError = "";
-    pushNotification({
-      title: character.sheetPdfUrl ? "Ficha PDF reemplazada" : "Ficha PDF guardada",
-      message: `${cleanText(file.name) || "Ficha de personaje.pdf"} ya está vinculada al personaje.`
-    });
 
     if (pdfImportData && getCharacterPdfImportLabels(pdfImportData).length > 0) {
       state.characterPdfImportDialogOpen = true;
@@ -18071,13 +18115,21 @@ async function updateActiveCharacterSheetPdf(file) {
     } else {
       pushNotification({
         title: "Sin datos compatibles",
-        message: "El PDF quedó vinculado, pero no contiene campos rellenables reconocidos."
+        message: canUpload
+          ? "El PDF quedó vinculado, pero no contiene campos rellenables reconocidos."
+          : "El PDF no contiene campos rellenables reconocidos."
       });
     }
   } catch (error) {
-    const message = getCloudErrorMessage(error);
-    state.accountError = message;
-    pushNotification({ title: "No se pudo guardar el PDF", message, tone: "danger" });
+    const message = canUpload
+      ? getCloudErrorMessage(error)
+      : cleanText(error?.message) || "No se pudo analizar el PDF.";
+    state.accountError = canUpload ? message : "";
+    pushNotification({
+      title: canUpload ? "No se pudo guardar el PDF" : "No se pudo importar el PDF",
+      message,
+      tone: "danger"
+    });
   }
 
   endCloudOperation("saving", operationTarget);
@@ -18164,6 +18216,7 @@ function importPendingCharacterPdfData() {
       classEntries: nextClassEntries
     })
     : entry);
+  reconcileCharactersWithCurrentCompendiumReferences({ save: false });
   const importedLabels = getCharacterPdfImportLabels(importedData);
 
   closeCharacterPdfImportDialog();

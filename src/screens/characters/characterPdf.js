@@ -6,33 +6,46 @@ function loadPdfLibrary() {
 }
 
 const ABILITY_META = Object.freeze({
-  str: { label: "Strength", short: "Str", scoreFields: ["STR", "Front_Str Score"], modifierFields: ["STRmod", "Front_Str Mod"] },
-  dex: { label: "Dexterity", short: "Dex", scoreFields: ["DEX", "Front_Dex Score"], modifierFields: ["DEXmod ", "Front_Dex Mod"] },
-  con: { label: "Constitution", short: "Con", scoreFields: ["CON", "Front_Con Score"], modifierFields: ["CONmod", "Front_Con Mod"] },
-  int: { label: "Intelligence", short: "Int", scoreFields: ["INT", "Front_Int Score"], modifierFields: ["INTmod", "Front_Int Mod"] },
-  wis: { label: "Wisdom", short: "Wis", scoreFields: ["WIS", "Front_Wis Score"], modifierFields: ["WISmod", "Front_Wis Mod"] },
-  cha: { label: "Charisma", short: "Cha", scoreFields: ["CHA", "Front_Cha Score"], modifierFields: ["CHamod", "Front_Cha Mod"] }
+  str: { label: "Strength", short: "Str", scoreFields: ["STR", "STRscore", "Front_Str Score"], modifierFields: ["STRmod", "STRbonus", "Front_Str Mod"] },
+  dex: { label: "Dexterity", short: "Dex", scoreFields: ["DEX", "DEXscore", "Front_Dex Score"], modifierFields: ["DEXmod ", "DEXbonus", "Front_Dex Mod"] },
+  con: { label: "Constitution", short: "Con", scoreFields: ["CON", "CONscore", "Front_Con Score"], modifierFields: ["CONmod", "CONbonus", "Front_Con Mod"] },
+  int: { label: "Intelligence", short: "Int", scoreFields: ["INT", "INTscore", "Front_Int Score"], modifierFields: ["INTmod", "INTbonus", "Front_Int Mod"] },
+  wis: { label: "Wisdom", short: "Wis", scoreFields: ["WIS", "WISscore", "Front_Wis Score"], modifierFields: ["WISmod", "WISbonus", "Front_Wis Mod"] },
+  cha: { label: "Charisma", short: "Cha", scoreFields: ["CHA", "CHAscore", "Front_Cha Score"], modifierFields: ["CHamod", "CHAbonus", "Front_Cha Mod"] }
 });
 
 const SKILL_META = Object.freeze({
-  athletics: { label: "Athletics", ability: "str", valueFields: ["Athletics", "Front_Skill Athletics"], checkboxFields: ["ChBx Athletics", "Front_Proficiency Athletics"] },
-  acrobatics: { label: "Acrobatics", ability: "dex", valueFields: ["Acrobatics", "Front_Skill Acrobatics"], checkboxFields: ["ChBx Acrobatics", "Front_Proficiency Acrobatics"] },
-  sleightOfHand: { label: "Sleight of Hand", ability: "dex", valueFields: ["SleightofHand", "Front_Skill Sleight of Hand"], checkboxFields: ["ChBx Sleight", "Front_Proficiency Sleight of Hand"] },
-  stealth: { label: "Stealth", ability: "dex", valueFields: ["Stealth", "Front_Skill Stealth"], checkboxFields: ["ChBx Stealth", "Front_Proficiency Stealth"] },
-  arcana: { label: "Arcana", ability: "int", valueFields: ["Arcana", "Front_Skill Arcana"], checkboxFields: ["ChBx Arcana", "Front_Proficiency Arcana"] },
-  history: { label: "History", ability: "int", valueFields: ["History", "Front_Skill History"], checkboxFields: ["ChBx History", "Front_Proficiency History"] },
-  investigation: { label: "Investigation", ability: "int", valueFields: ["Investigation", "Front_Skill Investigation"], checkboxFields: ["ChBx Investigation", "Front_Proficiency Investigation"] },
-  nature: { label: "Nature", ability: "int", valueFields: ["Nature", "Front_Skill Nature"], checkboxFields: ["ChBx Nature", "Front_Proficiency Nature"] },
-  religion: { label: "Religion", ability: "int", valueFields: ["Religion", "Front_Skill Religion"], checkboxFields: ["ChBx Religion", "Front_Proficiency Religion"] },
-  animalHandling: { label: "Animal Handling", ability: "wis", valueFields: ["Animal Handling", "Front_Skill Animal Handling"], checkboxFields: ["ChBx Animal", "Front_Proficiency Animal Handling"] },
-  insight: { label: "Insight", ability: "wis", valueFields: ["Insight", "Front_Skill Insight"], checkboxFields: ["ChBx Insight", "Front_Proficiency Insight"] },
-  medicine: { label: "Medicine", ability: "wis", valueFields: ["Medicine", "Front_Skill Medicine"], checkboxFields: ["ChBx Medicine", "Front_Proficiency Medicine"] },
-  perception: { label: "Perception", ability: "wis", valueFields: ["Perception", "Front_Skill Perception"], checkboxFields: ["ChBx Perception", "Front_Proficiency Perception"] },
-  survival: { label: "Survival", ability: "wis", valueFields: ["Survival", "Front_Skill Survival"], checkboxFields: ["ChBx Survival", "Front_Proficiency Survival"] },
-  deception: { label: "Deception", ability: "cha", valueFields: ["Deception", "Front_Skill Deception"], checkboxFields: ["ChBx Deception", "Front_Proficiency Deception"] },
-  intimidation: { label: "Intimidation", ability: "cha", valueFields: ["Intimidation", "Front_Skill Intimidation"], checkboxFields: ["ChBx Intimidation", "Front_Proficiency Intimidation"] },
-  performance: { label: "Performance", ability: "cha", valueFields: ["Performance", "Front_Skill Performance"], checkboxFields: ["ChBx Performance", "Front_Proficiency Performance"] },
-  persuasion: { label: "Persuasion", ability: "cha", valueFields: ["Persuasion", "Front_Skill Persuasion"], checkboxFields: ["ChBx Persuasion", "Front_Proficiency Persuasion"] }
+  athletics: { label: "Athletics", ability: "str", valueFields: ["Athletics", "Front_Skill Athletics"], checkboxFields: ["ChBx Athletics", "Front_Proficiency Athletics", "athPROF"] },
+  acrobatics: { label: "Acrobatics", ability: "dex", valueFields: ["Acrobatics", "Front_Skill Acrobatics"], checkboxFields: ["ChBx Acrobatics", "Front_Proficiency Acrobatics", "acroPROF"] },
+  sleightOfHand: { label: "Sleight of Hand", ability: "dex", valueFields: ["SleightofHand", "Front_Skill Sleight of Hand"], checkboxFields: ["ChBx Sleight", "Front_Proficiency Sleight of Hand", "sohPROF"] },
+  stealth: { label: "Stealth", ability: "dex", valueFields: ["Stealth", "Front_Skill Stealth"], checkboxFields: ["ChBx Stealth", "Front_Proficiency Stealth", "stealthPROF"] },
+  arcana: { label: "Arcana", ability: "int", valueFields: ["Arcana", "Front_Skill Arcana"], checkboxFields: ["ChBx Arcana", "Front_Proficiency Arcana", "arcanaPROF"] },
+  history: { label: "History", ability: "int", valueFields: ["History", "Front_Skill History"], checkboxFields: ["ChBx History", "Front_Proficiency History", "histPROF"] },
+  investigation: { label: "Investigation", ability: "int", valueFields: ["Investigation", "Front_Skill Investigation"], checkboxFields: ["ChBx Investigation", "Front_Proficiency Investigation", "investPROF"] },
+  nature: { label: "Nature", ability: "int", valueFields: ["Nature", "Front_Skill Nature"], checkboxFields: ["ChBx Nature", "Front_Proficiency Nature", "naturePROF"] },
+  religion: { label: "Religion", ability: "int", valueFields: ["Religion", "Front_Skill Religion"], checkboxFields: ["ChBx Religion", "Front_Proficiency Religion", "religPROF"] },
+  animalHandling: { label: "Animal Handling", ability: "wis", valueFields: ["Animal Handling", "AnHan", "Front_Skill Animal Handling"], checkboxFields: ["ChBx Animal", "Front_Proficiency Animal Handling", "anhanPROF"] },
+  insight: { label: "Insight", ability: "wis", valueFields: ["Insight", "Front_Skill Insight"], checkboxFields: ["ChBx Insight", "Front_Proficiency Insight", "insightPROF"] },
+  medicine: { label: "Medicine", ability: "wis", valueFields: ["Medicine", "Front_Skill Medicine"], checkboxFields: ["ChBx Medicine", "Front_Proficiency Medicine", "medPROF"] },
+  perception: { label: "Perception", ability: "wis", valueFields: ["Perception", "Front_Skill Perception"], checkboxFields: ["ChBx Perception", "Front_Proficiency Perception", "perPROF"] },
+  survival: { label: "Survival", ability: "wis", valueFields: ["Survival", "Front_Skill Survival"], checkboxFields: ["ChBx Survival", "Front_Proficiency Survival", "survPROF"] },
+  deception: { label: "Deception", ability: "cha", valueFields: ["Deception", "Front_Skill Deception"], checkboxFields: ["ChBx Deception", "Front_Proficiency Deception", "decepPROF"] },
+  intimidation: { label: "Intimidation", ability: "cha", valueFields: ["Intimidation", "Front_Skill Intimidation"], checkboxFields: ["ChBx Intimidation", "Front_Proficiency Intimidation", "intimPROF"] },
+  performance: { label: "Performance", ability: "cha", valueFields: ["Performance", "Front_Skill Performance"], checkboxFields: ["ChBx Performance", "Front_Proficiency Performance", "perfPROF"] },
+  persuasion: { label: "Persuasion", ability: "cha", valueFields: ["Persuasion", "Front_Skill Persuasion"], checkboxFields: ["ChBx Persuasion", "Front_Proficiency Persuasion", "persPROF"] }
+});
+
+const ALTERNATIVE_SPELL_LEVEL_FIELDS = Object.freeze({
+  0: Array.from({ length: 8 }, (_, index) => `Spells${index + 1}`),
+  1: Array.from({ length: 12 }, (_, index) => `Spells${index + 9}`),
+  2: Array.from({ length: 13 }, (_, index) => `Spells${index + 21}`),
+  3: Array.from({ length: 13 }, (_, index) => `Spells${index + 34}`),
+  4: Array.from({ length: 13 }, (_, index) => `Spells${index + 47}`),
+  5: Array.from({ length: 9 }, (_, index) => `Spells${index + 60}`),
+  6: Array.from({ length: 9 }, (_, index) => `Spells${index + 69}`),
+  7: Array.from({ length: 9 }, (_, index) => `Spells${index + 78}`),
+  8: Array.from({ length: 7 }, (_, index) => `Spells${index + 87}`),
+  9: Array.from({ length: 7 }, (_, index) => `Spells${index + 94}`)
 });
 
 const TEMPLATE_SAVE_FIELDS = Object.freeze({
@@ -138,7 +151,7 @@ function formatSigned(value) {
 }
 
 function createPdfFieldReader(form, pdfLibrary) {
-  const { PDFCheckBox, PDFTextField } = pdfLibrary;
+  const { PDFCheckBox, PDFDropdown, PDFOptionList, PDFTextField } = pdfLibrary;
   const fields = new Map(form.getFields().map((field) => [normalizeFieldName(field.getName()), field]));
 
   return {
@@ -151,7 +164,11 @@ function createPdfFieldReader(form, pdfLibrary) {
 
       for (const name of aliases) {
         const field = fields.get(normalizeFieldName(name));
-        const value = field instanceof PDFTextField ? cleanPdfText(field.getText()) : "";
+        const value = field instanceof PDFTextField
+          ? cleanPdfText(field.getText())
+          : field instanceof PDFDropdown || field instanceof PDFOptionList
+            ? cleanPdfText(field.getSelected()?.[0])
+            : "";
 
         if (value) {
           return value;
@@ -232,9 +249,9 @@ export async function extractCharacterDataFromPdf(source) {
   addDetectedText(data, "background", reader.getText(["Background", "Front_Background"]));
 
   const combinedClass = parseClassAndLevel(reader.getText(["ClassLevel", "Class & Level", "Class and Level"]));
-  const explicitClassName = reader.getText(["Class", "Character Class", "Front_Class", "Front_Class Name"]);
+  const explicitClassName = reader.getText(["Class", "Clase", "Character Class", "Front_Class", "Front_Class Name"]);
   const explicitSubclassName = reader.getText(["Subclass", "Sub-class", "Archetype", "Front_Archetype"]);
-  const explicitLevel = parsePdfNumber(reader.getText(["Level", "Front_Level"]));
+  const explicitLevel = parsePdfNumber(reader.getText(["Level", "Lvl", "Front_Level"]));
   addDetectedText(data, "className", explicitClassName || combinedClass.className);
   addDetectedText(data, "subclassName", explicitSubclassName);
   const detectedLevel = clampInteger(explicitLevel ?? combinedClass.level, 1, 20);
@@ -243,20 +260,20 @@ export async function extractCharacterDataFromPdf(source) {
     data.level = detectedLevel;
   }
 
-  addDetectedNumber(data, "experiencePoints", reader.getText(["XP", "Experience Points", "Front_XP"]), 0);
+  addDetectedNumber(data, "experiencePoints", reader.getText(["XP", "ExperiencePoints", "Experience Points", "Front_XP"]), 0);
   addDetectedNumber(data, "proficiencyBonus", reader.getText(["ProfBonus", "Proficiency Bonus", "Front_Proficiency"]), 0, 20);
   addDetectedNumber(data, "armorClass", reader.getText(["AC", "Armor Class", "Front_AC"]), 0, 99);
-  addDetectedNumber(data, "initiativeBonus", reader.getText(["Initiative", "Front_Initiative"]), -99, 99);
+  addDetectedNumber(data, "initiativeBonus", reader.getText(["Initiative", "Init", "Front_Initiative"]), -99, 99);
   const detectedSpeed = reader.getText(["Speed", "Front_Speed"]);
 
   if (detectedSpeed) {
     data.speed = /^\d+(?:[.,]\d+)?$/.test(detectedSpeed) ? `${detectedSpeed} ft` : detectedSpeed;
   }
   addDetectedNumber(data, "maxHp", reader.getText(["HPMax", "Max HP", "Front_Max HP"]), 0);
-  addDetectedNumber(data, "currentHp", reader.getText(["HPCurrent", "Current HP", "Front_Current HP"]), 0);
-  addDetectedNumber(data, "tempHp", reader.getText(["HPTemp", "Temp HP", "Front_Temp HP"]), 0);
-  addDetectedNumber(data, "spellAttackModifier", reader.getText(["Spell Atk", "Spell Attack", "Front_Spell Atk"]), -99, 99);
-  addDetectedNumber(data, "spellSaveDc", reader.getText(["Spell Save DC", "Spell DC", "Front_Spell DC"]), 0, 99);
+  addDetectedNumber(data, "currentHp", reader.getText(["HPCurrent", "CurrentHP", "Current HP", "Front_Current HP"]), 0);
+  addDetectedNumber(data, "tempHp", reader.getText(["HPTemp", "TempHP", "Temp HP", "Front_Temp HP"]), 0);
+  addDetectedNumber(data, "spellAttackModifier", reader.getText(["Spell Atk", "Spell Attack", "SAB", "Front_Spell Atk"]), -99, 99);
+  addDetectedNumber(data, "spellSaveDc", reader.getText(["Spell Save DC", "SpellSaveDC", "Spell DC", "Front_Spell DC"]), 0, 99);
 
   Object.entries(ABILITY_META).forEach(([abilityKey, meta]) => {
     const score = clampInteger(parsePdfNumber(reader.getText(meta.scoreFields)), 1, 30);
@@ -274,8 +291,9 @@ export async function extractCharacterDataFromPdf(source) {
   const proficiencies = [];
 
   Object.entries(ABILITY_META).forEach(([abilityKey, meta]) => {
-    const saveAliases = [`ST ${meta.label}`, `Front_Save ${meta.short}`, `Front_Save ${meta.label}`];
-    const saveValueAliases = [TEMPLATE_SAVE_FIELDS[abilityKey].value, `Front_${meta.short} Save Throw`];
+    const abilityPrefix = abilityKey.toUpperCase();
+    const saveAliases = [`ST ${meta.label}`, `${abilityPrefix}savePROF`, `Front_Save ${meta.short}`, `Front_Save ${meta.label}`];
+    const saveValueAliases = [TEMPLATE_SAVE_FIELDS[abilityKey].value, `${abilityPrefix}save`, `Front_${meta.short} Save Throw`];
     const saveValue = parsePdfNumber(reader.getText(saveValueAliases));
     const abilityModifier = abilities[abilityKey] === undefined ? null : getAbilityModifier(abilities[abilityKey]);
 
@@ -323,30 +341,75 @@ export async function extractCharacterDataFromPdf(source) {
     });
   }
 
+  Object.entries(ALTERNATIVE_SPELL_LEVEL_FIELDS).forEach(([rawLevel, fieldNames]) => {
+    const level = Number(rawLevel);
+
+    fieldNames.forEach((fieldName) => {
+      const name = reader.getText(fieldName);
+
+      if (name && !spells.some((spell) => normalizeFieldName(spell.name) === normalizeFieldName(name))) {
+        spells.push({
+          name,
+          level: level === 0 ? "Truco" : String(level),
+          prepared: false
+        });
+      }
+    });
+  });
+
   if (spells.length > 0) {
     data.spells = spells;
   }
 
+  const importedSpellSlots = [];
   const spellSlotLevel = clampInteger(parsePdfNumber(reader.getText(["Front_Spell Slots Level"])), 1, 9);
   const spellSlotTotal = clampInteger(parsePdfNumber(reader.getText(["Front_Spell Slots Total"])), 0, 99);
   const spellSlotUsed = clampInteger(parsePdfNumber(reader.getText(["Front_Spell Slots Used"])), 0, 99) ?? 0;
 
   if (spellSlotLevel !== null && spellSlotTotal !== null) {
-    data.spellSlots = [{
+    importedSpellSlots.push({
       level: spellSlotLevel,
       slots: spellSlotTotal,
       spent: Array.from({ length: spellSlotTotal }, (_, index) => index < Math.min(spellSlotUsed, spellSlotTotal))
-    }];
-    data.spellSlotLevelsVisible = spellSlotLevel;
+    });
+  }
+
+
+  for (let level = 1; level <= 9; level += 1) {
+    const total = clampInteger(parsePdfNumber(reader.getText([`SlotsTot${level}`, `SlotsTotal${level}`])), 0, 99);
+
+    if (total === null) {
+      continue;
+    }
+
+    const remaining = clampInteger(parsePdfNumber(reader.getText([`SlotsRemaining${level}`])), 0, total) ?? total;
+    const spentCount = Math.max(0, total - remaining);
+    const existingIndex = importedSpellSlots.findIndex((entry) => entry.level === level);
+    const slotEntry = {
+      level,
+      slots: total,
+      spent: Array.from({ length: total }, (_, index) => index < spentCount)
+    };
+
+    if (existingIndex >= 0) {
+      importedSpellSlots[existingIndex] = slotEntry;
+    } else {
+      importedSpellSlots.push(slotEntry);
+    }
+  }
+
+  if (importedSpellSlots.length > 0) {
+    data.spellSlots = importedSpellSlots.sort((left, right) => left.level - right.level);
+    data.spellSlotLevelsVisible = Math.max(...importedSpellSlots.map((entry) => entry.level));
   }
 
   const noteSections = [
-    ["Rasgos", reader.getText(["Features and Traits", "Front_Racial Traits"])],
+    ["Rasgos", reader.getText(["Features and Traits", "FeaturesTraits", "Feat+Traits", "Front_Racial Traits"])],
     ["Personalidad", reader.getText(["PersonalityTraits", "PersonalityTraits "])],
     ["Ideales", reader.getText(["Ideals"])],
     ["Vinculos", reader.getText(["Bonds"])],
     ["Defectos", reader.getText(["Flaws"])],
-    ["Competencias e idiomas", reader.getText(["ProficienciesLang", "Front_Languages", "Front_Tools"])]
+    ["Competencias e idiomas", reader.getText(["ProficienciesLang", "ProfsLangs", "Front_Languages", "Front_Tools"])]
   ].filter(([, value]) => value);
 
   if (noteSections.length > 0) {
