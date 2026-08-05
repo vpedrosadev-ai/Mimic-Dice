@@ -10249,7 +10249,7 @@ body.is-table-resizing * {
 
 .character-sheet-pdf-card__button[data-action="export-character-pdf"] {
   padding-inline: 0.3rem;
-  font-size: 0.64rem;
+  font-size: 0.68rem;
   white-space: nowrap;
 }
 

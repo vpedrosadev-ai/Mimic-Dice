@@ -80,6 +80,24 @@ const TEMPLATE_SKILL_FIELDS = Object.freeze({
   persuasion: { value: "Persuasion", checkbox: "ChBx Persuasion" }
 });
 
+const TEMPLATE_WEAPON_FIELDS = Object.freeze([
+  {
+    name: ["Wpn Name", "Front_Weapon Name 1"],
+    attack: ["Wpn1 AtkBonus", "Front_Weapon Atk Bonus 1"],
+    damage: ["Wpn1 Damage", "Front_Weapon Damage 1"]
+  },
+  {
+    name: ["Wpn Name 2", "Front_Weapon Name 2"],
+    attack: ["Wpn2 AtkBonus", "Front_Weapon Atk Bonus 2"],
+    damage: ["Wpn2 Damage", "Front_Weapon Damage 2"]
+  },
+  {
+    name: ["Wpn Name 3", "Front_Weapon Name 3"],
+    attack: ["Wpn3 AtkBonus", "Front_Weapon Atk Bonus 3"],
+    damage: ["Wpn3 Damage", "Front_Weapon Damage 3"]
+  }
+]);
+
 const SPELL_SHEET_LEVEL_FIELDS = Object.freeze({
   0: ["Spells 1014", "Spells 1016", "Spells 1017", "Spells 1018", "Spells 1019", "Spells 1020", "Spells 1021", "Spells 1022"],
   1: ["Spells 1015", "Spells 1023", "Spells 1024", "Spells 1025", "Spells 1026", "Spells 1027", "Spells 1028", "Spells 1029", "Spells 1030", "Spells 1031", "Spells 1032", "Spells 1033"],
@@ -850,34 +868,164 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
   }
 }
 
-const BACK_SHEET_CURRENCY_FIELDS = Object.freeze({
-  CP: ["COBRE", "CP", "COPPER"],
-  SP: ["PLATA", "SP", "SILVER"],
-  EP: ["ELECTRO", "EP", "ELECTRUM"],
-  GP: ["ORO", "GP", "GOLD"],
-  PP: ["PLATINO", "PP", "PLATINUM"]
+const BACKPACK_GOLD_NAMES = Object.freeze(["ORO", "GP", "GOLD"]);
+const BACKPACK_CURRENCY_NAMES = Object.freeze([
+  "COBRE", "CP", "COPPER",
+  "PLATA", "SP", "SILVER",
+  "ELECTRO", "EP", "ELECTRUM",
+  ...BACKPACK_GOLD_NAMES,
+  "PLATINO", "PP", "PLATINUM"
+]);
+const BACKPACK_LAYOUT = Object.freeze({
+  characterName: { x: 39, y: 708, size: 13, maxWidth: 210 },
+  gold: { x: 58, y: 245, size: 9 },
+  itemColumns: [222, 404],
+  itemTopY: 405,
+  itemBottomY: 38,
+  itemFontSize: 7.5,
+  itemLineHeight: 10.5,
+  itemMaxWidth: 171
 });
 
 function isBackSheetCurrencyName(value) {
   const normalizedName = cleanPdfText(value).toUpperCase();
-  return Object.values(BACK_SHEET_CURRENCY_FIELDS).some((aliases) => aliases.includes(normalizedName));
+  return BACKPACK_CURRENCY_NAMES.includes(normalizedName);
 }
 
-function getBackSheetCurrencyQuantity(character, aliases) {
+function getBackpackGoldQuantity(character) {
   const row = (Array.isArray(character?.inventory) ? character.inventory : [])
-    .find((entry) => aliases.includes(cleanPdfText(entry?.name).toUpperCase()));
+    .find((entry) => BACKPACK_GOLD_NAMES.includes(cleanPdfText(entry?.name).toUpperCase()));
   return Math.max(0, Math.floor(Number(row?.quantity) || 0));
 }
 
-function getBackSheetInventoryText(character) {
+function getBackpackInventoryLabels(character) {
   return (Array.isArray(character?.inventory) ? character.inventory : [])
     .filter((entry) => !isBackSheetCurrencyName(entry?.name) && cleanPdfText(entry?.name) && Number(entry?.quantity) > 0)
     .map((entry) => {
       const name = cleanPdfText(entry.name);
       const size = cleanPdfText(entry.size);
-      return size ? `${name} (${size})` : name;
-    })
-    .join("\n");
+      const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
+      return `- ${name}${size ? ` (${size})` : ""}${quantity > 1 ? ` x${quantity}` : ""}`;
+    });
+}
+
+function fitPdfLine(value, font, size, maxWidth) {
+  const text = toPdfText(value);
+
+  if (font.widthOfTextAtSize(text, size) <= maxWidth) {
+    return text;
+  }
+
+  let fitted = text;
+
+  while (fitted.length > 1 && font.widthOfTextAtSize(`${fitted}...`, size) > maxWidth) {
+    fitted = fitted.slice(0, -1);
+  }
+
+  return `${fitted.trimEnd()}...`;
+}
+
+function wrapPdfLines(value, font, size, maxWidth) {
+  const lines = [];
+  let remaining = toPdfText(value);
+
+  while (remaining) {
+    if (font.widthOfTextAtSize(remaining, size) <= maxWidth) {
+      lines.push(remaining);
+      break;
+    }
+
+    let endIndex = remaining.length;
+
+    while (endIndex > 1 && font.widthOfTextAtSize(remaining.slice(0, endIndex), size) > maxWidth) {
+      endIndex -= 1;
+    }
+
+    const wordBoundary = remaining.lastIndexOf(" ", endIndex);
+    const splitIndex = wordBoundary > 2 ? wordBoundary : endIndex;
+    lines.push(remaining.slice(0, splitIndex).trimEnd());
+    remaining = `  ${remaining.slice(splitIndex).trimStart()}`;
+  }
+
+  return lines;
+}
+
+function normalizePdfRuleText(value) {
+  return cleanPdfText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function isCharacterWeaponItem(item) {
+  const type = normalizePdfRuleText(item?.type);
+  return Boolean(
+    cleanPdfText(item?.damage)
+    && (type.includes("weapon") || type.includes("arma"))
+  );
+}
+
+function getCharacterWeaponAbilityModifier(character, item) {
+  const type = normalizePdfRuleText(item?.type);
+  const properties = normalizePdfRuleText(item?.properties);
+  const strengthModifier = getAbilityModifier(character?.abilities?.str ?? 10);
+  const dexterityModifier = getAbilityModifier(character?.abilities?.dex ?? 10);
+  const isFinesse = properties.includes("finesse") || properties.includes("finura") || properties.includes("sutileza");
+  const isRanged = type.includes("ranged weapon")
+    || type.includes("arma a distancia")
+    || properties.includes("ammunition")
+    || properties.includes("municion");
+
+  if (isFinesse) {
+    return Math.max(strengthModifier, dexterityModifier);
+  }
+
+  return isRanged ? dexterityModifier : strengthModifier;
+}
+
+function getCharacterWeaponMagicBonus(item) {
+  const name = normalizePdfRuleText(item?.name);
+  const text = normalizePdfRuleText(item?.text);
+  const nameMatch = name.match(/(?:^|\s)\+([1-3])(?:\s|$)/);
+
+  if (nameMatch) {
+    return Number(nameMatch[1]);
+  }
+
+  const textMatch = text.match(/\+([1-3])\s+(?:bonus|bonificacion).*?(?:attack|ataque).*?(?:damage|dano)/);
+  return textMatch ? Number(textMatch[1]) : 0;
+}
+
+function getCharacterWeaponDamageLabel(item, abilityModifier, magicBonus) {
+  const damage = cleanPdfText(item?.damage);
+  const match = damage.match(/^(\d+(?:d\d+)?)(?:\s+)(.+)$/i);
+
+  if (!match) {
+    return damage;
+  }
+
+  const modifier = abilityModifier + magicBonus;
+  const modifierLabel = modifier === 0
+    ? ""
+    : modifier > 0
+      ? ` + ${modifier}`
+      : ` - ${Math.abs(modifier)}`;
+  return `${match[1]}${modifierLabel} ${match[2]}`;
+}
+
+function writeCharacterWeaponsToPrimaryTemplate(writer, character, proficiencyBonus) {
+  const weapons = (Array.isArray(character?.inventory) ? character.inventory : [])
+    .filter((item) => Number(item?.quantity) > 0 && isCharacterWeaponItem(item))
+    .slice(0, TEMPLATE_WEAPON_FIELDS.length);
+
+  weapons.forEach((weapon, index) => {
+    const abilityModifier = getCharacterWeaponAbilityModifier(character, weapon);
+    const magicBonus = getCharacterWeaponMagicBonus(weapon);
+    const fields = TEMPLATE_WEAPON_FIELDS[index];
+    writer.setText(fields.name, weapon.name);
+    writer.setText(fields.attack, formatSigned(abilityModifier + proficiencyBonus + magicBonus));
+    writer.setText(fields.damage, getCharacterWeaponDamageLabel(weapon, abilityModifier, magicBonus));
+  });
 }
 
 async function appendCharacterBackSheet(document, templateBytes, character, pdfLibrary) {
@@ -885,24 +1033,52 @@ async function appendCharacterBackSheet(document, templateBytes, character, pdfL
     return;
   }
 
-  const { PDFDocument, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
+  const { PDFDocument, StandardFonts } = pdfLibrary;
   const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
-  const backDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
-  const backForm = backDocument.getForm();
-  const writer = createPdfFieldWriter(backForm, pdfFieldTypes);
-  writer.setText("Back_Character Name", character?.name);
-  Object.entries(BACK_SHEET_CURRENCY_FIELDS).forEach(([currency, aliases]) => {
-    writer.setText(`Back_${currency}`, getBackSheetCurrencyQuantity(character, aliases));
-  });
-  writer.setText("Back_Backpack", getBackSheetInventoryText(character));
-  const font = await backDocument.embedFont(StandardFonts.Helvetica);
-  backForm.updateFieldAppearances(font);
-  backForm.flatten({ updateFieldAppearances: false });
-  const copiedPages = await document.copyPages(
-    backDocument,
-    backDocument.getPages().map((_, index) => index)
-  );
-  copiedPages.forEach((page) => document.addPage(page));
+  const linesPerColumn = Math.floor(
+    (BACKPACK_LAYOUT.itemTopY - BACKPACK_LAYOUT.itemBottomY) / BACKPACK_LAYOUT.itemLineHeight
+  ) + 1;
+  const linesPerPage = linesPerColumn * BACKPACK_LAYOUT.itemColumns.length;
+  const measurementDocument = await PDFDocument.create();
+  const measurementFont = await measurementDocument.embedFont(StandardFonts.Helvetica);
+  const lines = getBackpackInventoryLabels(character).flatMap((label) => wrapPdfLines(
+    label,
+    measurementFont,
+    BACKPACK_LAYOUT.itemFontSize,
+    BACKPACK_LAYOUT.itemMaxWidth
+  ));
+  const pageCount = Math.max(1, Math.ceil(lines.length / linesPerPage));
+
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    const backDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+    const page = backDocument.getPages()[0];
+    const font = await backDocument.embedFont(StandardFonts.Helvetica);
+    const pageLines = lines.slice(pageIndex * linesPerPage, (pageIndex + 1) * linesPerPage);
+    page.drawText(fitPdfLine(character?.name, font, BACKPACK_LAYOUT.characterName.size, BACKPACK_LAYOUT.characterName.maxWidth), {
+      x: BACKPACK_LAYOUT.characterName.x,
+      y: BACKPACK_LAYOUT.characterName.y,
+      size: BACKPACK_LAYOUT.characterName.size,
+      font
+    });
+    page.drawText(String(getBackpackGoldQuantity(character)), {
+      x: BACKPACK_LAYOUT.gold.x,
+      y: BACKPACK_LAYOUT.gold.y,
+      size: BACKPACK_LAYOUT.gold.size,
+      font
+    });
+    pageLines.forEach((line, index) => {
+      const columnIndex = Math.floor(index / linesPerColumn);
+      const rowIndex = index % linesPerColumn;
+      page.drawText(line, {
+        x: BACKPACK_LAYOUT.itemColumns[columnIndex],
+        y: BACKPACK_LAYOUT.itemTopY - rowIndex * BACKPACK_LAYOUT.itemLineHeight,
+        size: BACKPACK_LAYOUT.itemFontSize,
+        font
+      });
+    });
+    const copiedPages = await document.copyPages(backDocument, [0]);
+    copiedPages.forEach((copiedPage) => document.addPage(copiedPage));
+  }
 }
 
 function createPreparedCheckboxResolver(form, pdfLibrary) {
@@ -1077,6 +1253,7 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
     writer.setChecked([templateSkill.checkbox, ...meta.checkboxFields], isProficient);
   });
 
+  writeCharacterWeaponsToPrimaryTemplate(writer, exportCharacter, proficiencyBonus);
   const remainingSpells = writeCharacterSpellsToPrimaryTemplate(writer, exportCharacter, options);
   writeCharacterSpellSlotsToPrimaryTemplate(writer, exportCharacter);
 

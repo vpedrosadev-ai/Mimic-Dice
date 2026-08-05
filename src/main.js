@@ -113,7 +113,7 @@ import appIconUrl from "../build-resources/icon.png";
 import characterPdfTemplateUrl from "./assets/templates/character-sheet-alternative-form-fillable.pdf?url";
 import characterSpellPdfTemplateUrl from "./assets/templates/dnd-5e-spell-sheet-form-fillable.pdf?url";
 import characterSpellCardPdfTemplateUrl from "./assets/templates/456029-Optional_Sheet_SPELL_SHEET-A_FILLABLE.pdf?url";
-import characterBackPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BACK_FILLABLE.pdf?url";
+import characterBackPdfTemplateUrl from "./assets/templates/backpack-inventory-sheet.pdf?url";
 import artificerCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_ARTIFICER_FILLABLE.pdf?url";
 import barbarianCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BARBARIAN_FILLABLE.pdf?url";
 import bardCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BARD_FILLABLE.pdf?url";
@@ -18374,6 +18374,7 @@ function getCharacterPdfExportCharacter(character) {
       ? cleanText(matchedItem.canonicalName || matchedItem.name || item?.name)
       : cleanText(matchedItem.localizedName || matchedItem.name || item?.name);
     return {
+      ...matchedItem,
       ...item,
       name: translatedName || item.name,
       size: cleanText(item.size) || matchedItem.sizeLabel
