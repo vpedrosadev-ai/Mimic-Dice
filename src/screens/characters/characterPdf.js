@@ -1,3 +1,5 @@
+import { translateCharacterClassName } from "../../data/characterClasses.js";
+
 let pdfLibraryPromise = null;
 
 function loadPdfLibrary() {
@@ -424,24 +426,90 @@ function createPdfFieldWriter(form, pdfLibrary) {
   const fields = new Map(form.getFields().map((field) => [normalizeFieldName(field.getName()), field]));
 
   return {
-    setText(name, value) {
-      const field = fields.get(normalizeFieldName(name));
-
-      if (field instanceof PDFTextField && value !== undefined && value !== null && value !== "") {
-        field.setText(toPdfText(value));
-      }
+    hasText(names) {
+      const aliases = Array.isArray(names) ? names : [names];
+      return aliases.some((name) => fields.get(normalizeFieldName(name)) instanceof PDFTextField);
     },
-    setChecked(name, checked) {
-      const field = fields.get(normalizeFieldName(name));
+    setText(names, value) {
+      const aliases = Array.isArray(names) ? names : [names];
 
-      if (field instanceof PDFCheckBox) {
-        if (checked) {
-          field.check();
-        } else {
-          field.uncheck();
+      if (value === undefined || value === null || value === "") {
+        return false;
+      }
+
+      for (const name of aliases) {
+        const field = fields.get(normalizeFieldName(name));
+
+        if (field instanceof PDFTextField) {
+          field.setText(toPdfText(value));
+          return true;
         }
       }
+
+      return false;
+    },
+    setChecked(names, checked) {
+      const aliases = Array.isArray(names) ? names : [names];
+
+      for (const name of aliases) {
+        const field = fields.get(normalizeFieldName(name));
+
+        if (field instanceof PDFCheckBox) {
+          if (checked) {
+            field.check();
+          } else {
+            field.uncheck();
+          }
+
+          return true;
+        }
+      }
+
+      return false;
     }
+  };
+}
+
+function getCharacterPdfClassEntries(character, contentLanguage = "es") {
+  const sourceEntries = (Array.isArray(character?.classEntries) ? character.classEntries : [])
+    .map((entry, index) => ({
+      ...entry,
+      _sourceIndex: index,
+      name: cleanPdfText(entry?.name ?? entry?.className),
+      subclassName: cleanPdfText(entry?.subclassName),
+      level: clampInteger(entry?.level, 0, 20) ?? 0
+    }))
+    .filter((entry) => entry.name || entry.subclassName || entry.level > 0);
+  const fallbackEntries = sourceEntries.length > 0
+    ? sourceEntries
+    : [{
+      _sourceIndex: 0,
+      name: cleanPdfText(character?.className),
+      subclassName: cleanPdfText(character?.subclassName),
+      level: clampInteger(character?.level, 1, 20) ?? 1
+    }];
+  const visibleEntries = character?.isMulticlass === true
+    ? [...fallbackEntries]
+      .sort((left, right) => right.level - left.level || left._sourceIndex - right._sourceIndex)
+      .slice(0, 2)
+    : fallbackEntries.slice(0, 1);
+
+  return visibleEntries.map(({ _sourceIndex, ...entry }) => ({
+    ...entry,
+    name: translateCharacterClassName(entry.name, contentLanguage)
+  }));
+}
+
+function getCharacterPdfExportView(character, options = {}) {
+  const contentLanguage = options.contentLanguage === "en" ? "en" : "es";
+  const classEntries = getCharacterPdfClassEntries(character, contentLanguage);
+  const primaryClassEntry = classEntries[0] ?? {};
+
+  return {
+    ...character,
+    className: primaryClassEntry.name || cleanPdfText(character?.className),
+    subclassName: primaryClassEntry.subclassName || cleanPdfText(character?.subclassName),
+    classEntries
   };
 }
 
@@ -542,6 +610,74 @@ function getCharacterSpellLevel(value) {
   return match ? Number(match[1]) : null;
 }
 
+function getCharacterPdfSpells(character) {
+  return (Array.isArray(character?.spells) ? character.spells : [])
+    .filter((spell) => cleanPdfText(spell?.name))
+    .sort((left, right) => {
+      const leftLevel = getCharacterSpellLevel(left?.level);
+      const rightLevel = getCharacterSpellLevel(right?.level);
+      return (leftLevel ?? 10) - (rightLevel ?? 10)
+        || cleanPdfText(left?.name).localeCompare(cleanPdfText(right?.name), "en", { sensitivity: "base" });
+    });
+}
+
+function getCharacterPdfSpellLevelLabel(spell, contentLanguage = "es") {
+  const level = getCharacterSpellLevel(spell?.level);
+
+  if (level === 0) {
+    return contentLanguage === "en" ? "Cantrip" : "Truco";
+  }
+
+  return level === null ? cleanPdfText(spell?.level) : String(level);
+}
+
+function writeCharacterSpellsToPrimaryTemplate(writer, character, options = {}) {
+  const spells = getCharacterPdfSpells(character);
+  const availableIndexes = [];
+
+  for (let index = 1; index <= 64; index += 1) {
+    if (writer.hasText(`Front_Spell Name ${index}`)) {
+      availableIndexes.push(index);
+    }
+  }
+
+  const writtenCount = Math.min(spells.length, availableIndexes.length);
+
+  for (let spellIndex = 0; spellIndex < writtenCount; spellIndex += 1) {
+    const fieldIndex = availableIndexes[spellIndex];
+    const spell = spells[spellIndex];
+    writer.setText(`Front_Spell Name ${fieldIndex}`, spell.name);
+    writer.setText(`Front_Spell Level ${fieldIndex}`, getCharacterPdfSpellLevelLabel(spell, options.contentLanguage));
+    writer.setChecked(`Front_Spell Prepared ${fieldIndex}`, spell.prepared === true);
+  }
+
+  const cantripCount = spells.filter((spell) => getCharacterSpellLevel(spell.level) === 0).length;
+  writer.setText("Front_Cantrips Known", cantripCount);
+  writer.setText("Front_Spells Known", spells.length - cantripCount);
+
+  return spells.slice(writtenCount);
+}
+
+function writeCharacterSpellSlotsToPrimaryTemplate(writer, character) {
+  const levelSuffixes = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"];
+  const spellSlots = Array.isArray(character?.spellSlots) ? character.spellSlots : [];
+
+  spellSlots.forEach((slotEntry) => {
+    const level = clampInteger(slotEntry?.level, 1, 9);
+
+    if (level === null) {
+      return;
+    }
+
+    const totalSlots = Math.max(0, Math.floor(Number(slotEntry?.slots) || 0));
+    const spentSlots = Array.isArray(slotEntry?.spent) ? slotEntry.spent : [];
+
+    for (let index = 0; index < totalSlots; index += 1) {
+      writer.setChecked(`Front_Spell Slot ${levelSuffixes[level - 1]} ${index + 1}`, spentSlots[index] === true);
+    }
+  });
+}
+
 function createPreparedCheckboxResolver(form, pdfLibrary) {
   const { PDFCheckBox, PDFTextField } = pdfLibrary;
   const fields = form.getFields();
@@ -573,8 +709,8 @@ function createPreparedCheckboxResolver(form, pdfLibrary) {
   };
 }
 
-async function appendCharacterSpellSheet(document, spellTemplateBytes, character, pdfLibrary) {
-  if (!spellTemplateBytes) {
+async function appendCharacterSpellSheet(document, spellTemplateBytes, character, pdfLibrary, spells = getCharacterPdfSpells(character)) {
+  if (!spellTemplateBytes || spells.length === 0) {
     return;
   }
 
@@ -586,9 +722,6 @@ async function appendCharacterSpellSheet(document, spellTemplateBytes, character
   const spellForm = spellDocument.getForm();
   const writer = createPdfFieldWriter(spellForm, pdfLibrary);
   const resolvePreparedCheckbox = createPreparedCheckboxResolver(spellForm, pdfLibrary);
-  const spells = (Array.isArray(character?.spells) ? character.spells : [])
-    .filter((spell) => cleanPdfText(spell?.name));
-
   writer.setText("Spellcasting Class 2", getCharacterSpellcastingClassLabel(character));
   writer.setText("SpellcastingAbility 2", getCharacterSpellcastingAbility(character));
   writer.setText("SpellSaveDC  2", character?.spellSaveDc);
@@ -645,34 +778,54 @@ async function appendCharacterSpellSheet(document, spellTemplateBytes, character
   copiedPages.forEach((page) => document.addPage(page));
 }
 
-export async function fillCharacterPdfTemplate(templateBytes, character, spellTemplateBytes = null) {
+export async function fillCharacterPdfTemplate(templateBytes, character, spellTemplateBytes = null, options = {}) {
   const pdfLibrary = await loadPdfLibrary();
   const { PDFDocument, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
   const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
   const document = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const form = document.getForm();
   const writer = createPdfFieldWriter(form, pdfFieldTypes);
-  const abilities = character?.abilities ?? {};
-  const proficiencyBonus = getCharacterProficiencyBonus(character);
-  const proficiencies = new Set(Array.isArray(character?.proficiencies) ? character.proficiencies : []);
+  const exportCharacter = getCharacterPdfExportView(character, options);
+  const abilities = exportCharacter?.abilities ?? {};
+  const proficiencyBonus = getCharacterProficiencyBonus(exportCharacter);
+  const proficiencies = new Set(Array.isArray(exportCharacter?.proficiencies) ? exportCharacter.proficiencies : []);
+  const classEntries = Array.isArray(exportCharacter.classEntries) ? exportCharacter.classEntries : [];
+  const classNames = classEntries.map((entry) => cleanPdfText(entry.name)).filter(Boolean);
+  const subclassNames = classEntries.map((entry) => cleanPdfText(entry.subclassName)).filter(Boolean);
+  const passivePerception = 10 + getAbilityModifier(abilities.wis ?? 10) + (proficiencies.has("skill:perception") ? proficiencyBonus : 0);
+  const passiveInsight = 10 + getAbilityModifier(abilities.wis ?? 10) + (proficiencies.has("skill:insight") ? proficiencyBonus : 0);
 
-  writer.setText("CharacterName", character?.name);
-  writer.setText("PlayerName", character?.playerName);
-  writer.setText("ClassLevel", getCharacterClassLevelLabel(character));
-  writer.setText("Background", character?.background);
-  writer.setText("Race ", character?.species);
-  writer.setText("XP", character?.totalExperiencePoints ?? character?.experiencePoints);
-  writer.setText("ProfBonus", formatSigned(proficiencyBonus));
-  writer.setText("AC", character?.armorClass);
-  writer.setText("Initiative", formatSigned(character?.initiativeBonus));
-  writer.setText("Speed", character?.speed);
-  writer.setText("HPMax", character?.maxHp);
-  writer.setText("HPCurrent", character?.currentHp);
-  writer.setText("HPTemp", character?.tempHp);
-  writer.setText("Passive", 10 + getAbilityModifier(abilities.wis ?? 10) + (proficiencies.has("skill:perception") ? proficiencyBonus : 0));
-  writer.setText("Equipment", getCharacterInventoryText(character));
-  writer.setText("Features and Traits", getCharacterFeaturesText(character));
-  writer.setText("AttacksSpellcasting", getCharacterSpellsText(character));
+  writer.setText(["CharacterName", "Front_Character Name"], exportCharacter?.name);
+  writer.setText(["PlayerName", "Front_Player Name"], exportCharacter?.playerName);
+  writer.setText("ClassLevel", getCharacterClassLevelLabel(exportCharacter));
+  writer.setText("Front_Class Name", classNames.join(" / "));
+  writer.setText("Front_Level", classEntries[0]?.level || exportCharacter?.level);
+  writer.setText("Front_Level 1", classEntries[0]?.level);
+  writer.setText("Front_Level 2", classEntries[1]?.level);
+  writer.setText(["Subclass", "Front_Archetype"], subclassNames.join(" / "));
+  writer.setText(["Background", "Front_Background"], exportCharacter?.background);
+  writer.setText(["Race ", "Front_Race"], exportCharacter?.species);
+  writer.setText(["XP", "Front_XP"], exportCharacter?.totalExperiencePoints ?? exportCharacter?.experiencePoints);
+  writer.setText(["ProfBonus", "Front_Proficiency"], formatSigned(proficiencyBonus));
+  writer.setText(["AC", "Front_AC"], exportCharacter?.armorClass);
+  writer.setText(["Initiative", "Front_Initiative"], formatSigned(exportCharacter?.initiativeBonus));
+  writer.setText(["Speed", "Front_Speed"], exportCharacter?.speed);
+  writer.setText(["HPMax", "Front_Max HP"], exportCharacter?.maxHp);
+  writer.setText(["HPCurrent", "Front_Current HP"], exportCharacter?.currentHp);
+  writer.setText(["HPTemp", "Front_Temp HP"], exportCharacter?.tempHp);
+  writer.setText(["Passive", "Front_Passive Perception"], passivePerception);
+  writer.setText("Front_Passive Insight", passiveInsight);
+  writer.setText(["Equipment", "Front_Equipment"], getCharacterInventoryText(exportCharacter));
+  writer.setText(["Features and Traits", "Front_Racial Traits"], getCharacterFeaturesText(exportCharacter));
+  writer.setText("AttacksSpellcasting", getCharacterSpellsText(exportCharacter));
+  writer.setText("Front_Total Hit Dice", exportCharacter?.level);
+  writer.setText(
+    "Front_Spell Atk",
+    exportCharacter?.spellAttackModifier === "" || exportCharacter?.spellAttackModifier === null || exportCharacter?.spellAttackModifier === undefined
+      ? ""
+      : formatSigned(exportCharacter.spellAttackModifier)
+  );
+  writer.setText("Front_Spell DC", exportCharacter?.spellSaveDc);
 
   Object.entries(ABILITY_META).forEach(([abilityKey, meta]) => {
     const score = clampInteger(abilities[abilityKey], 1, 30) ?? 10;
@@ -680,10 +833,10 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
     const saveProficient = proficiencies.has(`save:${abilityKey}`);
     const templateSave = TEMPLATE_SAVE_FIELDS[abilityKey];
 
-    writer.setText(meta.scoreFields[0], score);
-    writer.setText(meta.modifierFields[0], formatSigned(modifier));
-    writer.setText(templateSave.value, formatSigned(modifier + (saveProficient ? proficiencyBonus : 0)));
-    writer.setChecked(templateSave.checkbox, saveProficient);
+    writer.setText(meta.scoreFields, score);
+    writer.setText(meta.modifierFields, formatSigned(modifier));
+    writer.setText([templateSave.value, `Front_${meta.short} Save Throw`], formatSigned(modifier + (saveProficient ? proficiencyBonus : 0)));
+    writer.setChecked([templateSave.checkbox, `Front_Save ${meta.short}`], saveProficient);
   });
 
   Object.entries(SKILL_META).forEach(([skillId, meta]) => {
@@ -691,14 +844,17 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
     const isProficient = proficiencies.has(`skill:${skillId}`);
     const templateSkill = TEMPLATE_SKILL_FIELDS[skillId];
 
-    writer.setText(templateSkill.value, formatSigned(modifier + (isProficient ? proficiencyBonus : 0)));
-    writer.setChecked(templateSkill.checkbox, isProficient);
+    writer.setText([templateSkill.value, ...meta.valueFields], formatSigned(modifier + (isProficient ? proficiencyBonus : 0)));
+    writer.setChecked([templateSkill.checkbox, ...meta.checkboxFields], isProficient);
   });
+
+  const remainingSpells = writeCharacterSpellsToPrimaryTemplate(writer, exportCharacter, options);
+  writeCharacterSpellSlotsToPrimaryTemplate(writer, exportCharacter);
 
   const font = await document.embedFont(StandardFonts.Helvetica);
   form.updateFieldAppearances(font);
-  await appendCharacterSpellSheet(document, spellTemplateBytes, character, pdfLibrary);
-  document.setTitle(toPdfText(character?.name) || "Ficha de personaje");
+  await appendCharacterSpellSheet(document, spellTemplateBytes, exportCharacter, pdfLibrary, remainingSpells);
+  document.setTitle(toPdfText(exportCharacter?.name) || "Ficha de personaje");
   document.setAuthor("Mimic Dice");
   document.setCreator("Mimic Dice");
   document.setProducer("Mimic Dice");

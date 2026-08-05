@@ -1,5 +1,6 @@
 import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { getSortedReleaseNotes } from "./data/releaseNotes.js";
+import { getCharacterClassKey } from "./data/characterClasses.js";
 import {
   buildArcanumCompositeKey,
   buildBestiaryCompositeKey,
@@ -111,6 +112,20 @@ import {
 import appIconUrl from "../build-resources/icon.png";
 import characterPdfTemplateUrl from "./assets/templates/character-sheet-alternative-form-fillable.pdf?url";
 import characterSpellPdfTemplateUrl from "./assets/templates/dnd-5e-spell-sheet-form-fillable.pdf?url";
+import artificerCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_ARTIFICER_FILLABLE.pdf?url";
+import barbarianCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BARBARIAN_FILLABLE.pdf?url";
+import bardCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BARD_FILLABLE.pdf?url";
+import multiclassCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_CASTER_B-MULTICLASS_FILLABLE.pdf?url";
+import clericCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_CLERIC_FILLABLE.pdf?url";
+import druidCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_DRUID_FILLABLE.pdf?url";
+import fighterCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_FIGHTER_FILLABLE.pdf?url";
+import monkCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_MONK_FILLABLE.pdf?url";
+import paladinCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_PALADIN_FILLABLE.pdf?url";
+import rangerCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_RANGER_FILLABLE.pdf?url";
+import rogueCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_ROGUE_FILLABLE.pdf?url";
+import sorcererCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_SORCERER_FILLABLE.pdf?url";
+import warlockCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_WARLOCK_FILLABLE.pdf?url";
+import wizardCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_WIZARD_FILLABLE.pdf?url";
 import combatAreaXpIconUrl from "./assets/buttons-icons/XP.png";
 import combatHitDiceIconUrl from "./assets/buttons-icons/Dados_golpe.png";
 import combatShieldIconUrl from "./assets/buttons-icons/Shield.png";
@@ -297,6 +312,21 @@ const ITEMS_CUSTOM_IMAGE_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:items-
 const ARCANUM_CUSTOM_MAP_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:arcanum-custom-map`;
 const CLOUD_CAMPAIGN_META_STORAGE_KEY = `${MANAGED_STORAGE_KEY_PREFIX}:cloud-campaign:v1`;
 const CHARACTER_SHEET_PDF_MAX_BYTES = 20 * 1024 * 1024;
+const CHARACTER_PDF_TEMPLATE_URLS = Object.freeze({
+  artificer: artificerCharacterPdfTemplateUrl,
+  barbarian: barbarianCharacterPdfTemplateUrl,
+  bard: bardCharacterPdfTemplateUrl,
+  cleric: clericCharacterPdfTemplateUrl,
+  druid: druidCharacterPdfTemplateUrl,
+  fighter: fighterCharacterPdfTemplateUrl,
+  monk: monkCharacterPdfTemplateUrl,
+  paladin: paladinCharacterPdfTemplateUrl,
+  ranger: rangerCharacterPdfTemplateUrl,
+  rogue: rogueCharacterPdfTemplateUrl,
+  sorcerer: sorcererCharacterPdfTemplateUrl,
+  warlock: warlockCharacterPdfTemplateUrl,
+  wizard: wizardCharacterPdfTemplateUrl
+});
 const CLOUD_PDF_ASSET_PATH_PATTERN = /^\/api\/assets\/[0-9a-f-]{36}$/i;
 const REPOSITORY_CSV_UPLOAD_DB_NAME = "mimic-dice-repository-csv";
 const REPOSITORY_CSV_UPLOAD_STORE_NAME = "uploads";
@@ -13952,7 +13982,7 @@ function renderCharacterListItem(character) {
       </span>
       ${
         classIcon
-          ? `<span class="character-list-item__class-icon" data-class-icon-key="${escapeHtml(classIcon.key)}" aria-hidden="true"><img src="${escapeHtml(classIcon.src)}" alt="${escapeHtml(classIcon.alt)}" /></span>`
+          ? `<span class="character-list-item__class-icon${classIcon.src ? "" : " character-list-item__class-icon--fallback"}" data-class-icon-key="${escapeHtml(classIcon.key)}" aria-hidden="true">${classIcon.src ? `<img src="${escapeHtml(classIcon.src)}" alt="${escapeHtml(classIcon.alt)}" />` : escapeHtml(classIcon.label)}</span>`
           : ""
       }
     </button>
@@ -18241,8 +18271,10 @@ async function exportActiveCharacterPdf() {
   beginCloudOperation("loading", operationTarget);
 
   try {
+    const characterTemplateUrl = getCharacterPdfTemplateUrl(character);
+    const exportCharacter = getCharacterPdfExportCharacter(character);
     const [characterTemplateResponse, spellTemplateResponse] = await Promise.all([
-      fetch(characterPdfTemplateUrl, { cache: "force-cache" }),
+      fetch(characterTemplateUrl, { cache: "force-cache" }),
       fetch(characterSpellPdfTemplateUrl, { cache: "force-cache" })
     ]);
 
@@ -18252,8 +18284,9 @@ async function exportActiveCharacterPdf() {
 
     const pdfBytes = await fillCharacterPdfTemplate(
       await characterTemplateResponse.arrayBuffer(),
-      character,
-      await spellTemplateResponse.arrayBuffer()
+      exportCharacter,
+      await spellTemplateResponse.arrayBuffer(),
+      { contentLanguage: normalizeStoredContentLanguage(state.contentLanguage) }
     );
     const pdfFile = new File([pdfBytes], getCharacterPdfFileName(character), { type: "application/pdf" });
     const previewUrl = URL.createObjectURL(pdfFile);
@@ -18286,6 +18319,33 @@ async function exportActiveCharacterPdf() {
 
   endCloudOperation("loading", operationTarget);
   render();
+}
+
+function getCharacterPdfExportCharacter(character) {
+  const contentLanguage = normalizeStoredContentLanguage(state.contentLanguage);
+  const spells = (Array.isArray(character?.spells) ? character.spells : []).map((spell) => {
+    const matchedSpell = getCharacterSpellMatchedEntry(spell);
+
+    if (!matchedSpell) {
+      return spell;
+    }
+
+    const translatedName = contentLanguage === CONTENT_LANGUAGE_EN
+      ? cleanText(matchedSpell.canonicalName || matchedSpell.name || spell?.name)
+      : cleanText(matchedSpell.localizedName || matchedSpell.name || spell?.name);
+    return translatedName ? { ...spell, name: translatedName } : spell;
+  });
+
+  return { ...character, spells };
+}
+
+function getCharacterPdfTemplateUrl(character) {
+  if (character?.isMulticlass === true) {
+    return multiclassCharacterPdfTemplateUrl;
+  }
+
+  const primaryClassName = getCharacterVisibleClassEntries(character)[0]?.name || character?.className;
+  return CHARACTER_PDF_TEMPLATE_URLS[getCharacterClassKey(primaryClassName)] || characterPdfTemplateUrl;
 }
 
 function getCharacterPdfFileName(character) {

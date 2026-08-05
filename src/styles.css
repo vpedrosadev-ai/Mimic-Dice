@@ -10117,6 +10117,18 @@ body.is-table-resizing * {
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.28));
 }
 
+.character-list-item__class-icon--fallback {
+  width: 3.6rem;
+  height: 3.6rem;
+  border: 1px solid rgba(240, 200, 121, 0.3);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(240, 200, 121, 0.17), rgba(63, 39, 22, 0.2));
+  color: var(--accent-soft);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.7rem;
+  font-weight: 800;
+}
+
 .character-list-item__class-icon[data-class-icon-key="guerrero"],
 .character-list-item__class-icon[data-class-icon-key="paladin"] {
   width: 3rem;
