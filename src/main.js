@@ -112,6 +112,8 @@ import {
 import appIconUrl from "../build-resources/icon.png";
 import characterPdfTemplateUrl from "./assets/templates/character-sheet-alternative-form-fillable.pdf?url";
 import characterSpellPdfTemplateUrl from "./assets/templates/dnd-5e-spell-sheet-form-fillable.pdf?url";
+import characterSpellCardPdfTemplateUrl from "./assets/templates/456029-Optional_Sheet_SPELL_SHEET-A_FILLABLE.pdf?url";
+import characterBackPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BACK_FILLABLE.pdf?url";
 import artificerCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_ARTIFICER_FILLABLE.pdf?url";
 import barbarianCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BARBARIAN_FILLABLE.pdf?url";
 import bardCharacterPdfTemplateUrl from "./assets/templates/456029-Character_Sheet_BARD_FILLABLE.pdf?url";
@@ -3742,13 +3744,14 @@ async function handleChange(event) {
   if (target.matches("[data-character-sheet-pdf]")) {
     const file = target.files?.[0] ?? null;
     const openedFromImportExportDialog = Boolean(target.closest(".data-exchange-dialog"));
+    const createNewCharacter = target.dataset.characterPdfCreateNew === "true";
     target.value = "";
 
     if (openedFromImportExportDialog) {
       closeImportExportDialog();
     }
 
-    await updateActiveCharacterSheetPdf(file);
+    await updateActiveCharacterSheetPdf(file, { createNewCharacter });
     return;
   }
 
@@ -6667,7 +6670,7 @@ function renderImportExportModePicker(category) {
           <strong>${escapeHtml(t("import_export_mode_export_pdf"))}</strong>
           <span>${escapeHtml(t("import_export_mode_export_pdf_desc"))}</span>
         </button>
-        <label class="data-exchange-dialog__mode-card${hasActiveCharacter ? "" : " is-disabled"}">
+        <label class="data-exchange-dialog__mode-card">
           <strong>${escapeHtml(t("import_export_mode_import_pdf"))}</strong>
           <span>${escapeHtml(t("import_export_mode_import_pdf_desc"))}</span>
           <input
@@ -6675,7 +6678,7 @@ function renderImportExportModePicker(category) {
             type="file"
             accept="application/pdf,.pdf"
             data-character-sheet-pdf
-            ${hasActiveCharacter ? "" : "disabled"}
+            data-character-pdf-create-new="true"
           />
         </label>
       ` : ""}
@@ -7164,7 +7167,7 @@ function renderCharacterPdfImportDialog() {
           ¿Importar los datos detectados?
         </h2>
         <p class="campaign-save-dialog__text">
-          Se copiarán a <strong>${escapeHtml(character.name || "el personaje seleccionado")}</strong>. La ficha PDF seguirá vinculada aunque decidas no importar.
+          Se copiarán a <strong>${escapeHtml(character.name || "el personaje")}</strong>. La ficha PDF seguirá vinculada aunque decidas no importar.
         </p>
         <div class="character-pdf-import-dialog__summary" aria-label="Datos detectados">
           ${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}
@@ -18074,10 +18077,11 @@ async function updateActiveCharacterImage(file) {
   }
 }
 
-async function updateActiveCharacterSheetPdf(file) {
-  const character = getActiveCharacter();
+async function updateActiveCharacterSheetPdf(file, options = {}) {
+  let character = getActiveCharacter();
+  const createNewCharacter = options.createNewCharacter === true;
 
-  if (!file || !character) {
+  if (!file || (!character && !createNewCharacter)) {
     return;
   }
 
@@ -18100,6 +18104,15 @@ async function updateActiveCharacterSheetPdf(file) {
       tone: "danger"
     });
     render();
+    return;
+  }
+
+  if (createNewCharacter) {
+    createCharacter();
+    character = getActiveCharacter();
+  }
+
+  if (!character) {
     return;
   }
 
@@ -18254,7 +18267,7 @@ function importPendingCharacterPdfData() {
   syncLinkedCombatantsHitDice(characterId);
   pushNotification({
     title: "Datos del PDF importados",
-    message: `${importedLabels.length} bloques de datos se copiaron a la ficha seleccionada.`
+    message: `${importedLabels.length} bloques de datos se copiaron a la ficha del personaje.`
   });
   render();
 }
@@ -18271,14 +18284,20 @@ async function exportActiveCharacterPdf() {
   beginCloudOperation("loading", operationTarget);
 
   try {
+    await Promise.all([
+      ensureCompendiumLoaded("arcanum"),
+      ensureCompendiumLoaded("items")
+    ]);
     const characterTemplateUrl = getCharacterPdfTemplateUrl(character);
     const exportCharacter = getCharacterPdfExportCharacter(character);
-    const [characterTemplateResponse, spellTemplateResponse] = await Promise.all([
+    const [characterTemplateResponse, spellTemplateResponse, spellCardTemplateResponse, backTemplateResponse] = await Promise.all([
       fetch(characterTemplateUrl, { cache: "force-cache" }),
-      fetch(characterSpellPdfTemplateUrl, { cache: "force-cache" })
+      fetch(characterSpellPdfTemplateUrl, { cache: "force-cache" }),
+      fetch(characterSpellCardPdfTemplateUrl, { cache: "force-cache" }),
+      fetch(characterBackPdfTemplateUrl, { cache: "force-cache" })
     ]);
 
-    if (!characterTemplateResponse.ok || !spellTemplateResponse.ok) {
+    if (!characterTemplateResponse.ok || !spellTemplateResponse.ok || !spellCardTemplateResponse.ok || !backTemplateResponse.ok) {
       throw new Error("No se pudieron cargar las plantillas PDF.");
     }
 
@@ -18286,7 +18305,11 @@ async function exportActiveCharacterPdf() {
       await characterTemplateResponse.arrayBuffer(),
       exportCharacter,
       await spellTemplateResponse.arrayBuffer(),
-      { contentLanguage: normalizeStoredContentLanguage(state.contentLanguage) }
+      {
+        contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
+        spellCardTemplateBytes: await spellCardTemplateResponse.arrayBuffer(),
+        backTemplateBytes: await backTemplateResponse.arrayBuffer()
+      }
     );
     const pdfFile = new File([pdfBytes], getCharacterPdfFileName(character), { type: "application/pdf" });
     const previewUrl = URL.createObjectURL(pdfFile);
@@ -18333,10 +18356,31 @@ function getCharacterPdfExportCharacter(character) {
     const translatedName = contentLanguage === CONTENT_LANGUAGE_EN
       ? cleanText(matchedSpell.canonicalName || matchedSpell.name || spell?.name)
       : cleanText(matchedSpell.localizedName || matchedSpell.name || spell?.name);
-    return translatedName ? { ...spell, name: translatedName } : spell;
+    return {
+      ...matchedSpell,
+      ...spell,
+      name: translatedName || spell.name,
+      level: normalizeCharacterSpellLevelLabel(matchedSpell.levelShort || spell.level)
+    };
+  });
+  const inventory = (Array.isArray(character?.inventory) ? character.inventory : []).map((item) => {
+    const matchedItem = getCharacterInventoryMatchedItemEntry(item);
+
+    if (!matchedItem) {
+      return item;
+    }
+
+    const translatedName = contentLanguage === CONTENT_LANGUAGE_EN
+      ? cleanText(matchedItem.canonicalName || matchedItem.name || item?.name)
+      : cleanText(matchedItem.localizedName || matchedItem.name || item?.name);
+    return {
+      ...item,
+      name: translatedName || item.name,
+      size: cleanText(item.size) || matchedItem.sizeLabel
+    };
   });
 
-  return { ...character, spells };
+  return { ...character, spells, inventory };
 }
 
 function getCharacterPdfTemplateUrl(character) {

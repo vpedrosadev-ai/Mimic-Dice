@@ -8,12 +8,12 @@ function loadPdfLibrary() {
 }
 
 const ABILITY_META = Object.freeze({
-  str: { label: "Strength", short: "Str", scoreFields: ["STR", "STRscore", "Front_Str Score"], modifierFields: ["STRmod", "STRbonus", "Front_Str Mod"] },
-  dex: { label: "Dexterity", short: "Dex", scoreFields: ["DEX", "DEXscore", "Front_Dex Score"], modifierFields: ["DEXmod ", "DEXbonus", "Front_Dex Mod"] },
-  con: { label: "Constitution", short: "Con", scoreFields: ["CON", "CONscore", "Front_Con Score"], modifierFields: ["CONmod", "CONbonus", "Front_Con Mod"] },
-  int: { label: "Intelligence", short: "Int", scoreFields: ["INT", "INTscore", "Front_Int Score"], modifierFields: ["INTmod", "INTbonus", "Front_Int Mod"] },
-  wis: { label: "Wisdom", short: "Wis", scoreFields: ["WIS", "WISscore", "Front_Wis Score"], modifierFields: ["WISmod", "WISbonus", "Front_Wis Mod"] },
-  cha: { label: "Charisma", short: "Cha", scoreFields: ["CHA", "CHAscore", "Front_Cha Score"], modifierFields: ["CHamod", "CHAbonus", "Front_Cha Mod"] }
+  str: { label: "Strength", short: "Str", scoreFields: ["STR", "STRscore"], modifierFields: ["STRmod", "STRbonus"], frontScoreField: "Front_Str Mod", frontModifierField: "Front_Str Score" },
+  dex: { label: "Dexterity", short: "Dex", scoreFields: ["DEX", "DEXscore"], modifierFields: ["DEXmod ", "DEXbonus"], frontScoreField: "Front_Dex Mod", frontModifierField: "Front_Dex Score" },
+  con: { label: "Constitution", short: "Con", scoreFields: ["CON", "CONscore"], modifierFields: ["CONmod", "CONbonus"], frontScoreField: "Front_Con Mod", frontModifierField: "Front_Con Score" },
+  int: { label: "Intelligence", short: "Int", scoreFields: ["INT", "INTscore"], modifierFields: ["INTmod", "INTbonus"], frontScoreField: "Front_Int Mod", frontModifierField: "Front_Int Score" },
+  wis: { label: "Wisdom", short: "Wis", scoreFields: ["WIS", "WISscore"], modifierFields: ["WISmod", "WISbonus"], frontScoreField: "Front_Wis Mod", frontModifierField: "Front_Wis Score" },
+  cha: { label: "Charisma", short: "Cha", scoreFields: ["CHA", "CHAscore"], modifierFields: ["CHamod", "CHAbonus"], frontScoreField: "Front_Cha Mod", frontModifierField: "Front_Cha Score" }
 });
 
 const SKILL_META = Object.freeze({
@@ -141,6 +141,33 @@ function clampInteger(value, minimum, maximum) {
 
 function getAbilityModifier(score) {
   return Math.floor((Number(score) - 10) / 2);
+}
+
+function getDetectedAbilityScore(reader, meta) {
+  const standardScore = parsePdfNumber(reader.getText(meta.scoreFields));
+
+  if (standardScore !== null && standardScore >= 1 && standardScore <= 30) {
+    return Math.floor(standardScore);
+  }
+
+  const visualScore = parsePdfNumber(reader.getText(meta.frontScoreField));
+  const visualModifier = parsePdfNumber(reader.getText(meta.frontModifierField));
+  const visualScoreValid = visualScore !== null && visualScore >= 1 && visualScore <= 30;
+  const namedScoreValid = visualModifier !== null && visualModifier >= 1 && visualModifier <= 30;
+
+  if (visualScoreValid && visualModifier === getAbilityModifier(visualScore)) {
+    return Math.floor(visualScore);
+  }
+
+  if (namedScoreValid && visualScore === getAbilityModifier(visualModifier)) {
+    return Math.floor(visualModifier);
+  }
+
+  if (visualScoreValid) {
+    return Math.floor(visualScore);
+  }
+
+  return namedScoreValid ? Math.floor(visualModifier) : null;
 }
 
 function getLevelProficiencyBonus(level) {
@@ -278,7 +305,7 @@ export async function extractCharacterDataFromPdf(source) {
   addDetectedNumber(data, "spellSaveDc", reader.getText(["Spell Save DC", "SpellSaveDC", "Spell DC", "Front_Spell DC"]), 0, 99);
 
   Object.entries(ABILITY_META).forEach(([abilityKey, meta]) => {
-    const score = clampInteger(parsePdfNumber(reader.getText(meta.scoreFields)), 1, 30);
+    const score = getDetectedAbilityScore(reader, meta);
 
     if (score !== null) {
       abilities[abilityKey] = score;
@@ -678,6 +705,206 @@ function writeCharacterSpellSlotsToPrimaryTemplate(writer, character) {
   });
 }
 
+function getSpellCardSaveLabel(spell) {
+  const text = cleanPdfText(spell?.text)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const abilityLabels = [
+    { key: "STR", names: ["strength", "fuerza"] },
+    { key: "DEX", names: ["dexterity", "destreza"] },
+    { key: "CON", names: ["constitution", "constitucion"] },
+    { key: "INT", names: ["intelligence", "inteligencia"] },
+    { key: "WIS", names: ["wisdom", "sabiduria"] },
+    { key: "CHA", names: ["charisma", "carisma"] }
+  ];
+
+  return abilityLabels.find(({ names }) => names.some((name) => (
+    text.includes(`${name} saving throw`)
+    || text.includes(`tirada de salvacion de ${name}`)
+  )))?.key ?? "";
+}
+
+function getSpellCardComponents(spell) {
+  const components = cleanPdfText(spell?.components);
+  const componentCodes = components
+    .split("(")[0]
+    .split(",")
+    .map((entry) => entry.trim().toUpperCase());
+
+  return {
+    text: components,
+    verbal: componentCodes.includes("V"),
+    somatic: componentCodes.includes("S"),
+    material: componentCodes.includes("M")
+  };
+}
+
+function getSpellCardEffect(spell, contentLanguage = "es") {
+  const text = cleanPdfText(spell?.text);
+  const atHigherLevels = cleanPdfText(spell?.atHigherLevels);
+
+  if (!atHigherLevels) {
+    return text;
+  }
+
+  const label = contentLanguage === "en" ? "At Higher Levels" : "A niveles superiores";
+  return [text, `${label}: ${atHigherLevels}`].filter(Boolean).join("\n\n");
+}
+
+function getSpellCardSchool(spell) {
+  return cleanPdfText(spell?.school).replace(/\s*\(ritual\)\s*/i, "");
+}
+
+function writeCharacterSpellCardHeader(writer, character) {
+  const spells = getCharacterPdfSpells(character);
+  const cantripCount = spells.filter((spell) => getCharacterSpellLevel(spell.level) === 0).length;
+  writer.setText("SpellSheet 1_Spell Atk", character?.spellAttackModifier === "" || character?.spellAttackModifier === null || character?.spellAttackModifier === undefined
+    ? ""
+    : formatSigned(character.spellAttackModifier));
+  writer.setText("SpellSheet 1_Spell DC", character?.spellSaveDc);
+  writer.setText("SpellSheet 1_Cantrips Known", cantripCount);
+  writer.setText("SpellSheet 1_Spells Known", spells.length - cantripCount);
+
+  const levelSuffixes = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"];
+  const spellSlots = Array.isArray(character?.spellSlots) ? character.spellSlots : [];
+  spellSlots.forEach((slotEntry) => {
+    const level = clampInteger(slotEntry?.level, 1, 9);
+
+    if (level === null) {
+      return;
+    }
+
+    const totalSlots = Math.max(0, Math.floor(Number(slotEntry?.slots) || 0));
+    const spentSlots = Array.isArray(slotEntry?.spent) ? slotEntry.spent : [];
+
+    for (let index = 0; index < totalSlots; index += 1) {
+      writer.setChecked(`SpellSheet1_Spell Slot ${levelSuffixes[level - 1]} ${index + 1}`, spentSlots[index] === true);
+    }
+  });
+}
+
+function writeCharacterSpellCard(writer, spell, cardIndex, options = {}) {
+  const fieldIndex = String(cardIndex + 1).padStart(2, "0");
+  const components = getSpellCardComponents(spell);
+  const school = cleanPdfText(spell?.school);
+  const duration = cleanPdfText(spell?.duration);
+  writer.setText(`SpellSheet1_Spell Name ${fieldIndex}`, spell?.name);
+  writer.setText(`SpellSheet 1_Spells Level ${fieldIndex}`, getCharacterPdfSpellLevelLabel(spell, options.contentLanguage));
+  if (cardIndex > 1) {
+    writer.setText(`SpellSheet1_Spell School ${fieldIndex}`, getSpellCardSchool(spell));
+  }
+  writer.setText(`SpellSheet1_Range ${fieldIndex}`, spell?.range);
+  writer.setText(`SpellSheet1_Casting Time ${fieldIndex}`, spell?.castingTime);
+  writer.setText(`SpellSheet1_Save ${fieldIndex}`, getSpellCardSaveLabel(spell));
+  writer.setText(`SpellSheet1_Duration ${fieldIndex}`, duration);
+  writer.setText([`SpellSheet1_Components ${fieldIndex}`, `SpellSheet1_Component ${fieldIndex}`], components.text);
+  writer.setText(`SpellSheet1_Spell Effect ${fieldIndex}`, getSpellCardEffect(spell, options.contentLanguage));
+  writer.setChecked(`SpellSheet1_Ritual ${fieldIndex}`, /\britual\b/i.test(school));
+  writer.setChecked(`SpellSheet1_Concentration ${fieldIndex}`, spell?.hasConcentration === true || /concentr/i.test(duration));
+  writer.setChecked(`SpellSheet1_Verbal ${fieldIndex}`, components.verbal);
+  writer.setChecked(`SpellSheet1_Somatic ${fieldIndex}`, components.somatic);
+  writer.setChecked(`SpellSheet1_Material ${fieldIndex}`, components.material);
+  writer.setChecked(`SpellSheet1_Prepared ${fieldIndex}`, spell?.prepared === true);
+}
+
+async function appendCharacterSpellCardSheets(document, templateBytes, character, pdfLibrary, options = {}) {
+  const spells = getCharacterPdfSpells(character);
+
+  if (!templateBytes || spells.length === 0) {
+    return;
+  }
+
+  const { PDFDocument, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
+  const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
+
+  for (let offset = 0; offset < spells.length; offset += 12) {
+    const cardDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+    const cardForm = cardDocument.getForm();
+    const writer = createPdfFieldWriter(cardForm, pdfFieldTypes);
+    const firstSchoolField = cardForm.getTextField("SpellSheet1_Spell School 01");
+    const firstSchoolRectangles = firstSchoolField.acroField.getWidgets().map((widget) => widget.getRectangle());
+    const pageSpells = spells.slice(offset, offset + 12);
+    writeCharacterSpellCardHeader(writer, character);
+    pageSpells.forEach((spell, index) => writeCharacterSpellCard(writer, spell, index, options));
+    const font = await cardDocument.embedFont(StandardFonts.Helvetica);
+    cardForm.updateFieldAppearances(font);
+    cardForm.flatten({ updateFieldAppearances: false });
+    firstSchoolRectangles.slice(0, 2).forEach((rectangle, index) => {
+      const school = getSpellCardSchool(pageSpells[index]);
+
+      if (school) {
+        cardDocument.getPages()[0].drawText(toPdfText(school).slice(0, 22), {
+          x: rectangle.x + 1,
+          y: rectangle.y + 1.6,
+          size: 6,
+          font
+        });
+      }
+    });
+    const copiedPages = await document.copyPages(
+      cardDocument,
+      cardDocument.getPages().map((_, index) => index)
+    );
+    copiedPages.forEach((page) => document.addPage(page));
+  }
+}
+
+const BACK_SHEET_CURRENCY_FIELDS = Object.freeze({
+  CP: ["COBRE", "CP", "COPPER"],
+  SP: ["PLATA", "SP", "SILVER"],
+  EP: ["ELECTRO", "EP", "ELECTRUM"],
+  GP: ["ORO", "GP", "GOLD"],
+  PP: ["PLATINO", "PP", "PLATINUM"]
+});
+
+function isBackSheetCurrencyName(value) {
+  const normalizedName = cleanPdfText(value).toUpperCase();
+  return Object.values(BACK_SHEET_CURRENCY_FIELDS).some((aliases) => aliases.includes(normalizedName));
+}
+
+function getBackSheetCurrencyQuantity(character, aliases) {
+  const row = (Array.isArray(character?.inventory) ? character.inventory : [])
+    .find((entry) => aliases.includes(cleanPdfText(entry?.name).toUpperCase()));
+  return Math.max(0, Math.floor(Number(row?.quantity) || 0));
+}
+
+function getBackSheetInventoryText(character) {
+  return (Array.isArray(character?.inventory) ? character.inventory : [])
+    .filter((entry) => !isBackSheetCurrencyName(entry?.name) && cleanPdfText(entry?.name) && Number(entry?.quantity) > 0)
+    .map((entry) => {
+      const name = cleanPdfText(entry.name);
+      const size = cleanPdfText(entry.size);
+      return size ? `${name} (${size})` : name;
+    })
+    .join("\n");
+}
+
+async function appendCharacterBackSheet(document, templateBytes, character, pdfLibrary) {
+  if (!templateBytes) {
+    return;
+  }
+
+  const { PDFDocument, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
+  const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
+  const backDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const backForm = backDocument.getForm();
+  const writer = createPdfFieldWriter(backForm, pdfFieldTypes);
+  writer.setText("Back_Character Name", character?.name);
+  Object.entries(BACK_SHEET_CURRENCY_FIELDS).forEach(([currency, aliases]) => {
+    writer.setText(`Back_${currency}`, getBackSheetCurrencyQuantity(character, aliases));
+  });
+  writer.setText("Back_Backpack", getBackSheetInventoryText(character));
+  const font = await backDocument.embedFont(StandardFonts.Helvetica);
+  backForm.updateFieldAppearances(font);
+  backForm.flatten({ updateFieldAppearances: false });
+  const copiedPages = await document.copyPages(
+    backDocument,
+    backDocument.getPages().map((_, index) => index)
+  );
+  copiedPages.forEach((page) => document.addPage(page));
+}
+
 function createPreparedCheckboxResolver(form, pdfLibrary) {
   const { PDFCheckBox, PDFTextField } = pdfLibrary;
   const fields = form.getFields();
@@ -834,7 +1061,9 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
     const templateSave = TEMPLATE_SAVE_FIELDS[abilityKey];
 
     writer.setText(meta.scoreFields, score);
+    writer.setText(meta.frontScoreField, score);
     writer.setText(meta.modifierFields, formatSigned(modifier));
+    writer.setText(meta.frontModifierField, formatSigned(modifier));
     writer.setText([templateSave.value, `Front_${meta.short} Save Throw`], formatSigned(modifier + (saveProficient ? proficiencyBonus : 0)));
     writer.setChecked([templateSave.checkbox, `Front_Save ${meta.short}`], saveProficient);
   });
@@ -854,6 +1083,8 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
   const font = await document.embedFont(StandardFonts.Helvetica);
   form.updateFieldAppearances(font);
   await appendCharacterSpellSheet(document, spellTemplateBytes, exportCharacter, pdfLibrary, remainingSpells);
+  await appendCharacterSpellCardSheets(document, options.spellCardTemplateBytes, exportCharacter, pdfLibrary, options);
+  await appendCharacterBackSheet(document, options.backTemplateBytes, exportCharacter, pdfLibrary);
   document.setTitle(toPdfText(exportCharacter?.name) || "Ficha de personaje");
   document.setAuthor("Mimic Dice");
   document.setCreator("Mimic Dice");
