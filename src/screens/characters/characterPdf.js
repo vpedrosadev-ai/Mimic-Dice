@@ -868,17 +868,18 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
   }
 }
 
-const BACKPACK_GOLD_NAMES = Object.freeze(["ORO", "GP", "GOLD"]);
-const BACKPACK_CURRENCY_NAMES = Object.freeze([
-  "COBRE", "CP", "COPPER",
-  "PLATA", "SP", "SILVER",
-  "ELECTRO", "EP", "ELECTRUM",
-  ...BACKPACK_GOLD_NAMES,
-  "PLATINO", "PP", "PLATINUM"
+const BACKPACK_CURRENCY_FIELDS = Object.freeze([
+  { aliases: ["COBRE", "CP", "COPPER"], x: 77, y: 313 },
+  { aliases: ["PLATA", "SP", "SILVER"], x: 77, y: 290 },
+  { aliases: ["ELECTRO", "EP", "ELECTRUM"], x: 77, y: 268 },
+  { aliases: ["ORO", "GP", "GOLD"], x: 77, y: 245 },
+  { aliases: ["PLATINO", "PP", "PLATINUM"], x: 77, y: 223 }
 ]);
+const BACKPACK_CURRENCY_NAMES = Object.freeze(
+  BACKPACK_CURRENCY_FIELDS.flatMap((field) => field.aliases)
+);
 const BACKPACK_LAYOUT = Object.freeze({
-  characterName: { x: 39, y: 708, size: 13, maxWidth: 210 },
-  gold: { x: 58, y: 245, size: 9 },
+  characterName: { x: 52, y: 708, size: 13, maxWidth: 197 },
   itemColumns: [222, 404],
   itemTopY: 405,
   itemBottomY: 38,
@@ -892,9 +893,9 @@ function isBackSheetCurrencyName(value) {
   return BACKPACK_CURRENCY_NAMES.includes(normalizedName);
 }
 
-function getBackpackGoldQuantity(character) {
+function getBackpackCurrencyQuantity(character, aliases) {
   const row = (Array.isArray(character?.inventory) ? character.inventory : [])
-    .find((entry) => BACKPACK_GOLD_NAMES.includes(cleanPdfText(entry?.name).toUpperCase()));
+    .find((entry) => aliases.includes(cleanPdfText(entry?.name).toUpperCase()));
   return Math.max(0, Math.floor(Number(row?.quantity) || 0));
 }
 
@@ -1060,11 +1061,13 @@ async function appendCharacterBackSheet(document, templateBytes, character, pdfL
       size: BACKPACK_LAYOUT.characterName.size,
       font
     });
-    page.drawText(String(getBackpackGoldQuantity(character)), {
-      x: BACKPACK_LAYOUT.gold.x,
-      y: BACKPACK_LAYOUT.gold.y,
-      size: BACKPACK_LAYOUT.gold.size,
-      font
+    BACKPACK_CURRENCY_FIELDS.forEach((currency) => {
+      page.drawText(String(getBackpackCurrencyQuantity(character, currency.aliases)), {
+        x: currency.x,
+        y: currency.y,
+        size: 9,
+        font
+      });
     });
     pageLines.forEach((line, index) => {
       const columnIndex = Math.floor(index / linesPerColumn);

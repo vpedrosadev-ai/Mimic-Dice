@@ -1805,7 +1805,12 @@ async function handleClick(event) {
   }
 
   if (action === "create-cloud-campaign") {
-    await saveCurrentCampaignToCloud();
+    await chooseCloudCampaignCreationSource();
+    return;
+  }
+
+  if (action === "save-cloud-campaign-name") {
+    await saveActiveCloudCampaignName();
     return;
   }
 
@@ -1821,6 +1826,11 @@ async function handleClick(event) {
 
   if (action === "delete-cloud-campaign") {
     await removeCloudCampaign(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "duplicate-cloud-campaign") {
+    await duplicateOwnedCloudCampaign(actionButton.dataset.cloudCampaignId);
     return;
   }
 
@@ -3868,6 +3878,12 @@ async function handleChange(event) {
 
   if (target.matches("[data-campaign-file-input]")) {
     loadCampaignFile(target.files?.[0] ?? null);
+    target.value = "";
+    return;
+  }
+
+  if (target.matches("[data-cloud-campaign-file-input]")) {
+    createCloudCampaignFromFile(target.files?.[0] ?? null);
     target.value = "";
     return;
   }
@@ -7508,6 +7524,7 @@ function renderCloudCampaignCard(campaign, options = {}) {
   const loadTarget = `campaign:${campaign.id}`;
   const publicLoadTarget = `public-campaign:${campaign.id}`;
   const visibilityTarget = `campaign-visibility:${campaign.id}`;
+  const duplicateTarget = `campaign-duplicate:${campaign.id}`;
 
   return `
     <article class="account-campaign-card ${isActive ? "is-active" : ""}">
@@ -7533,6 +7550,9 @@ function renderCloudCampaignCard(campaign, options = {}) {
             : `
               <button class="account-action-button${getCloudButtonBusyClass("loading", loadTarget)}" type="button" data-action="load-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("loading", loadTarget)}>
                 ${renderCloudButtonLabel(isActive ? "Recargar" : "Cargar", "Cargando...", "loading", loadTarget)}
+              </button>
+              <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", duplicateTarget)}" type="button" data-action="duplicate-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("saving", duplicateTarget)}>
+                ${renderCloudButtonLabel("Duplicar", "Duplicando...", "saving", duplicateTarget)}
               </button>
               <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="toggle-cloud-campaign-public" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>
                 ${renderCloudButtonLabel(campaign.isPublic ? "Hacer privada" : "Hacer pública", "Guardando...", "saving", visibilityTarget)}
@@ -8495,8 +8515,9 @@ function renderAccountDialog() {
                 </div>
                 <section class="account-dialog__section">
                   <h3>Nombre de la campaña en la nube</h3>
-                  <div class="account-create-row">
+                  <div class="account-create-row account-create-row--campaign-name">
                     <input type="text" maxlength="120" value="${escapeHtml(state.accountCampaignName)}" data-account-campaign-name aria-label="Nombre de campaña en la nube" />
+                    <button class="account-action-button${getCloudButtonBusyClass("saving", "campaign:name")}" type="button" data-action="save-cloud-campaign-name" ${state.cloudCampaignId ? renderCloudButtonBusyAttributes("saving", "campaign:name") : "disabled"}>${renderCloudButtonLabel("Guardar", "Guardando...", "saving", "campaign:name")}</button>
                   </div>
                   <div class="account-autosave-status account-autosave-status--${escapeHtml(state.cloudAutosaveStatus)}" data-cloud-save-status>
                     <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
@@ -8742,6 +8763,12 @@ function renderFileMenu() {
         type="file"
         accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
         data-campaign-file-input
+      />
+      <input
+        class="file-menu__file"
+        type="file"
+        accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
+        data-cloud-campaign-file-input
       />
     </div>
   `;
@@ -25790,6 +25817,164 @@ async function saveCurrentCampaignToCloud() {
   render();
 }
 
+async function chooseCloudCampaignCreationSource() {
+  const useLocalFile = window.confirm(
+    state.appLanguage === APP_LANGUAGE_EN
+      ? "Create cloud campaign from a local save file? Select Cancel to use the current campaign."
+      : "¿Crear la campaña cloud desde un fichero de guardado local? Pulsa Cancelar para usar la campaña actual."
+  );
+
+  if (useLocalFile) {
+    app.querySelector("[data-cloud-campaign-file-input]")?.click();
+    return;
+  }
+
+  await saveCurrentCampaignToCloud();
+}
+
+async function createCloudCampaignFromFile(file) {
+  if (!file) {
+    return;
+  }
+
+  if (!state.accountSession?.user?.id) {
+    state.accountError = "Inicia sesión para guardar en la nube.";
+    render();
+    return;
+  }
+
+  let parsedValue;
+  let importedCampaign;
+
+  try {
+    parsedValue = JSON.parse(await file.text());
+    importedCampaign = normalizeCampaignSave(parsedValue);
+  } catch {
+    state.accountError = "El fichero no contiene una campaña válida.";
+    render();
+    return;
+  }
+
+  const requestedName = window.prompt(
+    state.appLanguage === APP_LANGUAGE_EN
+      ? "Name for the new cloud campaign:"
+      : "Nombre para la nueva campaña cloud:",
+    importedCampaign.name || getCampaignNameFromFileName(file.name)
+  );
+
+  if (requestedName === null) {
+    return;
+  }
+
+  const campaignName = cleanText(requestedName).slice(0, 120);
+
+  if (!campaignName) {
+    state.accountError = "Escribe un nombre para la campaña cloud.";
+    render();
+    return;
+  }
+
+  const operationTarget = "campaign:create";
+  beginCloudOperation("saving", operationTarget);
+
+  if (!await prepareToReplaceActiveCloudCampaign()) {
+    endCloudOperation("saving", operationTarget);
+    render();
+    return;
+  }
+
+  cloudCampaignSaveSuspended = true;
+
+  try {
+    const localPayload = {
+      ...parsedValue,
+      schema: CAMPAIGN_FILE_SCHEMA,
+      version: CAMPAIGN_FILE_VERSION,
+      app: "Mimic Dice",
+      savedAt: new Date().toISOString(),
+      campaign: {
+        ...(isPlainObject(parsedValue.campaign) ? parsedValue.campaign : {}),
+        name: campaignName
+      }
+    };
+    const catalogPayload = await attachCloudCatalogToCampaignPayload(localPayload);
+    const payload = await preparePayloadImagesForCloud(catalogPayload);
+    const result = await createCloudCampaign({ name: campaignName, payload });
+    state.campaignFileName = "";
+    state.campaignFilePath = "";
+    applyCampaignSave(normalizeCampaignSave(payload));
+    activateCloudCampaign(result.campaign, payload);
+    state.accountDialogOpen = false;
+    state.campaignMessage = `Campaña cloud creada desde ${file.name}: ${campaignName}`;
+    state.accountError = "";
+    await refreshCloudCampaigns({ renderAfter: false });
+    pushNotification({
+      title: "Campaña cloud creada",
+      message: "Fichero cargado y autoguardado activado."
+    });
+  } catch (error) {
+    state.cloudAutosaveStatus = "error";
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  cloudCampaignSaveSuspended = false;
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+async function saveActiveCloudCampaignName() {
+  if (!state.cloudCampaignId) {
+    state.accountError = "Carga o crea una campaña cloud antes de cambiar su nombre.";
+    render();
+    return;
+  }
+
+  const campaignName = cleanText(state.accountCampaignName).slice(0, 120);
+
+  if (!campaignName) {
+    state.accountError = "Escribe un nombre para la campaña cloud.";
+    render();
+    return;
+  }
+
+  if (state.cloudAutosaveStatus === "conflict") {
+    state.accountError = "Recarga la campaña cloud activa antes de cambiar su nombre.";
+    render();
+    return;
+  }
+
+  const operationTarget = "campaign:name";
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    if (cloudCampaignSaveInProgress) {
+      const pendingSaveSucceeded = await cloudCampaignSaveInProgress;
+
+      if (pendingSaveSucceeded === false) {
+        throw new Error(state.cloudAutosaveMessage || "No se pudo guardar la campaña cloud.");
+      }
+    }
+
+    state.campaignName = campaignName;
+    const saved = await autosaveCloudCampaign({ force: true });
+
+    if (saved === false) {
+      throw new Error(state.cloudAutosaveMessage || "No se pudo cambiar el nombre de la campaña cloud.");
+    }
+
+    state.accountError = "";
+    pushNotification({
+      title: "Nombre guardado",
+      message: campaignName
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
 async function prepareToReplaceActiveCloudCampaign({ allowConflict = false } = {}) {
   if (!state.cloudCampaignId) {
     return true;
@@ -26132,6 +26317,44 @@ async function removeCloudCampaign(campaignId) {
     state.accountError = getCloudErrorMessage(error);
   }
   cloudCampaignSaveSuspended = false;
+  render();
+}
+
+async function duplicateOwnedCloudCampaign(campaignId) {
+  const summary = state.cloudCampaigns.find((campaign) => campaign.id === campaignId);
+
+  if (!summary) {
+    return;
+  }
+
+  const operationTarget = `campaign-duplicate:${campaignId}`;
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    if (campaignId === state.cloudCampaignId) {
+      if (state.cloudAutosaveStatus === "conflict") {
+        throw new Error("Recarga la campaña cloud activa antes de duplicarla.");
+      }
+
+      const saved = await autosaveCloudCampaign({ force: true });
+
+      if (saved === false) {
+        throw new Error(state.cloudAutosaveMessage || "No se pudo guardar la campaña antes de duplicarla.");
+      }
+    }
+
+    const result = await cloneCloudCampaign(campaignId);
+    await refreshCloudCampaigns({ renderAfter: false });
+    state.accountError = "";
+    pushNotification({
+      title: "Campaña duplicada",
+      message: result.campaign?.name || `Copia de ${summary.name}`
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("saving", operationTarget);
   render();
 }
 

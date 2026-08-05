@@ -333,10 +333,19 @@ async function cloneCampaign(context, campaignId, user) {
   }
 
   const payload = await readCampaignPayload(context.env.DB, source);
+  const cloneName = cleanText(`Copia de ${source.name}`, 120);
   return createCampaign(context, user, {
-    name: `${source.name} (copia)`,
+    name: cloneName,
     isPublic: false,
-    payload
+    payload: {
+      ...payload,
+      campaign: {
+        ...(payload?.campaign && typeof payload.campaign === "object" && !Array.isArray(payload.campaign)
+          ? payload.campaign
+          : {}),
+        name: cloneName
+      }
+    }
   });
 }
 

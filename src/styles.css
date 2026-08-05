@@ -1535,6 +1535,15 @@ button.is-cloud-busy:disabled {
   flex: 1 1 auto;
 }
 
+.account-create-row--campaign-name {
+  width: min(100%, 30rem);
+}
+
+.account-create-row--campaign-name input {
+  flex: 1 1 auto;
+  width: min(100%, 22rem);
+}
+
 .account-action-button {
   min-height: 2.25rem;
   padding: 0.42rem 0.72rem;
@@ -10249,7 +10258,7 @@ body.is-table-resizing * {
 
 .character-sheet-pdf-card__button[data-action="export-character-pdf"] {
   padding-inline: 0.3rem;
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   white-space: nowrap;
 }
 
