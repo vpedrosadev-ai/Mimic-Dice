@@ -27680,9 +27680,11 @@ function syncActiveCombatSpellPreviewPosition() {
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const gap = 14;
   const padding = 12;
+  let previewSide = "left";
 
   let left = triggerRect.left - previewRect.width - gap;
   if (left < padding) {
+    previewSide = "right";
     left = Math.min(viewportWidth - previewRect.width - padding, triggerRect.right + gap);
   }
 
@@ -27693,6 +27695,7 @@ function syncActiveCombatSpellPreviewPosition() {
 
   preview.style.setProperty("--combat-spell-preview-left", `${Math.round(left)}px`);
   preview.style.setProperty("--combat-spell-preview-top", `${Math.round(top)}px`);
+  preview.dataset.combatPreviewSide = previewSide;
 }
 
 function showCharacterOverviewHeaderTooltip(trigger) {
