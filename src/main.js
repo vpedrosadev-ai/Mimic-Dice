@@ -53,6 +53,10 @@ import {
   fillCharacterPdfTemplate,
   getCharacterPdfImportLabels
 } from "./screens/characters/characterPdf.js";
+import {
+  createFightClubCharacterXml,
+  getFightClubCharacterXmlFileName
+} from "./screens/characters/characterFightClubXml.js";
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
@@ -432,6 +436,8 @@ const app = document.querySelector("#app");
 let state;
 let battleTimerInterval = null;
 let campaignAutosaveTimer = 0;
+let campaignAutosaveWatchdogTimer = 0;
+let campaignAutosaveNextDueAt = 0;
 let campaignSaveInProgress = null;
 let lastSavedCampaignSnapshot = "";
 let initialDataLoadQueued = false;
@@ -439,6 +445,9 @@ let campaignDirtyStateSyncTimer = 0;
 let lastDesktopCampaignDirtyValue = null;
 let cloudCampaignAutosaveTimer = 0;
 let cloudCampaignAutosaveInterval = 0;
+let cloudCampaignAutosaveWatchdogInterval = 0;
+let cloudCampaignAutosaveDueAt = 0;
+let cloudCampaignAutosaveNextPeriodicDueAt = 0;
 let cloudImportUpdateCheckTimer = 0;
 let cloudCatalogImportQueue = Promise.resolve();
 let cloudCampaignSaveInProgress = null;
@@ -464,6 +473,9 @@ let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 const notificationTimeouts = new Map();
+const AUTOSAVE_COMPLETION_TIMEOUT_MS = 30_000;
+const AUTOSAVE_WATCHDOG_INTERVAL_MS = 15_000;
+const AUTOSAVE_MISSED_GRACE_MS = 15_000;
 let repositoryCsvUploadDatabasePromise = null;
 const appStateProxy = new Proxy({}, {
   get: (_target, property) => state?.[property],
@@ -768,6 +780,10 @@ state = {
   cloudAutosaveMessage: "",
   campaignLoadedFromPublic: false,
   notifications: [],
+  autosaveProblemDialogOpen: false,
+  autosaveProblemDetailTitle: "",
+  autosaveProblemDetailText: "",
+  autosaveProblemDetailCopyStatus: "",
   menuHubOpen: false,
   fileMenuOpen: false,
   optionsMenuOpen: false,
@@ -798,6 +814,7 @@ state = {
   characterPdfImportDialogOpen: false,
   characterPdfImportCharacterId: "",
   characterPdfImportData: null,
+  characterExportDialogOpen: false,
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   charactersOverviewHidden: false,
@@ -2204,11 +2221,33 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-character-export-dialog") {
+    state.characterExportDialogOpen = true;
+    render({ focusSelector: '[data-action="export-character-pdf"]' });
+    return;
+  }
+
+  if (action === "dismiss-character-export-dialog") {
+    state.characterExportDialogOpen = false;
+    render();
+    return;
+  }
+
   if (action === "export-character-pdf") {
     if (actionButton.closest(".data-exchange-dialog")) {
       closeImportExportDialog();
     }
+    state.characterExportDialogOpen = false;
     await exportActiveCharacterPdf();
+    return;
+  }
+
+  if (action === "export-character-fight-club-xml") {
+    if (actionButton.closest(".data-exchange-dialog")) {
+      closeImportExportDialog();
+    }
+    state.characterExportDialogOpen = false;
+    await exportActiveCharacterFightClubXml();
     return;
   }
 
@@ -2405,6 +2444,24 @@ async function handleClick(event) {
   if (action === "dismiss-notification") {
     dismissNotification(actionButton.dataset.notificationId);
     syncNotificationUi();
+    return;
+  }
+
+  if (action === "open-notification-detail") {
+    openNotificationDetail(actionButton.dataset.notificationId);
+    render({ focusSelector: '[data-action="copy-autosave-problem-detail"]' });
+    return;
+  }
+
+  if (action === "dismiss-autosave-problem-dialog") {
+    closeAutosaveProblemDialog();
+    render();
+    return;
+  }
+
+  if (action === "copy-autosave-problem-detail") {
+    await copyAutosaveProblemDetail();
+    render({ focusSelector: '[data-action="copy-autosave-problem-detail"]' });
     return;
   }
 
@@ -3745,6 +3802,13 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-character-expertise]")) {
+    updateCharacterExpertise(target.dataset.characterExpertise, target.checked);
+    saveCharacters();
+    render();
+    return;
+  }
+
   if (target.matches("[data-character-image]")) {
     updateActiveCharacterImage(target.files?.[0] ?? null);
     target.value = "";
@@ -4483,6 +4547,13 @@ function handleInput(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (state.characterExportDialogOpen && event.key === "Escape") {
+    event.preventDefault();
+    state.characterExportDialogOpen = false;
+    render();
+    return;
+  }
+
   if (state.characterPdfImportDialogOpen && event.key === "Escape") {
     event.preventDefault();
     closeCharacterPdfImportDialog();
@@ -5157,6 +5228,7 @@ function queueInitialDataLoad() {
 
   schedule(() => {
     schedule(() => {
+      queueCompendiumLoadsForScreen(state.activeScreen);
       loadDataCsvFileOptions();
     });
   });
@@ -5192,7 +5264,7 @@ function getRequiredCompendiumsForScreen(screenId) {
   }
 
   if (screenId === "characters") {
-    return ["items", "arcanum"];
+    return ["arcanum", "items"];
   }
 
   if (screenId === "tables") {
@@ -5812,6 +5884,20 @@ async function saveJsonDataFile(payload, fileName, title) {
   }
 
   downloadJsonFile(payload, fileName);
+  return {
+    canceled: false,
+    fileName
+  };
+}
+
+async function saveTextDataFile(content, fileName, title, mimeType = "text/plain;charset=utf-8") {
+  const desktopApi = getDesktopCampaignApi();
+
+  if (typeof desktopApi?.saveTextFile === "function") {
+    return desktopApi.saveTextFile(content, fileName, title, mimeType);
+  }
+
+  downloadTextFile(content, fileName, mimeType);
   return {
     canceled: false,
     fileName
@@ -6686,6 +6772,15 @@ function renderImportExportModePicker(category) {
           <strong>${escapeHtml(t("import_export_mode_export_pdf"))}</strong>
           <span>${escapeHtml(t("import_export_mode_export_pdf_desc"))}</span>
         </button>
+        <button
+          class="data-exchange-dialog__mode-card"
+          type="button"
+          data-action="export-character-fight-club-xml"
+          ${hasActiveCharacter ? "" : "disabled"}
+        >
+          <strong>${escapeHtml(t("import_export_mode_export_xml"))}</strong>
+          <span>${escapeHtml(t("import_export_mode_export_xml_desc"))}</span>
+        </button>
         <label class="data-exchange-dialog__mode-card">
           <strong>${escapeHtml(t("import_export_mode_import_pdf"))}</strong>
           <span>${escapeHtml(t("import_export_mode_import_pdf_desc"))}</span>
@@ -7209,6 +7304,56 @@ function renderCharacterPdfImportDialog() {
   `;
 }
 
+function renderCharacterExportDialog() {
+  if (!state.characterExportDialogOpen) {
+    return "";
+  }
+
+  const character = getActiveCharacter();
+
+  if (!character) {
+    return "";
+  }
+
+  return `
+    <div class="campaign-save-dialog character-export-dialog" role="presentation">
+      <button
+        class="campaign-save-dialog__backdrop"
+        type="button"
+        data-action="dismiss-character-export-dialog"
+        aria-label="${escapeHtml(t("import_export_close"))}"
+      ></button>
+      <section
+        class="campaign-save-dialog__panel character-export-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-export-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">${escapeHtml(t("character_export_title"))}</p>
+        <h2 class="campaign-save-dialog__title" id="character-export-dialog-title">
+          ${escapeHtml(character.name || t("character_export_title"))}
+        </h2>
+        <p class="campaign-save-dialog__text">${escapeHtml(t("character_export_prompt"))}</p>
+        <div class="data-exchange-dialog__mode-grid">
+          <button class="data-exchange-dialog__mode-card" type="button" data-action="export-character-pdf">
+            <strong>${escapeHtml(t("character_export_pdf"))}</strong>
+            <span>${escapeHtml(t("character_export_pdf_desc"))}</span>
+          </button>
+          <button class="data-exchange-dialog__mode-card" type="button" data-action="export-character-fight-club-xml">
+            <strong>${escapeHtml(t("character_export_xml"))}</strong>
+            <span>${escapeHtml(t("character_export_xml_desc"))}</span>
+          </button>
+        </div>
+        <div class="campaign-save-dialog__actions">
+          <button class="toolbar-button" type="button" data-action="dismiss-character-export-dialog">
+            ${escapeHtml(t("import_export_close"))}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function restoreRenderViewportState(viewportState) {
   if (!viewportState || viewportState.screen !== state.activeScreen) {
     return;
@@ -7344,8 +7489,10 @@ function render(focusState = null) {
       ${renderDiaryHarptosDayNoteDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
       ${renderCharacterPdfImportDialog()}
+      ${renderCharacterExportDialog()}
       ${renderCompendiumCreateDialog()}
       ${renderMulticlassLevelUpDialog()}
+      ${renderAutosaveProblemDialog()}
       ${renderAccountDialog()}
       ${renderCloudImportUpdateDialog()}
     </div>
@@ -12103,6 +12250,12 @@ function renderNotifications() {
     <aside class="notification-stack" aria-live="polite" aria-atomic="false">
       ${state.notifications.map((notification) => {
         const effectIconUrl = notification.effectKind ? getCombatMiniActionIconUrl(notification.effectKind) : "";
+        const hasDetail = Boolean(cleanText(notification.detailText));
+        const notificationCopy = `
+          <strong>${escapeHtml(notification.title || "Notificación")}</strong>
+          <p>${escapeHtml(notification.message || "")}</p>
+          ${hasDetail ? `<small>${escapeHtml(notification.actionLabel || "Ver detalle y copiar")}</small>` : ""}
+        `;
 
         return `
         <article class="notification-card notification-card--${escapeHtml(notification.tone || "info")}${notification.imageUrl ? " notification-card--with-media" : ""}${effectIconUrl ? " notification-card--with-effect" : ""}" role="status">
@@ -12115,10 +12268,20 @@ function renderNotifications() {
               `
               : ""
           }
-          <div class="notification-card__copy">
-            <strong>${escapeHtml(notification.title || "Notificación")}</strong>
-            <p>${escapeHtml(notification.message || "")}</p>
-          </div>
+          ${
+            hasDetail
+              ? `
+                <button
+                  class="notification-card__copy notification-card__copy--action"
+                  type="button"
+                  data-action="open-notification-detail"
+                  data-notification-id="${escapeHtml(notification.id)}"
+                >
+                  ${notificationCopy}
+                </button>
+              `
+              : `<div class="notification-card__copy">${notificationCopy}</div>`
+          }
           ${
             effectIconUrl
               ? `
@@ -13093,6 +13256,7 @@ function renderCombatCharacterPreview(character) {
 function renderCombatCharacterStatsPreview(character) {
   const proficiencyBonus = getCharacterProficiencyBonus(character);
   const proficientKeys = getCharacterProficiencySet(character);
+  const expertiseKeys = getCharacterExpertiseSet(character);
   const passivePerception = getCharacterPassivePerception(character);
 
   return `
@@ -13102,7 +13266,7 @@ function renderCombatCharacterStatsPreview(character) {
         <strong>Bonus competencia</strong>
       </div>
       <div class="character-stat-sheet__blocks">
-        ${characterAbilityKeys.map((key) => renderCombatCharacterStatBlockPreview(character, key, proficientKeys, proficiencyBonus)).join("")}
+        ${characterAbilityKeys.map((key) => renderCombatCharacterStatBlockPreview(character, key, proficientKeys, expertiseKeys, proficiencyBonus)).join("")}
       </div>
       <div class="character-stat-sheet__passive">
         <span>${escapeHtml(String(passivePerception))}</span>
@@ -13112,7 +13276,7 @@ function renderCombatCharacterStatsPreview(character) {
   `;
 }
 
-function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, proficiencyBonus) {
+function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, expertiseKeys, proficiencyBonus) {
   const score = character.abilities[key] ?? 10;
   const modifier = getAbilityModifier(score);
   const meta = characterStatBlocks[key];
@@ -13126,22 +13290,23 @@ function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, p
         <strong>${escapeHtml(meta.label)}</strong>
       </div>
       <div class="character-stat-block__checks">
-        ${renderCombatCharacterCheckRowPreview("save", "Salvacion", modifier, proficiencyBonus, proficientKeys.has(saveKey))}
+        ${renderCombatCharacterCheckRowPreview("save", "Salvacion", modifier, proficiencyBonus, proficientKeys.has(saveKey), expertiseKeys.has(saveKey))}
         ${meta.skills.map((skill) => {
           const skillKey = `skill:${skill.id}`;
-          return renderCombatCharacterCheckRowPreview("skill", skill.label, modifier, proficiencyBonus, proficientKeys.has(skillKey));
+          return renderCombatCharacterCheckRowPreview("skill", skill.label, modifier, proficiencyBonus, proficientKeys.has(skillKey), expertiseKeys.has(skillKey));
         }).join("")}
       </div>
     </article>
   `;
 }
 
-function renderCombatCharacterCheckRowPreview(type, label, modifier, proficiencyBonus, isChecked) {
-  const value = modifier + (isChecked ? proficiencyBonus : 0);
+function renderCombatCharacterCheckRowPreview(type, label, modifier, proficiencyBonus, isChecked, hasExpertise) {
+  const value = modifier + (isChecked ? proficiencyBonus * (hasExpertise ? 2 : 1) : 0);
 
   return `
     <div class="character-check-row character-check-row--readonly">
       <span class="character-check-row__mark character-check-row__mark--${type} ${isChecked ? "is-checked" : ""}" aria-hidden="true"></span>
+      <span class="character-check-row__mark character-check-row__mark--expertise ${hasExpertise ? "is-checked" : ""}" aria-hidden="true"></span>
       <strong>${escapeHtml(formatModifier(value))}</strong>
       <span>${escapeHtml(label)}</span>
     </div>
@@ -14444,10 +14609,10 @@ function renderCharacterSheetPdfControls(character) {
         <button
           class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("loading", exportTarget)}"
           type="button"
-          data-action="export-character-pdf"
+          data-action="open-character-export-dialog"
           ${isExporting ? `disabled aria-busy="true"` : ""}
         >
-          ${renderCloudButtonLabel("Exportar PDF", "Generando...", "loading", exportTarget)}
+          ${renderCloudButtonLabel(t("import_export_mode_export"), "Generando...", "loading", exportTarget)}
         </button>
         <label class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("saving", uploadTarget)}" ${isUploading ? `aria-busy="true"` : ""}>
           ${renderCloudButtonLabel(
@@ -15348,6 +15513,7 @@ function renderCharacterInventoryRow(row) {
 function renderCharacterStatsPanel(character) {
   const proficiencyBonus = getCharacterProficiencyBonus(character);
   const proficientKeys = getCharacterProficiencySet(character);
+  const expertiseKeys = getCharacterExpertiseSet(character);
   const passivePerception = getCharacterPassivePerception(character);
 
   return `
@@ -15357,7 +15523,7 @@ function renderCharacterStatsPanel(character) {
         <strong>Bonus competencia</strong>
       </div>
       <div class="character-stat-sheet__blocks">
-        ${characterAbilityKeys.map((key) => renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus)).join("")}
+        ${characterAbilityKeys.map((key) => renderCharacterStatBlock(character, key, proficientKeys, expertiseKeys, proficiencyBonus)).join("")}
       </div>
       <div class="character-stat-sheet__passive">
         <span>${escapeHtml(String(passivePerception))}</span>
@@ -15370,10 +15536,12 @@ function renderCharacterStatsPanel(character) {
 function getCharacterPassivePerception(character) {
   const proficiencyBonus = getCharacterProficiencyBonus(character);
   const proficientKeys = getCharacterProficiencySet(character);
+  const expertiseKeys = getCharacterExpertiseSet(character);
+  const perceptionKey = "skill:perception";
 
   return 10
     + getAbilityModifier(character.abilities.wis ?? 10)
-    + (proficientKeys.has("skill:perception") ? proficiencyBonus : 0);
+    + (proficientKeys.has(perceptionKey) ? proficiencyBonus * (expertiseKeys.has(perceptionKey) ? 2 : 1) : 0);
 }
 
 function getCharacterCurrencyDescription(currency) {
@@ -15397,7 +15565,7 @@ function getCharacterCurrencyDescription(currency) {
   return descriptions[normalizedName] || cleanText(currency?.name);
 }
 
-function renderCharacterStatBlock(character, key, proficientKeys, proficiencyBonus) {
+function renderCharacterStatBlock(character, key, proficientKeys, expertiseKeys, proficiencyBonus) {
   const score = character.abilities[key] ?? 10;
   const modifier = getAbilityModifier(score);
   const meta = characterStatBlocks[key];
@@ -15417,31 +15585,89 @@ function renderCharacterStatBlock(character, key, proficientKeys, proficiencyBon
         <strong>${escapeHtml(meta.label)}</strong>
       </label>
       <div class="character-stat-block__checks">
-        ${renderCharacterCheckRow("save", "Salvacion", modifier, proficiencyBonus, saveKey, proficientKeys.has(saveKey))}
+        ${renderCharacterCheckRow("save", "Salvacion", modifier, proficiencyBonus, saveKey, proficientKeys.has(saveKey), expertiseKeys.has(saveKey))}
         ${meta.skills.map((skill) => {
           const skillKey = `skill:${skill.id}`;
-          return renderCharacterCheckRow("skill", skill.label, modifier, proficiencyBonus, skillKey, proficientKeys.has(skillKey));
+          return renderCharacterCheckRow("skill", skill.label, modifier, proficiencyBonus, skillKey, proficientKeys.has(skillKey), expertiseKeys.has(skillKey));
         }).join("")}
       </div>
     </article>
   `;
 }
 
-function renderCharacterCheckRow(type, label, modifier, proficiencyBonus, proficiencyKey, isChecked) {
-  const value = modifier + (isChecked ? proficiencyBonus : 0);
+function renderCharacterCheckRow(type, label, modifier, proficiencyBonus, proficiencyKey, isChecked, hasExpertise) {
+  const value = modifier + (isChecked ? proficiencyBonus * (hasExpertise ? 2 : 1) : 0);
 
   return `
-    <label class="character-check-row">
-      <input
-        type="checkbox"
-        data-character-proficiency="${escapeHtml(proficiencyKey)}"
-        ${isChecked ? "checked" : ""}
-        aria-label="${escapeHtml(label)}"
-      />
-      <span class="character-check-row__mark character-check-row__mark--${type}" aria-hidden="true"></span>
+    <div class="character-check-row">
+      <label class="character-check-row__toggle" title="Competencia">
+        <input
+          type="checkbox"
+          data-character-proficiency="${escapeHtml(proficiencyKey)}"
+          ${isChecked ? "checked" : ""}
+          aria-label="Competencia en ${escapeHtml(label)}"
+        />
+        <span class="character-check-row__mark character-check-row__mark--${type}" aria-hidden="true"></span>
+      </label>
+      <label class="character-check-row__toggle" title="Competencia doble">
+        <input
+          type="checkbox"
+          data-character-expertise="${escapeHtml(proficiencyKey)}"
+          ${hasExpertise ? "checked" : ""}
+          aria-label="Competencia doble en ${escapeHtml(label)}"
+        />
+        <span class="character-check-row__mark character-check-row__mark--expertise" aria-hidden="true"></span>
+      </label>
       <strong>${escapeHtml(formatModifier(value))}</strong>
       <span>${escapeHtml(label)}</span>
-    </label>
+    </div>
+  `;
+}
+
+function renderAutosaveProblemDialog() {
+  if (!state.autosaveProblemDialogOpen || !cleanText(state.autosaveProblemDetailText)) {
+    return "";
+  }
+
+  return `
+    <div class="campaign-save-dialog autosave-problem-dialog" role="presentation">
+      <div
+        class="campaign-save-dialog__backdrop"
+        data-action="dismiss-autosave-problem-dialog"
+        aria-hidden="true"
+      ></div>
+      <section
+        class="campaign-save-dialog__panel autosave-problem-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="autosave-problem-dialog-title"
+      >
+        <p class="campaign-save-dialog__eyebrow">Problema de autoguardado</p>
+        <h2 class="campaign-save-dialog__title" id="autosave-problem-dialog-title">
+          ${escapeHtml(state.autosaveProblemDetailTitle || "Detalle del error")}
+        </h2>
+        <p class="campaign-save-dialog__text">
+          Copia este informe y guárdalo antes de cerrar la aplicación. Puede ayudar a recuperar el trabajo o diagnosticar el fallo.
+        </p>
+        <label class="campaign-save-dialog__field">
+          <span>Informe técnico</span>
+          <textarea
+            class="campaign-save-dialog__input autosave-problem-dialog__detail"
+            readonly
+            data-autosave-problem-detail
+          >${escapeHtml(state.autosaveProblemDetailText)}</textarea>
+        </label>
+        ${state.autosaveProblemDetailCopyStatus ? `<p class="autosave-problem-dialog__status" role="status">${escapeHtml(state.autosaveProblemDetailCopyStatus)}</p>` : ""}
+        <div class="campaign-save-dialog__actions">
+          <button class="summary-button summary-button--ghost" type="button" data-action="dismiss-autosave-problem-dialog">
+            Cerrar
+          </button>
+          <button class="summary-button" type="button" data-action="copy-autosave-problem-detail">
+            Copiar detalle
+          </button>
+        </div>
+      </section>
+    </div>
   `;
 }
 
@@ -16028,6 +16254,10 @@ function getDefaultCharacterProficiencyBonus(level) {
 
 function getCharacterProficiencySet(character) {
   return new Set(normalizeStoredCharacterProficiencies(character.proficiencies));
+}
+
+function getCharacterExpertiseSet(character) {
+  return new Set(normalizeStoredCharacterProficiencies(character.expertise));
 }
 
 function getCombatStatsFromCharacter(character) {
@@ -16820,6 +17050,7 @@ function createDefaultCharacter(overrides = {}) {
     proficiencyBonus: getDefaultCharacterProficiencyBonus(1),
     proficiencyBonusOverride: "",
     proficiencies: [],
+    expertise: [],
     tokenUrl: "",
     sheetPdfUrl: "",
     sheetPdfName: "",
@@ -18059,16 +18290,49 @@ function updateCharacterProficiency(key, isChecked) {
     }
 
     const proficiencies = new Set(normalizeStoredCharacterProficiencies(character.proficiencies));
+    const expertise = new Set(normalizeStoredCharacterProficiencies(character.expertise));
 
     if (isChecked) {
       proficiencies.add(normalizedKey);
     } else {
       proficiencies.delete(normalizedKey);
+      expertise.delete(normalizedKey);
     }
 
     return normalizeStoredCharacter({
       ...character,
-      proficiencies: [...proficiencies]
+      proficiencies: [...proficiencies],
+      expertise: [...expertise]
+    });
+  });
+}
+
+function updateCharacterExpertise(key, isChecked) {
+  const normalizedKey = normalizeCharacterProficiencyKey(key);
+
+  if (!normalizedKey) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== state.activeCharacterId) {
+      return character;
+    }
+
+    const proficiencies = new Set(normalizeStoredCharacterProficiencies(character.proficiencies));
+    const expertise = new Set(normalizeStoredCharacterProficiencies(character.expertise));
+
+    if (isChecked) {
+      proficiencies.add(normalizedKey);
+      expertise.add(normalizedKey);
+    } else {
+      expertise.delete(normalizedKey);
+    }
+
+    return normalizeStoredCharacter({
+      ...character,
+      proficiencies: [...proficiencies],
+      expertise: [...expertise]
     });
   });
 }
@@ -18368,6 +18632,48 @@ async function exportActiveCharacterPdf() {
   }
 
   endCloudOperation("loading", operationTarget);
+  render();
+}
+
+async function exportActiveCharacterFightClubXml() {
+  const character = getActiveCharacter();
+
+  if (!character) {
+    return;
+  }
+
+  try {
+    await Promise.all([
+      ensureCompendiumLoaded("arcanum"),
+      ensureCompendiumLoaded("items")
+    ]);
+    const exportCharacter = getCharacterPdfExportCharacter(character);
+    const xml = createFightClubCharacterXml(exportCharacter);
+    const fileName = getFightClubCharacterXmlFileName(character);
+    const result = await saveTextDataFile(
+      xml,
+      fileName,
+      "Exportar ficha para Fight Club",
+      "application/xml;charset=utf-8"
+    );
+
+    if (result?.canceled) {
+      render();
+      return;
+    }
+
+    pushNotification({
+      title: "Ficha XML generada",
+      message: `${fileName} está listo para importarlo en Fight Club 5.`
+    });
+  } catch (error) {
+    pushNotification({
+      title: "No se pudo exportar el XML",
+      message: cleanText(error?.message) || "No se pudo crear la ficha compatible con Fight Club.",
+      tone: "danger"
+    });
+  }
+
   render();
 }
 
@@ -25692,8 +25998,15 @@ function stopCloudCampaignAutosave() {
     window.clearInterval(cloudCampaignAutosaveInterval);
   }
 
+  if (typeof window !== "undefined" && cloudCampaignAutosaveWatchdogInterval) {
+    window.clearInterval(cloudCampaignAutosaveWatchdogInterval);
+  }
+
   cloudCampaignAutosaveTimer = 0;
   cloudCampaignAutosaveInterval = 0;
+  cloudCampaignAutosaveWatchdogInterval = 0;
+  cloudCampaignAutosaveDueAt = 0;
+  cloudCampaignAutosaveNextPeriodicDueAt = 0;
 }
 
 function detachActiveCloudCampaign(options = {}) {
@@ -25702,6 +26015,8 @@ function detachActiveCloudCampaign(options = {}) {
   }
 
   cloudCampaignAutosaveTimer = 0;
+  cloudCampaignAutosaveDueAt = 0;
+  cloudCampaignAutosaveNextPeriodicDueAt = 0;
   state.cloudCampaignId = "";
   state.cloudCampaignRevision = 0;
   state.cloudCampaignIsPublic = false;
@@ -26063,6 +26378,147 @@ function updateCloudCampaignSummary(campaign) {
     .map((entry) => entry.id === campaign.id ? campaign : entry);
 }
 
+function getAutosaveProblemDedupeKey(kind) {
+  return `autosave:${kind === "cloud" ? "cloud" : "desktop"}`;
+}
+
+function buildAutosaveProblemDetail({ kind, reason, error = null, startedAt = 0, phase = "", metadata = {} }) {
+  const sourceLabel = kind === "cloud" ? "Cloud" : "Archivo local";
+  const errorMessage = cleanText(error?.message) || cleanText(reason) || "Motivo desconocido";
+  const lines = [
+    "Mimic Dice - Informe de autoguardado",
+    `Fecha: ${new Date().toISOString()}`,
+    `Origen: ${sourceLabel}`,
+    `Campaña: ${cleanText(state.campaignName) || "Sin nombre"}`,
+    `Fase: ${cleanText(phase) || "No indicada"}`,
+    `Motivo: ${cleanText(reason) || errorMessage}`
+  ];
+
+  if (startedAt > 0) {
+    lines.push(`Inicio del intento: ${new Date(startedAt).toISOString()}`);
+    lines.push(`Tiempo transcurrido: ${Math.max(0, Date.now() - startedAt)} ms`);
+  }
+
+  Object.entries(metadata).forEach(([key, value]) => {
+    const normalizedValue = cleanText(value);
+
+    if (normalizedValue) {
+      lines.push(`${key}: ${normalizedValue}`);
+    }
+  });
+
+  if (error) {
+    lines.push("");
+    lines.push(`Error: ${cleanText(error.name) || "Error"}`);
+    lines.push(`Mensaje: ${errorMessage}`);
+
+    if (error.code) {
+      lines.push(`Código: ${cleanText(error.code)}`);
+    }
+
+    if (error.status) {
+      lines.push(`Estado HTTP: ${cleanText(error.status)}`);
+    }
+
+    const stack = String(error.stack || "").trim();
+
+    if (stack) {
+      lines.push("");
+      lines.push("Traza:");
+      lines.push(stack);
+    }
+  }
+
+  if (typeof navigator !== "undefined") {
+    lines.push("");
+    lines.push(`Conexión del navegador: ${navigator.onLine === false ? "sin conexión" : "disponible"}`);
+  }
+
+  if (typeof document !== "undefined") {
+    lines.push(`Visibilidad: ${document.visibilityState || "desconocida"}`);
+  }
+
+  return lines.join("\n");
+}
+
+function notifyAutosaveProblem({ kind = "desktop", reason, error = null, startedAt = 0, phase = "", metadata = {} }) {
+  const sourceLabel = kind === "cloud" ? "cloud" : "local";
+  const detailText = buildAutosaveProblemDetail({ kind, reason, error, startedAt, phase, metadata });
+
+  pushNotification({
+    title: "Problema con el autoguardado",
+    message: `El autoguardado ${sourceLabel} no se completó correctamente. Pulsa para ver y copiar el detalle.`,
+    tone: "danger",
+    durationMs: 0,
+    detailTitle: `Detalle del autoguardado ${sourceLabel}`,
+    detailText,
+    actionLabel: "Ver detalle y copiar",
+    dedupeKey: getAutosaveProblemDedupeKey(kind)
+  });
+  syncNotificationUi();
+}
+
+function startAutosaveCompletionWatchdog(kind, startedAt, getPhase, isActive, metadata = {}) {
+  if (typeof window === "undefined") {
+    return 0;
+  }
+
+  return window.setTimeout(() => {
+    if (!isActive()) {
+      return;
+    }
+
+    notifyAutosaveProblem({
+      kind,
+      reason: `El intento no terminó en ${Math.round(AUTOSAVE_COMPLETION_TIMEOUT_MS / 1000)} segundos`,
+      startedAt,
+      phase: getPhase(),
+      metadata
+    });
+  }, AUTOSAVE_COMPLETION_TIMEOUT_MS);
+}
+
+function checkCloudAutosaveHealth() {
+  if (
+    typeof window === "undefined"
+    || cloudCampaignSaveSuspended
+    || !state.accountSession?.user?.id
+    || !state.cloudCampaignId
+    || state.cloudAutosaveStatus === "conflict"
+  ) {
+    return;
+  }
+
+  const hasUnsavedChanges = cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision;
+
+  if (!hasUnsavedChanges || cloudCampaignSaveInProgress) {
+    return;
+  }
+
+  const now = Date.now();
+  const scheduledSaveMissed = cloudCampaignAutosaveDueAt > 0
+    && now > cloudCampaignAutosaveDueAt + AUTOSAVE_MISSED_GRACE_MS;
+  const periodicSaveMissed = cloudCampaignAutosaveDueAt === 0
+    && cloudCampaignAutosaveNextPeriodicDueAt > 0
+    && now > cloudCampaignAutosaveNextPeriodicDueAt + AUTOSAVE_MISSED_GRACE_MS;
+
+  if (!scheduledSaveMissed && !periodicSaveMissed) {
+    return;
+  }
+
+  notifyAutosaveProblem({
+    kind: "cloud",
+    reason: "El autoguardado programado no se lanzó cuando correspondía",
+    phase: "vigilancia del temporizador",
+    metadata: {
+      "Revisión local": cloudCampaignChangeRevision,
+      "Última revisión guardada": lastCloudCampaignSavedChangeRevision
+    }
+  });
+  cloudCampaignAutosaveDueAt = 0;
+  void autosaveCloudCampaign();
+}
+
 async function autosaveCloudCampaign(options = {}) {
   if (
     cloudCampaignSaveSuspended
@@ -26100,49 +26556,74 @@ async function autosaveCloudCampaign(options = {}) {
     return true;
   }
 
-  const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload());
-  const payload = await preparePayloadImagesForCloud(catalogPayload);
-  const comparableSnapshot = getComparableCampaignSnapshot(payload);
+  const startedAt = Date.now();
+  const campaignId = state.cloudCampaignId;
+  const baseRevision = state.cloudCampaignRevision;
+  let phase = "preparación del contenido";
+  let completionWatchdog = 0;
+  let savePromise;
 
-  if (options.force !== true && comparableSnapshot === lastCloudCampaignSnapshot && isPublic === state.cloudCampaignIsPublic) {
-    lastCloudCampaignSavedChangeRevision = saveChangeRevision;
-    return true;
-  }
+  cloudCampaignAutosaveDueAt = 0;
 
-  state.cloudAutosaveStatus = "saving";
-  state.cloudAutosaveMessage = "";
-  syncCloudAccountUi();
+  savePromise = (async () => {
+    try {
+      const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload());
+      const payload = await preparePayloadImagesForCloud(catalogPayload);
+      const comparableSnapshot = getComparableCampaignSnapshot(payload);
 
-  cloudCampaignSaveInProgress = updateCloudCampaign(state.cloudCampaignId, {
-    name: cleanText(state.campaignName) || "Campaña sin nombre",
-    isPublic,
-    baseRevision: state.cloudCampaignRevision,
-    payload
-  })
-    .then((result) => {
+      if (options.force !== true && comparableSnapshot === lastCloudCampaignSnapshot && isPublic === state.cloudCampaignIsPublic) {
+        lastCloudCampaignSavedChangeRevision = saveChangeRevision;
+        state.cloudAutosaveStatus = "saved";
+        state.cloudAutosaveMessage = "";
+        syncCloudAccountUi();
+        return true;
+      }
+
+      phase = "envío al servidor";
+      state.cloudAutosaveStatus = "saving";
+      state.cloudAutosaveMessage = "";
+      syncCloudAccountUi();
+
+      const result = await updateCloudCampaign(campaignId, {
+        name: cleanText(state.campaignName) || "Campaña sin nombre",
+        isPublic,
+        baseRevision,
+        payload
+      });
+
+      phase = "confirmación del servidor";
       activateCloudCampaign(result.campaign, payload, { savedChangeRevision: saveChangeRevision });
       updateCloudCampaignSummary(result.campaign);
       syncCloudAccountUi();
       return true;
-    })
-    .catch((error) => {
+    } catch (error) {
       state.cloudAutosaveStatus = error instanceof CloudApiError && error.code === "revision_conflict"
         ? "conflict"
         : "error";
       state.cloudAutosaveMessage = getCloudErrorMessage(error);
       state.accountError = state.cloudAutosaveMessage;
-      pushNotification({
-        title: state.cloudAutosaveStatus === "conflict" ? "Conflicto de campaña" : "Error de autoguardado",
-        message: state.cloudAutosaveMessage,
-        tone: "danger",
-        durationMs: 8000
+      notifyAutosaveProblem({
+        kind: "cloud",
+        reason: state.cloudAutosaveStatus === "conflict" ? "Conflicto de revisión de campaña" : state.cloudAutosaveMessage,
+        error,
+        startedAt,
+        phase,
+        metadata: {
+          "ID de campaña": campaignId,
+          "Revisión base": baseRevision,
+          "Revisión local": saveChangeRevision
+        }
       });
-      syncNotificationUi();
       syncCloudAccountUi();
       return false;
-    })
-    .finally(() => {
-      cloudCampaignSaveInProgress = null;
+    } finally {
+      if (completionWatchdog && typeof window !== "undefined") {
+        window.clearTimeout(completionWatchdog);
+      }
+
+      if (cloudCampaignSaveInProgress === savePromise) {
+        cloudCampaignSaveInProgress = null;
+      }
 
       if (
         state.cloudAutosaveStatus === "saved"
@@ -26150,9 +26631,23 @@ async function autosaveCloudCampaign(options = {}) {
       ) {
         scheduleCloudCampaignAutosave(1500);
       }
-    });
+    }
+  })();
 
-  return cloudCampaignSaveInProgress;
+  cloudCampaignSaveInProgress = savePromise;
+  completionWatchdog = startAutosaveCompletionWatchdog(
+    "cloud",
+    startedAt,
+    () => phase,
+    () => cloudCampaignSaveInProgress === savePromise,
+    {
+      "ID de campaña": campaignId,
+      "Revisión base": baseRevision,
+      "Revisión local": saveChangeRevision
+    }
+  );
+
+  return savePromise;
 }
 
 function scheduleCloudCampaignAutosave(delay = 4000) {
@@ -26170,12 +26665,35 @@ function scheduleCloudCampaignAutosave(delay = 4000) {
     window.clearTimeout(cloudCampaignAutosaveTimer);
   }
 
+  const normalizedDelay = Math.max(1500, Number(delay) || 4000);
   state.cloudAutosaveStatus = "pending";
+  cloudCampaignAutosaveDueAt = Date.now() + normalizedDelay;
   syncCloudAccountUi();
   cloudCampaignAutosaveTimer = window.setTimeout(() => {
+    const scheduledDueAt = cloudCampaignAutosaveDueAt;
+    const launchedAt = Date.now();
     cloudCampaignAutosaveTimer = 0;
-    autosaveCloudCampaign();
-  }, Math.max(1500, Number(delay) || 4000));
+    cloudCampaignAutosaveDueAt = 0;
+
+    if (
+      scheduledDueAt > 0
+      && launchedAt > scheduledDueAt + AUTOSAVE_MISSED_GRACE_MS
+      && cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision
+    ) {
+      notifyAutosaveProblem({
+        kind: "cloud",
+        reason: "El autoguardado programado se lanzó con retraso",
+        phase: "vigilancia del temporizador",
+        metadata: {
+          "Retraso": `${launchedAt - scheduledDueAt} ms`,
+          "Revisión local": cloudCampaignChangeRevision,
+          "Última revisión guardada": lastCloudCampaignSavedChangeRevision
+        }
+      });
+    }
+
+    void autosaveCloudCampaign();
+  }, normalizedDelay);
 }
 
 function startCloudCampaignAutosave() {
@@ -26184,16 +26702,45 @@ function startCloudCampaignAutosave() {
   }
 
   if (!cloudCampaignAutosaveInterval) {
+    cloudCampaignAutosaveNextPeriodicDueAt = Date.now() + 60_000;
     cloudCampaignAutosaveInterval = window.setInterval(() => {
-      autosaveCloudCampaign();
+      const scheduledDueAt = cloudCampaignAutosaveNextPeriodicDueAt;
+      const launchedAt = Date.now();
+      cloudCampaignAutosaveNextPeriodicDueAt = launchedAt + 60_000;
+
+      if (
+        scheduledDueAt > 0
+        && launchedAt > scheduledDueAt + AUTOSAVE_MISSED_GRACE_MS
+        && cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision
+      ) {
+        notifyAutosaveProblem({
+          kind: "cloud",
+          reason: "La comprobación periódica del autoguardado se lanzó con retraso",
+          phase: "vigilancia del temporizador",
+          metadata: {
+            "Retraso": `${launchedAt - scheduledDueAt} ms`,
+            "Revisión local": cloudCampaignChangeRevision,
+            "Última revisión guardada": lastCloudCampaignSavedChangeRevision
+          }
+        });
+      }
+
+      void autosaveCloudCampaign();
     }, 60_000);
+  }
+
+  if (!cloudCampaignAutosaveWatchdogInterval) {
+    cloudCampaignAutosaveWatchdogInterval = window.setInterval(
+      checkCloudAutosaveHealth,
+      AUTOSAVE_WATCHDOG_INTERVAL_MS
+    );
   }
 
   if (!cloudCampaignVisibilityHandlerRegistered) {
     cloudCampaignVisibilityHandlerRegistered = true;
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
-        autosaveCloudCampaign();
+        void autosaveCloudCampaign();
       }
     });
   }
@@ -26725,6 +27272,10 @@ async function saveCampaignToDesktop(options = {}) {
         return result;
       }
 
+      if (!result || !cleanText(result.filePath)) {
+        throw new Error("El sistema de archivos no confirmó la ruta del archivo guardado.");
+      }
+
       applyCampaignFileResult(result);
       lastSavedCampaignSnapshot = comparableSnapshot;
       scheduleDesktopCampaignDirtyStateSync();
@@ -26742,6 +27293,10 @@ async function saveCampaignToDesktop(options = {}) {
 }
 
 async function autosaveCampaign() {
+  const startedAt = Date.now();
+  let phase = "escritura del archivo local";
+  let completionWatchdog = 0;
+
   try {
     if (!state.campaignFilePath && !state.campaignFileName) {
       return true;
@@ -26751,14 +27306,51 @@ async function autosaveCampaign() {
       return true;
     }
 
-    await saveCampaignToDesktop({ silent: true });
+    const savePromise = saveCampaignToDesktop({ silent: true });
+    completionWatchdog = startAutosaveCompletionWatchdog(
+      "desktop",
+      startedAt,
+      () => phase,
+      () => Boolean(campaignSaveInProgress),
+      {
+        Archivo: state.campaignFileName,
+        Ruta: state.campaignFilePath
+      }
+    );
+    const result = await savePromise;
+
+    if (!result || result.canceled) {
+      throw new Error(result?.canceled
+        ? "El sistema canceló el autoguardado antes de escribir el archivo."
+        : "El guardado local no devolvió una confirmación.");
+    }
+
+    phase = "confirmación del archivo local";
     return true;
-  } catch {
+  } catch (error) {
+    notifyAutosaveProblem({
+      kind: "desktop",
+      reason: cleanText(error?.message) || "El archivo local no pudo guardarse",
+      error,
+      startedAt,
+      phase,
+      metadata: {
+        Archivo: state.campaignFileName,
+        Ruta: state.campaignFilePath
+      }
+    });
     return false;
+  } finally {
+    if (completionWatchdog && typeof window !== "undefined") {
+      window.clearTimeout(completionWatchdog);
+    }
   }
 }
 
 async function saveCampaignBeforeClose() {
+  const startedAt = Date.now();
+  let completionWatchdog = 0;
+
   try {
     if (!state.campaignFilePath && !state.campaignFileName) {
       return true;
@@ -26768,11 +27360,80 @@ async function saveCampaignBeforeClose() {
       return true;
     }
 
-    await saveCampaignToDesktop({ force: true, silent: true });
+    const savePromise = saveCampaignToDesktop({ force: true, silent: true });
+    completionWatchdog = startAutosaveCompletionWatchdog(
+      "desktop",
+      startedAt,
+      () => "autoguardado antes de cerrar",
+      () => Boolean(campaignSaveInProgress),
+      {
+        Archivo: state.campaignFileName,
+        Ruta: state.campaignFilePath
+      }
+    );
+    const result = await savePromise;
+
+    if (!result || result.canceled) {
+      throw new Error("El autoguardado previo al cierre no recibió confirmación.");
+    }
+
     return true;
-  } catch {
+  } catch (error) {
+    notifyAutosaveProblem({
+      kind: "desktop",
+      reason: cleanText(error?.message) || "No se pudo guardar antes de cerrar",
+      error,
+      startedAt,
+      phase: "autoguardado antes de cerrar",
+      metadata: {
+        Archivo: state.campaignFileName,
+        Ruta: state.campaignFilePath
+      }
+    });
     return false;
+  } finally {
+    if (completionWatchdog && typeof window !== "undefined") {
+      window.clearTimeout(completionWatchdog);
+    }
   }
+}
+
+function checkDesktopAutosaveHealth() {
+  if (typeof window === "undefined" || typeof getDesktopCampaignApi()?.saveCampaign !== "function") {
+    return;
+  }
+
+  const now = Date.now();
+
+  if (!campaignAutosaveNextDueAt) {
+    campaignAutosaveNextDueAt = now + CAMPAIGN_AUTOSAVE_INTERVAL_MS;
+    return;
+  }
+
+  if (now <= campaignAutosaveNextDueAt + AUTOSAVE_MISSED_GRACE_MS) {
+    return;
+  }
+
+  campaignAutosaveNextDueAt = now + CAMPAIGN_AUTOSAVE_INTERVAL_MS;
+
+  if (
+    campaignSaveInProgress
+    || (!state.campaignFilePath && !state.campaignFileName)
+    || !hasCampaignChangesSinceLastSave()
+  ) {
+    return;
+  }
+
+  notifyAutosaveProblem({
+    kind: "desktop",
+    reason: "El temporizador de autoguardado no se lanzó cuando correspondía",
+    phase: "vigilancia del temporizador",
+    metadata: {
+      Archivo: state.campaignFileName,
+      Ruta: state.campaignFilePath
+    }
+  });
+  void autosaveCampaign();
 }
 
 function startCampaignAutosave() {
@@ -26784,9 +27445,38 @@ function startCampaignAutosave() {
     return;
   }
 
+  campaignAutosaveNextDueAt = Date.now() + CAMPAIGN_AUTOSAVE_INTERVAL_MS;
   campaignAutosaveTimer = window.setInterval(() => {
-    autosaveCampaign();
+    const scheduledDueAt = campaignAutosaveNextDueAt;
+    const launchedAt = Date.now();
+    campaignAutosaveNextDueAt = launchedAt + CAMPAIGN_AUTOSAVE_INTERVAL_MS;
+
+    if (
+      scheduledDueAt > 0
+      && launchedAt > scheduledDueAt + AUTOSAVE_MISSED_GRACE_MS
+      && !campaignSaveInProgress
+      && (state.campaignFilePath || state.campaignFileName)
+      && hasCampaignChangesSinceLastSave()
+    ) {
+      notifyAutosaveProblem({
+        kind: "desktop",
+        reason: "El temporizador de autoguardado se lanzó con retraso",
+        phase: "vigilancia del temporizador",
+        metadata: {
+          "Retraso": `${launchedAt - scheduledDueAt} ms`,
+          Archivo: state.campaignFileName,
+          Ruta: state.campaignFilePath
+        }
+      });
+    }
+
+    void autosaveCampaign();
   }, CAMPAIGN_AUTOSAVE_INTERVAL_MS);
+
+  campaignAutosaveWatchdogTimer = window.setInterval(
+    checkDesktopAutosaveHealth,
+    AUTOSAVE_WATCHDOG_INTERVAL_MS
+  );
 }
 
 function registerCampaignCloseAutosave() {
@@ -27199,6 +27889,9 @@ function resetTransientCampaignUiState() {
   state.menuHubOpen = false;
   state.fileMenuOpen = false;
   state.optionsMenuOpen = false;
+  state.autosaveProblemDialogOpen = false;
+  state.autosaveProblemDetailCopyStatus = "";
+  state.characterExportDialogOpen = false;
   closeCampaignSaveNameDialog();
   state.characterSkillConfigOpen = false;
   state.characterSkillsExpanded = false;
@@ -27401,6 +28094,15 @@ function getCampaignFileName(name) {
 
 function downloadJsonFile(value, fileName) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  downloadBlobFile(blob, fileName);
+}
+
+function downloadTextFile(value, fileName, mimeType = "text/plain;charset=utf-8") {
+  const blob = new Blob([String(value ?? "")], { type: mimeType });
+  downloadBlobFile(blob, fileName);
+}
+
+function downloadBlobFile(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
@@ -27760,23 +28462,60 @@ function syncCharacterOverviewHeaderTooltipPosition() {
   overlay.style.setProperty("--character-overview-tooltip-top", `${Math.round(top)}px`);
 }
 
-function pushNotification({ title = "Notificación", message = "", tone = "info", durationMs = 5200, imageUrl = "" } = {}) {
+function pushNotification({
+  title = "Notificación",
+  message = "",
+  tone = "info",
+  durationMs = 5200,
+  imageUrl = "",
+  effectKind = "",
+  detailTitle = "",
+  detailText = "",
+  actionLabel = "",
+  dedupeKey = ""
+} = {}) {
   const normalizedTitle = cleanText(title) || "Notificación";
   const normalizedMessage = cleanText(message);
-  const normalizedEffectKind = cleanText(arguments[0]?.effectKind);
+  const normalizedEffectKind = cleanText(effectKind);
+  const normalizedDedupeKey = cleanText(dedupeKey);
   const localizedTitle = isEnglishInterface() ? translateUiString(normalizedTitle) : normalizedTitle;
   const localizedMessage = isEnglishInterface() ? translateUiString(normalizedMessage) : normalizedMessage;
-  const id = createStableId("notification");
+  const existingNotification = normalizedDedupeKey
+    ? state.notifications.find((entry) => entry.dedupeKey === normalizedDedupeKey)
+    : null;
+  const id = existingNotification?.id || createStableId("notification");
   const notification = {
     id,
     title: localizedTitle,
     message: localizedMessage,
     tone,
     imageUrl: cleanText(imageUrl),
-    effectKind: normalizedEffectKind
+    effectKind: normalizedEffectKind,
+    detailTitle: cleanText(detailTitle),
+    detailText: String(detailText || "").trim(),
+    actionLabel: cleanText(actionLabel),
+    dedupeKey: normalizedDedupeKey
   };
 
-  state.notifications = [...state.notifications.slice(-5), notification];
+  if (existingNotification) {
+    const timeoutId = notificationTimeouts.get(id);
+
+    if (timeoutId && typeof window !== "undefined") {
+      window.clearTimeout(timeoutId);
+    }
+
+    notificationTimeouts.delete(id);
+    state.notifications = state.notifications.map((entry) => entry.id === id ? notification : entry);
+  } else {
+    const nextNotifications = [...state.notifications, notification];
+    const persistentNotifications = nextNotifications.filter((entry) => Boolean(entry.detailText));
+    const transientNotifications = nextNotifications.filter((entry) => !entry.detailText);
+    const transientLimit = Math.max(0, 6 - persistentNotifications.length);
+    state.notifications = [
+      ...(transientLimit > 0 ? transientNotifications.slice(-transientLimit) : []),
+      ...persistentNotifications.slice(-6)
+    ].slice(-6);
+  }
 
   if (typeof window !== "undefined" && durationMs > 0) {
     const timeoutId = window.setTimeout(() => {
@@ -27787,6 +28526,56 @@ function pushNotification({ title = "Notificación", message = "", tone = "info"
   }
 
   return id;
+}
+
+function openNotificationDetail(notificationId) {
+  const notification = state.notifications.find((entry) => entry.id === cleanText(notificationId));
+
+  if (!notification?.detailText) {
+    return;
+  }
+
+  state.autosaveProblemDialogOpen = true;
+  state.autosaveProblemDetailTitle = notification.detailTitle || notification.title;
+  state.autosaveProblemDetailText = notification.detailText;
+  state.autosaveProblemDetailCopyStatus = "";
+}
+
+function closeAutosaveProblemDialog() {
+  state.autosaveProblemDialogOpen = false;
+  state.autosaveProblemDetailCopyStatus = "";
+}
+
+async function copyAutosaveProblemDetail() {
+  const detailText = String(state.autosaveProblemDetailText || "");
+
+  if (!detailText) {
+    return;
+  }
+
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function") {
+      await navigator.clipboard.writeText(detailText);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = detailText;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.append(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+
+      if (!copied) {
+        throw new Error("El navegador no permitió copiar el texto.");
+      }
+    }
+
+    state.autosaveProblemDetailCopyStatus = "Detalle copiado al portapapeles.";
+  } catch (error) {
+    state.autosaveProblemDetailCopyStatus = `No se pudo copiar automáticamente: ${cleanText(error?.message) || "selecciona el texto manualmente"}.`;
+  }
 }
 
 function dismissNotification(notificationId) {

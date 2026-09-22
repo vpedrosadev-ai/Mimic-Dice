@@ -172,6 +172,12 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     currentHp = Math.min(currentHp, maxHp);
   }
 
+  const expertise = normalizeStoredCharacterProficiencies(character.expertise);
+  const proficiencies = [...new Set([
+    ...normalizeStoredCharacterProficiencies(character.proficiencies),
+    ...expertise
+  ])];
+
   return {
     id: cleanText(character.id) || createStableId("character"),
     name: cleanText(character.name) || "Personaje",
@@ -193,7 +199,8 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
       || character.proficiencyBonusOverride === null
       ? ""
       : Math.max(0, Math.min(20, Math.floor(toNumber(normalizeStoredNumber(character.proficiencyBonusOverride)) || 0))),
-    proficiencies: normalizeStoredCharacterProficiencies(character.proficiencies),
+    proficiencies,
+    expertise,
     tokenUrl: cleanText(character.tokenUrl),
     sheetPdfUrl: cleanText(character.sheetPdfUrl),
     sheetPdfName: cleanText(character.sheetPdfName),

@@ -6501,6 +6501,28 @@ input[type="number"]::-webkit-inner-spin-button {
   min-width: 0;
 }
 
+.notification-card__copy--action {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-card__copy--action:hover strong,
+.notification-card__copy--action:focus-visible strong {
+  color: #fff;
+}
+
+.notification-card__copy--action:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 4px;
+}
+
 .notification-card__copy strong {
   display: block;
   margin-bottom: 0.34rem;
@@ -7067,13 +7089,49 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .character-check-row--readonly {
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+}
+
+.notification-card__copy small {
+  display: block;
+  margin-top: 0.55rem;
+  color: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.autosave-problem-dialog__panel {
+  width: min(46rem, calc(100vw - 2rem));
+}
+
+.autosave-problem-dialog__detail {
+  min-height: min(22rem, 48vh);
+  resize: vertical;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.autosave-problem-dialog__status {
+  margin: 0;
+  color: var(--accent-soft);
+  font-size: 0.9rem;
+  font-weight: 800;
 }
 
 .character-check-row--readonly .character-check-row__mark.is-checked {
   border-color: rgba(240, 200, 121, 0.42);
   background: rgba(240, 200, 121, 0.15);
   box-shadow: inset 0 0 0 1px rgba(240, 200, 121, 0.18);
+}
+
+.character-check-row--readonly .character-check-row__mark--expertise.is-checked {
+  border-color: rgba(240, 200, 121, 0.82);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px #1f1b27;
 }
 
 .combat-token-preview__chip-grid,
@@ -11274,7 +11332,7 @@ body.is-table-resizing * {
 .character-check-row {
   position: relative;
   display: grid;
-  grid-template-columns: 0.68rem 1.22rem minmax(0, max-content);
+  grid-template-columns: 0.68rem 0.68rem 1.22rem minmax(0, max-content);
   gap: 0.24rem;
   align-items: center;
   min-height: 1.42rem;
@@ -11283,6 +11341,12 @@ body.is-table-resizing * {
   letter-spacing: 0.02em;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.character-check-row__toggle {
+  position: relative;
+  display: grid;
+  place-items: center;
   cursor: pointer;
 }
 
@@ -11319,6 +11383,18 @@ body.is-table-resizing * {
 
 .character-check-row__mark--skill {
   border-radius: 50%;
+}
+
+.character-check-row__mark--expertise {
+  border-width: 2px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(240, 200, 121, 0.14);
+}
+
+.character-check-row input:checked + .character-check-row__mark--expertise {
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px #1f1b27, 0 0 0 3px rgba(240, 200, 121, 0.12);
 }
 
 .character-check-row strong {
@@ -12677,6 +12753,10 @@ body.is-table-resizing * {
 
 .character-pdf-import-dialog__panel {
   width: min(36rem, 100%);
+}
+
+.character-export-dialog__panel {
+  width: min(42rem, 100%);
 }
 
 .character-pdf-import-dialog__summary {
@@ -15578,7 +15658,7 @@ body.is-table-resizing * {
   }
 
   .character-check-row {
-    grid-template-columns: 0.65rem 1.65rem minmax(0, 1fr);
+    grid-template-columns: 0.65rem 0.65rem 1.65rem minmax(0, 1fr);
     gap: 0.28rem;
     font-size: 0.6rem;
   }

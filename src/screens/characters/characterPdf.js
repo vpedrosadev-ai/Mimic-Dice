@@ -336,6 +336,7 @@ export async function extractCharacterDataFromPdf(source) {
 
   const proficiencyBonus = Number(data.proficiencyBonus) || getLevelProficiencyBonus(data.level);
   const proficiencies = [];
+  const expertise = [];
 
   Object.entries(ABILITY_META).forEach(([abilityKey, meta]) => {
     const abilityPrefix = abilityKey.toUpperCase();
@@ -352,6 +353,15 @@ export async function extractCharacterDataFromPdf(source) {
     )) {
       proficiencies.push(`save:${abilityKey}`);
     }
+
+    if (
+      saveValue !== null
+      && abilityModifier !== null
+      && proficiencyBonus > 0
+      && saveValue - abilityModifier >= proficiencyBonus * 2
+    ) {
+      expertise.push(`save:${abilityKey}`);
+    }
   });
 
   Object.entries(SKILL_META).forEach(([skillId, meta]) => {
@@ -366,10 +376,23 @@ export async function extractCharacterDataFromPdf(source) {
     )) {
       proficiencies.push(`skill:${skillId}`);
     }
+
+    if (
+      skillValue !== null
+      && abilityModifier !== null
+      && proficiencyBonus > 0
+      && skillValue - abilityModifier >= proficiencyBonus * 2
+    ) {
+      expertise.push(`skill:${skillId}`);
+    }
   });
 
   if (proficiencies.length > 0) {
     data.proficiencies = [...new Set(proficiencies)];
+  }
+
+  if (expertise.length > 0) {
+    data.expertise = [...new Set(expertise)];
   }
 
   const spells = [];
@@ -1195,11 +1218,14 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
   const abilities = exportCharacter?.abilities ?? {};
   const proficiencyBonus = getCharacterProficiencyBonus(exportCharacter);
   const proficiencies = new Set(Array.isArray(exportCharacter?.proficiencies) ? exportCharacter.proficiencies : []);
+  const expertise = new Set(Array.isArray(exportCharacter?.expertise) ? exportCharacter.expertise : []);
   const classEntries = Array.isArray(exportCharacter.classEntries) ? exportCharacter.classEntries : [];
   const classNames = classEntries.map((entry) => cleanPdfText(entry.name)).filter(Boolean);
   const subclassNames = classEntries.map((entry) => cleanPdfText(entry.subclassName)).filter(Boolean);
-  const passivePerception = 10 + getAbilityModifier(abilities.wis ?? 10) + (proficiencies.has("skill:perception") ? proficiencyBonus : 0);
-  const passiveInsight = 10 + getAbilityModifier(abilities.wis ?? 10) + (proficiencies.has("skill:insight") ? proficiencyBonus : 0);
+  const passivePerception = 10 + getAbilityModifier(abilities.wis ?? 10)
+    + (proficiencies.has("skill:perception") ? proficiencyBonus * (expertise.has("skill:perception") ? 2 : 1) : 0);
+  const passiveInsight = 10 + getAbilityModifier(abilities.wis ?? 10)
+    + (proficiencies.has("skill:insight") ? proficiencyBonus * (expertise.has("skill:insight") ? 2 : 1) : 0);
 
   writer.setText(["CharacterName", "Front_Character Name"], exportCharacter?.name);
   writer.setText(["PlayerName", "Front_Player Name"], exportCharacter?.playerName);
@@ -1237,23 +1263,25 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
     const score = clampInteger(abilities[abilityKey], 1, 30) ?? 10;
     const modifier = getAbilityModifier(score);
     const saveProficient = proficiencies.has(`save:${abilityKey}`);
+    const saveExpertise = expertise.has(`save:${abilityKey}`);
     const templateSave = TEMPLATE_SAVE_FIELDS[abilityKey];
 
     writer.setText(meta.scoreFields, score);
     writer.setText(meta.frontScoreField, score);
     writer.setText(meta.modifierFields, formatSigned(modifier));
     writer.setText(meta.frontModifierField, formatSigned(modifier));
-    writer.setText([templateSave.value, `Front_${meta.short} Save Throw`], formatSigned(modifier + (saveProficient ? proficiencyBonus : 0)));
-    writer.setChecked([templateSave.checkbox, `Front_Save ${meta.short}`], saveProficient);
+    writer.setText([templateSave.value, `Front_${meta.short} Save Throw`], formatSigned(modifier + (saveProficient ? proficiencyBonus * (saveExpertise ? 2 : 1) : 0)));
+    writer.setChecked([templateSave.checkbox, `Front_Save ${meta.short}`], saveProficient || saveExpertise);
   });
 
   Object.entries(SKILL_META).forEach(([skillId, meta]) => {
     const modifier = getAbilityModifier(abilities[meta.ability] ?? 10);
     const isProficient = proficiencies.has(`skill:${skillId}`);
+    const hasExpertise = expertise.has(`skill:${skillId}`);
     const templateSkill = TEMPLATE_SKILL_FIELDS[skillId];
 
-    writer.setText([templateSkill.value, ...meta.valueFields], formatSigned(modifier + (isProficient ? proficiencyBonus : 0)));
-    writer.setChecked([templateSkill.checkbox, ...meta.checkboxFields], isProficient);
+    writer.setText([templateSkill.value, ...meta.valueFields], formatSigned(modifier + (isProficient ? proficiencyBonus * (hasExpertise ? 2 : 1) : 0)));
+    writer.setChecked([templateSkill.checkbox, ...meta.checkboxFields], isProficient || hasExpertise);
   });
 
   writeCharacterWeaponsToPrimaryTemplate(writer, exportCharacter, proficiencyBonus);
@@ -1278,7 +1306,7 @@ export function getCharacterPdfImportLabels(data) {
     [["name", "playerName"], "Identidad"],
     [["className", "subclassName", "level", "species", "background"], "Clase y origen"],
     [["abilities"], "Caracteristicas"],
-    [["proficiencyBonus", "proficiencies"], "Competencias"],
+    [["proficiencyBonus", "proficiencies", "expertise"], "Competencias"],
     [["armorClass", "maxHp", "currentHp", "tempHp", "initiativeBonus", "speed"], "Combate"],
     [["spells", "spellAttackModifier", "spellSaveDc", "spellSlots"], "Hechizos"],
     [["notes"], "Notas"]

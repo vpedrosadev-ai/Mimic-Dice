@@ -238,6 +238,19 @@ function sanitizeJsonFileName(fileName, fallbackBaseName = "mimic-dice-export") 
   return `${withoutExtension}.json`;
 }
 
+function sanitizeXmlFileName(fileName, fallbackBaseName = "mimic-dice-character") {
+  const baseName = path.basename(String(fileName || fallbackBaseName));
+  const withoutExtension = baseName
+    .replace(/\.xml$/i, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || fallbackBaseName;
+
+  return `${withoutExtension}.xml`;
+}
+
 async function ensureCampaignSaveDirectory() {
   const directory = getCampaignSaveDirectory();
   await fs.mkdir(directory, { recursive: true });
@@ -308,6 +321,10 @@ function getSaveDialogDefaultPath(directory, fileName) {
 
 function getJsonSaveDialogDefaultPath(directory, fileName) {
   return path.join(directory, sanitizeJsonFileName(fileName));
+}
+
+function getXmlSaveDialogDefaultPath(directory, fileName) {
+  return path.join(directory, sanitizeXmlFileName(fileName));
 }
 
 function getDialogWindow(event) {
@@ -527,6 +544,50 @@ ipcMain.handle("data-exchange:save-json", async (event, {
   const safeFileName = sanitizeJsonFileName(path.basename(result.filePath));
   const filePath = path.join(selectedDirectory, safeFileName);
   await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+
+  return {
+    canceled: false,
+    directory: selectedDirectory,
+    fileName: path.basename(filePath),
+    filePath
+  };
+});
+
+ipcMain.handle("data-exchange:save-text", async (event, {
+  title = "Guardar archivo",
+  fileName = "mimic-dice-character.xml",
+  content = "",
+  mimeType = "text/plain"
+} = {}) => {
+  const directory = await ensureCampaignSaveDirectory();
+  const isXml = String(mimeType).toLowerCase().includes("xml") || /\.xml$/i.test(String(fileName));
+  const safeFileName = isXml
+    ? sanitizeXmlFileName(fileName)
+    : path.basename(String(fileName || "mimic-dice-export.txt"));
+  const result = await dialog.showSaveDialog(getDialogWindow(event), {
+    title: String(title || "Guardar archivo"),
+    defaultPath: isXml
+      ? getXmlSaveDialogDefaultPath(directory, safeFileName)
+      : path.join(directory, safeFileName),
+    filters: isXml
+      ? [{ name: "Fight Club XML", extensions: ["xml"] }]
+      : [{ name: "Texto", extensions: ["txt"] }]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return {
+      canceled: true,
+      directory
+    };
+  }
+
+  const selectedDirectory = path.dirname(result.filePath);
+  await fs.mkdir(selectedDirectory, { recursive: true });
+  const outputFileName = isXml
+    ? sanitizeXmlFileName(path.basename(result.filePath))
+    : path.basename(result.filePath);
+  const filePath = path.join(selectedDirectory, outputFileName);
+  await fs.writeFile(filePath, String(content ?? ""), "utf8");
 
   return {
     canceled: false,

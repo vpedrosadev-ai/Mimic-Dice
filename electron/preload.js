@@ -145,6 +145,12 @@ contextBridge.exposeInMainWorld("mimicDice", {
     fileName,
     title
   }),
+  saveTextFile: (content, fileName, title = "Guardar archivo", mimeType = "text/plain") => ipcRenderer.invoke("data-exchange:save-text", {
+    content,
+    fileName,
+    title,
+    mimeType
+  }),
   loadJsonFile: (title = "Importar JSON") => ipcRenderer.invoke("data-exchange:load-json", {
     title
   }),
