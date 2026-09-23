@@ -109,9 +109,10 @@
 - La preview de aliados en combat tracker se simplifico: solo muestra panel de caracteristicas/competencias en formato ficha, chips de skills con color y nivel, y bloque de inventario centrado en monedas.
 - Bajo las monedas de esa preview de aliado ya se listan tambien objetos de forma simplificada.
 - La cabecera de combat tracker ahora pasa a `Tabla de combate` y el toggle del contador se aloja bajo el titulo; el orden de iniciativa vive en su propia seccion separada y los retratos de la cadena son mas rectangulares, altos y estrechos.
-- El orden de iniciativa del combat tracker se puede extraer a una ventana de navegador independiente y sincronizada; los controles funcionan desde la ventana secundaria y el bloque vuelve a la principal al reacoplar o cerrar la ventana.
+- El orden de iniciativa del combat tracker se puede abrir en una ventana espejo sincronizada; el bloque sigue visible y operativo en la ventana principal, y los controles funcionan desde ambas.
 - La ventana extraida de iniciativa muestra directamente los controles y la cadena, sin repetir una cabecera de "Orden de iniciativa".
 - Las previews de aliados y enemigos del combat tracker incluyen un boton para abrir cada ficha en una ventana independiente; se admiten varias a la vez y las de personaje incorporan su panel configurado de hechizos/habilidades.
+- En los pop-outs de fichas funcionan tambien los enlaces y detalles flotantes de objetos, hechizos y habilidades; cada ventana gestiona su propio panel de detalle y los enlaces pueden abrir el compendio correspondiente en la ventana principal.
 - La exportacion de personajes (JSON, PDF o XML de Fight Club) exige elegir de forma explicita una unica ficha de la lista antes de continuar.
 - El autoguardado cloud reintenta automaticamente fallos temporales de red/HTTP (`408`, `425`, `429` y `5xx`) con espera progresiva; al recuperarse retira el aviso persistente y confirma el guardado correcto.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.

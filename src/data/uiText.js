@@ -9,6 +9,8 @@ export const UI_STRINGS = {
     options_back: "Volver",
     options_close: "Cerrar",
     round_label: "RONDA",
+    combat_turn_popout_open: "Extraer ventana",
+    combat_turn_popout_close: "Cerrar ventana",
     area_effects: "EFECTOS EN AREA",
     area_effects_help: "Elige valor, pulsa efecto y despues marca objetivos en ventana emergente",
     amount_label: "Cantidad",
@@ -284,6 +286,8 @@ export const UI_STRINGS = {
     options_back: "Back",
     options_close: "Close",
     round_label: "TURN",
+    combat_turn_popout_open: "Open in new window",
+    combat_turn_popout_close: "Close window",
     area_effects: "AREA EFFECTS",
     area_effects_help: "Choose a value, press an effect, then mark targets in the pop-up window",
     amount_label: "Amount",
@@ -966,6 +970,5 @@ export const UI_REGEX_TRANSLATIONS_EN = [
   [/^No hay entidades visibles para el turno\.$/u, "No visible entities for the turn."],
   [/^Orden de iniciativa$/u, "Initiative order"],
   [/^Extraer ventana$/u, "Open in new window"],
-  [/^Volver a acoplar$/u, "Dock back"],
-  [/^El orden de iniciativa esta abierto en otra ventana\.$/u, "Initiative order is open in another window."]
+  [/^Cerrar ventana$/u, "Close window"]
 ];

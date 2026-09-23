@@ -9744,9 +9744,7 @@ function renderCombatTracker() {
           ? `
             <div class="combat-top-row">
               ${state.isCombatActive
-                ? (isCombatTurnPopoutOpen()
-                    ? renderCombatTurnPopoutPlaceholder()
-                    : renderCombatTurnPanel(turnParticipants, activeTurnCombatantId))
+                ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId)
                 : ""}
               ${state.combatTimerPanelOpen ? renderCombatTimerPanel(battleTimerLabel) : ""}
             </div>
@@ -10000,8 +9998,8 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
   `;
 }
 
-function renderCombatTurnPopoutToggleButton(isDetached = false) {
-  const label = isDetached ? "Volver a acoplar" : "Extraer ventana";
+function renderCombatTurnPopoutToggleButton(isOpen = false) {
+  const label = t(isOpen ? "combat_turn_popout_close" : "combat_turn_popout_open");
 
   return `
     <button
@@ -10014,20 +10012,8 @@ function renderCombatTurnPopoutToggleButton(isDetached = false) {
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 4h6v2H6v12h12v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm8 0h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4Z" />
       </svg>
-      <span>${escapeHtml(t(label))}</span>
+      <span>${escapeHtml(label)}</span>
     </button>
-  `;
-}
-
-function renderCombatTurnPopoutPlaceholder() {
-  return `
-    <section class="panel panel--inner combat-turn-section combat-turn-popout-placeholder">
-      <div>
-        <strong>${escapeHtml(t("Orden de iniciativa"))}</strong>
-        <p>${escapeHtml(t("El orden de iniciativa esta abierto en otra ventana."))}</p>
-      </div>
-      ${renderCombatTurnPopoutToggleButton(true)}
-    </section>
   `;
 }
 
@@ -10354,6 +10340,8 @@ function openCombatantPreviewPopout({ kind = "", key = "", combatantId = "" } = 
   initializeCombatantPreviewPopout(descriptor);
   startCombatantPreviewPopoutMonitor();
   syncCombatantPreviewPopout(descriptor);
+  queueCompendiumLoad("items");
+  queueCompendiumLoad("arcanum");
   popout.focus();
 }
 
@@ -10375,10 +10363,16 @@ function initializeCombatantPreviewPopout(descriptor) {
       </head>
       <body class="combatant-preview-popout-body">
         <main class="combatant-preview-popout-root combat-tracker-panel" data-combatant-preview-popout-root></main>
+        <aside class="combatant-preview-popout-detail" data-combatant-preview-popout-detail hidden></aside>
       </body>
     </html>`);
   popout.document.close();
-  popout.document.addEventListener("click", handleCombatantPreviewPopoutClick);
+  popout.document.addEventListener("click", (event) => handleCombatantPreviewPopoutClick(event, descriptor));
+  popout.document.addEventListener("mouseover", (event) => handleCombatantPreviewPopoutMouseOver(event, descriptor));
+  popout.document.addEventListener("mouseout", (event) => handleCombatantPreviewPopoutMouseOut(event, descriptor));
+  popout.document.addEventListener("focusin", (event) => handleCombatantPreviewPopoutFocusIn(event, descriptor));
+  popout.document.addEventListener("focusout", (event) => handleCombatantPreviewPopoutFocusOut(event, descriptor));
+  popout.addEventListener("resize", () => hideCombatantPreviewPopoutDetail(descriptor));
   popout.addEventListener("beforeunload", () => removeCombatantPreviewPopout(descriptor.id));
 }
 
@@ -10444,7 +10438,7 @@ function getCombatantPreviewPopoutContent(descriptor) {
       title: cleanText(character.name) || "Personaje",
       markup: `
         <div class="combatant-preview-popout-layout${hasCombatSpellbookData(character) ? " has-spellbook" : ""}">
-          ${renderCombatCharacterPreview(character, { interactive: false })}
+          ${renderCombatCharacterPreview(character, { interactive: false, linkDetails: true })}
           ${hasCombatSpellbookData(character) ? renderCombatSpellbookPopover(combatant, character) : ""}
         </div>
       `
@@ -10467,7 +10461,7 @@ function getCombatantPreviewPopoutContent(descriptor) {
 
   return {
     title: cleanText(entry.name) || "Criatura",
-    markup: `<div class="combatant-preview-popout-layout">${renderCombatTokenPreview(entry)}</div>`
+    markup: `<div class="combatant-preview-popout-layout">${renderCombatTokenPreview(entry, { linkDetails: true })}</div>`
   };
 }
 
@@ -10489,7 +10483,9 @@ function syncCombatantPreviewPopout(descriptor) {
 
   popout.document.documentElement.lang = state.appLanguage || APP_LANGUAGE_ES;
   popout.document.title = `${content.title} - Mimic Dice`;
+  hideCombatantPreviewPopoutDetail(descriptor);
   root.innerHTML = content.markup;
+  decorateCombatantPreviewPopoutDetailLinks(root);
   applyInterfaceTranslations(root);
 }
 
@@ -10499,7 +10495,184 @@ function syncCombatantPreviewPopouts() {
   });
 }
 
-function handleCombatantPreviewPopoutClick(event) {
+function decorateCombatantPreviewPopoutDetailLinks(root) {
+  root?.querySelectorAll?.(".spell-reference-link[data-arcanum-spell-name]").forEach((link) => {
+    const spellName = cleanText(link.dataset.arcanumSpellName);
+
+    if (!spellName) {
+      return;
+    }
+
+    link.dataset.combatPreviewKind = "spell";
+    link.dataset.combatPreviewKey = spellName;
+    link.dataset.combatPreviewName = spellName;
+  });
+}
+
+function getCombatantPreviewPopoutDetail(trigger) {
+  const kind = cleanText(trigger?.dataset?.combatPreviewKind);
+  const key = cleanText(trigger?.dataset?.combatPreviewKey);
+
+  if (kind === "spell") {
+    const entry = findCompendiumEntryByReference(state.arcanum, {
+      entryId: key,
+      name: key,
+      canonicalName: key,
+      localizedName: key
+    });
+
+    return entry
+      ? { title: cleanText(entry.name) || key, markup: renderArcanumDetail(entry) }
+      : null;
+  }
+
+  if (kind === "item") {
+    const entry = findCompendiumEntryByReference(state.items, {
+      entryKey: key,
+      entryId: cleanText(trigger.dataset.itemEntryId) || key,
+      name: cleanText(trigger.dataset.itemName) || key
+    });
+
+    return entry
+      ? { title: cleanText(entry.name) || key, markup: renderItemDetail(entry) }
+      : null;
+  }
+
+  if (kind === "ability") {
+    const name = cleanText(trigger?.dataset?.combatPreviewName)
+      || (isEnglishInterface() ? "Unnamed ability" : "Habilidad sin nombre");
+    const description = cleanText(trigger?.dataset?.combatPreviewDescription);
+
+    if (!description) {
+      return null;
+    }
+
+    return {
+      title: name,
+      markup: `
+        <div class="character-ability-preview">
+          <p class="eyebrow">${escapeHtml(isEnglishInterface() ? "ABILITY" : "Habilidad")}</p>
+          <h3>${escapeHtml(name)}</h3>
+          <p>${escapeHtml(description).replaceAll("\n", "<br />")}</p>
+        </div>
+      `
+    };
+  }
+
+  return null;
+}
+
+function showCombatantPreviewPopoutDetail(trigger, descriptor) {
+  const detailContent = getCombatantPreviewPopoutDetail(trigger);
+  const popout = descriptor?.window;
+  const detail = popout?.document?.querySelector("[data-combatant-preview-popout-detail]");
+
+  if (!detailContent || !detail) {
+    hideCombatantPreviewPopoutDetail(descriptor);
+    return;
+  }
+
+  descriptor.activeDetailTrigger = trigger;
+  detail.innerHTML = `
+    <div class="combatant-preview-popout-detail__card" role="dialog" aria-label="${escapeHtml(detailContent.title)}">
+      ${detailContent.markup}
+    </div>
+  `;
+  detail.hidden = false;
+  decorateCombatantPreviewPopoutDetailLinks(detail);
+  applyInterfaceTranslations(detail);
+  positionCombatantPreviewPopoutDetail(trigger, detail, popout);
+}
+
+function positionCombatantPreviewPopoutDetail(trigger, detail, popout) {
+  if (!trigger || !detail || !popout) {
+    return;
+  }
+
+  const triggerRect = trigger.getBoundingClientRect();
+  const detailRect = detail.getBoundingClientRect();
+  const viewportWidth = popout.innerWidth || popout.document.documentElement.clientWidth || 0;
+  const viewportHeight = popout.innerHeight || popout.document.documentElement.clientHeight || 0;
+  const gap = 14;
+  const padding = 12;
+  let left = triggerRect.right + gap;
+  let side = "right";
+
+  if (left + detailRect.width > viewportWidth - padding) {
+    left = triggerRect.left - detailRect.width - gap;
+    side = "left";
+  }
+
+  left = Math.max(padding, Math.min(left, viewportWidth - detailRect.width - padding));
+  const top = Math.max(
+    padding,
+    Math.min(
+      triggerRect.top + (triggerRect.height / 2) - (detailRect.height / 2),
+      viewportHeight - detailRect.height - padding
+    )
+  );
+
+  detail.style.setProperty("--combatant-preview-detail-left", `${Math.round(left)}px`);
+  detail.style.setProperty("--combatant-preview-detail-top", `${Math.round(top)}px`);
+  detail.dataset.combatantPreviewDetailSide = side;
+}
+
+function hideCombatantPreviewPopoutDetail(descriptor) {
+  const detail = descriptor?.window?.document?.querySelector("[data-combatant-preview-popout-detail]");
+
+  if (detail) {
+    detail.hidden = true;
+    detail.replaceChildren();
+  }
+
+  if (descriptor) {
+    descriptor.activeDetailTrigger = null;
+  }
+}
+
+function handleCombatantPreviewPopoutMouseOver(event, descriptor) {
+  const trigger = event.target?.closest?.("[data-combat-preview-key][data-combat-preview-kind]");
+
+  if (!trigger || trigger === descriptor.activeDetailTrigger) {
+    return;
+  }
+
+  showCombatantPreviewPopoutDetail(trigger, descriptor);
+}
+
+function handleCombatantPreviewPopoutMouseOut(event, descriptor) {
+  const trigger = event.target?.closest?.("[data-combat-preview-key][data-combat-preview-kind]");
+  const detail = event.target?.closest?.("[data-combatant-preview-popout-detail]");
+  const relatedTrigger = event.relatedTarget?.closest?.("[data-combat-preview-key][data-combat-preview-kind]");
+  const relatedDetail = event.relatedTarget?.closest?.("[data-combatant-preview-popout-detail]");
+
+  if ((trigger || detail) && (relatedTrigger || relatedDetail)) {
+    return;
+  }
+
+  if (trigger || detail) {
+    hideCombatantPreviewPopoutDetail(descriptor);
+  }
+}
+
+function handleCombatantPreviewPopoutFocusIn(event, descriptor) {
+  const trigger = event.target?.closest?.("[data-combat-preview-key][data-combat-preview-kind]");
+
+  if (trigger) {
+    showCombatantPreviewPopoutDetail(trigger, descriptor);
+  }
+}
+
+function handleCombatantPreviewPopoutFocusOut(event, descriptor) {
+  const relatedTrigger = event.relatedTarget?.closest?.("[data-combat-preview-key][data-combat-preview-kind]");
+  const relatedDetail = event.relatedTarget?.closest?.("[data-combatant-preview-popout-detail]");
+
+  if (!relatedTrigger && !relatedDetail) {
+    hideCombatantPreviewPopoutDetail(descriptor);
+  }
+}
+
+function handleCombatantPreviewPopoutClick(event, descriptor) {
   const actionButton = event.target.closest("[data-action]");
 
   if (!actionButton) {
@@ -10544,6 +10717,18 @@ function handleCombatantPreviewPopoutClick(event) {
     state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
     render({ focusSelector: "[data-arcanum-query]" });
+    window.focus();
+    return;
+  }
+
+  if (action === "open-combat-preview-item") {
+    event.preventDefault();
+    hideCombatantPreviewPopoutDetail(descriptor);
+    openDiaryMentionTarget(
+      "item",
+      actionButton.dataset.itemEntryId,
+      actionButton.dataset.itemName
+    );
     window.focus();
   }
 }
@@ -13821,7 +14006,7 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
   `;
 }
 
-function renderCombatTokenPreview(entry) {
+function renderCombatTokenPreview(entry, options = {}) {
   const sections = [
     entry.traits ? { title: "Traits", content: entry.traits } : null,
     entry.actions ? { title: "Actions", content: entry.actions } : null
@@ -13867,7 +14052,9 @@ function renderCombatTokenPreview(entry) {
       <div class="combat-token-preview__sections">
         ${
           sections.length > 0
-            ? sections.map((section) => renderBestiarySection(section.title, section.content)).join("")
+            ? sections.map((section) => renderBestiarySection(section.title, section.content, {
+              linkSpells: options.linkDetails === true
+            })).join("")
             : `<section class="detail-section"><h4>Traits</h4><p>Sin traits o acciones indicadas.</p></section>`
         }
       </div>
@@ -13903,7 +14090,7 @@ function renderCombatCharacterPreview(character, options = {}) {
       <div class="combat-token-preview__sections">
         ${renderCombatCharacterStatsPreview(character)}
         ${renderCombatCharacterSkillChipsSection(character)}
-        ${renderCombatCharacterCurrencySection(character)}
+        ${renderCombatCharacterCurrencySection(character, options)}
       </div>
     </${rootTag}>
   `;
@@ -13998,7 +14185,7 @@ function renderCombatCharacterSkillChipsSection(character) {
   `;
 }
 
-function renderCombatCharacterCurrencySection(character) {
+function renderCombatCharacterCurrencySection(character, options = {}) {
   const load = getCharacterInventoryLoad(character);
   const rows = character.inventory.filter((row) => !isCharacterCurrencyRow(row.name) && (cleanText(row.name) || toNumber(row.quantity) > 0));
 
@@ -14012,7 +14199,7 @@ function renderCombatCharacterCurrencySection(character) {
         rows.length > 0
           ? `
             <div class="combat-token-preview__inventory-list combat-token-preview__inventory-list--simple">
-              ${rows.map((row) => renderCombatCharacterInventoryPreviewRow(row)).join("")}
+              ${rows.map((row) => renderCombatCharacterInventoryPreviewRow(row, options)).join("")}
             </div>
           `
           : `<p class="combat-token-preview__inventory-empty">Sin objetos cargados.</p>`
@@ -14034,9 +14221,29 @@ function renderCombatCharacterCurrencyPill(character, currency) {
   `;
 }
 
-function renderCombatCharacterInventoryPreviewRow(row) {
+function renderCombatCharacterInventoryPreviewRow(row, options = {}) {
   const quantity = Math.max(0, toNumber(row.quantity) || 0);
   const sizeLabel = normalizeItemSizeLabel(row.size) || inferItemSizeLabel(row.name);
+  const matchedItem = options.linkDetails === true ? getCharacterInventoryMatchedItemEntry(row) : null;
+
+  if (matchedItem) {
+    const itemKey = getCompendiumEntryIdentityKey(matchedItem) || matchedItem.id || matchedItem.name;
+
+    return `
+      <button
+        class="combat-token-preview__inventory-row combat-token-preview__inventory-row--linked"
+        type="button"
+        data-action="open-combat-preview-item"
+        data-combat-preview-kind="item"
+        data-combat-preview-key="${escapeHtml(itemKey)}"
+        data-item-entry-id="${escapeHtml(matchedItem.id || "")}"
+        data-item-name="${escapeHtml(matchedItem.name || row.name || "")}"
+      >
+        <strong>${escapeHtml(row.name || "Objeto sin nombre")}</strong>
+        <span>x${escapeHtml(String(quantity))}${sizeLabel ? ` | ${escapeHtml(sizeLabel)}` : ""}</span>
+      </button>
+    `;
+  }
 
   return `
     <div class="combat-token-preview__inventory-row">

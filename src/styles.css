@@ -2856,25 +2856,6 @@ button.is-cloud-busy:disabled {
   fill: currentColor;
 }
 
-.combat-turn-popout-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 7rem;
-}
-
-.combat-turn-popout-placeholder strong,
-.combat-turn-popout-placeholder p {
-  margin: 0;
-}
-
-.combat-turn-popout-placeholder p {
-  margin-top: 0.35rem;
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-
 .combat-turn-popout-body {
   min-width: 42rem;
   overflow: auto;
@@ -8210,6 +8191,85 @@ input[type="number"]::-webkit-inner-spin-button {
   width: 100%;
   max-height: none;
   overflow: visible;
+}
+
+.combatant-preview-popout-detail {
+  position: fixed;
+  top: var(--combatant-preview-detail-top, 1rem);
+  left: var(--combatant-preview-detail-left, 1rem);
+  z-index: 5000;
+  width: min(38rem, calc(100vw - 2rem));
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.combatant-preview-popout-detail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  pointer-events: auto;
+}
+
+.combatant-preview-popout-detail[data-combatant-preview-detail-side="right"]::before {
+  right: 100%;
+}
+
+.combatant-preview-popout-detail[data-combatant-preview-detail-side="left"]::before {
+  left: 100%;
+}
+
+.combatant-preview-popout-detail[hidden] {
+  display: none;
+}
+
+.combatant-preview-popout-detail__card {
+  max-height: min(82vh, 54rem);
+  padding: 1rem;
+  overflow: auto;
+  border: 1px solid rgba(240, 200, 121, 0.32);
+  border-radius: 18px;
+  background: rgba(25, 20, 31, 0.99);
+  box-shadow:
+    0 26px 60px rgba(0, 0, 0, 0.58),
+    inset 0 0 0 1px rgba(240, 200, 121, 0.08);
+}
+
+.combatant-preview-popout-detail__card .bestiary-detail {
+  min-height: 0;
+}
+
+.combatant-preview-popout-body [data-combat-preview-kind="spell"],
+.combatant-preview-popout-body [data-combat-preview-kind="ability"] {
+  cursor: help;
+}
+
+.combat-token-preview__inventory-row--linked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(240, 200, 121, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.combat-token-preview__inventory-row--linked:hover,
+.combat-token-preview__inventory-row--linked:focus-visible {
+  border-color: rgba(240, 200, 121, 0.48);
+  background: rgba(240, 200, 121, 0.1);
+}
+
+.combat-token-preview__inventory-row--linked span {
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .combat-spellbook-popover__spell-link-wrap .character-spellbook__preview {
