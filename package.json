@@ -9,6 +9,7 @@
     "dev": "npm run compendium:generate && vite",
     "build": "npm run release-notes:generate && npm run compendium:generate && vite build",
     "build:cloudflare": "npm run build",
+    "test:domain": "node tests/cloudflare-domain.test.js",
     "preview": "vite preview",
     "compendium:generate": "node scripts/generate-compendium-bundles.mjs",
     "release-notes:generate": "node scripts/generate-release-notes.mjs",

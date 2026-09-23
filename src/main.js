@@ -113,6 +113,10 @@ import {
   uploadCloudImage,
   uploadCloudPdf
 } from "./cloud/cloudClient.js";
+import {
+  getCloudAutosaveRetryDelayMs,
+  isRetryableCloudAutosaveError
+} from "./cloud/autosaveRecovery.js";
 import appIconUrl from "../build-resources/icon.png";
 import characterPdfTemplateUrl from "./assets/templates/character-sheet-alternative-form-fillable.pdf?url";
 import characterSpellPdfTemplateUrl from "./assets/templates/dnd-5e-spell-sheet-form-fillable.pdf?url";
@@ -452,6 +456,7 @@ let cloudImportUpdateCheckTimer = 0;
 let cloudCatalogImportQueue = Promise.resolve();
 let cloudCampaignSaveInProgress = null;
 let cloudCampaignSaveSuspended = false;
+let cloudCampaignAutosaveRetryCount = 0;
 let lastCloudCampaignSnapshot = "";
 let cloudCampaignChangeRevision = 0;
 let lastCloudCampaignSavedChangeRevision = 0;
@@ -472,6 +477,8 @@ const combatLookupCache = {
 let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
+let combatTurnPopoutWindow = null;
+let combatTurnPopoutPollInterval = 0;
 const notificationTimeouts = new Map();
 const AUTOSAVE_COMPLETION_TIMEOUT_MS = 30_000;
 const AUTOSAVE_WATCHDOG_INTERVAL_MS = 15_000;
@@ -2639,6 +2646,11 @@ async function handleClick(event) {
   if (action === "advance-combat-turn") {
     advanceCombatTurn();
     render();
+    return;
+  }
+
+  if (action === "toggle-combat-turn-popout") {
+    toggleCombatTurnPopout();
     return;
   }
 
@@ -7529,6 +7541,7 @@ function render(focusState = null) {
   scheduleActiveCombatSpellPreviewSync();
   activeCharacterOverviewHeaderTooltipElement = null;
   hideCharacterOverviewHeaderTooltip();
+  syncCombatTurnPopout();
 
   saveCombatTrackerState();
 
@@ -9674,7 +9687,11 @@ function renderCombatTracker() {
         state.combatTimerPanelOpen || state.isCombatActive
           ? `
             <div class="combat-top-row">
-              ${state.isCombatActive ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId) : ""}
+              ${state.isCombatActive
+                ? (isCombatTurnPopoutOpen()
+                    ? renderCombatTurnPopoutPlaceholder()
+                    : renderCombatTurnPanel(turnParticipants, activeTurnCombatantId))
+                : ""}
               ${state.combatTimerPanelOpen ? renderCombatTimerPanel(battleTimerLabel) : ""}
             </div>
           `
@@ -9865,7 +9882,7 @@ function renderCombatTimerPanel(battleTimerLabel) {
   `;
 }
 
-function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
+function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
   if (turnOrder.length === 0) {
     return `
       <section class="panel panel--inner combat-turn-section">
@@ -9911,6 +9928,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
             </button>
             ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
           </div>
+          ${renderCombatTurnPopoutToggleButton(isCombatTurnPopoutOpen())}
         </div>
         <div
           class="combat-turn-strip"
@@ -9922,8 +9940,329 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId) {
         </div>
       </div>
     </section>
-    ${renderCombatTurnQuickMenu()}
+    ${renderCombatTurnQuickMenu(options.viewportWindow)}
   `;
+}
+
+function renderCombatTurnPopoutToggleButton(isDetached = false) {
+  const label = isDetached ? "Volver a acoplar" : "Extraer ventana";
+
+  return `
+    <button
+      class="summary-button combat-turn-panel__button combat-turn-popout-toggle"
+      type="button"
+      data-action="toggle-combat-turn-popout"
+      aria-label="${escapeHtml(label)}"
+      title="${escapeHtml(label)}"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 4h6v2H6v12h12v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm8 0h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4Z" />
+      </svg>
+      <span>${escapeHtml(t(label))}</span>
+    </button>
+  `;
+}
+
+function renderCombatTurnPopoutPlaceholder() {
+  return `
+    <section class="panel panel--inner combat-turn-section combat-turn-popout-placeholder">
+      <div>
+        <strong>${escapeHtml(t("Orden de iniciativa"))}</strong>
+        <p>${escapeHtml(t("El orden de iniciativa esta abierto en otra ventana."))}</p>
+      </div>
+      ${renderCombatTurnPopoutToggleButton(true)}
+    </section>
+  `;
+}
+
+function isCombatTurnPopoutOpen() {
+  return Boolean(combatTurnPopoutWindow && !combatTurnPopoutWindow.closed);
+}
+
+function toggleCombatTurnPopout() {
+  if (isCombatTurnPopoutOpen()) {
+    closeCombatTurnPopout({ focusMainWindow: true, renderMainWindow: true });
+    return;
+  }
+
+  openCombatTurnPopout();
+}
+
+function openCombatTurnPopout() {
+  if (typeof window === "undefined" || !state.isCombatActive) {
+    return;
+  }
+
+  const popout = window.open(
+    "",
+    "mimic-dice-initiative",
+    "popup=yes,width=1440,height=900,resizable=yes,scrollbars=yes"
+  );
+
+  if (!popout) {
+    pushNotification({
+      title: "No se pudo abrir la ventana",
+      message: "Permite ventanas emergentes para Mimic Dice y vuelve a intentarlo.",
+      tone: "danger"
+    });
+    syncNotificationUi();
+    return;
+  }
+
+  combatTurnPopoutWindow = popout;
+  initializeCombatTurnPopout(popout);
+  startCombatTurnPopoutMonitor();
+  render();
+  popout.focus();
+}
+
+function initializeCombatTurnPopout(popout) {
+  const inheritedStyles = [...document.head.querySelectorAll('link[rel="stylesheet"], style')]
+    .map((element) => element.outerHTML)
+    .join("\n");
+
+  popout.document.open();
+  popout.document.write(`<!doctype html>
+    <html lang="${escapeHtml(state.appLanguage || APP_LANGUAGE_ES)}">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <base href="${escapeHtml(document.baseURI)}" />
+        <title>${escapeHtml(isEnglishInterface() ? "Initiative order" : "Orden de iniciativa")} - Mimic Dice</title>
+        ${inheritedStyles}
+      </head>
+      <body class="combat-turn-popout-body">
+        <main class="combat-turn-popout-shell combat-tracker-panel" data-combat-turn-popout-root></main>
+      </body>
+    </html>`);
+  popout.document.close();
+  popout.document.addEventListener("click", handleCombatTurnPopoutClick);
+  popout.document.addEventListener("input", handleCombatTurnPopoutInput);
+  popout.document.addEventListener("keydown", handleCombatTurnPopoutKeydown);
+  popout.document.addEventListener("pointerdown", handleCombatTurnPopoutPointerDown);
+  popout.document.addEventListener("contextmenu", handleCombatTurnPopoutContextMenu);
+  popout.addEventListener("beforeunload", () => handleCombatTurnPopoutClosed(popout));
+}
+
+function startCombatTurnPopoutMonitor() {
+  if (combatTurnPopoutPollInterval || typeof window === "undefined") {
+    return;
+  }
+
+  combatTurnPopoutPollInterval = window.setInterval(() => {
+    if (combatTurnPopoutWindow?.closed) {
+      handleCombatTurnPopoutClosed(combatTurnPopoutWindow);
+    }
+  }, 500);
+}
+
+function stopCombatTurnPopoutMonitor() {
+  if (combatTurnPopoutPollInterval && typeof window !== "undefined") {
+    window.clearInterval(combatTurnPopoutPollInterval);
+  }
+
+  combatTurnPopoutPollInterval = 0;
+}
+
+function handleCombatTurnPopoutClosed(popout) {
+  if (combatTurnPopoutWindow !== popout) {
+    return;
+  }
+
+  combatTurnPopoutWindow = null;
+  stopCombatTurnPopoutMonitor();
+
+  if (state.isCombatActive) {
+    render();
+  }
+}
+
+function closeCombatTurnPopout({ focusMainWindow = false, renderMainWindow = false } = {}) {
+  const popout = combatTurnPopoutWindow;
+  combatTurnPopoutWindow = null;
+  stopCombatTurnPopoutMonitor();
+
+  if (popout && !popout.closed) {
+    popout.close();
+  }
+
+  if (focusMainWindow && typeof window !== "undefined") {
+    window.focus();
+  }
+
+  if (renderMainWindow) {
+    render();
+  }
+}
+
+function syncCombatTurnPopout() {
+  if (!isCombatTurnPopoutOpen()) {
+    return;
+  }
+
+  if (!state.isCombatActive) {
+    closeCombatTurnPopout();
+    return;
+  }
+
+  const popout = combatTurnPopoutWindow;
+  const root = popout.document.querySelector("[data-combat-turn-popout-root]");
+
+  if (!root) {
+    return;
+  }
+
+  const previousStrip = root.querySelector(".combat-turn-strip");
+  const previousScrollLeft = previousStrip?.scrollLeft || 0;
+  const previousScrollTop = previousStrip?.scrollTop || 0;
+  const turnParticipants = getCombatTurnParticipants(getCombatTurnOrder());
+  const activeTurnCombatantId = getActiveTurnCombatantId(turnParticipants);
+
+  popout.document.documentElement.lang = state.appLanguage || APP_LANGUAGE_ES;
+  popout.document.title = `${isEnglishInterface() ? "Initiative order" : "Orden de iniciativa"} - Mimic Dice`;
+  root.innerHTML = `
+    <header class="combat-turn-popout-header">
+      <div>
+        <small>Mimic Dice</small>
+        <h1>${escapeHtml(t("Orden de iniciativa"))}</h1>
+        <p>${escapeHtml(cleanText(state.campaignName) || (isEnglishInterface() ? "Unnamed campaign" : "Campaña sin nombre"))}</p>
+      </div>
+    </header>
+    ${renderCombatTurnPanel(turnParticipants, activeTurnCombatantId, { viewportWindow: popout })}
+  `;
+  applyInterfaceTranslations(root);
+
+  const nextStrip = root.querySelector(".combat-turn-strip");
+
+  if (nextStrip) {
+    nextStrip.scrollLeft = previousScrollLeft;
+    nextStrip.scrollTop = previousScrollTop;
+  }
+}
+
+function focusCombatTurnPopoutSelector(selector) {
+  const target = combatTurnPopoutWindow?.document?.querySelector(selector);
+
+  if (!target) {
+    return;
+  }
+
+  target.focus({ preventScroll: true });
+}
+
+function handleCombatTurnPopoutClick(event) {
+  const actionButton = event.target.closest("[data-action]");
+
+  if (!actionButton) {
+    return;
+  }
+
+  const action = actionButton.dataset.action;
+  event.preventDefault();
+
+  if (action === "toggle-combat-turn-popout") {
+    toggleCombatTurnPopout();
+  } else if (action === "advance-combat-turn") {
+    advanceCombatTurn();
+    render();
+  } else if (action === "toggle-combat-turn-jump-menu") {
+    state.combatTurnJumpMenuOpen = !state.combatTurnJumpMenuOpen;
+    state.combatTurnRoundEditorOpen = false;
+    render();
+  } else if (action === "jump-combat-turn-to") {
+    jumpCombatTurnTo(actionButton.dataset.combatantId);
+    render();
+  } else if (action === "toggle-combat-turn-round-editor") {
+    state.combatTurnRoundEditorOpen = !state.combatTurnRoundEditorOpen;
+    state.combatTurnJumpMenuOpen = false;
+    state.combatTurnRoundDraft = String(getCombatRound());
+    render();
+    focusCombatTurnPopoutSelector("[data-combat-turn-round-input]");
+  } else if (action === "apply-combat-turn-round") {
+    const roundInput = combatTurnPopoutWindow?.document?.querySelector("[data-combat-turn-round-input]");
+    setCombatTurnRound(roundInput?.value ?? state.combatTurnRoundDraft);
+    render();
+  } else if (action === "focus-combatant-row") {
+    selectCombatTurnToken(actionButton.dataset.combatantId, {
+      additive: event.ctrlKey || event.metaKey
+    });
+  } else if (action === "adjust-combat-turn-quick-resource") {
+    const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
+    const previousCharacters = state.characters;
+    applyCombatTurnQuickMenuAdjustment(actionButton.dataset.mode);
+    syncCombatTrackerMutation(combatantId, {
+      forceFullRender: previousCharacters !== state.characters
+    });
+  }
+}
+
+function handleCombatTurnPopoutInput(event) {
+  if (event.target.matches("[data-combat-turn-round-input]")) {
+    state.combatTurnRoundDraft = event.target.value;
+  } else if (event.target.matches("[data-combat-turn-quick-value]")) {
+    state.combatTurnQuickMenu = {
+      ...state.combatTurnQuickMenu,
+      value: event.target.value
+    };
+  }
+}
+
+function handleCombatTurnPopoutKeydown(event) {
+  if (event.target.matches("[data-combat-turn-round-input]") && event.key === "Enter") {
+    event.preventDefault();
+    setCombatTurnRound(event.target.value);
+    render();
+    return;
+  }
+
+  if (event.target.matches('[data-action="focus-combatant-row"]') && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    selectCombatTurnToken(event.target.dataset.combatantId, {
+      additive: event.ctrlKey || event.metaKey
+    });
+    return;
+  }
+
+  if (event.key === "Escape") {
+    state.combatTurnRoundEditorOpen = false;
+    state.combatTurnJumpMenuOpen = false;
+    closeCombatTurnQuickMenu();
+    render();
+  }
+}
+
+function handleCombatTurnPopoutPointerDown(event) {
+  if (
+    state.combatTurnQuickMenu?.combatantId
+    && !event.target.closest("[data-combat-turn-quick-menu]")
+    && !event.target.closest("[data-combat-turn-token-context]")
+  ) {
+    closeCombatTurnQuickMenu();
+    render();
+  }
+}
+
+function handleCombatTurnPopoutContextMenu(event) {
+  const statusToken = event.target.closest("[data-combat-turn-status-remove]");
+
+  if (statusToken) {
+    event.preventDefault();
+    toggleCombatantStatus(statusToken.dataset.combatantId, statusToken.dataset.combatStatus);
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
+  const turnToken = event.target.closest("[data-combat-turn-token-context]");
+
+  if (!turnToken) {
+    return;
+  }
+
+  event.preventDefault();
+  openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY);
+  render();
+  focusCombatTurnPopoutSelector("[data-combat-turn-quick-value]");
 }
 
 function getCombatTurnTokenScale(turnCount) {
@@ -9985,7 +10324,7 @@ function renderCombatTurnToken(combatant, isActive) {
   `;
 }
 
-function renderCombatTurnQuickMenu() {
+function renderCombatTurnQuickMenu(viewportWindow = window) {
   const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
 
   if (!combatantId) {
@@ -9998,7 +10337,7 @@ function renderCombatTurnQuickMenu() {
     return "";
   }
 
-  const menuStyle = getCombatTurnQuickMenuStyle();
+  const menuStyle = getCombatTurnQuickMenuStyle(viewportWindow);
   const effectiveMax = getEffectivePgMax(combatant);
   const tempHp = Math.max(0, toNumber(combatant.pgTemp));
 
@@ -10072,11 +10411,11 @@ function renderCombatMaxHpRestoreMenu() {
   `;
 }
 
-function getCombatTurnQuickMenuStyle() {
+function getCombatTurnQuickMenuStyle(viewportWindow = window) {
   const rawX = Math.round(toNumber(state.combatTurnQuickMenu?.x));
   const rawY = Math.round(toNumber(state.combatTurnQuickMenu?.y));
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1280;
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+  const viewportWidth = viewportWindow?.innerWidth || document.documentElement.clientWidth || 1280;
+  const viewportHeight = viewportWindow?.innerHeight || document.documentElement.clientHeight || 720;
   const padding = 12;
   const menuWidth = 320;
   const menuHeight = 120;
@@ -26026,6 +26365,7 @@ function detachActiveCloudCampaign(options = {}) {
   lastCloudCampaignSnapshot = "";
   cloudCampaignChangeRevision = 0;
   lastCloudCampaignSavedChangeRevision = 0;
+  cloudCampaignAutosaveRetryCount = 0;
 
   if (options.keepLocalLabel === true) {
     state.campaignLoadedFromPublic = true;
@@ -26382,6 +26722,36 @@ function getAutosaveProblemDedupeKey(kind) {
   return `autosave:${kind === "cloud" ? "cloud" : "desktop"}`;
 }
 
+function clearAutosaveProblemNotification(kind) {
+  const dedupeKey = getAutosaveProblemDedupeKey(kind);
+  const notification = state.notifications.find((entry) => entry.dedupeKey === dedupeKey);
+
+  if (notification) {
+    dismissNotification(notification.id);
+    return true;
+  }
+
+  return false;
+}
+
+function finishCloudAutosaveRecovery() {
+  const recoveredFromRetry = cloudCampaignAutosaveRetryCount > 0;
+  const clearedProblem = clearAutosaveProblemNotification("cloud");
+  cloudCampaignAutosaveRetryCount = 0;
+
+  if (recoveredFromRetry || clearedProblem) {
+    state.accountError = "";
+    pushNotification({
+      title: "Autoguardado recuperado",
+      message: "La campaña se ha guardado correctamente en la nube.",
+      tone: "success",
+      durationMs: 5200,
+      dedupeKey: "autosave:cloud:recovered"
+    });
+    syncNotificationUi();
+  }
+}
+
 function buildAutosaveProblemDetail({ kind, reason, error = null, startedAt = 0, phase = "", metadata = {} }) {
   const sourceLabel = kind === "cloud" ? "Cloud" : "Archivo local";
   const errorMessage = cleanText(error?.message) || cleanText(reason) || "Motivo desconocido";
@@ -26553,6 +26923,10 @@ async function autosaveCloudCampaign(options = {}) {
     && saveChangeRevision === lastCloudCampaignSavedChangeRevision
     && isPublic === state.cloudCampaignIsPublic
   ) {
+    state.cloudAutosaveStatus = "saved";
+    state.cloudAutosaveMessage = "";
+    finishCloudAutosaveRecovery();
+    syncCloudAccountUi();
     return true;
   }
 
@@ -26575,6 +26949,7 @@ async function autosaveCloudCampaign(options = {}) {
         lastCloudCampaignSavedChangeRevision = saveChangeRevision;
         state.cloudAutosaveStatus = "saved";
         state.cloudAutosaveMessage = "";
+        finishCloudAutosaveRecovery();
         syncCloudAccountUi();
         return true;
       }
@@ -26594,6 +26969,7 @@ async function autosaveCloudCampaign(options = {}) {
       phase = "confirmación del servidor";
       activateCloudCampaign(result.campaign, payload, { savedChangeRevision: saveChangeRevision });
       updateCloudCampaignSummary(result.campaign);
+      finishCloudAutosaveRecovery();
       syncCloudAccountUi();
       return true;
     } catch (error) {
@@ -26602,6 +26978,15 @@ async function autosaveCloudCampaign(options = {}) {
         : "error";
       state.cloudAutosaveMessage = getCloudErrorMessage(error);
       state.accountError = state.cloudAutosaveMessage;
+      const shouldRetry = state.cloudAutosaveStatus !== "conflict" && isRetryableCloudAutosaveError(error);
+      const retryDelayMs = shouldRetry
+        ? getCloudAutosaveRetryDelayMs(++cloudCampaignAutosaveRetryCount)
+        : 0;
+
+      if (!shouldRetry) {
+        cloudCampaignAutosaveRetryCount = 0;
+      }
+
       notifyAutosaveProblem({
         kind: "cloud",
         reason: state.cloudAutosaveStatus === "conflict" ? "Conflicto de revisión de campaña" : state.cloudAutosaveMessage,
@@ -26611,10 +26996,18 @@ async function autosaveCloudCampaign(options = {}) {
         metadata: {
           "ID de campaña": campaignId,
           "Revisión base": baseRevision,
-          "Revisión local": saveChangeRevision
+          "Revisión local": saveChangeRevision,
+          ...(retryDelayMs > 0
+            ? { "Reintento automático": `${Math.round(retryDelayMs / 1000)} s` }
+            : {})
         }
       });
       syncCloudAccountUi();
+
+      if (retryDelayMs > 0) {
+        scheduleCloudCampaignAutosave(retryDelayMs, { preserveStatus: true });
+      }
+
       return false;
     } finally {
       if (completionWatchdog && typeof window !== "undefined") {
@@ -26650,7 +27043,7 @@ async function autosaveCloudCampaign(options = {}) {
   return savePromise;
 }
 
-function scheduleCloudCampaignAutosave(delay = 4000) {
+function scheduleCloudCampaignAutosave(delay = 4000, options = {}) {
   if (
     typeof window === "undefined"
     || cloudCampaignSaveSuspended
@@ -26666,7 +27059,11 @@ function scheduleCloudCampaignAutosave(delay = 4000) {
   }
 
   const normalizedDelay = Math.max(1500, Number(delay) || 4000);
-  state.cloudAutosaveStatus = "pending";
+
+  if (options.preserveStatus !== true) {
+    state.cloudAutosaveStatus = "pending";
+  }
+
   cloudCampaignAutosaveDueAt = Date.now() + normalizedDelay;
   syncCloudAccountUi();
   cloudCampaignAutosaveTimer = window.setTimeout(() => {

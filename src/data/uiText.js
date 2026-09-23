@@ -574,6 +574,8 @@ export const UI_TEXT_TRANSLATIONS_EN = new Map([
   ["Guardar campaña", "Save campaign"],
   ["Guardar campaña como", "Save campaign as"],
   ["Cargar campaña", "Load campaign"],
+  ["Autoguardado recuperado", "Autosave recovered"],
+  ["La campaña se ha guardado correctamente en la nube.", "Campaign saved successfully to the cloud."],
   ["Confirmar", "Confirm"],
   ["Cancelar", "Cancel"],
   ["Duplicar", "Duplicate"],
@@ -962,5 +964,8 @@ export const UI_REGEX_TRANSLATIONS_EN = [
   [/^Experiencia del nivel actual$/u, "Current level experience"],
   [/^Progreso de (.+)$/u, "Progress for $1"],
   [/^No hay entidades visibles para el turno\.$/u, "No visible entities for the turn."],
-  [/^Orden de iniciativa$/u, "Initiative order"]
+  [/^Orden de iniciativa$/u, "Initiative order"],
+  [/^Extraer ventana$/u, "Open in new window"],
+  [/^Volver a acoplar$/u, "Dock back"],
+  [/^El orden de iniciativa esta abierto en otra ventana\.$/u, "Initiative order is open in another window."]
 ];

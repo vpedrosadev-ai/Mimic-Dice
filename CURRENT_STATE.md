@@ -109,6 +109,8 @@
 - La preview de aliados en combat tracker se simplifico: solo muestra panel de caracteristicas/competencias en formato ficha, chips de skills con color y nivel, y bloque de inventario centrado en monedas.
 - Bajo las monedas de esa preview de aliado ya se listan tambien objetos de forma simplificada.
 - La cabecera de combat tracker ahora pasa a `Tabla de combate` y el toggle del contador se aloja bajo el titulo; el orden de iniciativa vive en su propia seccion separada y los retratos de la cadena son mas rectangulares, altos y estrechos.
+- El orden de iniciativa del combat tracker se puede extraer a una ventana de navegador independiente y sincronizada; los controles funcionan desde la ventana secundaria y el bloque vuelve a la principal al reacoplar o cerrar la ventana.
+- El autoguardado cloud reintenta automaticamente fallos temporales de red/HTTP (`408`, `425`, `429` y `5xx`) con espera progresiva; al recuperarse retira el aviso persistente y confirma el guardado correcto.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.
 - Skills de ficha usan tarjetas en grid de 2 columnas en desktop y cada skill tiene color propio, reutilizado tambien en resumen de grupo.
