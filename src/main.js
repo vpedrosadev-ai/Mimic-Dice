@@ -1174,6 +1174,7 @@ app.addEventListener("error", handleAppImageError, true);
 startCampaignAutosave();
 registerCampaignCloseAutosave();
 render();
+queueCompendiumLoad("arcanum");
 queueInitialDataLoad();
 initializeCloudAccount();
 
@@ -22939,6 +22940,7 @@ function unloadCompendiumContent() {
   resetItemVirtualScroll();
   resetArcanumVirtualScroll();
   resetBestiaryRenderCache();
+  queueCompendiumLoad("arcanum");
 }
 
 async function getLocalizedCompendiumRows(kind, csvText, relativePath) {
