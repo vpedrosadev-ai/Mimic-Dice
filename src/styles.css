@@ -8116,7 +8116,7 @@ input[type="number"]::-webkit-inner-spin-button {
   position: absolute;
   top: 0.65rem;
   right: 0.65rem;
-  z-index: 12;
+  z-index: 3210;
   pointer-events: auto;
 }
 
@@ -8126,7 +8126,20 @@ input[type="number"]::-webkit-inner-spin-button {
   gap: 0.42rem;
   min-height: 2.15rem;
   padding: 0.38rem 0.62rem;
-  font-size: 0.82rem;
+  border-color: rgba(240, 200, 121, 0.62);
+  background: linear-gradient(180deg, rgba(111, 75, 38, 0.98), rgba(56, 35, 20, 0.98));
+  color: #fff0cf;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.42);
+}
+
+.combat-spell-preview-overlay--entity .combat-preview-popout-button {
+  font-size: 0.88rem;
+}
+
+.combat-preview-popout-button:hover,
+.combat-preview-popout-button:focus-visible {
+  border-color: rgba(255, 225, 164, 0.92);
+  background: linear-gradient(180deg, rgba(136, 91, 43, 1), rgba(70, 42, 22, 1));
 }
 
 .combat-preview-popout-button svg {
