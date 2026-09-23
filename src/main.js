@@ -479,6 +479,8 @@ let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 let combatTurnPopoutWindow = null;
 let combatTurnPopoutPollInterval = 0;
+const combatantPreviewPopoutWindows = new Map();
+let combatantPreviewPopoutPollInterval = 0;
 const notificationTimeouts = new Map();
 const AUTOSAVE_COMPLETION_TIMEOUT_MS = 30_000;
 const AUTOSAVE_WATCHDOG_INTERVAL_MS = 15_000;
@@ -822,6 +824,8 @@ state = {
   characterPdfImportCharacterId: "",
   characterPdfImportData: null,
   characterExportDialogOpen: false,
+  characterExportCharacterId: "",
+  characterExportFormat: "",
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   charactersOverviewHidden: false,
@@ -883,6 +887,7 @@ state = {
   activeCombatSpellbookCombatantId: "",
   activeCombatPreviewKind: "",
   activeCombatPreviewKey: "",
+  activeCombatPreviewCombatantId: "",
   activeCombatPreviewName: "",
   activeCombatPreviewDescription: "",
   multiclassLevelUpQueue: [],
@@ -1948,12 +1953,6 @@ async function handleClick(event) {
     return;
   }
 
-  if (action === "select-all-import-export-characters") {
-    toggleAllImportExportCharacters();
-    render();
-    return;
-  }
-
   if (action === "select-all-import-export-encounters") {
     toggleAllImportExportEncounters();
     render();
@@ -2229,13 +2228,23 @@ async function handleClick(event) {
   }
 
   if (action === "open-character-export-dialog") {
-    state.characterExportDialogOpen = true;
-    render({ focusSelector: '[data-action="export-character-pdf"]' });
+    if (actionButton.closest(".data-exchange-dialog")) {
+      closeImportExportDialog();
+    }
+
+    openCharacterExportDialog(actionButton.dataset.characterExportFormat);
+    render({ focusSelector: '[data-action="select-character-export"]' });
     return;
   }
 
   if (action === "dismiss-character-export-dialog") {
-    state.characterExportDialogOpen = false;
+    closeCharacterExportDialog();
+    render();
+    return;
+  }
+
+  if (action === "select-character-export") {
+    state.characterExportCharacterId = cleanText(actionButton.dataset.characterId);
     render();
     return;
   }
@@ -2244,8 +2253,15 @@ async function handleClick(event) {
     if (actionButton.closest(".data-exchange-dialog")) {
       closeImportExportDialog();
     }
-    state.characterExportDialogOpen = false;
-    await exportActiveCharacterPdf();
+    const characterId = cleanText(state.characterExportCharacterId);
+
+    if (!characterId) {
+      render();
+      return;
+    }
+
+    closeCharacterExportDialog();
+    await exportActiveCharacterPdf(characterId);
     return;
   }
 
@@ -2253,8 +2269,15 @@ async function handleClick(event) {
     if (actionButton.closest(".data-exchange-dialog")) {
       closeImportExportDialog();
     }
-    state.characterExportDialogOpen = false;
-    await exportActiveCharacterFightClubXml();
+    const characterId = cleanText(state.characterExportCharacterId);
+
+    if (!characterId) {
+      render();
+      return;
+    }
+
+    closeCharacterExportDialog();
+    await exportActiveCharacterFightClubXml(characterId);
     return;
   }
 
@@ -2523,6 +2546,15 @@ async function handleClick(event) {
       queueCompendiumLoad("arcanum");
     }
 
+    return;
+  }
+
+  if (action === "open-combatant-preview-popout") {
+    openCombatantPreviewPopout({
+      kind: actionButton.dataset.combatPreviewKind,
+      key: actionButton.dataset.combatPreviewKey,
+      combatantId: actionButton.dataset.combatantId
+    });
     return;
   }
 
@@ -4561,7 +4593,7 @@ function handleInput(event) {
 function handleGlobalKeydown(event) {
   if (state.characterExportDialogOpen && event.key === "Escape") {
     event.preventDefault();
-    state.characterExportDialogOpen = false;
+    closeCharacterExportDialog();
     render();
     return;
   }
@@ -5588,11 +5620,7 @@ function openImportExportDialog(category) {
   state.importExportDialogCategory = normalizedCategory;
   state.importExportDialogMode = "menu";
   state.importExportDialogError = "";
-  state.importExportCharacterIds = new Set(
-    normalizedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS && state.activeCharacterId
-      ? [state.activeCharacterId]
-      : []
-  );
+  state.importExportCharacterIds = new Set();
   state.importExportEncounterIds = new Set(
     normalizedCategory === DATA_EXCHANGE_CATEGORY_ENCOUNTERS
       ? [...state.selectedEncounterIds]
@@ -5663,15 +5691,9 @@ function toggleImportExportCharacterSelection(characterId) {
     return;
   }
 
-  const nextIds = new Set(state.importExportCharacterIds);
-
-  if (nextIds.has(normalizedCharacterId)) {
-    nextIds.delete(normalizedCharacterId);
-  } else {
-    nextIds.add(normalizedCharacterId);
-  }
-
-  state.importExportCharacterIds = nextIds;
+  state.importExportCharacterIds = state.importExportCharacterIds.has(normalizedCharacterId)
+    ? new Set()
+    : new Set([normalizedCharacterId]);
   state.importExportDialogError = "";
 }
 
@@ -5705,14 +5727,6 @@ function toggleImportExportEncounterFolderSelection(folderId) {
   }
 
   state.importExportEncounterFolderIds = nextIds;
-  state.importExportDialogError = "";
-}
-
-function toggleAllImportExportCharacters() {
-  const allCharacterIds = state.characters.map((character) => character.id).filter(Boolean);
-  state.importExportCharacterIds = state.importExportCharacterIds.size === allCharacterIds.length
-    ? new Set()
-    : new Set(allCharacterIds);
   state.importExportDialogError = "";
 }
 
@@ -6762,7 +6776,7 @@ function renderImportExportDialog() {
 
 function renderImportExportModePicker(category) {
   const isCharacterExchange = category === DATA_EXCHANGE_CATEGORY_CHARACTERS;
-  const hasActiveCharacter = Boolean(getActiveCharacter());
+  const hasCharacters = state.characters.length > 0;
 
   return `
     <div class="data-exchange-dialog__mode-grid">
@@ -6778,8 +6792,9 @@ function renderImportExportModePicker(category) {
         <button
           class="data-exchange-dialog__mode-card"
           type="button"
-          data-action="export-character-pdf"
-          ${hasActiveCharacter ? "" : "disabled"}
+          data-action="open-character-export-dialog"
+          data-character-export-format="pdf"
+          ${hasCharacters ? "" : "disabled"}
         >
           <strong>${escapeHtml(t("import_export_mode_export_pdf"))}</strong>
           <span>${escapeHtml(t("import_export_mode_export_pdf_desc"))}</span>
@@ -6787,8 +6802,9 @@ function renderImportExportModePicker(category) {
         <button
           class="data-exchange-dialog__mode-card"
           type="button"
-          data-action="export-character-fight-club-xml"
-          ${hasActiveCharacter ? "" : "disabled"}
+          data-action="open-character-export-dialog"
+          data-character-export-format="xml"
+          ${hasCharacters ? "" : "disabled"}
         >
           <strong>${escapeHtml(t("import_export_mode_export_xml"))}</strong>
           <span>${escapeHtml(t("import_export_mode_export_xml_desc"))}</span>
@@ -6825,10 +6841,7 @@ function renderCharacterExportSelectionPanel() {
   return `
     <div class="data-exchange-dialog__selection-panel">
       <div class="data-exchange-dialog__selection-toolbar">
-        <span>${state.importExportCharacterIds.size} seleccionados</span>
-        <button class="filter-clear" type="button" data-action="select-all-import-export-characters">
-          ${escapeHtml(state.importExportCharacterIds.size === state.characters.length && state.characters.length > 0 ? t("import_export_clear_selection") : t("import_export_select_all"))}
-        </button>
+        <span>${escapeHtml(isEnglishInterface() ? "Choose one character" : "Elige un personaje")}</span>
       </div>
       <div class="data-exchange-dialog__list" role="list">
         ${
@@ -6836,7 +6849,8 @@ function renderCharacterExportSelectionPanel() {
             ? state.characters.map((character) => `
               <label class="data-exchange-dialog__list-item" role="listitem">
                 <input
-                  type="checkbox"
+                  type="radio"
+                  name="character-export-selection"
                   data-import-export-character-checkbox="${escapeHtml(character.id)}"
                   ${state.importExportCharacterIds.has(character.id) ? "checked" : ""}
                 />
@@ -7316,16 +7330,28 @@ function renderCharacterPdfImportDialog() {
   `;
 }
 
+function openCharacterExportDialog(format = "") {
+  state.characterExportDialogOpen = true;
+  state.characterExportCharacterId = "";
+  state.characterExportFormat = ["pdf", "xml"].includes(cleanText(format).toLowerCase())
+    ? cleanText(format).toLowerCase()
+    : "";
+}
+
+function closeCharacterExportDialog() {
+  state.characterExportDialogOpen = false;
+  state.characterExportCharacterId = "";
+  state.characterExportFormat = "";
+}
+
 function renderCharacterExportDialog() {
   if (!state.characterExportDialogOpen) {
     return "";
   }
 
-  const character = getActiveCharacter();
-
-  if (!character) {
-    return "";
-  }
+  const selectedCharacterId = cleanText(state.characterExportCharacterId);
+  const selectedCharacter = state.characters.find((character) => character.id === selectedCharacterId) ?? null;
+  const preferredFormat = cleanText(state.characterExportFormat);
 
   return `
     <div class="campaign-save-dialog character-export-dialog" role="presentation">
@@ -7343,15 +7369,44 @@ function renderCharacterExportDialog() {
       >
         <p class="campaign-save-dialog__eyebrow">${escapeHtml(t("character_export_title"))}</p>
         <h2 class="campaign-save-dialog__title" id="character-export-dialog-title">
-          ${escapeHtml(character.name || t("character_export_title"))}
+          ${escapeHtml(isEnglishInterface() ? "Choose a character" : "Elige un personaje")}
         </h2>
-        <p class="campaign-save-dialog__text">${escapeHtml(t("character_export_prompt"))}</p>
+        <p class="campaign-save-dialog__text">
+          ${escapeHtml(isEnglishInterface()
+            ? "Confirm which character you want to export."
+            : "Confirma qué personaje quieres exportar.")}
+        </p>
+        <div class="character-export-dialog__list" role="listbox" aria-label="${escapeHtml(isEnglishInterface() ? "Characters" : "Personajes")}">
+          ${state.characters.length > 0
+            ? state.characters.map((character) => {
+              const isSelected = character.id === selectedCharacterId;
+              return `
+                <button
+                  class="data-exchange-dialog__list-item character-export-dialog__character${isSelected ? " is-selected" : ""}"
+                  type="button"
+                  role="option"
+                  aria-selected="${isSelected}"
+                  data-action="select-character-export"
+                  data-character-id="${escapeHtml(character.id)}"
+                >
+                  <div>
+                    <strong>${escapeHtml(character.name || "Personaje")}</strong>
+                    <span>${escapeHtml(character.className || character.species || "Ficha de personaje")}</span>
+                  </div>
+                </button>
+              `;
+            }).join("")
+            : `<div class="empty-state empty-state--compact">${escapeHtml(isEnglishInterface() ? "No characters available." : "No hay personajes disponibles.")}</div>`}
+        </div>
+        ${selectedCharacter
+          ? `<p class="character-export-dialog__selection">${escapeHtml(isEnglishInterface() ? "Selected" : "Seleccionado")}: <strong>${escapeHtml(selectedCharacter.name || "Personaje")}</strong></p>`
+          : ""}
         <div class="data-exchange-dialog__mode-grid">
-          <button class="data-exchange-dialog__mode-card" type="button" data-action="export-character-pdf">
+          <button class="data-exchange-dialog__mode-card${preferredFormat === "pdf" ? " is-preferred" : ""}" type="button" data-action="export-character-pdf" ${selectedCharacter ? "" : "disabled"}>
             <strong>${escapeHtml(t("character_export_pdf"))}</strong>
             <span>${escapeHtml(t("character_export_pdf_desc"))}</span>
           </button>
-          <button class="data-exchange-dialog__mode-card" type="button" data-action="export-character-fight-club-xml">
+          <button class="data-exchange-dialog__mode-card${preferredFormat === "xml" ? " is-preferred" : ""}" type="button" data-action="export-character-fight-club-xml" ${selectedCharacter ? "" : "disabled"}>
             <strong>${escapeHtml(t("character_export_xml"))}</strong>
             <span>${escapeHtml(t("character_export_xml_desc"))}</span>
           </button>
@@ -7542,6 +7597,7 @@ function render(focusState = null) {
   activeCharacterOverviewHeaderTooltipElement = null;
   hideCharacterOverviewHeaderTooltip();
   syncCombatTurnPopout();
+  syncCombatantPreviewPopouts();
 
   saveCombatTrackerState();
 
@@ -10120,16 +10176,7 @@ function syncCombatTurnPopout() {
 
   popout.document.documentElement.lang = state.appLanguage || APP_LANGUAGE_ES;
   popout.document.title = `${isEnglishInterface() ? "Initiative order" : "Orden de iniciativa"} - Mimic Dice`;
-  root.innerHTML = `
-    <header class="combat-turn-popout-header">
-      <div>
-        <small>Mimic Dice</small>
-        <h1>${escapeHtml(t("Orden de iniciativa"))}</h1>
-        <p>${escapeHtml(cleanText(state.campaignName) || (isEnglishInterface() ? "Unnamed campaign" : "Campaña sin nombre"))}</p>
-      </div>
-    </header>
-    ${renderCombatTurnPanel(turnParticipants, activeTurnCombatantId, { viewportWindow: popout })}
-  `;
+  root.innerHTML = renderCombatTurnPanel(turnParticipants, activeTurnCombatantId, { viewportWindow: popout });
   applyInterfaceTranslations(root);
 
   const nextStrip = root.querySelector(".combat-turn-strip");
@@ -10263,6 +10310,242 @@ function handleCombatTurnPopoutContextMenu(event) {
   openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY);
   render();
   focusCombatTurnPopoutSelector("[data-combat-turn-quick-value]");
+}
+
+function openCombatantPreviewPopout({ kind = "", key = "", combatantId = "" } = {}) {
+  const normalizedKind = cleanText(kind);
+  const normalizedKey = cleanText(key);
+  const normalizedCombatantId = cleanText(combatantId);
+
+  if (
+    typeof window === "undefined"
+    || !["bestiary", "character"].includes(normalizedKind)
+    || !normalizedKey
+    || !normalizedCombatantId
+  ) {
+    return;
+  }
+
+  const popoutId = createStableId("combatant-popout");
+  const popout = window.open(
+    "",
+    `mimic-dice-${popoutId}`,
+    "popup=yes,width=1500,height=920,resizable=yes,scrollbars=yes"
+  );
+
+  if (!popout) {
+    pushNotification({
+      title: "No se pudo abrir la ventana",
+      message: "Permite ventanas emergentes para Mimic Dice y vuelve a intentarlo.",
+      tone: "danger"
+    });
+    syncNotificationUi();
+    return;
+  }
+
+  const descriptor = {
+    id: popoutId,
+    kind: normalizedKind,
+    key: normalizedKey,
+    combatantId: normalizedCombatantId,
+    window: popout
+  };
+  combatantPreviewPopoutWindows.set(popoutId, descriptor);
+  initializeCombatantPreviewPopout(descriptor);
+  startCombatantPreviewPopoutMonitor();
+  syncCombatantPreviewPopout(descriptor);
+  popout.focus();
+}
+
+function initializeCombatantPreviewPopout(descriptor) {
+  const popout = descriptor.window;
+  const inheritedStyles = [...document.head.querySelectorAll('link[rel="stylesheet"], style')]
+    .map((element) => element.outerHTML)
+    .join("\n");
+
+  popout.document.open();
+  popout.document.write(`<!doctype html>
+    <html lang="${escapeHtml(state.appLanguage || APP_LANGUAGE_ES)}">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <base href="${escapeHtml(document.baseURI)}" />
+        <title>Mimic Dice</title>
+        ${inheritedStyles}
+      </head>
+      <body class="combatant-preview-popout-body">
+        <main class="combatant-preview-popout-root combat-tracker-panel" data-combatant-preview-popout-root></main>
+      </body>
+    </html>`);
+  popout.document.close();
+  popout.document.addEventListener("click", handleCombatantPreviewPopoutClick);
+  popout.addEventListener("beforeunload", () => removeCombatantPreviewPopout(descriptor.id));
+}
+
+function startCombatantPreviewPopoutMonitor() {
+  if (combatantPreviewPopoutPollInterval || typeof window === "undefined") {
+    return;
+  }
+
+  combatantPreviewPopoutPollInterval = window.setInterval(() => {
+    for (const descriptor of combatantPreviewPopoutWindows.values()) {
+      if (descriptor.window?.closed) {
+        combatantPreviewPopoutWindows.delete(descriptor.id);
+      }
+    }
+
+    if (combatantPreviewPopoutWindows.size === 0) {
+      stopCombatantPreviewPopoutMonitor();
+    }
+  }, 500);
+}
+
+function stopCombatantPreviewPopoutMonitor() {
+  if (combatantPreviewPopoutPollInterval && typeof window !== "undefined") {
+    window.clearInterval(combatantPreviewPopoutPollInterval);
+  }
+
+  combatantPreviewPopoutPollInterval = 0;
+}
+
+function removeCombatantPreviewPopout(popoutId, { closeWindow = false } = {}) {
+  const descriptor = combatantPreviewPopoutWindows.get(cleanText(popoutId));
+
+  if (!descriptor) {
+    return;
+  }
+
+  combatantPreviewPopoutWindows.delete(descriptor.id);
+
+  if (closeWindow && descriptor.window && !descriptor.window.closed) {
+    descriptor.window.close();
+  }
+
+  if (combatantPreviewPopoutWindows.size === 0) {
+    stopCombatantPreviewPopoutMonitor();
+  }
+}
+
+function getCombatantPreviewPopoutContent(descriptor) {
+  const combatant = state.combatants.find((entry) => entry.id === descriptor.combatantId) ?? null;
+
+  if (!combatant) {
+    return null;
+  }
+
+  if (descriptor.kind === "character") {
+    const character = ensureCombatLookupIndexes().charactersById.get(descriptor.key) ?? null;
+
+    if (!character || getLinkedCharacterForCombatant(combatant)?.id !== character.id) {
+      return null;
+    }
+
+    return {
+      title: cleanText(character.name) || "Personaje",
+      markup: `
+        <div class="combatant-preview-popout-layout${hasCombatSpellbookData(character) ? " has-spellbook" : ""}">
+          ${renderCombatCharacterPreview(character, { interactive: false })}
+          ${hasCombatSpellbookData(character) ? renderCombatSpellbookPopover(combatant, character) : ""}
+        </div>
+      `
+    };
+  }
+
+  const entry = ensureCombatLookupIndexes().bestiaryByIdentity.get(descriptor.key)?.[0]
+    ?? state.bestiary.find((candidate) => cleanText(candidate.id) === descriptor.key)
+    ?? null;
+
+  const combatantEntry = getCombatantBestiaryEntry(combatant);
+
+  if (
+    !entry
+    || !combatantEntry
+    || getCompendiumEntryIdentityKey(combatantEntry) !== getCompendiumEntryIdentityKey(entry)
+  ) {
+    return null;
+  }
+
+  return {
+    title: cleanText(entry.name) || "Criatura",
+    markup: `<div class="combatant-preview-popout-layout">${renderCombatTokenPreview(entry)}</div>`
+  };
+}
+
+function syncCombatantPreviewPopout(descriptor) {
+  const popout = descriptor?.window;
+
+  if (!popout || popout.closed) {
+    removeCombatantPreviewPopout(descriptor?.id);
+    return;
+  }
+
+  const root = popout.document.querySelector("[data-combatant-preview-popout-root]");
+  const content = getCombatantPreviewPopoutContent(descriptor);
+
+  if (!root || !content) {
+    removeCombatantPreviewPopout(descriptor.id, { closeWindow: true });
+    return;
+  }
+
+  popout.document.documentElement.lang = state.appLanguage || APP_LANGUAGE_ES;
+  popout.document.title = `${content.title} - Mimic Dice`;
+  root.innerHTML = content.markup;
+  applyInterfaceTranslations(root);
+}
+
+function syncCombatantPreviewPopouts() {
+  [...combatantPreviewPopoutWindows.values()].forEach((descriptor) => {
+    syncCombatantPreviewPopout(descriptor);
+  });
+}
+
+function handleCombatantPreviewPopoutClick(event) {
+  const actionButton = event.target.closest("[data-action]");
+
+  if (!actionButton) {
+    return;
+  }
+
+  const action = actionButton.dataset.action;
+
+  if (action === "toggle-combat-spell-slot-spent") {
+    event.preventDefault();
+    toggleCombatSpellSlotSpent(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.spellSlotLevel,
+      actionButton.dataset.spellSlotIndex
+    );
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-spellbook-ability-spent") {
+    event.preventDefault();
+    toggleCombatSpellbookAbilitySpent(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.characterSpellbookAbilityRowId,
+      actionButton.dataset.characterSpellbookAbilityUseIndex
+    );
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "filter-arcanum-by-spell-name") {
+    event.preventDefault();
+    resetArcanumVirtualScroll();
+    state.activeScreen = "arcanum";
+    state.arcanumFilters = {
+      ...blankArcanumFilters,
+      query: actionButton.dataset.arcanumSpellName ?? ""
+    };
+    state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
+    state.activeArcanumFilterKey = "";
+    state.showArcanumQuerySuggestions = false;
+    render({ focusSelector: "[data-arcanum-query]" });
+    window.focus();
+  }
 }
 
 function getCombatTurnTokenScale(turnCount) {
@@ -12014,6 +12297,7 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
   syncNotificationUi();
   scheduleActiveCombatSpellbookPopoverSync();
   scheduleActiveCombatSpellPreviewSync();
+  syncCombatantPreviewPopouts();
   return true;
 }
 
@@ -12649,6 +12933,7 @@ function renderNotifications() {
 function renderCombatSpellPreviewOverlay() {
   const previewKind = cleanText(state.activeCombatPreviewKind);
   const previewKey = cleanText(state.activeCombatPreviewKey);
+  const combatantId = cleanText(state.activeCombatPreviewCombatantId);
 
   if (!previewKind || !previewKey) {
     return "";
@@ -12664,7 +12949,8 @@ function renderCombatSpellPreviewOverlay() {
     }
 
     return `
-      <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+      <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="dialog" aria-label="Ficha de ${escapeHtml(previewEntry.name || "criatura")}">
+        ${renderCombatPreviewPopoutToolbar("bestiary", previewKey, combatantId)}
         ${renderCombatTokenPreview(previewEntry)}
       </aside>
     `;
@@ -12678,7 +12964,8 @@ function renderCombatSpellPreviewOverlay() {
     }
 
     return `
-      <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="tooltip" aria-hidden="true">
+      <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="dialog" aria-label="Ficha de ${escapeHtml(previewCharacter.name || "personaje")}">
+        ${renderCombatPreviewPopoutToolbar("character", previewKey, combatantId)}
         ${renderCombatCharacterPreview(previewCharacter)}
       </aside>
     `;
@@ -12725,6 +13012,30 @@ function renderCombatSpellPreviewOverlay() {
   return "";
 }
 
+function renderCombatPreviewPopoutToolbar(kind, key, combatantId) {
+  const openLabel = isEnglishInterface() ? "Open in a separate window" : "Abrir en una ventana independiente";
+
+  return `
+    <div class="combat-preview-popout-toolbar">
+      <button
+        class="summary-button combat-preview-popout-button"
+        type="button"
+        data-action="open-combatant-preview-popout"
+        data-combat-preview-kind="${escapeHtml(kind)}"
+        data-combat-preview-key="${escapeHtml(key)}"
+        data-combatant-id="${escapeHtml(combatantId)}"
+        aria-label="${escapeHtml(openLabel)}"
+        title="${escapeHtml(openLabel)}"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 4h6v2H6v12h12v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm8 0h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4Z" />
+        </svg>
+        <span>${escapeHtml(isEnglishInterface() ? "Open window" : "Abrir ventana")}</span>
+      </button>
+    </div>
+  `;
+}
+
 function syncCombatSpellPreviewOverlayMarkup() {
   const existingOverlay = app.querySelector("[data-combat-spell-preview-overlay]");
   const overlayMarkup = renderCombatSpellPreviewOverlay();
@@ -12755,6 +13066,7 @@ function setActiveCombatPreviewFromTrigger(trigger) {
 
   state.activeCombatPreviewKind = previewKind;
   state.activeCombatPreviewKey = previewKey;
+  state.activeCombatPreviewCombatantId = cleanText(trigger?.dataset?.combatPreviewCombatantId);
   state.activeCombatPreviewName = cleanText(trigger?.dataset?.combatPreviewName);
   state.activeCombatPreviewDescription = cleanText(trigger?.dataset?.combatPreviewDescription);
 }
@@ -12762,6 +13074,7 @@ function setActiveCombatPreviewFromTrigger(trigger) {
 function clearActiveCombatPreview() {
   state.activeCombatPreviewKind = "";
   state.activeCombatPreviewKey = "";
+  state.activeCombatPreviewCombatantId = "";
   state.activeCombatPreviewName = "";
   state.activeCombatPreviewDescription = "";
 }
@@ -13444,6 +13757,7 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
           data-character-id="${escapeHtml(linkedCharacter.id)}"
           data-combat-preview-kind="character"
           data-combat-preview-key="${escapeHtml(linkedCharacter.id)}"
+          data-combat-preview-combatant-id="${escapeHtml(combatant.id)}"
           aria-label="Abrir ficha de ${escapeHtml(linkedCharacter.name || combatant.nombre || "personaje")}"
         >
           ${
@@ -13472,6 +13786,7 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
           data-entry-id="${escapeHtml(bestiaryEntry.id)}"
           data-combat-preview-kind="bestiary"
           data-combat-preview-key="${escapeHtml(getCompendiumEntryIdentityKey(bestiaryEntry) || bestiaryEntry.id)}"
+          data-combat-preview-combatant-id="${escapeHtml(combatant.id)}"
           aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
         >
           <img
@@ -13560,21 +13875,23 @@ function renderCombatTokenPreview(entry) {
   `;
 }
 
-function renderCombatCharacterPreview(character) {
+function renderCombatCharacterPreview(character, options = {}) {
   const subtitleParts = [
     character.className,
     character.subclassName,
     character.species,
     character.level ? `Nivel ${character.level}` : ""
   ].filter(Boolean);
+  const interactive = options.interactive !== false;
+  const rootTag = interactive ? "button" : "div";
+  const interactionAttributes = interactive
+    ? `type="button" data-action="open-combatant-character" data-character-id="${escapeHtml(character.id)}" aria-label="Abrir ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"`
+    : `role="article" aria-label="Ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"`;
 
   return `
-    <button
+    <${rootTag}
       class="combat-token-preview combat-token-preview--character combat-token-preview--floating"
-      type="button"
-      data-action="open-combatant-character"
-      data-character-id="${escapeHtml(character.id)}"
-      aria-label="Abrir ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"
+      ${interactionAttributes}
     >
       <div class="combat-token-preview__header">
         <div>
@@ -13588,7 +13905,7 @@ function renderCombatCharacterPreview(character) {
         ${renderCombatCharacterSkillChipsSection(character)}
         ${renderCombatCharacterCurrencySection(character)}
       </div>
-    </button>
+    </${rootTag}>
   `;
 }
 
@@ -18902,8 +19219,8 @@ function importPendingCharacterPdfData() {
   render();
 }
 
-async function exportActiveCharacterPdf() {
-  const character = getActiveCharacter();
+async function exportActiveCharacterPdf(characterId = state.activeCharacterId) {
+  const character = state.characters.find((entry) => entry.id === cleanText(characterId)) ?? null;
 
   if (!character) {
     return;
@@ -18974,8 +19291,8 @@ async function exportActiveCharacterPdf() {
   render();
 }
 
-async function exportActiveCharacterFightClubXml() {
-  const character = getActiveCharacter();
+async function exportActiveCharacterFightClubXml(characterId = state.activeCharacterId) {
+  const character = state.characters.find((entry) => entry.id === cleanText(characterId)) ?? null;
 
   if (!character) {
     return;
@@ -28288,7 +28605,7 @@ function resetTransientCampaignUiState() {
   state.optionsMenuOpen = false;
   state.autosaveProblemDialogOpen = false;
   state.autosaveProblemDetailCopyStatus = "";
-  state.characterExportDialogOpen = false;
+  closeCharacterExportDialog();
   closeCampaignSaveNameDialog();
   state.characterSkillConfigOpen = false;
   state.characterSkillsExpanded = false;

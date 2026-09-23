@@ -110,6 +110,9 @@
 - Bajo las monedas de esa preview de aliado ya se listan tambien objetos de forma simplificada.
 - La cabecera de combat tracker ahora pasa a `Tabla de combate` y el toggle del contador se aloja bajo el titulo; el orden de iniciativa vive en su propia seccion separada y los retratos de la cadena son mas rectangulares, altos y estrechos.
 - El orden de iniciativa del combat tracker se puede extraer a una ventana de navegador independiente y sincronizada; los controles funcionan desde la ventana secundaria y el bloque vuelve a la principal al reacoplar o cerrar la ventana.
+- La ventana extraida de iniciativa muestra directamente los controles y la cadena, sin repetir una cabecera de "Orden de iniciativa".
+- Las previews de aliados y enemigos del combat tracker incluyen un boton para abrir cada ficha en una ventana independiente; se admiten varias a la vez y las de personaje incorporan su panel configurado de hechizos/habilidades.
+- La exportacion de personajes (JSON, PDF o XML de Fight Club) exige elegir de forma explicita una unica ficha de la lista antes de continuar.
 - El autoguardado cloud reintenta automaticamente fallos temporales de red/HTTP (`408`, `425`, `429` y `5xx`) con espera progresiva; al recuperarse retira el aviso persistente y confirma el guardado correcto.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.

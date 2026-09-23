@@ -2883,43 +2883,8 @@ button.is-cloud-busy:disabled {
 
 .combat-turn-popout-shell {
   display: grid;
-  gap: 1rem;
   width: 100%;
   min-height: calc(100vh - 2rem);
-}
-
-.combat-turn-popout-header {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.9rem 1.1rem;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--panel-strong);
-  box-shadow: var(--shadow);
-}
-
-.combat-turn-popout-header small,
-.combat-turn-popout-header h1,
-.combat-turn-popout-header p {
-  margin: 0;
-}
-
-.combat-turn-popout-header small {
-  color: var(--accent-soft);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.combat-turn-popout-header h1 {
-  margin-top: 0.2rem;
-  font-size: clamp(1.35rem, 3vw, 2rem);
-}
-
-.combat-turn-popout-header p {
-  margin-top: 0.25rem;
-  color: var(--muted);
 }
 
 .combat-turn-popout-body .combat-turn-section {
@@ -8147,6 +8112,29 @@ input[type="number"]::-webkit-inner-spin-button {
   max-width: min(38rem, calc(100vw - 1.5rem));
 }
 
+.combat-preview-popout-toolbar {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 12;
+  pointer-events: auto;
+}
+
+.combat-preview-popout-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.15rem;
+  padding: 0.38rem 0.62rem;
+  font-size: 0.82rem;
+}
+
+.combat-preview-popout-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
 .combat-spell-preview-overlay--entity .combat-token-preview--floating {
   position: relative;
   inset: auto;
@@ -8157,6 +8145,58 @@ input[type="number"]::-webkit-inner-spin-button {
   pointer-events: auto;
   transform: none;
   transition: none;
+}
+
+.combat-spell-preview-overlay--entity > .combat-token-preview--floating {
+  padding-top: 3.55rem;
+}
+
+.combatant-preview-popout-body {
+  min-width: 48rem;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.combatant-preview-popout-root {
+  width: 100%;
+  min-height: calc(100vh - 2rem);
+}
+
+.combatant-preview-popout-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 44rem);
+  align-items: start;
+  justify-content: center;
+  gap: 1rem;
+  width: 100%;
+}
+
+.combatant-preview-popout-layout.has-spellbook {
+  grid-template-columns: minmax(32rem, 38rem) minmax(40rem, 1fr);
+  justify-content: stretch;
+}
+
+.combatant-preview-popout-body .combat-token-preview--floating {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-height: none;
+  opacity: 1;
+  overflow: visible;
+  pointer-events: auto;
+  transform: none;
+  transition: none;
+}
+
+.combatant-preview-popout-body .combat-token-preview--character {
+  cursor: default;
+}
+
+.combatant-preview-popout-body .combat-spellbook-popover {
+  position: static;
+  width: 100%;
+  max-height: none;
+  overflow: visible;
 }
 
 .combat-spellbook-popover__spell-link-wrap .character-spellbook__preview {
@@ -12845,6 +12885,51 @@ body.is-table-resizing * {
 
 .character-export-dialog__panel {
   width: min(42rem, 100%);
+}
+
+.character-export-dialog__list {
+  display: grid;
+  gap: 0.55rem;
+  max-height: min(42vh, 24rem);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.character-export-dialog__character {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.character-export-dialog__character:hover,
+.character-export-dialog__character:focus-visible {
+  border-color: rgba(240, 200, 121, 0.42);
+  background: rgba(240, 200, 121, 0.08);
+}
+
+.character-export-dialog__character.is-selected {
+  border-color: rgba(240, 200, 121, 0.68);
+  background:
+    linear-gradient(135deg, rgba(240, 200, 121, 0.16), rgba(186, 138, 71, 0.06)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(240, 200, 121, 0.14);
+}
+
+.character-export-dialog__selection {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.character-export-dialog__selection strong {
+  color: var(--accent-soft);
+}
+
+.character-export-dialog .data-exchange-dialog__mode-card.is-preferred:not(:disabled) {
+  border-color: rgba(240, 200, 121, 0.5);
 }
 
 .character-pdf-import-dialog__summary {
