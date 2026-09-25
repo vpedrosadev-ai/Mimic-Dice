@@ -44,6 +44,13 @@ import moonNewIconUrl from "./assets/moon-icons/Luna_nueva.png";
 import moonWaningCrescentIconUrl from "./assets/moon-icons/Luna_menguante.png";
 import moonWaningQuarterIconUrl from "./assets/moon-icons/Cuarto_menguante.png";
 import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
+import {
+  findCompendiumEntryByReference,
+  getCompendiumEntryIdentityKey,
+  getCompendiumEntryNameAliases,
+  getUnresolvedCharacterCompendiumReferences,
+  isSameCompendiumSource
+} from "./shared/compendiumReferences.js";
 import { parseCsv } from "./shared/csv.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
 import { createCompendiumListRenderers } from "./screens/compendiums/listRender.js";
@@ -6063,6 +6070,10 @@ async function importSelectionData(expectedCategory) {
     }
 
     if (expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
+      await Promise.all([
+        ensureCompendiumLoaded("arcanum"),
+        ensureCompendiumLoaded("items")
+      ]);
       importCharactersFromPayload(payload);
     } else if (expectedCategory === DATA_EXCHANGE_CATEGORY_DIARY) {
       importDiaryFromPayload(payload);
@@ -6101,6 +6112,63 @@ function rekeyImportedCharacter(character, skillDefinitions) {
   }, skillDefinitions);
 }
 
+function getCharacterImportUnresolvedReferences(characters) {
+  return getUnresolvedCharacterCompendiumReferences(characters, {
+    spellEntries: state.arcanum,
+    itemEntries: state.items,
+    isCurrencyName: isCharacterCurrencyRow
+  });
+}
+
+function getUnresolvedReferenceCount(unresolvedReferences) {
+  return unresolvedReferences.spells.length + unresolvedReferences.items.length;
+}
+
+function getUnresolvedReferenceDetail(unresolvedReferences, useEnglish = false) {
+  return [
+    unresolvedReferences.spells.length > 0
+      ? `${useEnglish ? "Unrecognized spells" : "Hechizos no reconocidos"}:\n${unresolvedReferences.spells.map((name) => `- ${name}`).join("\n")}`
+      : "",
+    unresolvedReferences.items.length > 0
+      ? `${useEnglish ? "Unrecognized items" : "Objetos no reconocidos"}:\n${unresolvedReferences.items.map((name) => `- ${name}`).join("\n")}`
+      : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function pushCharacterImportResultNotification({
+  characters,
+  successTitle,
+  successTitleEn,
+  warningTitle,
+  warningTitleEn,
+  message,
+  messageEn
+}) {
+  const unresolvedReferences = getCharacterImportUnresolvedReferences(characters);
+  const unresolvedCount = getUnresolvedReferenceCount(unresolvedReferences);
+  const useEnglish = isEnglishInterface();
+  const localizedMessage = useEnglish ? messageEn : message;
+
+  if (unresolvedCount === 0) {
+    pushNotification({
+      title: useEnglish ? successTitleEn : successTitle,
+      message: localizedMessage
+    });
+    return;
+  }
+
+  pushNotification({
+    title: useEnglish ? warningTitleEn : warningTitle,
+    message: useEnglish
+      ? `${localizedMessage} ${unresolvedCount} ${unresolvedCount === 1 ? "name does" : "names do"} not match the compendium; you can fix ${unresolvedCount === 1 ? "it" : "them"} later on the character sheet.`
+      : `${localizedMessage} ${unresolvedCount} ${unresolvedCount === 1 ? "nombre no coincide" : "nombres no coinciden"} con el compendio; podrás corregirlos después en la ficha.`,
+    tone: "warning",
+    detailTitle: useEnglish ? "Unrecognized names" : "Nombres no reconocidos",
+    detailText: getUnresolvedReferenceDetail(unresolvedReferences, useEnglish),
+    actionLabel: useEnglish ? "View unrecognized names" : "Ver nombres no reconocidos"
+  });
+}
+
 function importCharactersFromPayload(payload, options = {}) {
   const importedDefinitions = normalizeStoredCharacterSkillDefinitions(payload?.characterSkills?.definitions, payload?.characters);
   const mergedDefinitions = dedupeCharacterSkillDefinitions([
@@ -6122,9 +6190,14 @@ function importCharactersFromPayload(payload, options = {}) {
   saveCharacterSkillDefinitions();
   saveCharacters();
   if (options.notify !== false) {
-    pushNotification({
-      title: "Importacion completada",
-      message: `${importedCharacters.length} personajes anadidos.`
+    pushCharacterImportResultNotification({
+      characters: importedCharacters,
+      successTitle: "Importación completada",
+      successTitleEn: "Import completed",
+      warningTitle: "Importación completada con avisos",
+      warningTitleEn: "Import completed with warnings",
+      message: `${importedCharacters.length} personajes añadidos.`,
+      messageEn: `${importedCharacters.length} characters added.`
     });
   }
   return { entityIds: importedCharacters.map((character) => character.id) };
@@ -15808,7 +15881,8 @@ function getCharacterSpellMatchedEntry(row) {
     entryId: row.spellId,
     name: row.name,
     canonicalName: row.canonicalName,
-    localizedName: row.localizedName
+    localizedName: row.localizedName,
+    source: row.source
   });
 }
 
@@ -16282,7 +16356,8 @@ function getCharacterInventoryMatchedItemEntry(row) {
     entryId: row.itemId,
     name: row.name,
     canonicalName: row.canonicalName,
-    localizedName: row.localizedName
+    localizedName: row.localizedName,
+    source: row.source
   });
 }
 
@@ -18786,6 +18861,7 @@ function updateCharacterSpellRow(rowId, key, rawValue, normalize = true) {
         nextRow.spellKey = matchedSpell ? getCompendiumEntryIdentityKey(matchedSpell) : "";
         nextRow.canonicalName = matchedSpell?.canonicalName ?? "";
         nextRow.localizedName = matchedSpell?.localizedName ?? "";
+        nextRow.source = "";
         nextRow.level = normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort ?? cleanText(nextRow.level));
       }
 
@@ -18860,6 +18936,7 @@ function selectCharacterSpellSuggestion(rowId, arcanumEntryId) {
           name: spellEntry.name,
           canonicalName: spellEntry.canonicalName || spellEntry.name,
           localizedName: spellEntry.localizedName || (spellEntry.canonicalName && spellEntry.canonicalName !== spellEntry.name ? spellEntry.name : ""),
+          source: spellEntry.source,
           level: normalizeCharacterSpellLevelLabel(spellEntry.levelShort)
         })
         : row)
@@ -19012,6 +19089,7 @@ function updateCharacterInventoryRow(rowId, key, rawValue, normalize = true) {
         nextRow.itemKey = matchedItem ? getCompendiumEntryIdentityKey(matchedItem) : "";
         nextRow.canonicalName = matchedItem?.canonicalName ?? "";
         nextRow.localizedName = matchedItem?.localizedName ?? "";
+        nextRow.source = "";
         nextRow.size = matchedItem?.sizeLabel ?? inferItemSizeLabel(rawValue);
       }
 
@@ -19020,6 +19098,7 @@ function updateCharacterInventoryRow(rowId, key, rawValue, normalize = true) {
         nextRow.itemKey = "";
         nextRow.canonicalName = "";
         nextRow.localizedName = "";
+        nextRow.source = "";
         nextRow.size = getCurrencyInventorySizeLabel(nextRow.quantity);
       }
 
@@ -19056,6 +19135,7 @@ function selectCharacterInventorySuggestion(rowId, itemEntryId) {
           name: itemEntry.name,
           canonicalName: itemEntry.canonicalName || itemEntry.name,
           localizedName: itemEntry.localizedName || (itemEntry.canonicalName && itemEntry.canonicalName !== itemEntry.name ? itemEntry.name : ""),
+          source: itemEntry.source,
           size: itemEntry.sizeLabel
         })
         : row)
@@ -19279,7 +19359,9 @@ async function updateActiveCharacterSheetPdf(file, options = {}) {
   try {
     const [result, pdfImportData] = await Promise.all([
       canUpload ? uploadCloudPdf(file) : Promise.resolve(null),
-      extractCharacterDataFromPdf(file).catch(() => null)
+      extractCharacterDataFromPdf(file).catch(() => null),
+      ensureCompendiumLoaded("arcanum"),
+      ensureCompendiumLoaded("items")
     ]);
 
     if (canUpload) {
@@ -19420,9 +19502,15 @@ function importPendingCharacterPdfData() {
   closeCharacterPdfImportDialog();
   saveCharacters();
   syncLinkedCombatantsHitDice(characterId);
-  pushNotification({
-    title: "Datos del PDF importados",
-    message: `${importedLabels.length} bloques de datos se copiaron a la ficha del personaje.`
+  const importedCharacter = state.characters.find((entry) => entry.id === characterId);
+  pushCharacterImportResultNotification({
+    characters: importedCharacter ? [importedCharacter] : [],
+    successTitle: "Datos del PDF importados",
+    successTitleEn: "PDF data imported",
+    warningTitle: "PDF importado con avisos",
+    warningTitleEn: "PDF imported with warnings",
+    message: `${importedLabels.length} bloques de datos se copiaron a la ficha del personaje.`,
+    messageEn: `${importedLabels.length} data sections were copied to the character sheet.`
   });
   render();
 }
@@ -20402,45 +20490,6 @@ function getBestiaryEntryNameAliases(entry) {
   return getCompendiumEntryNameAliases(entry);
 }
 
-function getCompendiumEntryIdentityKey(entry) {
-  return cleanText(entry?.identityKey) || cleanText(entry?.compositeKey) || cleanText(entry?.id);
-}
-
-function getCompendiumEntryNameAliases(entry) {
-  const aliases = Array.isArray(entry?.nameAliasesLower) && entry.nameAliasesLower.length > 0
-    ? entry.nameAliasesLower
-    : [entry?.name, entry?.canonicalName, entry?.localizedName].map((value) => normalizeSearchText(value));
-
-  return uniqueSortedStrings(aliases.filter(Boolean));
-}
-
-function findCompendiumEntryByReference(entries, reference = {}) {
-  if (!Array.isArray(entries) || entries.length === 0) {
-    return null;
-  }
-
-  const keys = [reference.entryKey, reference.key, reference.entryId, reference.id]
-    .map((value) => cleanText(value))
-    .filter(Boolean);
-  const source = cleanText(reference.source);
-  const keyMatch = keys.length > 0
-    ? entries.find((entry) => keys.includes(getCompendiumEntryIdentityKey(entry)) && isSameCompendiumSource(entry, source))
-    : null;
-
-  if (keyMatch) {
-    return keyMatch;
-  }
-
-  const names = [reference.name, reference.canonicalName, reference.localizedName]
-    .map((value) => normalizeSearchText(value))
-    .filter(Boolean);
-
-  return entries.find((entry) => (
-    names.some((name) => getCompendiumEntryNameAliases(entry).includes(name))
-    && isSameCompendiumSource(entry, source)
-  )) ?? null;
-}
-
 function getCurrentCompendiumEntries(kind) {
   try {
     if (kind === "items" && Array.isArray(state.items)) {
@@ -20478,11 +20527,6 @@ function doesBestiaryEntryMatchEncounterRowName(entry, row) {
 
 function isSameBestiarySource(entry, rowSource) {
   return isSameCompendiumSource(entry, rowSource);
-}
-
-function isSameCompendiumSource(entry, rowSource) {
-  const normalizedSource = cleanText(rowSource);
-  return !normalizedSource || cleanText(entry?.source) === normalizedSource || cleanText(entry?.canonicalSource) === normalizedSource;
 }
 
 function getEncounterSummary(encounter) {
@@ -23421,7 +23465,7 @@ function getItemEntryByName(name) {
     return null;
   }
 
-  return items.find((entry) => getCompendiumEntryNameAliases(entry).includes(normalizedName)) ?? null;
+  return findCompendiumEntryByReference(items, { name: normalizedName });
 }
 
 function getArcanumEntryByName(name) {
@@ -23437,7 +23481,7 @@ function getArcanumEntryByName(name) {
     return null;
   }
 
-  return arcanum.find((entry) => getCompendiumEntryNameAliases(entry).includes(normalizedName)) ?? null;
+  return findCompendiumEntryByReference(arcanum, { name: normalizedName });
 }
 
 function renderBestiaryFilterDropdown(key, label) {
@@ -26391,6 +26435,10 @@ async function applyCloudLibraryEntryResult(result, options = {}) {
     : await materializePublicCloudAssetsForGuest(result.payload);
 
   if (type === "character") {
+    await Promise.all([
+      ensureCompendiumLoaded("arcanum"),
+      ensureCompendiumLoaded("items")
+    ]);
     return importCharactersFromPayload(payload, options);
   } else if (type === "encounter") {
     return importEncountersFromPayload(payload, options);

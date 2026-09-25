@@ -604,7 +604,8 @@ function normalizeStoredCharacterSpellRow(row) {
     entryId: row.spellId,
     name,
     canonicalName: row.canonicalName,
-    localizedName: row.localizedName
+    localizedName: row.localizedName,
+    source: row.source
   });
 
   return {
@@ -614,6 +615,7 @@ function normalizeStoredCharacterSpellRow(row) {
     name,
     canonicalName: cleanText(row.canonicalName) || matchedSpell?.canonicalName || "",
     localizedName: cleanText(row.localizedName) || matchedSpell?.localizedName || "",
+    source: cleanText(row.source),
     level: normalizeCharacterSpellLevelLabel(matchedSpell?.levelShort || cleanText(row.level) || ""),
     prepared: row.prepared === true
   };
@@ -829,7 +831,8 @@ function normalizeStoredCharacterInventoryRow(row) {
     entryId: row.itemId,
     name,
     canonicalName: row.canonicalName,
-    localizedName: row.localizedName
+    localizedName: row.localizedName,
+    source: row.source
   });
   const quantity = Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.quantity)) || 0));
   const size = isCharacterCurrencyRow(name)
@@ -843,6 +846,7 @@ function normalizeStoredCharacterInventoryRow(row) {
     name,
     canonicalName: isCharacterCurrencyRow(name) ? "" : cleanText(row.canonicalName) || matchedItem?.canonicalName || "",
     localizedName: isCharacterCurrencyRow(name) ? "" : cleanText(row.localizedName) || matchedItem?.localizedName || "",
+    source: isCharacterCurrencyRow(name) ? "" : cleanText(row.source),
     size,
     quantity
   };

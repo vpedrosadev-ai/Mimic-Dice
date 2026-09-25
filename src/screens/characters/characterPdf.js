@@ -1297,7 +1297,10 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
   document.setAuthor("Mimic Dice");
   document.setCreator("Mimic Dice");
   document.setProducer("Mimic Dice");
-  return document.save({ updateFieldAppearances: false });
+  return document.save({
+    updateFieldAppearances: false,
+    useObjectStreams: false
+  });
 }
 
 export function getCharacterPdfImportLabels(data) {
