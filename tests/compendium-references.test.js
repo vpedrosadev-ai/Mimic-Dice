@@ -52,6 +52,18 @@ const items = [
   { id: "item-new", name: "Objeto compartido", source: "Fuente nueva" }
 ];
 assert.equal(findCompendiumEntryByReference(items, { name: "Objeto compartido" }), items[1]);
+assert.equal(
+  findCompendiumEntryByReference(items, { name: "Objeto compartido", source: "Fuente antigua" }),
+  items[0]
+);
+assert.equal(
+  findCompendiumEntryByReference(items, {
+    entryId: items[0].id,
+    name: "Objeto compartido",
+    source: "Fuente antigua"
+  }),
+  items[0]
+);
 
 const unresolved = getUnresolvedCharacterCompendiumReferences([{
   spells: [

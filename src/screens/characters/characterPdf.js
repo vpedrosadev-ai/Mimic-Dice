@@ -814,47 +814,32 @@ export function getCharacterSpellCardEffectText(spell, contentLanguage = "es") {
   return [text, `${label}: ${atHigherLevels}`].filter(Boolean).join("\n\n");
 }
 
-function shouldEmphasizeSpellEffectSentence(value) {
-  const normalizedText = cleanPdfText(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+const SPELL_EFFECT_EMPHASIS_PATTERN = /(?:\b\d+d\d+(?:\s*[+-]\s*\d+)?\b|(?:tirada de\s+)?salvaci[oó]n(?:es)?\s+(?:de|por)\s+(?:Fuerza|Destreza|Constituci[oó]n|Inteligencia|Sabidur[ií]a|Carisma)\b|(?:Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s+saving throws?\b|dañ(?:o|os)\s+(?:(?:de|por)\s+)?(?:[aá]cido|contundente|fr[ií]o|fuego|fuerza|el[eé]ctrico|electricidad|necr[oó]tico|perforante|veneno|ps[ií]quico|radiante|rayo|cortante|trueno)(?:\s*(?:,|y|o)\s*(?:[aá]cido|contundente|fr[ií]o|fuego|fuerza|el[eé]ctrico|electricidad|necr[oó]tico|perforante|veneno|ps[ií]quico|radiante|rayo|cortante|trueno))*\b|(?:acid|bludgeoning|cold|fire|force|lightning|necrotic|piercing|poison|psychic|radiant|slashing|thunder)(?:\s*(?:,|and|or)\s*(?:acid|bludgeoning|cold|fire|force|lightning|necrotic|piercing|poison|psychic|radiant|slashing|thunder))*\s+damage\b)/giu;
 
-  return /\b(?:damage|dano|danos)\b/.test(normalizedText)
-    || /\bsaving throws?\b/.test(normalizedText)
-    || /\b(?:failed|successful) saves?\b/.test(normalizedText)
-    || /\bsalvacion(?:es)?\b/.test(normalizedText);
+function splitSpellEffectEmphasisRuns(value) {
+  const text = String(value ?? "");
+  const runs = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(SPELL_EFFECT_EMPHASIS_PATTERN)) {
+    if (match.index > cursor) {
+      runs.push({ text: text.slice(cursor, match.index), bold: false });
+    }
+
+    runs.push({ text: match[0], bold: true });
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    runs.push({ text: text.slice(cursor), bold: false });
+  }
+
+  return runs.length > 0 ? runs : [{ text, bold: false }];
 }
 
 export function getCharacterSpellCardEffectRuns(spell, contentLanguage = "es") {
   const effectText = getCharacterSpellCardEffectText(spell, contentLanguage);
-  const blocks = effectText.split(/(\n+)/);
-  const runs = [];
-
-  blocks.forEach((block) => {
-    if (!block) {
-      return;
-    }
-
-    if (/^\n+$/.test(block)) {
-      runs.push({ text: block, bold: false });
-      return;
-    }
-
-    const sentences = block.match(/.*?(?:[.!?]+(?=\s|$)|$)/g)?.filter(Boolean) ?? [block];
-    sentences.forEach((sentence, index) => {
-      const text = sentence.trim();
-
-      if (text) {
-        runs.push({
-          text: `${index > 0 ? " " : ""}${text}`,
-          bold: shouldEmphasizeSpellEffectSentence(text)
-        });
-      }
-    });
-  });
-
-  return runs;
+  return splitSpellEffectEmphasisRuns(effectText);
 }
 
 function appendSpellEffectLinePiece(line, text, bold, font, size) {

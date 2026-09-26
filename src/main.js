@@ -896,6 +896,7 @@ state = {
   activeCombatPreviewKey: "",
   activeCombatPreviewCombatantId: "",
   activeCombatPreviewName: "",
+  activeCombatPreviewSource: "",
   activeCombatPreviewDescription: "",
   multiclassLevelUpQueue: [],
   itemStatus: "idle",
@@ -3515,12 +3516,20 @@ async function handleClick(event) {
   }
 
   if (action === "filter-arcanum-by-spell-name") {
+    const spellName = cleanText(actionButton.dataset.arcanumSpellName);
+    const selectedEntry = findCompendiumEntryByReference(state.arcanum, {
+      entryKey: actionButton.dataset.arcanumEntryId,
+      entryId: actionButton.dataset.arcanumEntryId,
+      name: spellName,
+      source: actionButton.dataset.arcanumSource
+    });
     resetArcanumVirtualScroll();
     state.activeScreen = "arcanum";
     state.arcanumFilters = {
       ...blankArcanumFilters,
-      query: actionButton.dataset.arcanumSpellName ?? ""
+      query: selectedEntry?.name || spellName
     };
+    state.arcanumSelectedId = selectedEntry?.id || cleanText(actionButton.dataset.arcanumEntryId);
     state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
     state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
@@ -5347,7 +5356,7 @@ function getRequiredCompendiumsForScreen(screenId) {
 
 function queueCompendiumLoadsForScreen(screenId) {
   getRequiredCompendiumsForScreen(screenId).forEach((kind, index) => {
-    queueCompendiumLoad(kind, index * 80);
+    queueCompendiumLoad(kind, screenId === "characters" ? 0 : index * 80);
   });
 }
 
@@ -10604,10 +10613,12 @@ function getCombatantPreviewPopoutDetail(trigger) {
 
   if (kind === "spell") {
     const entry = findCompendiumEntryByReference(state.arcanum, {
+      entryKey: key,
       entryId: key,
-      name: key,
-      canonicalName: key,
-      localizedName: key
+      name: cleanText(trigger.dataset.combatPreviewName) || key,
+      canonicalName: cleanText(trigger.dataset.combatPreviewName) || key,
+      localizedName: cleanText(trigger.dataset.combatPreviewName) || key,
+      source: trigger.dataset.combatPreviewSource
     });
 
     return entry
@@ -10619,7 +10630,8 @@ function getCombatantPreviewPopoutDetail(trigger) {
     const entry = findCompendiumEntryByReference(state.items, {
       entryKey: key,
       entryId: cleanText(trigger.dataset.itemEntryId) || key,
-      name: cleanText(trigger.dataset.itemName) || key
+      name: cleanText(trigger.dataset.itemName) || key,
+      source: cleanText(trigger.dataset.itemSource) || trigger.dataset.combatPreviewSource
     });
 
     return entry
@@ -10796,12 +10808,20 @@ function handleCombatantPreviewPopoutClick(event, descriptor) {
 
   if (action === "filter-arcanum-by-spell-name") {
     event.preventDefault();
+    const spellName = cleanText(actionButton.dataset.arcanumSpellName);
+    const selectedEntry = findCompendiumEntryByReference(state.arcanum, {
+      entryKey: actionButton.dataset.arcanumEntryId,
+      entryId: actionButton.dataset.arcanumEntryId,
+      name: spellName,
+      source: actionButton.dataset.arcanumSource
+    });
     resetArcanumVirtualScroll();
     state.activeScreen = "arcanum";
     state.arcanumFilters = {
       ...blankArcanumFilters,
-      query: actionButton.dataset.arcanumSpellName ?? ""
+      query: selectedEntry?.name || spellName
     };
+    state.arcanumSelectedId = selectedEntry?.id || cleanText(actionButton.dataset.arcanumEntryId);
     state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
     state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
@@ -10816,7 +10836,8 @@ function handleCombatantPreviewPopoutClick(event, descriptor) {
     openDiaryMentionTarget(
       "item",
       actionButton.dataset.itemEntryId,
-      actionButton.dataset.itemName
+      actionButton.dataset.itemName,
+      actionButton.dataset.itemSource
     );
     window.focus();
   }
@@ -13246,7 +13267,12 @@ function renderCombatSpellPreviewOverlay() {
   }
 
   if (previewKind === "spell") {
-    const previewEntry = findCompendiumEntryByReference(state.arcanum, { name: previewKey, entryId: previewKey });
+    const previewEntry = findCompendiumEntryByReference(state.arcanum, {
+      entryKey: previewKey,
+      entryId: previewKey,
+      name: state.activeCombatPreviewName || previewKey,
+      source: state.activeCombatPreviewSource
+    });
 
     if (!previewEntry) {
       return "";
@@ -13342,6 +13368,7 @@ function setActiveCombatPreviewFromTrigger(trigger) {
   state.activeCombatPreviewKey = previewKey;
   state.activeCombatPreviewCombatantId = cleanText(trigger?.dataset?.combatPreviewCombatantId);
   state.activeCombatPreviewName = cleanText(trigger?.dataset?.combatPreviewName);
+  state.activeCombatPreviewSource = cleanText(trigger?.dataset?.combatPreviewSource);
   state.activeCombatPreviewDescription = cleanText(trigger?.dataset?.combatPreviewDescription);
 }
 
@@ -13350,6 +13377,7 @@ function clearActiveCombatPreview() {
   state.activeCombatPreviewKey = "";
   state.activeCombatPreviewCombatantId = "";
   state.activeCombatPreviewName = "";
+  state.activeCombatPreviewSource = "";
   state.activeCombatPreviewDescription = "";
 }
 
@@ -13530,6 +13558,7 @@ function renderCombatPreparedSpellRow(row) {
   const matchedSpell = getCharacterSpellMatchedEntry(row);
   const spellName = getCharacterSpellDisplayName(row, matchedSpell) || "Sin nombre";
   const levelLabel = formatCompactSpellLevelLabel(matchedSpell?.levelValue ?? getCharacterSpellSortLevel(row));
+  const spellKey = matchedSpell ? getCompendiumEntryIdentityKey(matchedSpell) || matchedSpell.id || matchedSpell.name : "";
 
   return `
     <div class="combat-spellbook-popover__spell-row">
@@ -13542,9 +13571,12 @@ function renderCombatPreparedSpellRow(row) {
                 type="button"
                 data-action="filter-arcanum-by-spell-name"
                 data-arcanum-spell-name="${escapeHtml(matchedSpell.name)}"
+                data-arcanum-entry-id="${escapeHtml(matchedSpell.id || spellKey)}"
+                data-arcanum-source="${escapeHtml(matchedSpell.source || row.source || "")}"
                 data-combat-preview-kind="spell"
-                data-combat-preview-key="${escapeHtml(matchedSpell.name)}"
+                data-combat-preview-key="${escapeHtml(spellKey)}"
                 data-combat-preview-name="${escapeHtml(matchedSpell.name)}"
+                data-combat-preview-source="${escapeHtml(matchedSpell.source || row.source || "")}"
               >
                 ${escapeHtml(spellName)}
               </button>
@@ -14325,8 +14357,10 @@ function renderCombatCharacterInventoryPreviewRow(row, options = {}) {
         data-action="open-combat-preview-item"
         data-combat-preview-kind="item"
         data-combat-preview-key="${escapeHtml(itemKey)}"
+        data-combat-preview-source="${escapeHtml(matchedItem.source || row.source || "")}"
         data-item-entry-id="${escapeHtml(matchedItem.id || "")}"
         data-item-name="${escapeHtml(matchedItem.name || row.name || "")}"
+        data-item-source="${escapeHtml(matchedItem.source || row.source || "")}"
       >
         <strong>${escapeHtml(row.name || "Objeto sin nombre")}</strong>
         <span>x${escapeHtml(String(quantity))}${sizeLabel ? ` | ${escapeHtml(sizeLabel)}` : ""}</span>
@@ -31070,10 +31104,11 @@ function normalizeDiaryTagChipsInFragment(fragment) {
   });
 }
 
-function openDiaryMentionTarget(kind, id, name) {
+function openDiaryMentionTarget(kind, id, name, source = "") {
   const normalizedKind = cleanText(kind);
   const normalizedId = cleanText(id);
   const normalizedName = cleanText(name);
+  const normalizedSource = cleanText(source);
 
   if (normalizedKind === "character") {
     state.activeScreen = "initiative-board";
@@ -31086,7 +31121,8 @@ function openDiaryMentionTarget(kind, id, name) {
   if (normalizedKind === "item") {
     const entry = findCompendiumEntryByReference(state.items, {
       entryId: normalizedId,
-      name: normalizedName
+      name: normalizedName,
+      source: normalizedSource
     });
     resetItemVirtualScroll();
     state.activeScreen = "items";
@@ -31124,7 +31160,8 @@ function openDiaryMentionTarget(kind, id, name) {
   if (normalizedKind === "arcanum") {
     const entry = findCompendiumEntryByReference(state.arcanum, {
       entryId: normalizedId,
-      name: normalizedName
+      name: normalizedName,
+      source: normalizedSource
     });
     resetArcanumVirtualScroll();
     state.activeScreen = "arcanum";

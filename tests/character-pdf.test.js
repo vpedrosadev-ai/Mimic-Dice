@@ -81,12 +81,18 @@ const effectRuns = getCharacterSpellCardEffectRuns({
   atHigherLevels: "-"
 });
 assert.deepEqual(
-  effectRuns.filter((run) => run.text.trim()).map((run) => ({ text: run.text.trim(), bold: run.bold })),
+  effectRuns.filter((run) => run.bold).map((run) => run.text.trim()),
   [
-    { text: "Una luz aparece.", bold: false },
-    { text: "El objetivo realiza una tirada de salvación de Destreza.", bold: true },
-    { text: "Sufre 3d6 de daño de fuego.", bold: true }
+    "tirada de salvación de Destreza",
+    "3d6",
+    "daño de fuego"
   ]
+);
+assert.deepEqual(
+  getCharacterSpellCardEffectRuns({
+    text: "El objetivo realiza una salvación por Fuerza. Si falla, recibe 7d6+40 de daño eléctrico."
+  }).filter((run) => run.bold).map((run) => run.text.trim()),
+  ["salvación por Fuerza", "7d6+40", "daño eléctrico"]
 );
 assert.ok(getCharacterSpellCardEffectRuns({
   text: "Texto base.",
