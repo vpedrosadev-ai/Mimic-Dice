@@ -1,6 +1,8 @@
 import { cleanText, normalizeSearchText, uniqueSortedStrings } from "./text.js";
 import { COMPENDIUM_SOURCE_PUBLICATION_DATES } from "../data/compendiumSourceDates.js";
 
+const compendiumReferenceIndexCache = new WeakMap();
+
 export function getCompendiumEntryIdentityKey(entry) {
   return cleanText(entry?.identityKey) || cleanText(entry?.compositeKey) || cleanText(entry?.id);
 }
@@ -52,11 +54,59 @@ function getCompendiumEntryPublicationTime(entry) {
   return sourceYear === null ? null : Date.UTC(sourceYear, 0, 1);
 }
 
-function findLatestCompendiumNameMatch(entries, names, source) {
-  const matches = entries.filter((entry) => (
-    names.some((name) => getCompendiumEntryNameAliases(entry).includes(name))
-    && isSameCompendiumSource(entry, source)
+function appendCompendiumIndexEntry(index, key, entry) {
+  if (!key) {
+    return;
+  }
+
+  const entries = index.get(key);
+
+  if (entries) {
+    entries.push(entry);
+  } else {
+    index.set(key, [entry]);
+  }
+}
+
+function getCompendiumReferenceIndex(entries) {
+  const cachedIndex = compendiumReferenceIndexCache.get(entries);
+
+  if (cachedIndex) {
+    return cachedIndex;
+  }
+
+  const index = {
+    entriesByKey: new Map(),
+    entriesByName: new Map(),
+    orderByEntry: new Map()
+  };
+
+  entries.forEach((entry, entryIndex) => {
+    index.orderByEntry.set(entry, entryIndex);
+    appendCompendiumIndexEntry(index.entriesByKey, getCompendiumEntryIdentityKey(entry), entry);
+    getCompendiumEntryNameAliases(entry).forEach((name) => {
+      appendCompendiumIndexEntry(index.entriesByName, name, entry);
+    });
+  });
+  compendiumReferenceIndexCache.set(entries, index);
+  return index;
+}
+
+function getIndexedCandidates(index, lookup, keys) {
+  const candidates = new Set();
+
+  keys.forEach((key) => {
+    (lookup.get(key) ?? []).forEach((entry) => candidates.add(entry));
+  });
+
+  return [...candidates].sort((left, right) => (
+    (index.orderByEntry.get(left) ?? 0) - (index.orderByEntry.get(right) ?? 0)
   ));
+}
+
+function findLatestCompendiumNameMatch(index, names, source) {
+  const matches = getIndexedCandidates(index, index.entriesByName, names)
+    .filter((entry) => isSameCompendiumSource(entry, source));
 
   if (matches.length < 2) {
     return matches[0] ?? null;
@@ -91,9 +141,9 @@ export function findCompendiumEntryByReference(entries, reference = {}) {
   const names = [reference.name, reference.canonicalName, reference.localizedName]
     .map((value) => normalizeSearchText(value))
     .filter(Boolean);
-  const keyMatch = keys.length > 0
-    ? entries.find((entry) => keys.includes(getCompendiumEntryIdentityKey(entry)) && isSameCompendiumSource(entry, source))
-    : null;
+  const index = getCompendiumReferenceIndex(entries);
+  const keyMatch = getIndexedCandidates(index, index.entriesByKey, keys)
+    .find((entry) => isSameCompendiumSource(entry, source)) ?? null;
 
   // A source makes a version choice explicit. Without one, a linked name is a
   // generic reference and should resolve to the newest available duplicate.
@@ -101,7 +151,7 @@ export function findCompendiumEntryByReference(entries, reference = {}) {
     return keyMatch;
   }
 
-  return findLatestCompendiumNameMatch(entries, names, source) ?? keyMatch;
+  return findLatestCompendiumNameMatch(index, names, source) ?? keyMatch;
 }
 
 export function getUnresolvedCharacterCompendiumReferences(characters, options = {}) {

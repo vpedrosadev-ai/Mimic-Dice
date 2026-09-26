@@ -2261,7 +2261,7 @@ async function handleClick(event) {
     if (actionButton.closest(".data-exchange-dialog")) {
       closeImportExportDialog();
     }
-    const characterId = cleanText(state.characterExportCharacterId);
+    const characterId = cleanText(actionButton.dataset.characterId || state.characterExportCharacterId);
 
     if (!characterId) {
       render();
@@ -15517,7 +15517,7 @@ function renderCharacterHeaderAside(character) {
 
 function getCharacterSheetPdfUrl(character) {
   const value = cleanText(character?.sheetPdfUrl);
-  return CLOUD_PDF_ASSET_PATH_PATTERN.test(value) ? value : "";
+  return character?.sheetPdfImported === true && CLOUD_PDF_ASSET_PATH_PATTERN.test(value) ? value : "";
 }
 
 function renderCharacterSheetPdfControls(character) {
@@ -15546,7 +15546,8 @@ function renderCharacterSheetPdfControls(character) {
         <button
           class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("loading", exportTarget)}"
           type="button"
-          data-action="open-character-export-dialog"
+          data-action="export-character-pdf"
+          data-character-id="${escapeHtml(character.id)}"
           ${isExporting ? `disabled aria-busy="true"` : ""}
         >
           ${renderCloudButtonLabel(t("import_export_mode_export"), "Generando...", "loading", exportTarget)}
@@ -15950,11 +15951,11 @@ function renderCharacterSpellPreview(entry) {
 function renderCharacterSpellRow(row) {
   const matchedSpell = getCharacterSpellMatchedEntry(row);
   const displayName = getCharacterSpellDisplayName(row, matchedSpell);
-  const suggestions = getCharacterSpellSuggestions(row.id);
+  const shouldLoadSuggestions = state.showCharacterSpellSuggestions
+    && state.activeCharacterSpellRowId === row.id;
+  const suggestions = shouldLoadSuggestions ? getCharacterSpellSuggestions(row.id) : [];
   const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
-  const showSuggestions = state.showCharacterSpellSuggestions
-    && state.activeCharacterSpellRowId === row.id
-    && suggestions.length > 0;
+  const showSuggestions = shouldLoadSuggestions && suggestions.length > 0;
   const rawLevelValue = matchedSpell?.levelShort || row.level;
   const levelLabel = getCharacterSpellSortLevel(row) === 0 || isCharacterSpellCantripLabel(rawLevelValue)
     ? "TRUCO"
@@ -15971,6 +15972,7 @@ function renderCharacterSpellRow(row) {
             placeholder="Nombre del hechizo"
             data-character-spell-name="${escapeHtml(row.id)}"
           />
+          ${matchedSpell?.source ? `<span class="character-compendium-source">(${escapeHtml(matchedSpell.source)})</span>` : ""}
         </div>
         ${matchedSpell ? renderCharacterSpellPreview(matchedSpell) : ""}
         ${
@@ -16373,24 +16375,28 @@ function renderCharacterInventoryItemPreview(entry) {
 
 function renderCharacterInventoryRow(row) {
   const isCurrencyRow = isCharacterCurrencyRow(row.name);
-  const suggestions = getCharacterInventorySuggestions(row.id);
+  const shouldLoadSuggestions = !isCurrencyRow
+    && state.showCharacterInventorySuggestions
+    && state.activeCharacterInventoryRowId === row.id;
+  const suggestions = shouldLoadSuggestions ? getCharacterInventorySuggestions(row.id) : [];
   const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
-  const showSuggestions = state.showCharacterInventorySuggestions
-    && state.activeCharacterInventoryRowId === row.id
-    && suggestions.length > 0;
+  const showSuggestions = shouldLoadSuggestions && suggestions.length > 0;
   const matchedItem = !isCurrencyRow ? getCharacterInventoryMatchedItemEntry(row) : null;
 
   return `
     <div class="character-inventory__row" data-character-inventory-menu>
       <div class="character-inventory__name-cell${matchedItem ? " character-inventory__name-cell--linked" : ""}" data-character-inventory-menu>
-        <input
-          class="filter-input character-inventory__input${matchedItem ? " character-inventory__input--linked" : ""}"
-          type="search"
-          value="${escapeHtml(row.name)}"
-          placeholder="${isCurrencyRow ? "" : "Busca un objeto del catalogo"}"
-          data-character-inventory-name="${escapeHtml(row.id)}"
-          ${isCurrencyRow ? "readonly" : ""}
-        />
+        <div class="character-inventory__name-stack">
+          <input
+            class="filter-input character-inventory__input${matchedItem ? " character-inventory__input--linked" : ""}"
+            type="search"
+            value="${escapeHtml(row.name)}"
+            placeholder="${isCurrencyRow ? "" : "Busca un objeto del catalogo"}"
+            data-character-inventory-name="${escapeHtml(row.id)}"
+            ${isCurrencyRow ? "readonly" : ""}
+          />
+          ${matchedItem?.source ? `<span class="character-compendium-source">(${escapeHtml(matchedItem.source)})</span>` : ""}
+        </div>
         ${matchedItem ? renderCharacterInventoryItemPreview(matchedItem) : ""}
         ${
           !isCurrencyRow && showSuggestions
@@ -17995,6 +18001,7 @@ function createDefaultCharacter(overrides = {}) {
     sheetPdfName: "",
     sheetPdfBytes: 0,
     sheetPdfUploadedAt: "",
+    sheetPdfImported: false,
     armorClass: 10,
     maxHp,
     currentHp: maxHp,
@@ -19377,7 +19384,8 @@ async function updateActiveCharacterSheetPdf(file, options = {}) {
           sheetPdfUrl: pdfUrl,
           sheetPdfName: cleanText(file.name) || "Ficha de personaje.pdf",
           sheetPdfBytes: Math.max(0, Number(result?.asset?.byteSize) || file.size),
-          sheetPdfUploadedAt: new Date().toISOString()
+          sheetPdfUploadedAt: new Date().toISOString(),
+          sheetPdfImported: false
         })
         : entry);
       saveCharacters();
@@ -19493,7 +19501,8 @@ function importPendingCharacterPdfData() {
     ? normalizeStoredCharacter({
       ...entry,
       ...nextData,
-      classEntries: nextClassEntries
+      classEntries: nextClassEntries,
+      sheetPdfImported: CLOUD_PDF_ASSET_PATH_PATTERN.test(cleanText(entry.sheetPdfUrl))
     })
     : entry);
   reconcileCharactersWithCurrentCompendiumReferences({ save: false });

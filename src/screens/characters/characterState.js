@@ -206,6 +206,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     sheetPdfName: cleanText(character.sheetPdfName),
     sheetPdfBytes: normalizeStoredNonNegativeNumber(character.sheetPdfBytes),
     sheetPdfUploadedAt: cleanText(character.sheetPdfUploadedAt),
+    sheetPdfImported: character.sheetPdfImported === true,
     armorClass: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.armorClass)) || 10)),
     maxHp,
     currentHp,

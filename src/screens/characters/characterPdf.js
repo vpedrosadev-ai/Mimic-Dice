@@ -781,9 +781,29 @@ function getSpellCardComponents(spell) {
   };
 }
 
-function getSpellCardEffect(spell, contentLanguage = "es") {
+function getMeaningfulHigherLevelText(value) {
+  const text = cleanPdfText(value)
+    .replace(/^(?:(?:at higher levels|a higher levels|a niveles superiores|en niveles superiores|cantrip upgrade|actualizaci[oó]n de cantrip)\s*[.:]?\s*)+/i, "")
+    .replace(/["'`*#~^|]+$/u, "")
+    .trim();
+
+  return /[\p{L}\p{N}]/u.test(text) ? text : "";
+}
+
+export function getCharacterSpellCardTitle(spell) {
+  const name = cleanPdfText(spell?.name);
+  const source = cleanPdfText(Array.isArray(spell?.source) ? spell.source.join("/") : spell?.source);
+
+  if (!name || !source || name.endsWith(`(${source})`)) {
+    return name;
+  }
+
+  return `${name} (${source})`;
+}
+
+export function getCharacterSpellCardEffectText(spell, contentLanguage = "es") {
   const text = cleanPdfText(spell?.text);
-  const atHigherLevels = cleanPdfText(spell?.atHigherLevels);
+  const atHigherLevels = getMeaningfulHigherLevelText(spell?.atHigherLevels);
 
   if (!atHigherLevels) {
     return text;
@@ -791,6 +811,165 @@ function getSpellCardEffect(spell, contentLanguage = "es") {
 
   const label = contentLanguage === "en" ? "At Higher Levels" : "A niveles superiores";
   return [text, `${label}: ${atHigherLevels}`].filter(Boolean).join("\n\n");
+}
+
+function shouldEmphasizeSpellEffectSentence(value) {
+  const normalizedText = cleanPdfText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return /\b(?:damage|dano|danos)\b/.test(normalizedText)
+    || /\bsaving throws?\b/.test(normalizedText)
+    || /\b(?:failed|successful) saves?\b/.test(normalizedText)
+    || /\bsalvacion(?:es)?\b/.test(normalizedText);
+}
+
+export function getCharacterSpellCardEffectRuns(spell, contentLanguage = "es") {
+  const effectText = getCharacterSpellCardEffectText(spell, contentLanguage);
+  const blocks = effectText.split(/(\n+)/);
+  const runs = [];
+
+  blocks.forEach((block) => {
+    if (!block) {
+      return;
+    }
+
+    if (/^\n+$/.test(block)) {
+      runs.push({ text: block, bold: false });
+      return;
+    }
+
+    const sentences = block.match(/.*?(?:[.!?]+(?=\s|$)|$)/g)?.filter(Boolean) ?? [block];
+    sentences.forEach((sentence, index) => {
+      const text = sentence.trim();
+
+      if (text) {
+        runs.push({
+          text: `${index > 0 ? " " : ""}${text}`,
+          bold: shouldEmphasizeSpellEffectSentence(text)
+        });
+      }
+    });
+  });
+
+  return runs;
+}
+
+function appendSpellEffectLinePiece(line, text, bold, font, size) {
+  const lastPiece = line.at(-1);
+
+  if (lastPiece?.bold === bold) {
+    lastPiece.text += text;
+    lastPiece.width += font.widthOfTextAtSize(text, size);
+    return;
+  }
+
+  line.push({
+    text,
+    bold,
+    width: font.widthOfTextAtSize(text, size)
+  });
+}
+
+function layoutSpellEffectRuns(runs, fonts, size, maxWidth) {
+  const lines = [[]];
+  let lineWidth = 0;
+  let pendingSpace = false;
+
+  const startNewLine = () => {
+    lines.push([]);
+    lineWidth = 0;
+    pendingSpace = false;
+  };
+
+  runs.forEach((run) => {
+    const font = run.bold ? fonts.bold : fonts.regular;
+    const parts = run.text.split(/(\n+|[^\S\n]+)/);
+
+    parts.forEach((part) => {
+      if (!part) {
+        return;
+      }
+
+      if (/^\n+$/.test(part)) {
+        Array.from(part).forEach(() => startNewLine());
+        return;
+      }
+
+      if (/^[^\S\n]+$/.test(part)) {
+        pendingSpace = lines.at(-1).length > 0;
+        return;
+      }
+
+      const space = pendingSpace ? " " : "";
+      const wordWidth = font.widthOfTextAtSize(part, size);
+      const spaceWidth = space ? font.widthOfTextAtSize(space, size) : 0;
+
+      if (lineWidth > 0 && lineWidth + spaceWidth + wordWidth > maxWidth) {
+        startNewLine();
+      }
+
+      const prefix = lineWidth > 0 && pendingSpace ? " " : "";
+      appendSpellEffectLinePiece(lines.at(-1), `${prefix}${part}`, run.bold, font, size);
+      lineWidth += font.widthOfTextAtSize(`${prefix}${part}`, size);
+      pendingSpace = false;
+    });
+  });
+
+  while (lines.length > 1 && lines.at(-1).length === 0) {
+    lines.pop();
+  }
+
+  return lines;
+}
+
+function drawSpellCardEffect(page, rectangle, spell, fonts, contentLanguage = "es") {
+  if (!rectangle || !spell) {
+    return;
+  }
+
+  const runs = getCharacterSpellCardEffectRuns(spell, contentLanguage)
+    .map((run) => ({ ...run, text: toPdfText(run.text) }));
+  const padding = 2.5;
+  const maxWidth = Math.max(1, rectangle.width - padding * 2);
+  const maxHeight = Math.max(1, rectangle.height - padding * 2);
+  let fontSize = 3;
+  let lines = [];
+
+  for (let candidate = 6.2; candidate >= 3; candidate -= 0.1) {
+    const roundedSize = Number(candidate.toFixed(1));
+    const candidateLines = layoutSpellEffectRuns(runs, fonts, roundedSize, maxWidth);
+    const lineHeight = roundedSize * 1.18;
+
+    if (candidateLines.length * lineHeight <= maxHeight) {
+      fontSize = roundedSize;
+      lines = candidateLines;
+      break;
+    }
+  }
+
+  if (lines.length === 0) {
+    lines = layoutSpellEffectRuns(runs, fonts, fontSize, maxWidth);
+  }
+
+  const lineHeight = fontSize * 1.18;
+  const firstBaseline = rectangle.y + rectangle.height - padding - fontSize;
+
+  lines.forEach((line, lineIndex) => {
+    let x = rectangle.x + padding;
+    const y = firstBaseline - lineIndex * lineHeight;
+
+    line.forEach((piece) => {
+      page.drawText(piece.text, {
+        x,
+        y,
+        size: fontSize,
+        font: piece.bold ? fonts.bold : fonts.regular
+      });
+      x += piece.width;
+    });
+  });
 }
 
 function getSpellCardSchool(spell) {
@@ -830,7 +1009,7 @@ function writeCharacterSpellCard(writer, spell, cardIndex, options = {}) {
   const components = getSpellCardComponents(spell);
   const school = cleanPdfText(spell?.school);
   const duration = cleanPdfText(spell?.duration);
-  writer.setText(`SpellSheet1_Spell Name ${fieldIndex}`, spell?.name);
+  writer.setText(`SpellSheet1_Spell Name ${fieldIndex}`, getCharacterSpellCardTitle(spell));
   writer.setText(`SpellSheet 1_Spells Level ${fieldIndex}`, getCharacterPdfSpellLevelLabel(spell, options.contentLanguage));
   if (cardIndex > 1) {
     writer.setText(`SpellSheet1_Spell School ${fieldIndex}`, getSpellCardSchool(spell));
@@ -840,7 +1019,6 @@ function writeCharacterSpellCard(writer, spell, cardIndex, options = {}) {
   writer.setText(`SpellSheet1_Save ${fieldIndex}`, getSpellCardSaveLabel(spell));
   writer.setText(`SpellSheet1_Duration ${fieldIndex}`, duration);
   writer.setText([`SpellSheet1_Components ${fieldIndex}`, `SpellSheet1_Component ${fieldIndex}`], components.text);
-  writer.setText(`SpellSheet1_Spell Effect ${fieldIndex}`, getSpellCardEffect(spell, options.contentLanguage));
   writer.setChecked(`SpellSheet1_Ritual ${fieldIndex}`, /\britual\b/i.test(school));
   writer.setChecked(`SpellSheet1_Concentration ${fieldIndex}`, spell?.hasConcentration === true || /concentr/i.test(duration));
   writer.setChecked(`SpellSheet1_Verbal ${fieldIndex}`, components.verbal);
@@ -856,7 +1034,7 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
     return;
   }
 
-  const { PDFDocument, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
+  const { PDFDocument, PDFName, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
   const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
 
   for (let offset = 0; offset < spells.length; offset += 12) {
@@ -865,17 +1043,34 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
     const writer = createPdfFieldWriter(cardForm, pdfFieldTypes);
     const firstSchoolField = cardForm.getTextField("SpellSheet1_Spell School 01");
     const firstSchoolRectangles = firstSchoolField.acroField.getWidgets().map((widget) => widget.getRectangle());
+    const effectRectangles = Array.from({ length: 12 }, (_, index) => {
+      const fieldIndex = String(index + 1).padStart(2, "0");
+      return cardForm
+        .getTextField(`SpellSheet1_Spell Effect ${fieldIndex}`)
+        .acroField
+        .getWidgets()[0]
+        ?.getRectangle();
+    });
     const pageSpells = spells.slice(offset, offset + 12);
     writeCharacterSpellCardHeader(writer, character);
     pageSpells.forEach((spell, index) => writeCharacterSpellCard(writer, spell, index, options));
     const font = await cardDocument.embedFont(StandardFonts.Helvetica);
+    const boldFont = await cardDocument.embedFont(StandardFonts.HelveticaBold);
     cardForm.updateFieldAppearances(font);
     cardForm.flatten({ updateFieldAppearances: false });
+    const page = cardDocument.getPages()[0];
+    page.node.delete(PDFName.of("Annots"));
+    pageSpells.forEach((spell, index) => {
+      drawSpellCardEffect(page, effectRectangles[index], spell, {
+        regular: font,
+        bold: boldFont
+      }, options.contentLanguage);
+    });
     firstSchoolRectangles.slice(0, 2).forEach((rectangle, index) => {
       const school = getSpellCardSchool(pageSpells[index]);
 
       if (school) {
-        cardDocument.getPages()[0].drawText(toPdfText(school).slice(0, 22), {
+        page.drawText(toPdfText(school).slice(0, 22), {
           x: rectangle.x + 1,
           y: rectangle.y + 1.6,
           size: 6,
@@ -883,11 +1078,15 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
         });
       }
     });
-    const copiedPages = await document.copyPages(
-      cardDocument,
-      cardDocument.getPages().map((_, index) => index)
+    const normalizedCardDocument = await PDFDocument.load(
+      await cardDocument.save({ updateFieldAppearances: false, useObjectStreams: false }),
+      { ignoreEncryption: true }
     );
-    copiedPages.forEach((page) => document.addPage(page));
+    const copiedPages = await document.copyPages(
+      normalizedCardDocument,
+      normalizedCardDocument.getPages().map((_, index) => index)
+    );
+    copiedPages.forEach((copiedPage) => document.addPage(copiedPage));
   }
 }
 
