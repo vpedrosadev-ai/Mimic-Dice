@@ -4,9 +4,9 @@ import { getCharacterClassKey } from "./data/characterClasses.js";
 import {
   findCharacterClassRecord,
   findCharacterSubclassRecord,
+  getBundledCharacterClassCatalog,
   getCharacterClassInputOptions,
   getCharacterSubclassInputOptions,
-  loadCharacterClassCatalog,
   parseCharacterClassInput
 } from "./data/characterClassData.js";
 import {
@@ -737,8 +737,6 @@ const compendiumLoadTokens = {
 };
 const queuedCompendiumLoads = new Set();
 let compendiumLoadGeneration = 0;
-let characterClassDataLoadPromise = null;
-let characterClassDataLoadGeneration = 0;
 let arcanumSpellLinkCache = {
   signature: "",
   pattern: null,
@@ -847,8 +845,10 @@ state = {
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   charactersOverviewHidden: false,
-  characterClassData: null,
-  characterClassDataStatus: "idle",
+  characterClassData: getBundledCharacterClassCatalog(
+    normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage)
+  ),
+  characterClassDataStatus: "ready",
   characterClassDataMessage: "",
   characterSkillDefinitions: initialCharacterSkillDefinitions,
   characters: initialCharacters,
@@ -5385,72 +5385,15 @@ function queueCompendiumLoadsForScreen(screenId) {
 }
 
 function queueCharacterClassDataLoad(screenId = state.activeScreen) {
-  if (
-    screenId !== "characters"
-    || typeof window === "undefined"
-    || state.characterClassDataStatus !== "idle"
-    || characterClassDataLoadPromise
-  ) {
-    return;
-  }
-
-  window.setTimeout(() => ensureCharacterClassDataLoaded(), 0);
-}
-
-function ensureCharacterClassDataLoaded() {
-  if (state.characterClassDataStatus === "ready") {
-    return Promise.resolve(state.characterClassData);
-  }
-
-  if (characterClassDataLoadPromise) {
-    return characterClassDataLoadPromise;
-  }
-
-  state.characterClassDataStatus = "loading";
-  state.characterClassDataMessage = "";
-  render();
-  const loadGeneration = characterClassDataLoadGeneration;
-  characterClassDataLoadPromise = loadCharacterClassCatalog(
-    normalizeStoredContentLanguage(state.contentLanguage),
-    DESKTOP_ASSET_BASE_URL
-  )
-    .then((catalog) => {
-      if (loadGeneration !== characterClassDataLoadGeneration) {
-        return null;
-      }
-      state.characterClassData = catalog;
-      state.characterClassDataStatus = "ready";
-      state.characterClassDataMessage = "";
-      render();
-      return catalog;
-    })
-    .catch((error) => {
-      if (loadGeneration !== characterClassDataLoadGeneration) {
-        return null;
-      }
-      state.characterClassData = null;
-      state.characterClassDataStatus = "error";
-      state.characterClassDataMessage = error instanceof Error
-        ? error.message
-        : "No se pudieron cargar los datos de clases.";
-      render();
-      return null;
-    })
-    .finally(() => {
-      if (loadGeneration === characterClassDataLoadGeneration) {
-        characterClassDataLoadPromise = null;
-      }
-    });
-
-  return characterClassDataLoadPromise;
+  return screenId === "characters";
 }
 
 function resetCharacterClassData() {
-  characterClassDataLoadGeneration += 1;
-  state.characterClassData = null;
-  state.characterClassDataStatus = "idle";
+  state.characterClassData = getBundledCharacterClassCatalog(
+    normalizeStoredContentLanguage(state.contentLanguage)
+  );
+  state.characterClassDataStatus = "ready";
   state.characterClassDataMessage = "";
-  characterClassDataLoadPromise = null;
 }
 
 function queueCompendiumLoad(kind, delay = 0) {

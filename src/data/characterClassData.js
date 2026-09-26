@@ -1,7 +1,6 @@
 import { getCharacterClassKey, translateCharacterClassName } from "./characterClasses.js";
-
-const CLASS_MANIFEST_PATH = "data/classes/manifest.json";
-const catalogPromises = new Map();
+import generatedClassCatalog from "./generated/classCatalog.generated.js";
+import generatedSpanishClassTranslations from "./generated/classTranslationsEs.generated.js";
 
 const preferredClassSources = Object.freeze({
   artificer: ["TCE", "EFA"],
@@ -20,63 +19,48 @@ const preferredClassSources = Object.freeze({
 });
 
 export async function loadCharacterClassCatalog(language = "en", assetBaseUrl = "") {
-  const normalizedLanguage = language === "es" ? "es" : "en";
-  const normalizedBaseUrl = String(assetBaseUrl || "").replace(/\/+$/, "");
-  const cacheKey = `${normalizedBaseUrl}|${normalizedLanguage}`;
-
-  if (!catalogPromises.has(cacheKey)) {
-    catalogPromises.set(cacheKey, loadCatalog(normalizedLanguage, normalizedBaseUrl).catch((error) => {
-      catalogPromises.delete(cacheKey);
-      throw error;
-    }));
-  }
-
-  return catalogPromises.get(cacheKey);
+  return getBundledCharacterClassCatalog(language);
 }
 
-async function loadCatalog(language, assetBaseUrl) {
-  const manifest = await loadJson(buildAssetUrl(assetBaseUrl, CLASS_MANIFEST_PATH));
-
-  if (manifest?.schemaVersion !== 1 || !manifest?.catalog?.path) {
-    throw new Error("Class data manifest is invalid.");
-  }
-
-  const [catalog, translationOverlay] = await Promise.all([
-    loadJson(buildAssetUrl(assetBaseUrl, manifest.catalog.path)),
-    language === "es" && manifest.translations?.es?.path
-      ? loadJson(buildAssetUrl(assetBaseUrl, manifest.translations.es.path))
-      : Promise.resolve(null)
-  ]);
+export function getBundledCharacterClassCatalog(language = "en") {
+  const normalizedLanguage = language === "es" ? "es" : "en";
+  const catalog = generatedClassCatalog;
+  const translationOverlay = normalizedLanguage === "es" ? generatedSpanishClassTranslations : null;
 
   if (catalog?.schemaVersion !== 1 || !Array.isArray(catalog.classes)) {
     throw new Error("Class catalog is invalid.");
   }
 
   return {
-    version: manifest.version,
-    sourceVersion: manifest.sourceVersion,
-    language,
+    version: catalog.sourceVersion,
+    sourceVersion: catalog.sourceVersion,
+    language: normalizedLanguage,
     classes: catalog.classes,
     translations: translationOverlay?.translations ?? {},
     translatedFeatureCount: Number(translationOverlay?.translatedFeatureCount) || 0,
-    featureCount: Number(manifest.featureCount) || 0,
-    subclassCount: Number(manifest.subclassCount) || 0
+    featureCount: Number(translationOverlay?.totalFeatureCount) || countFeatures(catalog.classes),
+    subclassCount: catalog.classes.reduce(
+      (total, classEntity) => total + (Array.isArray(classEntity.subclasses) ? classEntity.subclasses.length : 0),
+      0
+    )
   };
 }
 
-async function loadJson(url) {
-  const response = await fetch(url, { cache: "force-cache" });
-
-  if (!response.ok) {
-    throw new Error(`Class data request failed (${response.status}).`);
-  }
-
-  return response.json();
-}
-
-function buildAssetUrl(assetBaseUrl, relativePath) {
-  const cleanPath = String(relativePath || "").replace(/^\/+/, "");
-  return assetBaseUrl ? `${assetBaseUrl}/${cleanPath}` : cleanPath;
+function countFeatures(classes) {
+  return classes.reduce((total, classEntity) => {
+    const classFeatures = (classEntity.levels ?? []).reduce(
+      (sum, level) => sum + (Array.isArray(level.features) ? level.features.length : 0),
+      0
+    );
+    const subclassFeatures = (classEntity.subclasses ?? []).reduce(
+      (subclassTotal, subclass) => subclassTotal + (subclass.levels ?? []).reduce(
+        (sum, level) => sum + (Array.isArray(level.features) ? level.features.length : 0),
+        0
+      ),
+      0
+    );
+    return total + classFeatures + subclassFeatures;
+  }, 0);
 }
 
 export function findCharacterClassRecord(catalog, entryOrName, explicitSource = "") {

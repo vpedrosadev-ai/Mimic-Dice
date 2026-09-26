@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   findCharacterClassRecord,
   findCharacterSubclassRecord,
-  getLocalizedCharacterClassFeature
+  getLocalizedCharacterClassFeature,
+  loadCharacterClassCatalog
 } from "../src/data/characterClassData.js";
 import { renderCharacterClassFeaturesSection } from "../src/screens/characters/characterClassFeatures.js";
 
@@ -21,6 +22,12 @@ const catalog = {
   classes: catalogPayload.classes,
   translations: spanishPayload.translations
 };
+
+const dynamicallyLoadedCatalog = await loadCharacterClassCatalog("es");
+assert.equal(dynamicallyLoadedCatalog.classes.length, 30);
+assert.equal(dynamicallyLoadedCatalog.subclassCount, 330);
+assert.equal(dynamicallyLoadedCatalog.featureCount, 1760);
+assert.equal(dynamicallyLoadedCatalog.translatedFeatureCount, 1098);
 
 const classicWizard = findCharacterClassRecord(catalog, { name: "Mago" });
 assert.equal(classicWizard?.name, "Wizard");
