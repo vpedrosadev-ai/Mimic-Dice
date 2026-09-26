@@ -12764,32 +12764,6 @@ body.is-table-resizing * {
   position: relative;
 }
 
-.character-compendium-source {
-  position: absolute;
-  top: 50%;
-  right: 0.75rem;
-  max-width: 38%;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-  line-height: 1;
-  pointer-events: none;
-  text-overflow: ellipsis;
-  transform: translateY(-50%);
-  white-space: nowrap;
-}
-
-.character-spellbook__name-stack:has(.character-compendium-source) .character-spellbook__input,
-.character-inventory__name-stack:has(.character-compendium-source) .character-inventory__input {
-  padding-right: 4.5rem;
-}
-
-.character-spellbook__name-stack:focus-within .character-compendium-source,
-.character-inventory__name-stack:focus-within .character-compendium-source {
-  opacity: 0;
-}
-
 .character-spellbook__suggestions,
 .character-inventory__suggestions {
   width: min(26rem, 100%);

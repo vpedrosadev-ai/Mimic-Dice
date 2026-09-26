@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   fillCharacterPdfTemplate,
+  getCharacterSpellCardEffectFontSize,
   getCharacterSpellCardEffectRuns,
   getCharacterSpellCardEffectText,
   getCharacterSpellCardTitle
@@ -53,6 +54,14 @@ assert.equal(
   "Texto base."
 );
 assert.equal(
+  getCharacterSpellCardEffectText({ text: "Texto base.", atHigherLevels: "A niveles superiores: ---" }),
+  "Texto base."
+);
+assert.equal(
+  getCharacterSpellCardEffectText({ text: "Base.", atHigherLevels: "Using a Higher-Level Spell Slot. \"\"" }, "en"),
+  "Base."
+);
+assert.equal(
   getCharacterSpellCardEffectText({
     text: "Texto base.",
     atHigherLevels: "Actualización de Cantrip. El daño aumenta en 1d8.\""
@@ -84,10 +93,24 @@ assert.ok(getCharacterSpellCardEffectRuns({
   atHigherLevels: "En niveles superiores. El daño aumenta por cada espacio de 2.º nivel por encima del 1.º.\""
 }).some((run) => run.text.includes("2.º nivel por encima del 1.º.")));
 
+const fontTestDocument = await PDFDocument.create();
+const fontTestFonts = {
+  regular: await fontTestDocument.embedFont(StandardFonts.Helvetica),
+  bold: await fontTestDocument.embedFont(StandardFonts.HelveticaBold)
+};
+const fontTestRectangle = { x: 0, y: 0, width: 126, height: 105 };
+const shortEffectFontSize = getCharacterSpellCardEffectFontSize({ text: "Una criatura recibe 1d6 de daño." }, fontTestFonts, fontTestRectangle);
+const longEffectFontSize = getCharacterSpellCardEffectFontSize({
+  text: Array.from({ length: 24 }, () => "La criatura realiza una tirada de salvación y recibe 4d8 de daño si falla.").join(" ")
+}, fontTestFonts, fontTestRectangle);
+assert.ok(shortEffectFontSize > longEffectFontSize);
+
 const spellCardResultBytes = await fillCharacterPdfTemplate(templateBytes, {
   name: "Frank",
   className: "Mago",
   level: 3,
+  spellAttackModifier: 6,
+  spellSaveDc: 14,
   abilities: { str: 10, dex: 14, con: 12, int: 16, wis: 10, cha: 10 },
   proficiencies: [],
   expertise: [],
@@ -112,5 +135,17 @@ const spellCardResultBytes = await fillCharacterPdfTemplate(templateBytes, {
 });
 const spellCardResultDocument = await PDFDocument.load(spellCardResultBytes);
 assert.ok(spellCardResultDocument.getPageCount() > resultDocument.getPageCount());
+const spellCardHeaderValues = {
+  "SpellCards.1.SpellAttackBonus": "+6",
+  "SpellCards.1.SpellSaveDC": "14",
+  "SpellCards.1.CantripsKnown": "0",
+  "SpellCards.1.SpellsPrepared": "1"
+};
+
+Object.entries(spellCardHeaderValues).forEach(([name, value]) => {
+  const field = spellCardResultDocument.getForm().getTextField(name);
+  assert.equal(field.getText(), value);
+  assert.ok(field.acroField.getWidgets().every((widget) => widget.getAppearances()?.normal));
+});
 
 console.log("Character PDF tests passed.");

@@ -7,14 +7,18 @@ export function parseCsv(csvText) {
   }
 
   const delimiter = detectCsvDelimiter(normalizedCsvText);
+  return mapCsvRowsToRecords(parseDelimitedRows(normalizedCsvText, delimiter));
+}
+
+function parseDelimitedRows(csvText, delimiter) {
   const rows = [];
   const currentRow = [];
   let currentField = "";
   let insideQuotes = false;
 
-  for (let index = 0; index < normalizedCsvText.length; index += 1) {
-    const char = normalizedCsvText[index];
-    const nextChar = normalizedCsvText[index + 1];
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index];
+    const nextChar = csvText[index + 1];
 
     if (char === "\"") {
       if (insideQuotes && nextChar === "\"") {
@@ -57,6 +61,11 @@ export function parseCsv(csvText) {
   if (currentRow.some((value) => value !== "")) {
     rows.push([...currentRow]);
   }
+
+  return rows;
+}
+
+function mapCsvRowsToRecords(rows) {
 
   const [headers = [], ...dataRows] = rows;
 
@@ -124,13 +133,31 @@ function parseWrappedSpreadsheetCsvExport(csvText) {
 
   const headerScore = countWrappedSpreadsheetLineTokens(headerLine);
   const minimumStartScore = Math.max(3, Math.floor(headerScore * 0.6));
-  const repairedHeaderLine = repairWrappedSpreadsheetLine(headerLine, { isHeader: true });
-  const rows = lines
-    .slice(1)
-    .filter((line) => countWrappedSpreadsheetLineTokens(line) >= minimumStartScore)
-    .map((line) => repairWrappedSpreadsheetLine(line))
-    .map((line) => parseCsv(`${repairedHeaderLine}\n${line}`)[0])
-    .filter(Boolean);
+  const spreadsheetRows = lines.map((line) => parseDelimitedRows(line, ";")[0] ?? []);
+  const groupedInnerRows = [];
+
+  spreadsheetRows.forEach((spreadsheetRow, index) => {
+    const innerCells = [...spreadsheetRow];
+
+    while (innerCells.at(-1) === "") {
+      innerCells.pop();
+    }
+
+    const innerLine = innerCells.join(";");
+    const startsInnerRow = countWrappedSpreadsheetLineTokens(lines[index]) >= minimumStartScore;
+
+    if (startsInnerRow || groupedInnerRows.length === 0) {
+      groupedInnerRows.push(innerLine);
+      return;
+    }
+
+    groupedInnerRows[groupedInnerRows.length - 1] += `\n${innerLine}`;
+  });
+
+  const reconstructedCsv = groupedInnerRows
+    .map(restoreWrappedFirstFieldQuote)
+    .join("\n");
+  const rows = mapCsvRowsToRecords(parseDelimitedRows(reconstructedCsv, ","));
 
   return rows.length > 0 ? rows : null;
 }
@@ -147,24 +174,25 @@ function countWrappedSpreadsheetLineTokens(line) {
   return (String(line ?? "").match(/,""/g) || []).length;
 }
 
-function repairWrappedSpreadsheetLine(line, options = {}) {
-  const { isHeader = false } = options;
-  let repairedLine = String(line ?? "").replace(/;+$/, "");
+function restoreWrappedFirstFieldQuote(value) {
+  const restoredValue = String(value ?? "")
+    .replace(/^([^",\n]+)"([^"\n]+)",/, "$1,\"$2\",")
+    .replace(/^([^",\n]*),/, "\"$1\",");
+  let insideQuotes = false;
 
-  if (repairedLine.startsWith("\"")) {
-    repairedLine = repairedLine.slice(1);
+  for (let index = 0; index < restoredValue.length; index += 1) {
+    if (restoredValue[index] !== "\"") {
+      continue;
+    }
+
+    if (insideQuotes && restoredValue[index + 1] === "\"") {
+      index += 1;
+    } else {
+      insideQuotes = !insideQuotes;
+    }
   }
 
-  if (isHeader && repairedLine.endsWith("\"")) {
-    repairedLine = repairedLine.slice(0, -1);
-  }
-
-  repairedLine = repairedLine
-    .replace(/";"/g, ";")
-    .replace(/""/g, "\"");
-
-  repairedLine = `\"${repairedLine}`.replace(/^"([^",\n]*),/, "\"$1\",");
-  return repairedLine;
+  return insideQuotes ? `${restoredValue}\",\"\"` : restoredValue;
 }
 
 function countDelimitersOutsideQuotes(line, delimiters) {

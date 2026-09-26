@@ -783,7 +783,7 @@ function getSpellCardComponents(spell) {
 
 function getMeaningfulHigherLevelText(value) {
   const text = cleanPdfText(value)
-    .replace(/^(?:(?:at higher levels|a higher levels|a niveles superiores|en niveles superiores|cantrip upgrade|actualizaci[oó]n de cantrip)\s*[.:]?\s*)+/i, "")
+    .replace(/^(?:(?:at higher levels|a higher levels|using a higher-level spell slot|a niveles superiores|en niveles superiores|usando un espacio de hechizo de nivel superior|cantrip upgrade|actualizaci[oó]n de cantrip)\s*[.:]?\s*)+/i, "")
     .replace(/["'`*#~^|]+$/u, "")
     .trim();
 
@@ -792,7 +792,8 @@ function getMeaningfulHigherLevelText(value) {
 
 export function getCharacterSpellCardTitle(spell) {
   const name = cleanPdfText(spell?.name);
-  const source = cleanPdfText(Array.isArray(spell?.source) ? spell.source.join("/") : spell?.source);
+  const rawSource = spell?.source || spell?.canonicalSource || spell?.sourceAbbreviation;
+  const source = cleanPdfText(Array.isArray(rawSource) ? rawSource.join("/") : rawSource);
 
   if (!name || !source || name.endsWith(`(${source})`)) {
     return name;
@@ -924,20 +925,16 @@ function layoutSpellEffectRuns(runs, fonts, size, maxWidth) {
   return lines;
 }
 
-function drawSpellCardEffect(page, rectangle, spell, fonts, contentLanguage = "es") {
-  if (!rectangle || !spell) {
-    return;
-  }
-
+function getSpellCardEffectLayout(rectangle, spell, fonts, contentLanguage = "es") {
   const runs = getCharacterSpellCardEffectRuns(spell, contentLanguage)
     .map((run) => ({ ...run, text: toPdfText(run.text) }));
   const padding = 2.5;
   const maxWidth = Math.max(1, rectangle.width - padding * 2);
   const maxHeight = Math.max(1, rectangle.height - padding * 2);
-  let fontSize = 3;
+  let fontSize = 1.5;
   let lines = [];
 
-  for (let candidate = 6.2; candidate >= 3; candidate -= 0.1) {
+  for (let candidate = 8.4; candidate >= 1.5; candidate -= 0.1) {
     const roundedSize = Number(candidate.toFixed(1));
     const candidateLines = layoutSpellEffectRuns(runs, fonts, roundedSize, maxWidth);
     const lineHeight = roundedSize * 1.18;
@@ -952,6 +949,24 @@ function drawSpellCardEffect(page, rectangle, spell, fonts, contentLanguage = "e
   if (lines.length === 0) {
     lines = layoutSpellEffectRuns(runs, fonts, fontSize, maxWidth);
   }
+
+  return { fontSize, lines, padding };
+}
+
+export function getCharacterSpellCardEffectFontSize(spell, fonts, rectangle, contentLanguage = "es") {
+  if (!rectangle || !spell) {
+    return 0;
+  }
+
+  return getSpellCardEffectLayout(rectangle, spell, fonts, contentLanguage).fontSize;
+}
+
+function drawSpellCardEffect(page, rectangle, spell, fonts, contentLanguage = "es") {
+  if (!rectangle || !spell) {
+    return;
+  }
+
+  const { fontSize, lines, padding } = getSpellCardEffectLayout(rectangle, spell, fonts, contentLanguage);
 
   const lineHeight = fontSize * 1.18;
   const firstBaseline = rectangle.y + rectangle.height - padding - fontSize;
@@ -969,6 +984,71 @@ function drawSpellCardEffect(page, rectangle, spell, fonts, contentLanguage = "e
       });
       x += piece.width;
     });
+  });
+}
+
+const SPELL_CARD_EDITABLE_HEADER_FIELDS = Object.freeze([
+  { id: "SpellAttackBonus", templateName: "SpellSheet 1_Spell Atk" },
+  { id: "SpellSaveDC", templateName: "SpellSheet 1_Spell DC" },
+  { id: "CantripsKnown", templateName: "SpellSheet 1_Cantrips Known" },
+  { id: "SpellsPrepared", templateName: "SpellSheet 1_Spells Known" }
+]);
+
+function getCharacterSpellCardHeaderValues(character) {
+  const spells = getCharacterPdfSpells(character);
+  const cantripCount = spells.filter((spell) => getCharacterSpellLevel(spell.level) === 0).length;
+
+  return [
+    character?.spellAttackModifier === "" || character?.spellAttackModifier === null || character?.spellAttackModifier === undefined
+      ? ""
+      : formatSigned(character.spellAttackModifier),
+    cleanPdfText(character?.spellSaveDc),
+    String(cantripCount),
+    String(spells.length - cantripCount)
+  ];
+}
+
+function getSpellCardEditableHeaderRectangles(form) {
+  return SPELL_CARD_EDITABLE_HEADER_FIELDS.map(({ templateName }) => form
+    .getTextField(templateName)
+    .acroField
+    .getWidgets()[0]
+    ?.getRectangle());
+}
+
+function clearSpellCardEditableHeaderFields(form) {
+  SPELL_CARD_EDITABLE_HEADER_FIELDS.forEach(({ templateName }) => {
+    form.getTextField(templateName).setText("");
+  });
+}
+
+function addSpellCardEditableHeaderFields(document, page, rectangles, values, sheetIndex, font, pdfLibrary) {
+  const { TextAlignment, rgb } = pdfLibrary;
+  const form = document.getForm();
+
+  SPELL_CARD_EDITABLE_HEADER_FIELDS.forEach(({ id }, index) => {
+    const rectangle = rectangles[index];
+
+    if (!rectangle) {
+      return;
+    }
+
+    const field = form.createTextField(`SpellCards.${sheetIndex}.${id}`);
+    field.setText(toPdfText(values[index]));
+    field.setAlignment(TextAlignment.Center);
+    field.addToPage(page, {
+      x: rectangle.x,
+      y: rectangle.y,
+      width: rectangle.width,
+      height: rectangle.height,
+      textColor: rgb(0, 0, 0),
+      backgroundColor: undefined,
+      borderColor: undefined,
+      borderWidth: 0,
+      font
+    });
+    field.setFontSize(17);
+    field.updateAppearances(font);
   });
 }
 
@@ -1034,13 +1114,16 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
     return;
   }
 
-  const { PDFDocument, PDFName, StandardFonts, ...pdfFieldTypes } = pdfLibrary;
+  const { PDFDocument, PDFName, StandardFonts, TextAlignment, rgb, ...pdfFieldTypes } = pdfLibrary;
   const sourceBytes = templateBytes instanceof Uint8Array ? templateBytes : new Uint8Array(templateBytes);
+  const editableHeaderFont = await document.embedFont(StandardFonts.Helvetica);
+  const editableHeaderValues = getCharacterSpellCardHeaderValues(character);
 
   for (let offset = 0; offset < spells.length; offset += 12) {
     const cardDocument = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
     const cardForm = cardDocument.getForm();
     const writer = createPdfFieldWriter(cardForm, pdfFieldTypes);
+    const editableHeaderRectangles = getSpellCardEditableHeaderRectangles(cardForm);
     const firstSchoolField = cardForm.getTextField("SpellSheet1_Spell School 01");
     const firstSchoolRectangles = firstSchoolField.acroField.getWidgets().map((widget) => widget.getRectangle());
     const effectRectangles = Array.from({ length: 12 }, (_, index) => {
@@ -1056,6 +1139,7 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
     pageSpells.forEach((spell, index) => writeCharacterSpellCard(writer, spell, index, options));
     const font = await cardDocument.embedFont(StandardFonts.Helvetica);
     const boldFont = await cardDocument.embedFont(StandardFonts.HelveticaBold);
+    clearSpellCardEditableHeaderFields(cardForm);
     cardForm.updateFieldAppearances(font);
     cardForm.flatten({ updateFieldAppearances: false });
     const page = cardDocument.getPages()[0];
@@ -1078,15 +1162,20 @@ async function appendCharacterSpellCardSheets(document, templateBytes, character
         });
       }
     });
-    const normalizedCardDocument = await PDFDocument.load(
-      await cardDocument.save({ updateFieldAppearances: false, useObjectStreams: false }),
-      { ignoreEncryption: true }
+    const cardBytes = await cardDocument.save({ updateFieldAppearances: false, useObjectStreams: false });
+    const [embeddedCardPage] = await document.embedPdf(cardBytes, [0]);
+    const { width, height } = page.getSize();
+    const destinationPage = document.addPage([width, height]);
+    destinationPage.drawPage(embeddedCardPage, { x: 0, y: 0, width, height });
+    addSpellCardEditableHeaderFields(
+      document,
+      destinationPage,
+      editableHeaderRectangles,
+      editableHeaderValues,
+      Math.floor(offset / 12) + 1,
+      editableHeaderFont,
+      { TextAlignment, rgb }
     );
-    const copiedPages = await document.copyPages(
-      normalizedCardDocument,
-      normalizedCardDocument.getPages().map((_, index) => index)
-    );
-    copiedPages.forEach((copiedPage) => document.addPage(copiedPage));
   }
 }
 

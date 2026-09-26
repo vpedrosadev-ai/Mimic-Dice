@@ -4944,6 +4944,12 @@ function handleMouseOut(event) {
 }
 
 function handleFocusIn(event) {
+  const linkedCharacterReferenceInput = event.target.closest?.("[data-character-reference-base-name]");
+
+  if (linkedCharacterReferenceInput) {
+    linkedCharacterReferenceInput.value = linkedCharacterReferenceInput.dataset.characterReferenceBaseName;
+  }
+
   const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
 
   if (overviewTooltipTrigger) {
@@ -4968,6 +4974,15 @@ function handleFocusIn(event) {
 }
 
 function handleFocusOut(event) {
+  const linkedCharacterReferenceInput = event.target.closest?.("[data-character-reference-base-name]");
+
+  if (
+    linkedCharacterReferenceInput
+    && linkedCharacterReferenceInput.value === linkedCharacterReferenceInput.dataset.characterReferenceBaseName
+  ) {
+    linkedCharacterReferenceInput.value = linkedCharacterReferenceInput.dataset.characterReferenceDisplayName;
+  }
+
   const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
 
   if (overviewTooltipTrigger) {
@@ -15951,6 +15966,7 @@ function renderCharacterSpellPreview(entry) {
 function renderCharacterSpellRow(row) {
   const matchedSpell = getCharacterSpellMatchedEntry(row);
   const displayName = getCharacterSpellDisplayName(row, matchedSpell);
+  const linkedDisplayName = matchedSpell?.source ? `${displayName} (${matchedSpell.source})` : displayName;
   const shouldLoadSuggestions = state.showCharacterSpellSuggestions
     && state.activeCharacterSpellRowId === row.id;
   const suggestions = shouldLoadSuggestions ? getCharacterSpellSuggestions(row.id) : [];
@@ -15968,11 +15984,11 @@ function renderCharacterSpellRow(row) {
           <input
             class="filter-input character-spellbook__input${matchedSpell ? " character-spellbook__input--linked" : ""}"
             type="search"
-            value="${escapeHtml(displayName)}"
+            value="${escapeHtml(linkedDisplayName)}"
             placeholder="Nombre del hechizo"
             data-character-spell-name="${escapeHtml(row.id)}"
+            ${matchedSpell ? `data-character-reference-base-name="${escapeHtml(displayName)}" data-character-reference-display-name="${escapeHtml(linkedDisplayName)}"` : ""}
           />
-          ${matchedSpell?.source ? `<span class="character-compendium-source">(${escapeHtml(matchedSpell.source)})</span>` : ""}
         </div>
         ${matchedSpell ? renderCharacterSpellPreview(matchedSpell) : ""}
         ${
@@ -16382,6 +16398,7 @@ function renderCharacterInventoryRow(row) {
   const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
   const showSuggestions = shouldLoadSuggestions && suggestions.length > 0;
   const matchedItem = !isCurrencyRow ? getCharacterInventoryMatchedItemEntry(row) : null;
+  const displayName = matchedItem?.source ? `${row.name} (${matchedItem.source})` : row.name;
 
   return `
     <div class="character-inventory__row" data-character-inventory-menu>
@@ -16390,12 +16407,12 @@ function renderCharacterInventoryRow(row) {
           <input
             class="filter-input character-inventory__input${matchedItem ? " character-inventory__input--linked" : ""}"
             type="search"
-            value="${escapeHtml(row.name)}"
+            value="${escapeHtml(displayName)}"
             placeholder="${isCurrencyRow ? "" : "Busca un objeto del catalogo"}"
             data-character-inventory-name="${escapeHtml(row.id)}"
+            ${matchedItem ? `data-character-reference-base-name="${escapeHtml(row.name)}" data-character-reference-display-name="${escapeHtml(displayName)}"` : ""}
             ${isCurrencyRow ? "readonly" : ""}
           />
-          ${matchedItem?.source ? `<span class="character-compendium-source">(${escapeHtml(matchedItem.source)})</span>` : ""}
         </div>
         ${matchedItem ? renderCharacterInventoryItemPreview(matchedItem) : ""}
         ${
@@ -19654,6 +19671,7 @@ function getCharacterPdfExportCharacter(character) {
       ...matchedSpell,
       ...spell,
       name: translatedName || spell.name,
+      source: cleanText(matchedSpell.source || spell.source),
       level: normalizeCharacterSpellLevelLabel(matchedSpell.levelShort || spell.level)
     };
   });
