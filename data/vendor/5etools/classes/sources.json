@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "english": {
+    "version": "v2.36.1",
+    "baseUrl": "https://raw.githubusercontent.com/5etools-mirror-3/5etools-src/v2.36.1",
+    "classFiles": [
+      "class-artificer.json",
+      "class-barbarian.json",
+      "class-bard.json",
+      "class-cleric.json",
+      "class-druid.json",
+      "class-fighter.json",
+      "class-monk.json",
+      "class-mystic.json",
+      "class-paladin.json",
+      "class-ranger.json",
+      "class-rogue.json",
+      "class-sidekick.json",
+      "class-sorcerer.json",
+      "class-warlock.json",
+      "class-wizard.json"
+    ],
+    "fluffFiles": [
+      "fluff-class-artificer.json",
+      "fluff-class-barbarian.json",
+      "fluff-class-bard.json",
+      "fluff-class-cleric.json",
+      "fluff-class-druid.json",
+      "fluff-class-fighter.json",
+      "fluff-class-monk.json",
+      "fluff-class-mystic.json",
+      "fluff-class-paladin.json",
+      "fluff-class-ranger.json",
+      "fluff-class-rogue.json",
+      "fluff-class-sidekick.json",
+      "fluff-class-sorcerer.json",
+      "fluff-class-warlock.json",
+      "fluff-class-wizard.json"
+    ]
+  },
+  "spanish": {
+    "snapshot": "translated-mirror-2023-12-18",
+    "baseUrl": "https://5etools-translated.github.io/data.es/class/",
+    "classFiles": [
+      "class-artificer.json",
+      "class-barbarian.json",
+      "class-bard.json",
+      "class-cleric.json",
+      "class-druid.json",
+      "class-fighter.json",
+      "class-generic.json",
+      "class-monk.json",
+      "class-mystic.json",
+      "class-paladin.json",
+      "class-ranger.json",
+      "class-rogue.json",
+      "class-rune-scribe.json",
+      "class-sidekick.json",
+      "class-sorcerer.json",
+      "class-warlock.json",
+      "class-wizard.json"
+    ],
+    "note": "Machine-translated mirror snapshot. Newer English entities fall back to English."
+  }
+}

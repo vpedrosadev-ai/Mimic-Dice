@@ -14,6 +14,13 @@ const CHARACTER_CLASS_DEFINITIONS = Object.freeze([
   { key: "wizard", english: "Wizard", spanish: "Mago", aliases: ["wizard", "mago"] }
 ]);
 
+export function getCharacterClassDefinitions() {
+  return CHARACTER_CLASS_DEFINITIONS.map((entry) => ({
+    ...entry,
+    aliases: [...entry.aliases]
+  }));
+}
+
 export function normalizeCharacterClassName(value) {
   return String(value ?? "")
     .normalize("NFD")

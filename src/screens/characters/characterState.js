@@ -217,6 +217,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     conditions: cleanText(character.conditions),
     stand: normalizeStoredStandLabel(character.stand),
     notes: cleanText(character.notes),
+    classFeaturesOpen: character.classFeaturesOpen !== false,
     skillProgress: normalizeStoredCharacterSkillProgress(
       character.skillProgress,
       resolvedSkillDefinitions,
@@ -267,7 +268,11 @@ function normalizeStoredCharacterClassEntry(entry) {
   return {
     id: cleanText(entry.id) || createStableId("character-class"),
     name: cleanText(entry.name ?? entry.className),
+    classKey: cleanText(entry.classKey),
+    source: cleanText(entry.source ?? entry.classSource),
     subclassName: cleanText(entry.subclassName),
+    subclassId: cleanText(entry.subclassId),
+    subclassSource: cleanText(entry.subclassSource),
     level: normalizeStoredCharacterClassLevel(entry.level)
   };
 }

@@ -1,0 +1,76 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  findCharacterClassRecord,
+  findCharacterSubclassRecord,
+  getLocalizedCharacterClassFeature
+} from "../src/data/characterClassData.js";
+import { renderCharacterClassFeaturesSection } from "../src/screens/characters/characterClassFeatures.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, "..");
+const manifest = readJson(path.join(projectRoot, "public", "data", "classes", "manifest.json"));
+const catalogPayload = readJson(path.join(projectRoot, "public", manifest.catalog.path));
+const spanishPayload = readJson(path.join(projectRoot, "public", manifest.translations.es.path));
+const catalog = {
+  language: "es",
+  classes: catalogPayload.classes,
+  translations: spanishPayload.translations
+};
+
+const classicWizard = findCharacterClassRecord(catalog, { name: "Mago" });
+assert.equal(classicWizard?.name, "Wizard");
+assert.equal(classicWizard?.source, "PHB");
+
+const modernWizard = findCharacterClassRecord(catalog, { name: "Mago (XPHB)", source: "PHB" });
+assert.equal(modernWizard?.source, "XPHB");
+
+const evocation = findCharacterSubclassRecord(classicWizard, { subclassName: "Evocation (PHB)" });
+assert.equal(evocation?.shortName, "Evocation");
+assert.equal(evocation?.source, "PHB");
+
+assert.equal(findCharacterSubclassRecord(classicWizard, { subclassName: "Custom school" }), null);
+
+const arcaneRecovery = classicWizard.levels
+  .flatMap((entry) => entry.features)
+  .find((feature) => feature.name === "Arcane Recovery");
+const localizedArcaneRecovery = getLocalizedCharacterClassFeature(arcaneRecovery, catalog);
+assert.match(JSON.stringify(localizedArcaneRecovery.entries), /energía mágica/i);
+
+const rendered = renderCharacterClassFeaturesSection({
+  character: {
+    classFeaturesOpen: true,
+    isMulticlass: false,
+    classEntries: [{
+      id: "wizard-row",
+      name: "Mago",
+      classKey: "wizard",
+      source: "PHB",
+      subclassName: "Evocation",
+      subclassSource: "PHB",
+      level: 5
+    }]
+  },
+  catalog,
+  status: "ready",
+  interfaceLanguage: "es",
+  contentLanguage: "es"
+});
+
+assert.match(rendered, /Caracteristicas de clase/);
+assert.match(rendered, /Rasgos principales/);
+assert.match(rendered, /Caracteristicas desbloqueadas/);
+assert.match(rendered, /Proximas caracteristicas/);
+assert.match(rendered, /energía mágica/i);
+assert.match(rendered, /class-feature-wizard-row-/);
+assert.equal((rendered.match(/<tr class="is-(?:unlocked|upcoming)">/g) ?? []).length, 20);
+
+console.log("Character class data tests passed.");
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}

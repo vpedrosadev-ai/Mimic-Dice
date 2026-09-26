@@ -2,6 +2,14 @@ import { columns, initialCombatants } from "./data/combatTrackerData.js";
 import { getSortedReleaseNotes } from "./data/releaseNotes.js";
 import { getCharacterClassKey } from "./data/characterClasses.js";
 import {
+  findCharacterClassRecord,
+  findCharacterSubclassRecord,
+  getCharacterClassInputOptions,
+  getCharacterSubclassInputOptions,
+  loadCharacterClassCatalog,
+  parseCharacterClassInput
+} from "./data/characterClassData.js";
+import {
   buildArcanumCompositeKey,
   buildBestiaryCompositeKey,
   buildItemCompositeKey,
@@ -55,6 +63,7 @@ import { parseCsv } from "./shared/csv.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
 import { createCompendiumListRenderers } from "./screens/compendiums/listRender.js";
 import { createCharacterStateController } from "./screens/characters/characterState.js";
+import { renderCharacterClassFeaturesSection } from "./screens/characters/characterClassFeatures.js";
 import {
   extractCharacterDataFromPdf,
   fillCharacterPdfTemplate,
@@ -728,6 +737,8 @@ const compendiumLoadTokens = {
 };
 const queuedCompendiumLoads = new Set();
 let compendiumLoadGeneration = 0;
+let characterClassDataLoadPromise = null;
+let characterClassDataLoadGeneration = 0;
 let arcanumSpellLinkCache = {
   signature: "",
   pattern: null,
@@ -836,6 +847,9 @@ state = {
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   charactersOverviewHidden: false,
+  characterClassData: null,
+  characterClassDataStatus: "idle",
+  characterClassDataMessage: "",
   characterSkillDefinitions: initialCharacterSkillDefinitions,
   characters: initialCharacters,
   activeCharacterId: initialCharacters[0]?.id ?? "",
@@ -2087,11 +2101,13 @@ async function handleClick(event) {
     reconcileCombatantsWithCurrentBestiaryReferences();
     reconcileCharactersWithCurrentCompendiumReferences();
     state.contentLanguage = normalizeStoredContentLanguage(actionButton.dataset.contentLanguage);
+    resetCharacterClassData();
     synchronizeLanguageSpecificSystemData({ syncCombatants: true });
     saveCampaignMeta();
     saveCombatTrackerState();
     saveTablesState();
     reloadCompendiumContent();
+    queueCharacterClassDataLoad(state.activeScreen);
     return;
   }
 
@@ -3108,6 +3124,13 @@ async function handleClick(event) {
 
   if (action === "toggle-character-spellbook") {
     toggleCharacterSpellbookSection();
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "toggle-character-class-features") {
+    toggleCharacterClassFeaturesSection();
     saveCharacters();
     render();
     return;
@@ -5358,6 +5381,76 @@ function queueCompendiumLoadsForScreen(screenId) {
   getRequiredCompendiumsForScreen(screenId).forEach((kind, index) => {
     queueCompendiumLoad(kind, screenId === "characters" ? 0 : index * 80);
   });
+  queueCharacterClassDataLoad(screenId);
+}
+
+function queueCharacterClassDataLoad(screenId = state.activeScreen) {
+  if (
+    screenId !== "characters"
+    || typeof window === "undefined"
+    || state.characterClassDataStatus !== "idle"
+    || characterClassDataLoadPromise
+  ) {
+    return;
+  }
+
+  window.setTimeout(() => ensureCharacterClassDataLoaded(), 0);
+}
+
+function ensureCharacterClassDataLoaded() {
+  if (state.characterClassDataStatus === "ready") {
+    return Promise.resolve(state.characterClassData);
+  }
+
+  if (characterClassDataLoadPromise) {
+    return characterClassDataLoadPromise;
+  }
+
+  state.characterClassDataStatus = "loading";
+  state.characterClassDataMessage = "";
+  render();
+  const loadGeneration = characterClassDataLoadGeneration;
+  characterClassDataLoadPromise = loadCharacterClassCatalog(
+    normalizeStoredContentLanguage(state.contentLanguage),
+    DESKTOP_ASSET_BASE_URL
+  )
+    .then((catalog) => {
+      if (loadGeneration !== characterClassDataLoadGeneration) {
+        return null;
+      }
+      state.characterClassData = catalog;
+      state.characterClassDataStatus = "ready";
+      state.characterClassDataMessage = "";
+      render();
+      return catalog;
+    })
+    .catch((error) => {
+      if (loadGeneration !== characterClassDataLoadGeneration) {
+        return null;
+      }
+      state.characterClassData = null;
+      state.characterClassDataStatus = "error";
+      state.characterClassDataMessage = error instanceof Error
+        ? error.message
+        : "No se pudieron cargar los datos de clases.";
+      render();
+      return null;
+    })
+    .finally(() => {
+      if (loadGeneration === characterClassDataLoadGeneration) {
+        characterClassDataLoadPromise = null;
+      }
+    });
+
+  return characterClassDataLoadPromise;
+}
+
+function resetCharacterClassData() {
+  characterClassDataLoadGeneration += 1;
+  state.characterClassData = null;
+  state.characterClassDataStatus = "idle";
+  state.characterClassDataMessage = "";
+  characterClassDataLoadPromise = null;
 }
 
 function queueCompendiumLoad(kind, delay = 0) {
@@ -15216,6 +15309,14 @@ function renderCharacterEditor(character) {
     </div>
 
     <div class="bestiary-sections character-sheet__extras">
+      ${renderCharacterClassFeaturesSection({
+        character,
+        catalog: state.characterClassData,
+        status: state.characterClassDataStatus,
+        error: state.characterClassDataMessage,
+        interfaceLanguage: isEnglishInterface() ? APP_LANGUAGE_EN : APP_LANGUAGE_ES,
+        contentLanguage: normalizeStoredContentLanguage(state.contentLanguage)
+      })}
       ${renderCharacterSpellbookSection(character)}
       ${renderCharacterSkillSection(character)}
       ${renderCharacterInventorySection(character)}
@@ -16771,17 +16872,34 @@ function renderCharacterClassSection(character) {
 }
 
 function renderCharacterClassRow(entry, index) {
+  const classEntity = findCharacterClassRecord(state.characterClassData, entry);
+  const classOptions = getCharacterClassInputOptions(
+    state.characterClassData,
+    normalizeStoredContentLanguage(state.contentLanguage)
+  );
+  const subclassOptions = getCharacterSubclassInputOptions(classEntity);
+  const classListId = `character-class-options-${slugify(entry.id)}`;
+  const subclassListId = `character-subclass-options-${slugify(entry.id)}`;
+
   return `
     <div class="character-class-row">
-      ${renderCharacterClassTextField(entry.id, "name", "Clase", entry.name, index === 0 ? "Guerrero" : "Mago")}
-      ${renderCharacterClassTextField(entry.id, "subclassName", "Subclase", entry.subclassName, index === 0 ? "Campeon" : "Evocacion")}
+      ${renderCharacterClassTextField(entry.id, "name", "Clase", entry.name, index === 0 ? "Guerrero" : "Mago", {
+        listId: classListId,
+        options: classOptions
+      })}
+      ${renderCharacterClassTextField(entry.id, "subclassName", "Subclase", entry.subclassName, index === 0 ? "Campeon" : "Evocacion", {
+        listId: subclassListId,
+        options: subclassOptions
+      })}
       ${renderCharacterClassLevelField(entry.id, entry.level)}
     </div>
   `;
 }
 
-function renderCharacterClassTextField(rowId, key, label, value, placeholder = "") {
+function renderCharacterClassTextField(rowId, key, label, value, placeholder = "", options = {}) {
   const lengthClass = getCharacterTextLengthClass(value);
+  const listId = cleanText(options.listId);
+  const suggestions = Array.isArray(options.options) ? options.options : [];
 
   return `
     <label class="toolbar-field character-identity-field">
@@ -16791,9 +16909,17 @@ function renderCharacterClassTextField(rowId, key, label, value, placeholder = "
         type="text"
         value="${escapeHtml(value ?? "")}"
         placeholder="${escapeHtml(placeholder)}"
+        ${listId ? `list="${escapeHtml(listId)}"` : ""}
         data-character-class-field="${escapeHtml(key)}"
         data-character-class-row="${escapeHtml(rowId)}"
       />
+      ${listId ? `
+        <datalist id="${escapeHtml(listId)}">
+          ${suggestions.map((suggestion) => `
+            <option value="${escapeHtml(suggestion.value)}" label="${escapeHtml(suggestion.label || "")}"></option>
+          `).join("")}
+        </datalist>
+      ` : ""}
     </label>
   `;
 }
@@ -18063,6 +18189,7 @@ function createDefaultCharacter(overrides = {}) {
     conditions: "",
     stand: "",
     notes: "",
+    classFeaturesOpen: true,
     skillProgress: getDefaultCharacterSkillProgress(),
     spellsOpen: false,
     spells: [],
@@ -18583,12 +18710,7 @@ function updateCharacterClassEntry(rowId, key, rawValue, normalize = true) {
 
     const classEntries = ensureCharacterClassEntryCount(character.classEntries, character.isMulticlass ? 2 : 1)
       .map((entry) => entry.id === normalizedRowId
-        ? normalizeStoredCharacterClassEntry({
-          ...entry,
-          [key]: key === "level" && normalize
-            ? normalizeStoredCharacterClassLevel(rawValue)
-            : rawValue
-        })
+        ? getUpdatedCharacterClassEntry(entry, key, rawValue, normalize)
         : entry)
       .filter(Boolean);
 
@@ -18596,6 +18718,64 @@ function updateCharacterClassEntry(rowId, key, rawValue, normalize = true) {
       ...character,
       classEntries
     });
+  });
+}
+
+function getUpdatedCharacterClassEntry(entry, key, rawValue, normalize = true) {
+  if (key === "level") {
+    return normalizeStoredCharacterClassEntry({
+      ...entry,
+      level: normalize ? normalizeStoredCharacterClassLevel(rawValue) : rawValue
+    });
+  }
+
+  if (key === "name") {
+    if (!normalize) {
+      return normalizeStoredCharacterClassEntry({ ...entry, name: rawValue });
+    }
+
+    const parsedInput = parseCharacterClassInput(rawValue);
+    const classEntity = findCharacterClassRecord(state.characterClassData, {
+      ...entry,
+      name: rawValue
+    });
+    const subclass = classEntity ? findCharacterSubclassRecord(classEntity, entry) : null;
+
+    return normalizeStoredCharacterClassEntry({
+      ...entry,
+      name: parsedInput.name,
+      classKey: classEntity?.key || "",
+      source: classEntity?.source || "",
+      subclassId: subclass?.id || "",
+      subclassSource: subclass?.source || ""
+    });
+  }
+
+  if (key === "subclassName") {
+    if (!normalize) {
+      return normalizeStoredCharacterClassEntry({ ...entry, subclassName: rawValue });
+    }
+
+    const parsedInput = parseCharacterClassInput(rawValue);
+    const classEntity = findCharacterClassRecord(state.characterClassData, entry);
+    const subclass = classEntity
+      ? findCharacterSubclassRecord(classEntity, {
+        ...entry,
+        subclassName: rawValue
+      })
+      : null;
+
+    return normalizeStoredCharacterClassEntry({
+      ...entry,
+      subclassName: subclass?.shortName || subclass?.name || parsedInput.name,
+      subclassId: subclass?.id || "",
+      subclassSource: subclass?.source || ""
+    });
+  }
+
+  return normalizeStoredCharacterClassEntry({
+    ...entry,
+    [key]: rawValue
   });
 }
 
@@ -18726,6 +18906,15 @@ function toggleCharacterSpellbookSection() {
     ? normalizeStoredCharacter({
       ...character,
       spellsOpen: character.spellsOpen !== true
+    })
+    : character);
+}
+
+function toggleCharacterClassFeaturesSection() {
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      classFeaturesOpen: character.classFeaturesOpen === false
     })
     : character);
 }
