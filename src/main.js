@@ -5,7 +5,10 @@ import {
   findCharacterClassRecord,
   findCharacterSubclassRecord,
   getBundledCharacterClassCatalog,
+  getCharacterClassDisplayValue,
   getCharacterClassInputOptions,
+  getCharacterSpellSlotsForClassEntries,
+  getCharacterSubclassDisplayValue,
   getCharacterSubclassInputOptions,
   parseCharacterClassInput
 } from "./data/characterClassData.js";
@@ -1169,6 +1172,8 @@ const {
   getItemRarityClass,
   getItemVirtualWindow
 });
+
+synchronizeAllCharacterSpellSlotsFromClasses();
 
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
@@ -3133,6 +3138,20 @@ async function handleClick(event) {
     toggleCharacterClassFeaturesSection();
     saveCharacters();
     render();
+    return;
+  }
+
+  if (action === "select-character-class-option") {
+    updateCharacterClassEntry(
+      actionButton.dataset.characterClassRow,
+      actionButton.dataset.characterClassField,
+      actionButton.dataset.characterClassValue,
+      true
+    );
+    saveCharacters();
+    render({
+      focusSelector: `[data-character-class-field="${actionButton.dataset.characterClassField}"][data-character-class-row="${actionButton.dataset.characterClassRow}"]`
+    });
     return;
   }
 
@@ -16816,22 +16835,22 @@ function renderCharacterClassSection(character) {
 
 function renderCharacterClassRow(entry, index) {
   const classEntity = findCharacterClassRecord(state.characterClassData, entry);
+  const language = normalizeStoredContentLanguage(state.contentLanguage);
+  const subclass = classEntity ? findCharacterSubclassRecord(classEntity, entry) : null;
   const classOptions = getCharacterClassInputOptions(
     state.characterClassData,
-    normalizeStoredContentLanguage(state.contentLanguage)
+    language
   );
-  const subclassOptions = getCharacterSubclassInputOptions(classEntity);
-  const classListId = `character-class-options-${slugify(entry.id)}`;
-  const subclassListId = `character-subclass-options-${slugify(entry.id)}`;
+  const subclassOptions = getCharacterSubclassInputOptions(classEntity, language);
+  const classValue = getCharacterClassDisplayValue(classEntity, language, entry.name);
+  const subclassValue = getCharacterSubclassDisplayValue(subclass, language, entry.subclassName);
 
   return `
     <div class="character-class-row">
-      ${renderCharacterClassTextField(entry.id, "name", "Clase", entry.name, index === 0 ? "Guerrero" : "Mago", {
-        listId: classListId,
+      ${renderCharacterClassTextField(entry.id, "name", "Clase", classValue, index === 0 ? "Guerrero" : "Mago", {
         options: classOptions
       })}
-      ${renderCharacterClassTextField(entry.id, "subclassName", "Subclase", entry.subclassName, index === 0 ? "Campeon" : "Evocacion", {
-        listId: subclassListId,
+      ${renderCharacterClassTextField(entry.id, "subclassName", "Subclase", subclassValue, index === 0 ? "Campeon" : "Evocacion", {
         options: subclassOptions
       })}
       ${renderCharacterClassLevelField(entry.id, entry.level)}
@@ -16841,29 +16860,40 @@ function renderCharacterClassRow(entry, index) {
 
 function renderCharacterClassTextField(rowId, key, label, value, placeholder = "", options = {}) {
   const lengthClass = getCharacterTextLengthClass(value);
-  const listId = cleanText(options.listId);
   const suggestions = Array.isArray(options.options) ? options.options : [];
+  const menuLabel = key === "name" ? "Mostrar todas las clases" : "Mostrar todas las subclases";
 
   return `
-    <label class="toolbar-field character-identity-field">
+    <div class="toolbar-field character-identity-field">
       <span>${escapeHtml(label)}</span>
-      <input
-        class="filter-input character-identity-field__input ${lengthClass}"
-        type="text"
-        value="${escapeHtml(value ?? "")}"
-        placeholder="${escapeHtml(placeholder)}"
-        ${listId ? `list="${escapeHtml(listId)}"` : ""}
-        data-character-class-field="${escapeHtml(key)}"
-        data-character-class-row="${escapeHtml(rowId)}"
-      />
-      ${listId ? `
-        <datalist id="${escapeHtml(listId)}">
-          ${suggestions.map((suggestion) => `
-            <option value="${escapeHtml(suggestion.value)}" label="${escapeHtml(suggestion.label || "")}"></option>
-          `).join("")}
-        </datalist>
-      ` : ""}
-    </label>
+      <div class="character-class-picker">
+        <input
+          class="filter-input character-identity-field__input ${lengthClass}"
+          type="text"
+          value="${escapeHtml(value ?? "")}"
+          placeholder="${escapeHtml(placeholder)}"
+          data-character-class-field="${escapeHtml(key)}"
+          data-character-class-row="${escapeHtml(rowId)}"
+        />
+        <details class="character-class-picker__menu">
+          <summary aria-label="${escapeHtml(menuLabel)}" title="${escapeHtml(menuLabel)}">⌄</summary>
+          <div class="character-class-picker__options" role="listbox" aria-label="${escapeHtml(menuLabel)}">
+            ${suggestions.length > 0
+              ? suggestions.map((suggestion) => `
+                <button
+                  type="button"
+                  role="option"
+                  data-action="select-character-class-option"
+                  data-character-class-row="${escapeHtml(rowId)}"
+                  data-character-class-field="${escapeHtml(key)}"
+                  data-character-class-value="${escapeHtml(suggestion.value)}"
+                >${escapeHtml(suggestion.label || suggestion.value)}</button>
+              `).join("")
+              : `<span class="character-class-picker__empty">${escapeHtml(key === "name" ? "No hay clases disponibles." : "Selecciona primero una clase reconocida.")}</span>`}
+          </div>
+        </details>
+      </div>
+    </div>
   `;
 }
 
@@ -18514,6 +18544,7 @@ function applyMulticlassLevelUpChoice(characterId, classEntryId) {
   });
 
   syncLinkedCombatantsHitDice(normalizedCharacterId);
+  synchronizeCharacterSpellSlotsFromClasses(normalizedCharacterId);
 }
 
 function getDefaultCharacterSkillDefinitions() {
@@ -18623,6 +18654,8 @@ function toggleCharacterMulticlass(isChecked) {
       classEntries: ensureCharacterClassEntryCount(character.classEntries, isChecked ? 2 : 1)
     });
   });
+
+  synchronizeCharacterSpellSlotsFromClasses(state.activeCharacterId);
 }
 
 function addCharacterClassRow() {
@@ -18660,6 +18693,58 @@ function updateCharacterClassEntry(rowId, key, rawValue, normalize = true) {
     return normalizeStoredCharacter({
       ...character,
       classEntries
+    });
+  });
+
+  if (normalize) {
+    synchronizeCharacterSpellSlotsFromClasses(state.activeCharacterId);
+  }
+}
+
+function synchronizeAllCharacterSpellSlotsFromClasses() {
+  state.characters.forEach((character) => synchronizeCharacterSpellSlotsFromClasses(character.id));
+}
+
+function synchronizeCharacterSpellSlotsFromClasses(characterId) {
+  const normalizedCharacterId = cleanText(characterId);
+
+  if (!normalizedCharacterId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => {
+    if (character.id !== normalizedCharacterId) {
+      return character;
+    }
+
+    const derivedSlots = getCharacterSpellSlotsForClassEntries(
+      state.characterClassData,
+      character.classEntries,
+      character.isMulticlass
+    );
+
+    if (derivedSlots.length === 0) {
+      return character;
+    }
+
+    const existingByLevel = new Map(normalizeStoredCharacterSpellSlots(character.spellSlots)
+      .map((entry) => [entry.level, entry]));
+    const highestLevel = Math.max(1, ...derivedSlots.map((entry) => entry.level));
+    const derivedByLevel = new Map(derivedSlots.map((entry) => [entry.level, entry.slots]));
+    const spellSlots = Array.from({ length: highestLevel }, (_, index) => {
+      const level = index + 1;
+      const existing = existingByLevel.get(level);
+      return normalizeStoredCharacterSpellSlotRow({
+        level,
+        slots: derivedByLevel.get(level) || 0,
+        spent: existing?.spent ?? []
+      });
+    }).filter(Boolean);
+
+    return normalizeStoredCharacter({
+      ...character,
+      spellSlotLevelsVisible: highestLevel,
+      spellSlots
     });
   });
 }

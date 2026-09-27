@@ -1,17 +1,21 @@
 const CHARACTER_CLASS_DEFINITIONS = Object.freeze([
-  { key: "artificer", english: "Artificer", spanish: "Artificiero", aliases: ["artificer", "artificiero"] },
-  { key: "barbarian", english: "Barbarian", spanish: "Barbaro", aliases: ["barbarian", "barbaro"] },
+  { key: "artificer", english: "Artificer", spanish: "Artífice", aliases: ["artificer", "artifice", "artificiero"] },
+  { key: "barbarian", english: "Barbarian", spanish: "Bárbaro", aliases: ["barbarian", "barbaro"] },
   { key: "bard", english: "Bard", spanish: "Bardo", aliases: ["bard", "bardo"] },
-  { key: "cleric", english: "Cleric", spanish: "Clerigo", aliases: ["cleric", "clerigo"] },
+  { key: "cleric", english: "Cleric", spanish: "Clérigo", aliases: ["cleric", "clerigo"] },
   { key: "druid", english: "Druid", spanish: "Druida", aliases: ["druid", "druida"] },
   { key: "fighter", english: "Fighter", spanish: "Guerrero", aliases: ["fighter", "guerrero"] },
   { key: "monk", english: "Monk", spanish: "Monje", aliases: ["monk", "monje"] },
-  { key: "paladin", english: "Paladin", spanish: "Paladin", aliases: ["paladin"] },
+  { key: "paladin", english: "Paladin", spanish: "Paladín", aliases: ["paladin"] },
   { key: "ranger", english: "Ranger", spanish: "Explorador", aliases: ["ranger", "explorador"] },
-  { key: "rogue", english: "Rogue", spanish: "Picaro", aliases: ["rogue", "picaro"] },
+  { key: "rogue", english: "Rogue", spanish: "Pícaro", aliases: ["rogue", "picaro"] },
   { key: "sorcerer", english: "Sorcerer", spanish: "Hechicero", aliases: ["sorcerer", "hechicero", "hechizero"] },
   { key: "warlock", english: "Warlock", spanish: "Brujo", aliases: ["warlock", "brujo"] },
-  { key: "wizard", english: "Wizard", spanish: "Mago", aliases: ["wizard", "mago"] }
+  { key: "wizard", english: "Wizard", spanish: "Mago", aliases: ["wizard", "mago"] },
+  { key: "expert sidekick", english: "Expert Sidekick", spanish: "Compañero experto", aliases: ["expert sidekick", "companero experto"] },
+  { key: "mystic", english: "Mystic", spanish: "Místico", aliases: ["mystic", "mistico"] },
+  { key: "spellcaster sidekick", english: "Spellcaster Sidekick", spanish: "Compañero lanzador de conjuros", aliases: ["spellcaster sidekick", "companero lanzador de conjuros"] },
+  { key: "warrior sidekick", english: "Warrior Sidekick", spanish: "Compañero guerrero", aliases: ["warrior sidekick", "companero guerrero"] }
 ]);
 
 export function getCharacterClassDefinitions() {
@@ -36,9 +40,21 @@ export function getCharacterClassDefinition(value) {
     return null;
   }
 
-  return CHARACTER_CLASS_DEFINITIONS.find((entry) => (
-    entry.aliases.some((alias) => normalizedValue === alias || normalizedValue.includes(alias))
-  )) ?? null;
+  const exactMatch = CHARACTER_CLASS_DEFINITIONS.find((entry) => (
+    entry.aliases.some((alias) => normalizedValue === normalizeCharacterClassName(alias))
+  ));
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  return CHARACTER_CLASS_DEFINITIONS
+    .flatMap((entry) => entry.aliases.map((alias) => ({
+      entry,
+      alias: normalizeCharacterClassName(alias)
+    })))
+    .filter(({ alias }) => alias && normalizedValue.includes(alias))
+    .sort((left, right) => right.alias.length - left.alias.length)[0]?.entry ?? null;
 }
 
 export function getCharacterClassKey(value) {
