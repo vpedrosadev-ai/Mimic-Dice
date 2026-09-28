@@ -5,6 +5,7 @@ import {
   getCharacterSubclassDisplayValue,
   getLocalizedCharacterClassFeature
 } from "../../data/characterClassData.js";
+import classReferenceTranslationsEs from "../../data/generated/classReferenceTranslationsEs.generated.js";
 
 const abilityLabels = Object.freeze({
   en: { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" },
@@ -63,6 +64,62 @@ const classTermTranslationsEs = Object.freeze({
   "Spellcasting Ability": "Característica de lanzamiento de conjuros",
   "Spellcasting Focus": "Foco de lanzamiento de conjuros"
 });
+
+const classInlineTermTranslationsEs = Object.freeze({
+  "Recuperaci\u00f3n de Arcane": "Recuperaci\u00f3n arcana",
+  "Ritual Adept": "Adepto ritual",
+  Scholar: "Erudito",
+  "Wizard Subclass": "Subclase de mago",
+  "Subclass Feature": "Rasgo de subclase",
+  "Memorizar el discurso": "Memorizar conjuro",
+  "Mastery de la obra": "Maestr\u00eda de conjuros",
+  "Boon \u00e9pico": "Dote \u00e9pica",
+  "Funciones de firma": "Conjuros distintivos",
+  "Short Rest": "Descanso corto",
+  Short: "corto",
+  "Long Rest": "Descanso largo",
+  "Bonus Action": "Acci\u00f3n adicional",
+  Reaction: "Reacci\u00f3n",
+  Action: "Acci\u00f3n",
+  Attack: "Ataque",
+  Magic: "Magia",
+  Concentration: "Concentraci\u00f3n",
+  Attunement: "Sintonizaci\u00f3n",
+  Advantage: "Ventaja",
+  Disadvantage: "Desventaja",
+  "Hit Points": "Puntos de golpe",
+  "Hit Point": "Punto de golpe",
+  "Hit Dice": "Dados de golpe",
+  "Temporary Hit Points": "Puntos de golpe temporales",
+  Resistance: "Resistencia",
+  Exhaustion: "Agotamiento",
+  Wizard: "Mago",
+  Asistente: "Mago",
+  Artificer: "Art\u00edfice",
+  Barbarian: "B\u00e1rbaro",
+  Bard: "Bardo",
+  Cleric: "Cl\u00e9rigo",
+  Druid: "Druida",
+  Fighter: "Guerrero",
+  Monk: "Monje",
+  Paladin: "Palad\u00edn",
+  Ranger: "Explorador",
+  Rogue: "P\u00edcaro",
+  Sorcerer: "Hechicero",
+  Warlock: "Brujo",
+  Cantrips: "Trucos",
+  cantrips: "trucos",
+  Cantrip: "Truco",
+  cantrip: "truco",
+  "Prepared Spells": "Conjuros preparados",
+  "spell list": "lista de conjuros",
+  "chapter 7": "cap\u00edtulo 7"
+});
+
+const sortedInlineClassTermsEs = Object.entries({
+  ...classTermTranslationsEs,
+  ...classInlineTermTranslationsEs
+}).sort(([left], [right]) => right.length - left.length);
 
 export function renderCharacterClassFeaturesSection({
   character,
@@ -421,12 +478,12 @@ function render5eToolsInline(value, language = "en") {
   let match;
 
   while ((match = pattern.exec(source))) {
-    result += escapeHtml(source.slice(cursor, match.index));
+    result += escapeHtml(translateKnownClassText(source.slice(cursor, match.index), language));
     result += render5eToolsTag(match[1].toLowerCase(), match[2], language);
     cursor = pattern.lastIndex;
   }
 
-  result += escapeHtml(source.slice(cursor));
+  result += escapeHtml(translateKnownClassText(source.slice(cursor), language));
   return result;
 }
 
@@ -434,7 +491,8 @@ function render5eToolsTag(tag, body, language = "en") {
   const parts = String(body ?? "").split("|");
   const primary = parts[0] ?? "";
   const diceDisplay = parts[2] || parts[1] || primary;
-  const display = parts[2] || primary;
+  const localizedReference = getLocalizedReferenceName(tag, primary, parts[1], parts[2], language);
+  const display = localizedReference || translateKnownClassText(parts[2] || primary, language);
   const firstDisplayTags = new Set([
     "book", "filter", "link", "variantrule", "class", "subclass", "condition", "status", "sense",
     "skill", "action", "quickref", "optfeature", "feat", "race", "background", "creature"
@@ -443,7 +501,7 @@ function render5eToolsTag(tag, body, language = "en") {
     tag === "damage" || tag === "dice" || tag === "scaledice" || tag === "scaledamage"
       ? diceDisplay
       : firstDisplayTags.has(tag)
-        ? primary
+        ? translateKnownClassText(primary, language)
         : display,
     language
   );
@@ -628,7 +686,39 @@ function localizeColumnLabel(value, isEnglish) {
 
 function translateKnownClassTerm(value, language) {
   const source = String(value ?? "");
-  return language === "es" ? (classTermTranslationsEs[source] || source) : source;
+  return language === "es"
+    ? (classTermTranslationsEs[source] || classInlineTermTranslationsEs[source] || translateKnownClassText(source, language))
+    : source;
+}
+
+function translateKnownClassText(value, language) {
+  let translated = String(value ?? "");
+  if (language !== "es" || !translated) return translated;
+
+  for (const [source, replacement] of sortedInlineClassTermsEs) {
+    const pattern = new RegExp(`\\b${escapeRegExp(source)}\\b`, "gi");
+    translated = translated.replace(pattern, replacement);
+  }
+  return translated;
+}
+
+function getLocalizedReferenceName(tag, primary, source, display, language) {
+  if (language !== "es" || (tag !== "spell" && tag !== "item")) return "";
+  const names = classReferenceTranslationsEs?.[tag] ?? {};
+  const sourceKey = String(source ?? "").trim().toUpperCase();
+  const candidates = [primary, display]
+    .filter(Boolean)
+    .map((entry) => String(entry).trim().toLowerCase().replace(/\s+/g, " "));
+
+  for (const candidate of candidates) {
+    const localized = names[`${candidate}|${sourceKey}`] || names[`${candidate}|*`];
+    if (localized) return localized;
+  }
+  return "";
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function titleCase(value) {

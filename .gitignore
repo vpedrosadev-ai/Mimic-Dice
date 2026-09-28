@@ -14,5 +14,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
+
+# Local temporary files and Python tooling caches
+.tmp-*
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
 public/data/bundles/
 public/data/compendium-manifest.json

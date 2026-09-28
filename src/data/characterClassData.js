@@ -166,7 +166,12 @@ export function getCharacterSubclassInputOptions(classEntity, language = "es") {
 export function getLocalizedCharacterClassFeature(feature, catalog) {
   const translation = catalog?.language === "es" ? catalog?.translations?.[feature?.id] : null;
   return translation?.entries
-    ? { ...feature, entries: translation.entries, translationAvailable: true }
+    ? {
+      ...feature,
+      name: translation.name || feature.name,
+      entries: translation.entries,
+      translationAvailable: true
+    }
     : { ...feature, translationAvailable: catalog?.language !== "es" };
 }
 

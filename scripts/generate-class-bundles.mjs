@@ -11,6 +11,8 @@ const OUTPUT_ROOT = path.join(PROJECT_ROOT, "public", "data", "classes");
 const GENERATED_MODULE_ROOT = path.join(PROJECT_ROOT, "src", "data", "generated");
 const ENGLISH_VERSION = "v2.36.1";
 const SPANISH_SNAPSHOT = "translated-mirror-2023-12-18";
+const MACHINE_SPANISH_FILE = path.join(VENDOR_ROOT, "machine-translations.es.json");
+const COMPENDIUM_MANIFEST_FILE = path.join(PROJECT_ROOT, "public", "data", "compendium-manifest.json");
 const BUNDLE_SCHEMA_VERSION = 1;
 
 const englishDirectory = path.join(VENDOR_ROOT, ENGLISH_VERSION, "en");
@@ -22,8 +24,10 @@ const spanishClassIndex = await readJson(path.join(spanishDirectory, "index.json
 const englishFiles = await readIndexedFiles(englishDirectory, englishClassIndex);
 const englishFluffFiles = await readIndexedFiles(englishDirectory, englishFluffIndex);
 const spanishFiles = await readIndexedFiles(spanishDirectory, spanishClassIndex);
+const machineSpanish = await readJsonIfExists(MACHINE_SPANISH_FILE);
+const spanishReferenceNames = await buildSpanishReferenceNames();
 const catalog = buildCatalog(englishFiles);
-const spanishOverlay = buildSpanishOverlay(catalog, spanishFiles);
+const spanishOverlay = buildSpanishOverlay(catalog, spanishFiles, machineSpanish);
 const lore = buildLoreBundle(englishFluffFiles);
 
 await fs.rm(OUTPUT_ROOT, { recursive: true, force: true });
@@ -51,6 +55,7 @@ const catalogEntry = await writeHashedBundle("catalog.en", catalogPayload);
 const spanishEntry = await writeHashedBundle("translations.es", spanishPayload);
 await writeGeneratedModule("classCatalog.generated.js", catalogPayload);
 await writeGeneratedModule("classTranslationsEs.generated.js", spanishPayload);
+await writeGeneratedModule("classReferenceTranslationsEs.generated.js", spanishReferenceNames);
 const loreEntry = await writeHashedBundle("lore.en", {
   schemaVersion: BUNDLE_SCHEMA_VERSION,
   kind: "class-lore",
@@ -245,8 +250,9 @@ function buildSubclassLevels(subclass, featureEntities, unresolvedReferences) {
   return finalizeLevels(levels);
 }
 
-function buildSpanishOverlay(catalog, files) {
+function buildSpanishOverlay(catalog, files, machineSpanish) {
   const spanishFeatureMaps = buildSpanishFeatureMaps(files);
+  const machineTranslations = machineSpanish?.translations ?? {};
   const translations = {};
   let translatedFeatureCount = 0;
   let totalFeatureCount = 0;
@@ -255,10 +261,14 @@ function buildSpanishOverlay(catalog, files) {
     for (const level of classEntity.levels) {
       for (const feature of level.features) {
         totalFeatureCount += 1;
-        const translated = spanishFeatureMaps.classFeature.get(getClassFeatureIdentity(feature));
+        const translated = spanishFeatureMaps.classFeature.get(getClassFeatureIdentity(feature))
+          ?? machineTranslations[feature.id];
 
         if (translated?.entries) {
-          translations[feature.id] = { entries: translated.entries };
+          translations[feature.id] = {
+            ...(translated.name ? { name: translated.name } : {}),
+            entries: translated.entries
+          };
           translatedFeatureCount += 1;
         }
       }
@@ -268,10 +278,14 @@ function buildSpanishOverlay(catalog, files) {
       for (const level of subclass.levels) {
         for (const feature of level.features) {
           totalFeatureCount += 1;
-          const translated = spanishFeatureMaps.subclassFeature.get(getSubclassFeatureIdentity(feature));
+          const translated = spanishFeatureMaps.subclassFeature.get(getSubclassFeatureIdentity(feature))
+            ?? machineTranslations[feature.id];
 
           if (translated?.entries) {
-            translations[feature.id] = { entries: translated.entries };
+            translations[feature.id] = {
+              ...(translated.name ? { name: translated.name } : {}),
+              entries: translated.entries
+            };
             translatedFeatureCount += 1;
           }
         }
@@ -297,6 +311,46 @@ function buildSpanishFeatureMaps(files) {
   }
 
   return { classFeature, subclassFeature };
+}
+
+async function buildSpanishReferenceNames() {
+  const manifest = await readJsonIfExists(COMPENDIUM_MANIFEST_FILE);
+  const definitions = [
+    ["spell", manifest?.datasets?.arcanum?.es?.path],
+    ["item", manifest?.datasets?.items?.es?.path]
+  ];
+  const result = { schemaVersion: 1, spell: {}, item: {} };
+
+  for (const [kind, relativePath] of definitions) {
+    if (!relativePath) continue;
+    const bundle = await readJsonIfExists(path.join(PROJECT_ROOT, "public", relativePath));
+    const fallbackCandidates = new Map();
+
+    for (const row of Array.isArray(bundle?.rows) ? bundle.rows : []) {
+      const baseName = String(row.__mimicIdentityBaseName || "").trim();
+      const localizedName = String(row.__mimicIdentityLocalizedName || row.Name || "").trim();
+      const source = String(row.__mimicIdentityBaseSource || row.Source || "").trim().toUpperCase();
+      if (!baseName || !localizedName || same(baseName, localizedName)) continue;
+
+      const baseKey = normalizeReferenceLookup(baseName);
+      result[kind][`${baseKey}|${source}`] = localizedName;
+      const candidates = fallbackCandidates.get(baseKey) ?? new Set();
+      candidates.add(localizedName);
+      fallbackCandidates.set(baseKey, candidates);
+    }
+
+    for (const [baseKey, candidates] of fallbackCandidates) {
+      if (candidates.size === 1) {
+        result[kind][`${baseKey}|*`] = [...candidates][0];
+      }
+    }
+  }
+
+  return result;
+}
+
+function normalizeReferenceLookup(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function buildLoreBundle(files) {
@@ -450,6 +504,17 @@ async function readIndexedFiles(directory, index) {
 
 async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, "utf8"));
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    return await readJson(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function writeHashedBundle(prefix, payload) {

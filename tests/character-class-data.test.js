@@ -33,7 +33,7 @@ const dynamicallyLoadedCatalog = await loadCharacterClassCatalog("es");
 assert.equal(dynamicallyLoadedCatalog.classes.length, 30);
 assert.equal(dynamicallyLoadedCatalog.subclassCount, 330);
 assert.equal(dynamicallyLoadedCatalog.featureCount, 1760);
-assert.equal(dynamicallyLoadedCatalog.translatedFeatureCount, 1098);
+assert.equal(dynamicallyLoadedCatalog.translatedFeatureCount, 1760);
 assert.equal(translateCharacterClassName("Artificer", "es"), "Artífice");
 assert.equal(getCharacterClassKey("Compañero guerrero"), "warrior sidekick");
 
@@ -87,6 +87,30 @@ const arcaneRecovery = classicWizard.levels
   .find((feature) => feature.name === "Arcane Recovery");
 const localizedArcaneRecovery = getLocalizedCharacterClassFeature(arcaneRecovery, catalog);
 assert.match(JSON.stringify(localizedArcaneRecovery.entries), /energía mágica/i);
+
+const modernArcaneRecovery = newestWizard.levels
+  .flatMap((entry) => entry.features)
+  .find((feature) => feature.name === "Arcane Recovery");
+const localizedModernArcaneRecovery = getLocalizedCharacterClassFeature(modernArcaneRecovery, catalog);
+assert.notEqual(localizedModernArcaneRecovery.name, modernArcaneRecovery.name);
+assert.match(JSON.stringify(localizedModernArcaneRecovery.entries), /Puedes recuperar/i);
+assert.doesNotMatch(JSON.stringify(localizedModernArcaneRecovery.entries), /You can regain/i);
+
+const translatedFeature = getLocalizedCharacterClassFeature({
+  id: "translated-name-test",
+  name: "Arcane Recovery",
+  entries: ["English body"]
+}, {
+  language: "es",
+  translations: {
+    "translated-name-test": {
+      name: "Recuperación arcana",
+      entries: ["Contenido español"]
+    }
+  }
+});
+assert.equal(translatedFeature.name, "Recuperación arcana");
+assert.deepEqual(translatedFeature.entries, ["Contenido español"]);
 
 const rendered = renderCharacterClassFeaturesSection({
   character: {

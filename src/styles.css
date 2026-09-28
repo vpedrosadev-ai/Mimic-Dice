@@ -12647,6 +12647,8 @@ body.is-table-resizing * {
 .character-class-progression__features {
   min-width: 20rem;
   max-width: 34rem;
+  font-size: 1.1rem;
+  line-height: 1.5;
   text-align: left !important;
 }
 
@@ -12681,7 +12683,7 @@ body.is-table-resizing * {
 .character-class-feature-group > h5 {
   margin: 0;
   color: var(--accent-soft);
-  font-size: 0.86rem;
+  font-size: 1.12rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -12695,7 +12697,7 @@ body.is-table-resizing * {
 
 .character-class-core__trait {
   min-width: 0;
-  padding: 0.78rem;
+  padding: 0.9rem;
   border: 1px solid rgba(240, 200, 121, 0.12);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.025);
@@ -12704,7 +12706,7 @@ body.is-table-resizing * {
 .character-class-core__trait dt {
   margin-bottom: 0.28rem;
   color: var(--accent-soft);
-  font-size: 0.7rem;
+  font-size: 0.94rem;
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -12713,8 +12715,8 @@ body.is-table-resizing * {
 .character-class-core__trait dd {
   margin: 0;
   color: var(--text);
-  font-size: 0.94rem;
-  line-height: 1.35;
+  font-size: 1.15rem;
+  line-height: 1.48;
 }
 
 .character-class-feature-group__list {
