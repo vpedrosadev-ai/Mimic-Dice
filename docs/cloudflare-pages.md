@@ -17,10 +17,10 @@ La URL canonica de produccion es:
 https://themimicdice.com
 ```
 
-Los alias `https://www.themimicdice.com` y `https://mimic-dice.pages.dev`
-deben redirigir con `308` al dominio canonico, conservando ruta y parametros.
-La defensa tambien vive en `functions/_middleware.js`, para que Auth.js nunca
-inicie una sesion desde un host alternativo.
+El alias `https://www.themimicdice.com` debe redirigir con `308` al dominio
+canonico, conservando ruta y parametros. `https://mimic-dice.pages.dev` sirve
+la aplicacion directamente para poder usar tambien el login de Google desde el
+dominio de Pages.
 
 Si ese subdominio no esta disponible, elige otro nombre de proyecto en Cloudflare, por ejemplo:
 
@@ -52,14 +52,14 @@ Configuracion recomendada en Cloudflare:
 3. Conservar ruta y query string en la redireccion; por ejemplo,
    `https://www.themimicdice.com/foo?a=1` debe terminar en
    `https://themimicdice.com/foo?a=1`.
-4. Redirigir tambien `mimic-dice.pages.dev` al dominio canonico para evitar
-   contenido duplicado y cookies de Auth.js separadas por host.
+4. Mantener `mimic-dice.pages.dev` como host secundario funcional. Las cookies
+   de Auth.js son independientes en cada dominio, por lo que el usuario debe
+   iniciar sesion una vez en cada host.
 5. Usar SSL/TLS `Full (strict)`, `Always Use HTTPS` y TLS minimo 1.2.
 
 Para `www`, la configuracion oficial de Cloudflare puede hacerse con un registro
 `A` proxied a `192.0.2.1` y una Single Redirect Rule. La regla debe responder
-con `301` o `308` y preservar subruta y query string. No servir la app de forma
-independiente en ambos hosts.
+con `301` o `308` y preservar subruta y query string.
 
 ## Notas del modo navegador
 
@@ -88,22 +88,25 @@ Recursos de produccion:
 - D1: `mimic-dice-production`
 - Binding: `DB`
 - Migraciones: `migrations/`
-- Callback Google canonico: `https://themimicdice.com/api/auth/callback/google`
+- Callbacks Google:
+  - `https://themimicdice.com/api/auth/callback/google`
+  - `https://mimic-dice.pages.dev/api/auth/callback/google`
 
 En Google Cloud Console, el cliente OAuth de tipo `Web application` debe tener:
 
 ```text
-Authorized JavaScript origin:
+Authorized JavaScript origins:
 https://themimicdice.com
+https://mimic-dice.pages.dev
 
-Authorized redirect URI:
+Authorized redirect URIs:
 https://themimicdice.com/api/auth/callback/google
+https://mimic-dice.pages.dev/api/auth/callback/google
 ```
 
-Durante la migracion se puede conservar temporalmente el callback antiguo
-`https://mimic-dice.pages.dev/api/auth/callback/google`, pero debe eliminarse
-cuando se haya verificado el dominio canonico. No hace falta autorizar `www`
-porque redirige antes de iniciar Auth.js.
+No hace falta autorizar `www` porque redirige antes de iniciar Auth.js. Ambos
+hosts usan el mismo cliente OAuth, `AUTH_SECRET`, D1 y cuentas, aunque cada host
+mantiene su propia cookie de sesion.
 
 Secrets requeridos en Pages (nunca se guardan en Git):
 

@@ -12585,6 +12585,18 @@ body.is-table-resizing * {
   font-size: 1.12rem;
 }
 
+.character-class-features__class-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.character-class-features__class-content {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
 .character-class-features__subclass {
   padding: 0.32rem 0.58rem;
   border: 1px solid rgba(84, 155, 235, 0.38);
@@ -12859,6 +12871,11 @@ body.is-table-resizing * {
 
   .character-class-features__summary {
     margin-left: 0;
+  }
+
+  .character-class-features__class-actions {
+    justify-content: space-between;
+    width: 100%;
   }
 
   .character-class-core__grid {

@@ -8,11 +8,14 @@ async function run(url, response = new Response("ok", { status: 200 })) {
   });
 }
 
-for (const alias of ["www.themimicdice.com", "mimic-dice.pages.dev"]) {
-  const response = await run(`https://${alias}/api/auth/session?from=test`);
-  assert.equal(response.status, 308);
-  assert.equal(response.headers.get("location"), `${CANONICAL_ORIGIN}/api/auth/session?from=test`);
-}
+const aliasResponse = await run("https://www.themimicdice.com/api/auth/session?from=test");
+assert.equal(aliasResponse.status, 308);
+assert.equal(aliasResponse.headers.get("location"), `${CANONICAL_ORIGIN}/api/auth/session?from=test`);
+
+const pagesResponse = await run("https://mimic-dice.pages.dev/api/auth/providers");
+assert.equal(pagesResponse.status, 200);
+assert.equal(await pagesResponse.text(), "ok");
+assert.equal(pagesResponse.headers.get("strict-transport-security"), "max-age=31536000");
 
 const canonicalResponse = await run(`${CANONICAL_ORIGIN}/api/auth/providers`);
 assert.equal(canonicalResponse.status, 200);

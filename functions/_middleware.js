@@ -2,8 +2,7 @@ export const CANONICAL_ORIGIN = "https://themimicdice.com";
 
 const CANONICAL_HOST = new URL(CANONICAL_ORIGIN).hostname;
 const CANONICAL_ALIASES = new Set([
-  "www.themimicdice.com",
-  "mimic-dice.pages.dev"
+  "www.themimicdice.com"
 ]);
 
 const SECURITY_HEADERS = Object.freeze({

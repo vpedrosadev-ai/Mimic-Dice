@@ -34,6 +34,7 @@ assert.equal(dynamicallyLoadedCatalog.classes.length, 30);
 assert.equal(dynamicallyLoadedCatalog.subclassCount, 330);
 assert.equal(dynamicallyLoadedCatalog.featureCount, 1760);
 assert.equal(dynamicallyLoadedCatalog.translatedFeatureCount, 1760);
+assert.doesNotMatch(JSON.stringify(catalogPayload), /"type":"ref(?:Class|Subclass)Feature"/);
 assert.equal(translateCharacterClassName("Artificer", "es"), "Artífice");
 assert.equal(getCharacterClassKey("Compañero guerrero"), "warrior sidekick");
 
@@ -111,6 +112,96 @@ const translatedFeature = getLocalizedCharacterClassFeature({
 });
 assert.equal(translatedFeature.name, "Recuperación arcana");
 assert.deepEqual(translatedFeature.entries, ["Contenido español"]);
+
+const spellfireSorcerer = findCharacterClassRecord(catalog, { name: "Sorcerer (XPHB)" });
+const spellfireSubclass = findCharacterSubclassRecord(spellfireSorcerer, {
+  subclassName: "Spellfire Sorcery (FRHoF)"
+});
+const spellfireFeature = spellfireSubclass.levels
+  .flatMap((entry) => entry.features)
+  .find((feature) => feature.name === "Spellfire Sorcery");
+const spellfireContent = JSON.stringify(spellfireFeature.entries);
+assert.match(spellfireContent, /"name":"Spellfire Burst"/);
+assert.match(spellfireContent, /"name":"Bolstering Flames"/);
+assert.match(spellfireContent, /"name":"Radiant Fire"/);
+assert.match(spellfireContent, /"name":"Spellfire Spells"/);
+
+const cureWounds = {
+  id: "arcanum-cure-wounds--xphb--1st",
+  identityKey: "arcanum-cure-wounds--xphb--1st",
+  name: "Cure Wounds",
+  canonicalName: "Cure Wounds",
+  source: "XPHB"
+};
+const renderedSpellfire = renderCharacterClassFeaturesSection({
+  character: {
+    classFeaturesOpen: true,
+    isMulticlass: false,
+    classEntries: [{
+      id: "spellfire-row",
+      name: "Sorcerer",
+      source: "XPHB",
+      subclassName: "Spellfire Sorcery",
+      subclassSource: "FRHoF",
+      level: 3
+    }]
+  },
+  catalog: { ...catalog, language: "en", translations: {} },
+  spellEntries: [cureWounds],
+  status: "ready",
+  interfaceLanguage: "en",
+  contentLanguage: "en"
+});
+assert.match(renderedSpellfire, /<h6>Spellfire Burst<\/h6>/);
+assert.match(renderedSpellfire, /<h6>Bolstering Flames<\/h6>/);
+assert.match(renderedSpellfire, /<h6>Radiant Fire<\/h6>/);
+assert.match(renderedSpellfire, /<h6>Spellfire Spells<\/h6>/);
+assert.match(renderedSpellfire, /data-arcanum-entry-id="arcanum-cure-wounds--xphb--1st"/);
+assert.match(renderedSpellfire, />Cure Wounds<\/button>/);
+assert.doesNotMatch(renderedSpellfire, /data-arcanum-spell-name="Guiding Bolt"/);
+
+const defaultCollapsed = renderCharacterClassFeaturesSection({
+  character: {
+    isMulticlass: false,
+    classEntries: [{ id: "collapsed-wizard", name: "Wizard", source: "PHB", level: 5 }]
+  },
+  catalog,
+  status: "ready"
+});
+assert.match(defaultCollapsed, /data-action="toggle-character-class-features"/);
+assert.match(defaultCollapsed, /aria-expanded="false"/);
+assert.doesNotMatch(defaultCollapsed, /character-class-features__body/);
+
+const collapsedMulticlass = renderCharacterClassFeaturesSection({
+  character: {
+    classFeaturesOpen: true,
+    isMulticlass: true,
+    classEntries: [
+      { id: "multiclass-wizard", name: "Wizard", source: "PHB", level: 5 },
+      { id: "multiclass-fighter", name: "Fighter", source: "PHB", level: 3 }
+    ]
+  },
+  catalog,
+  status: "ready"
+});
+assert.equal((collapsedMulticlass.match(/data-action="toggle-character-class-feature-entry"/g) ?? []).length, 2);
+assert.doesNotMatch(collapsedMulticlass, /character-class-progression__table/);
+
+const partiallyExpandedMulticlass = renderCharacterClassFeaturesSection({
+  character: {
+    classFeaturesOpen: true,
+    isMulticlass: true,
+    classEntries: [
+      { id: "multiclass-wizard", name: "Wizard", source: "PHB", level: 5, featuresOpen: true },
+      { id: "multiclass-fighter", name: "Fighter", source: "PHB", level: 3 }
+    ]
+  },
+  catalog,
+  status: "ready"
+});
+assert.equal((partiallyExpandedMulticlass.match(/character-class-progression__table/g) ?? []).length, 1);
+assert.match(partiallyExpandedMulticlass, /data-character-class-row="multiclass-wizard"[\s\S]*?aria-expanded="true"/);
+assert.match(partiallyExpandedMulticlass, /data-character-class-row="multiclass-fighter"[\s\S]*?aria-expanded="false"/);
 
 const rendered = renderCharacterClassFeaturesSection({
   character: {

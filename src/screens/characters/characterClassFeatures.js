@@ -6,6 +6,7 @@ import {
   getLocalizedCharacterClassFeature
 } from "../../data/characterClassData.js";
 import classReferenceTranslationsEs from "../../data/generated/classReferenceTranslationsEs.generated.js";
+import { findCompendiumEntryByReference, getCompendiumEntryIdentityKey } from "../../shared/compendiumReferences.js";
 
 const abilityLabels = Object.freeze({
   en: { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" },
@@ -124,13 +125,14 @@ const sortedInlineClassTermsEs = Object.entries({
 export function renderCharacterClassFeaturesSection({
   character,
   catalog,
+  spellEntries = [],
   status = "idle",
   error = "",
   interfaceLanguage = "es",
   contentLanguage = "es"
 }) {
   const isEnglish = interfaceLanguage === "en";
-  const isOpen = character?.classFeaturesOpen !== false;
+  const isOpen = character?.classFeaturesOpen === true;
   const entries = (Array.isArray(character?.classEntries) ? character.classEntries : [])
     .filter((entry, index) => index === 0 || character?.isMulticlass)
     .map((entry) => getClassSelection(catalog, entry))
@@ -166,12 +168,12 @@ export function renderCharacterClassFeaturesSection({
           <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
         </button>
       </div>
-      ${isOpen ? renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog }) : ""}
+      ${isOpen ? renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog, spellEntries }) : ""}
     </section>
   `;
 }
 
-function renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog }) {
+function renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog, spellEntries }) {
   if (status === "loading" || status === "idle") {
     return `<div class="character-class-features__state">${escapeHtml(isEnglish ? "Loading class data..." : "Cargando datos de clases...")}</div>`;
   }
@@ -188,12 +190,18 @@ function renderSectionBody({ entries, status, error, isEnglish, contentLanguage,
 
   return `
     <div class="character-class-features__body">
-      ${entries.map((selection) => renderClassBlock(selection, { isEnglish, contentLanguage, catalog })).join("")}
+      ${entries.map((selection) => renderClassBlock(selection, {
+        isEnglish,
+        contentLanguage,
+        catalog,
+        spellEntries,
+        collapsible: entries.length > 1
+      })).join("")}
     </div>
   `;
 }
 
-function renderClassBlock(selection, { isEnglish, contentLanguage, catalog }) {
+function renderClassBlock(selection, { isEnglish, contentLanguage, catalog, spellEntries, collapsible }) {
   const { entry, classEntity, subclass, level } = selection;
   const combinedFeatures = getCombinedFeatures(selection);
   const unlocked = combinedFeatures.filter((feature) => feature.level <= level);
@@ -207,6 +215,10 @@ function renderClassBlock(selection, { isEnglish, contentLanguage, catalog }) {
   const localizedUpcoming = upcoming.map((feature) => localizedById.get(feature.feature.id) || feature);
   const classTitle = getCharacterClassDisplayValue(classEntity, contentLanguage, entry.name);
   const subclassTitle = subclass ? getCharacterSubclassDisplayValue(subclass, contentLanguage, entry.subclassName) : "";
+  const isOpen = !collapsible || entry.featuresOpen === true;
+  const toggleLabel = isEnglish
+    ? `${isOpen ? "Collapse" : "Expand"} ${classTitle}`
+    : `${isOpen ? "Contraer" : "Desplegar"} ${classTitle}`;
 
   return `
     <article class="character-class-features__class">
@@ -215,22 +227,42 @@ function renderClassBlock(selection, { isEnglish, contentLanguage, catalog }) {
           <p class="eyebrow">${escapeHtml(isEnglish ? `Level ${level}` : `Nivel ${level}`)}</p>
           <h4>${escapeHtml(classTitle)}</h4>
         </div>
-        ${subclassTitle ? `<span class="character-class-features__subclass">${escapeHtml(subclassTitle)}</span>` : ""}
+        <div class="character-class-features__class-actions">
+          ${subclassTitle ? `<span class="character-class-features__subclass">${escapeHtml(subclassTitle)}</span>` : ""}
+          ${collapsible ? `
+            <button
+              class="character-section-toggle__button character-class-features__class-toggle"
+              type="button"
+              data-action="toggle-character-class-feature-entry"
+              data-character-class-row="${escapeHtml(entry.id)}"
+              aria-expanded="${isOpen}"
+              aria-label="${escapeHtml(toggleLabel)}"
+            >
+              <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
+            </button>
+          ` : ""}
+        </div>
       </header>
-      ${renderProgressionTable(selection, localizedFeatures, isEnglish)}
-      ${renderCoreTraits(classEntity, contentLanguage, isEnglish)}
-      ${renderFeatureGroup(localizedUnlocked, {
-        title: isEnglish ? "Unlocked features" : "Caracteristicas desbloqueadas",
-        emptyText: isEnglish ? "No class features unlocked yet." : "Todavia no hay caracteristicas desbloqueadas.",
-        stateClass: "unlocked",
-        contentLanguage
-      })}
-      ${renderFeatureGroup(localizedUpcoming, {
-        title: isEnglish ? "Upcoming features" : "Proximas caracteristicas",
-        emptyText: isEnglish ? "No later features." : "No hay caracteristicas posteriores.",
-        stateClass: "upcoming",
-        contentLanguage
-      })}
+      ${isOpen ? `
+        <div class="character-class-features__class-content">
+          ${renderProgressionTable(selection, localizedFeatures, isEnglish)}
+          ${renderCoreTraits(classEntity, contentLanguage, isEnglish)}
+          ${renderFeatureGroup(localizedUnlocked, {
+            title: isEnglish ? "Unlocked features" : "Caracteristicas desbloqueadas",
+            emptyText: isEnglish ? "No class features unlocked yet." : "Todavia no hay caracteristicas desbloqueadas.",
+            stateClass: "unlocked",
+            contentLanguage,
+            spellEntries
+          })}
+          ${renderFeatureGroup(localizedUpcoming, {
+            title: isEnglish ? "Upcoming features" : "Proximas caracteristicas",
+            emptyText: isEnglish ? "No later features." : "No hay caracteristicas posteriores.",
+            stateClass: "upcoming",
+            contentLanguage,
+            spellEntries
+          })}
+        </div>
+      ` : ""}
     </article>
   `;
 }
@@ -346,18 +378,18 @@ function getCoreTraits(classEntity, language) {
   ];
 }
 
-function renderFeatureGroup(features, { title, emptyText, stateClass, contentLanguage }) {
+function renderFeatureGroup(features, { title, emptyText, stateClass, contentLanguage, spellEntries }) {
   return `
     <section class="character-class-feature-group character-class-feature-group--${stateClass}">
       <h5>${escapeHtml(title)}</h5>
       ${features.length > 0
-        ? `<div class="character-class-feature-group__list">${features.map((entry) => renderFeature(entry, contentLanguage)).join("")}</div>`
+        ? `<div class="character-class-feature-group__list">${features.map((entry) => renderFeature(entry, contentLanguage, spellEntries)).join("")}</div>`
         : `<p class="character-class-feature-group__empty">${escapeHtml(emptyText)}</p>`}
     </section>
   `;
 }
 
-function renderFeature(entry, contentLanguage) {
+function renderFeature(entry, contentLanguage, spellEntries) {
   const feature = entry.feature;
   const isEnglish = contentLanguage === "en";
   const fallbackLabel = contentLanguage === "es" && feature.translationAvailable === false
@@ -376,7 +408,7 @@ function renderFeature(entry, contentLanguage) {
         ${feature.optional ? `<span class="character-class-feature__optional">${isEnglish ? "OPTIONAL" : "OPCIONAL"}</span>` : fallbackLabel}
       </header>
       <div class="character-class-feature__content">
-        ${render5eToolsEntries(feature.entries, contentLanguage)}
+        ${render5eToolsEntries(feature.entries, contentLanguage, spellEntries)}
       </div>
     </article>
   `;
@@ -410,17 +442,17 @@ function flattenLevels(levels, kind, rowId) {
   ));
 }
 
-function render5eToolsEntries(entries, language = "en") {
+function render5eToolsEntries(entries, language = "en", spellEntries = []) {
   if (entries === null || entries === undefined || entries === "") {
     return `<p class="character-class-feature__empty">—</p>`;
   }
 
   if (typeof entries === "string" || typeof entries === "number") {
-    return `<p>${render5eToolsInline(String(entries), language)}</p>`;
+    return `<p>${render5eToolsInline(String(entries), language, spellEntries)}</p>`;
   }
 
   if (Array.isArray(entries)) {
-    return entries.map((entry) => render5eToolsEntries(entry, language)).join("");
+    return entries.map((entry) => render5eToolsEntries(entry, language, spellEntries)).join("");
   }
 
   if (typeof entries !== "object") {
@@ -428,7 +460,7 @@ function render5eToolsEntries(entries, language = "en") {
   }
 
   if (entries.type === "list") {
-    return `<ul>${(entries.items ?? []).map((item) => `<li>${render5eToolsEntryBody(item, language)}</li>`).join("")}</ul>`;
+    return `<ul>${(entries.items ?? []).map((item) => `<li>${render5eToolsEntryBody(item, language, spellEntries)}</li>`).join("")}</ul>`;
   }
 
   if (entries.type === "table") {
@@ -436,41 +468,49 @@ function render5eToolsEntries(entries, language = "en") {
     return `
       <div class="character-class-feature__table-wrap">
         <table>
-          ${labels.length > 0 ? `<thead><tr>${labels.map((label) => `<th>${render5eToolsInline(String(label), language)}</th>`).join("")}</tr></thead>` : ""}
-          <tbody>${(entries.rows ?? []).map((row) => `<tr>${(Array.isArray(row) ? row : []).map((cell) => `<td>${render5eToolsEntryBody(cell, language)}</td>`).join("")}</tr>`).join("")}</tbody>
+          ${labels.length > 0 ? `<thead><tr>${labels.map((label) => `<th>${render5eToolsInline(String(label), language, spellEntries)}</th>`).join("")}</tr></thead>` : ""}
+          <tbody>${(entries.rows ?? []).map((row) => `<tr>${(Array.isArray(row) ? row : []).map((cell) => `<td>${render5eToolsEntryBody(cell, language, spellEntries)}</td>`).join("")}</tr>`).join("")}</tbody>
         </table>
       </div>
     `;
   }
 
   if (entries.type === "quote") {
-    return `<blockquote>${render5eToolsEntries(entries.entries, language)}${entries.by ? `<cite>${escapeHtml(entries.by)}</cite>` : ""}</blockquote>`;
+    return `<blockquote>${render5eToolsEntries(entries.entries, language, spellEntries)}${entries.by ? `<cite>${escapeHtml(entries.by)}</cite>` : ""}</blockquote>`;
   }
 
-  if (entries.type === "refClassFeature" || entries.type === "refSubclassFeature") {
-    return "";
+  if (["refClassFeature", "refSubclassFeature", "refOptionalfeature", "refFeat"].includes(entries.type)) {
+    const reference = entries.classFeature
+      ?? entries.subclassFeature
+      ?? entries.optionalfeature
+      ?? entries.feat
+      ?? "";
+    const referenceName = String(reference).split("|")[0]?.trim();
+    return referenceName
+      ? `<h6>${render5eToolsInline(translateKnownClassTerm(referenceName, language), language, spellEntries)}</h6>`
+      : "";
   }
 
-  const title = entries.name ? `<h6>${render5eToolsInline(translateKnownClassTerm(String(entries.name), language), language)}</h6>` : "";
+  const title = entries.name ? `<h6>${render5eToolsInline(translateKnownClassTerm(String(entries.name), language), language, spellEntries)}</h6>` : "";
   const body = entries.entries !== undefined
-    ? render5eToolsEntries(entries.entries, language)
+    ? render5eToolsEntries(entries.entries, language, spellEntries)
     : entries.entry !== undefined
-      ? render5eToolsEntries(entries.entry, language)
+      ? render5eToolsEntries(entries.entry, language, spellEntries)
       : entries.items !== undefined
-        ? render5eToolsEntries(entries.items, language)
+        ? render5eToolsEntries(entries.items, language, spellEntries)
         : "";
   return `${title}${body}`;
 }
 
-function render5eToolsEntryBody(value, language = "en") {
+function render5eToolsEntryBody(value, language = "en", spellEntries = []) {
   if (typeof value === "string" || typeof value === "number") {
-    return render5eToolsInline(String(value), language);
+    return render5eToolsInline(String(value), language, spellEntries);
   }
 
-  return render5eToolsEntries(value, language);
+  return render5eToolsEntries(value, language, spellEntries);
 }
 
-function render5eToolsInline(value, language = "en") {
+function render5eToolsInline(value, language = "en", spellEntries = []) {
   const source = String(value ?? "");
   const pattern = /\{@([a-zA-Z0-9]+)\s+([^{}]*)\}/g;
   let result = "";
@@ -479,7 +519,7 @@ function render5eToolsInline(value, language = "en") {
 
   while ((match = pattern.exec(source))) {
     result += escapeHtml(translateKnownClassText(source.slice(cursor, match.index), language));
-    result += render5eToolsTag(match[1].toLowerCase(), match[2], language);
+    result += render5eToolsTag(match[1].toLowerCase(), match[2], language, spellEntries);
     cursor = pattern.lastIndex;
   }
 
@@ -487,7 +527,7 @@ function render5eToolsInline(value, language = "en") {
   return result;
 }
 
-function render5eToolsTag(tag, body, language = "en") {
+function render5eToolsTag(tag, body, language = "en", spellEntries = []) {
   const parts = String(body ?? "").split("|");
   const primary = parts[0] ?? "";
   const diceDisplay = parts[2] || parts[1] || primary;
@@ -503,15 +543,16 @@ function render5eToolsTag(tag, body, language = "en") {
       : firstDisplayTags.has(tag)
         ? translateKnownClassText(primary, language)
         : display,
-    language
+    language,
+    spellEntries
   );
 
   if (tag === "b" || tag === "bold") {
-    return `<strong>${render5eToolsInline(primary, language)}</strong>`;
+    return `<strong>${render5eToolsInline(primary, language, spellEntries)}</strong>`;
   }
 
   if (tag === "i" || tag === "italic") {
-    return `<em>${render5eToolsInline(primary, language)}</em>`;
+    return `<em>${render5eToolsInline(primary, language, spellEntries)}</em>`;
   }
 
   if (tag === "damage" || tag === "dice" || tag === "scaledice" || tag === "scaledamage") {
@@ -528,7 +569,19 @@ function render5eToolsTag(tag, body, language = "en") {
   }
 
   if (tag === "note") {
-    return `<em>${render5eToolsInline(primary, language)}</em>`;
+    return `<em>${render5eToolsInline(primary, language, spellEntries)}</em>`;
+  }
+
+  if (tag === "spell") {
+    const matchedSpell = findCompendiumEntryByReference(spellEntries, {
+      name: primary,
+      canonicalName: primary
+    });
+
+    if (matchedSpell) {
+      const entryId = getCompendiumEntryIdentityKey(matchedSpell);
+      return `<button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(matchedSpell.name || primary)}"${entryId ? ` data-arcanum-entry-id="${escapeHtml(entryId)}"` : ""}${matchedSpell.source ? ` data-arcanum-source="${escapeHtml(matchedSpell.source)}"` : ""}>${rendered}</button>`;
+    }
   }
 
   return rendered;

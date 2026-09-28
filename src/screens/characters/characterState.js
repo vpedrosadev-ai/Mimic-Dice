@@ -151,6 +151,8 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
   }
 
   const resolvedSkillDefinitions = resolveCharacterSkillDefinitions(skillDefinitions, [character]);
+  const hasStoredClassFeatureDisclosureState = Array.isArray(character.classEntries)
+    && character.classEntries.some((entry) => typeof entry?.featuresOpen === "boolean");
   const classEntries = normalizeStoredCharacterClassEntries(character.classEntries, character);
   const hasStoredMulticlassFlag = typeof character.isMulticlass === "boolean";
   const inferredMulticlass = classEntries.slice(1).some((entry) => hasMeaningfulCharacterClassEntry(entry));
@@ -217,7 +219,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     conditions: cleanText(character.conditions),
     stand: normalizeStoredStandLabel(character.stand),
     notes: cleanText(character.notes),
-    classFeaturesOpen: character.classFeaturesOpen !== false,
+    classFeaturesOpen: hasStoredClassFeatureDisclosureState && character.classFeaturesOpen === true,
     skillProgress: normalizeStoredCharacterSkillProgress(
       character.skillProgress,
       resolvedSkillDefinitions,
@@ -273,6 +275,7 @@ function normalizeStoredCharacterClassEntry(entry) {
     subclassName: cleanText(entry.subclassName),
     subclassId: cleanText(entry.subclassId),
     subclassSource: cleanText(entry.subclassSource),
+    featuresOpen: entry.featuresOpen === true,
     level: normalizeStoredCharacterClassLevel(entry.level)
   };
 }

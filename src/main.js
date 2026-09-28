@@ -3141,6 +3141,13 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-character-class-feature-entry") {
+    toggleCharacterClassFeatureEntry(actionButton.dataset.characterClassRow);
+    saveCharacters();
+    render();
+    return;
+  }
+
   if (action === "select-character-class-option") {
     updateCharacterClassEntry(
       actionButton.dataset.characterClassRow,
@@ -15274,6 +15281,7 @@ function renderCharacterEditor(character) {
       ${renderCharacterClassFeaturesSection({
         character,
         catalog: state.characterClassData,
+        spellEntries: state.arcanum,
         status: state.characterClassDataStatus,
         error: state.characterClassDataMessage,
         interfaceLanguage: isEnglishInterface() ? APP_LANGUAGE_EN : APP_LANGUAGE_ES,
@@ -18162,7 +18170,7 @@ function createDefaultCharacter(overrides = {}) {
     conditions: "",
     stand: "",
     notes: "",
-    classFeaturesOpen: true,
+    classFeaturesOpen: false,
     skillProgress: getDefaultCharacterSkillProgress(),
     spellsOpen: false,
     spells: [],
@@ -18943,6 +18951,24 @@ function toggleCharacterClassFeaturesSection() {
     ? normalizeStoredCharacter({
       ...character,
       classFeaturesOpen: character.classFeaturesOpen === false
+    })
+    : character);
+}
+
+function toggleCharacterClassFeatureEntry(rowId) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      classEntries: ensureCharacterClassEntryCount(character.classEntries, character.isMulticlass ? 2 : 1)
+        .map((entry) => entry.id === normalizedRowId
+          ? { ...entry, featuresOpen: entry.featuresOpen !== true }
+          : entry)
     })
     : character);
 }
