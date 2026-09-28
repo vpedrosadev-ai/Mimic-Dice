@@ -24,10 +24,22 @@ const spanishClassIndex = await readJson(path.join(spanishDirectory, "index.json
 const englishFiles = await readIndexedFiles(englishDirectory, englishClassIndex);
 const englishFluffFiles = await readIndexedFiles(englishDirectory, englishFluffIndex);
 const spanishFiles = await readIndexedFiles(spanishDirectory, spanishClassIndex);
+const englishOptionalFeatures = await readJson(path.join(englishDirectory, "optionalfeatures.json"));
+const englishFeats = await readJson(path.join(englishDirectory, "feats.json"));
+const spanishOptionalFeatures = await readJson(path.join(spanishDirectory, "optionalfeatures.json"));
+const spanishFeats = await readJson(path.join(spanishDirectory, "feats.json"));
 const machineSpanish = await readJsonIfExists(MACHINE_SPANISH_FILE);
 const spanishReferenceNames = await buildSpanishReferenceNames();
-const catalog = buildCatalog(englishFiles);
-const spanishOverlay = buildSpanishOverlay(catalog, englishFiles, spanishFiles, machineSpanish);
+const englishFeatureEntities = buildFeatureEntityCollection(englishFiles, englishOptionalFeatures, englishFeats);
+const catalog = buildCatalog(englishFiles, englishFeatureEntities);
+const spanishOverlay = buildSpanishOverlay(
+  catalog,
+  englishFeatureEntities,
+  spanishFiles,
+  spanishOptionalFeatures,
+  spanishFeats,
+  machineSpanish
+);
 const lore = buildLoreBundle(englishFluffFiles);
 
 await fs.rm(OUTPUT_ROOT, { recursive: true, force: true });
@@ -89,13 +101,11 @@ await fs.writeFile(
 );
 console.log(`Generated class manifest ${manifest.version}.`);
 
-function buildCatalog(files) {
+function buildCatalog(files, featureEntities) {
   const classes = [];
   const unresolvedReferences = [];
 
   for (const [fileKey, data] of Object.entries(files)) {
-    const classFeatures = Array.isArray(data.classFeature) ? data.classFeature : [];
-    const subclassFeatures = Array.isArray(data.subclassFeature) ? data.subclassFeature : [];
     const subclasses = Array.isArray(data.subclass) ? data.subclass : [];
 
     for (const classEntity of Array.isArray(data.class) ? data.class : []) {
@@ -104,7 +114,7 @@ function buildCatalog(files) {
         ...copyWithout(classEntity, ["classFeatures"]),
         id: classId,
         key: normalizeKey(classEntity.name || fileKey),
-        levels: buildClassLevels(classEntity, classFeatures, subclassFeatures, unresolvedReferences),
+        levels: buildClassLevels(classEntity, featureEntities, unresolvedReferences),
         subclasses: subclasses
           .filter((subclass) => isSubclassForClass(subclass, classEntity))
           .map((subclass) => ({
@@ -116,7 +126,7 @@ function buildCatalog(files) {
               subclass.name,
               subclass.source
             ),
-            levels: buildSubclassLevels(subclass, classFeatures, subclassFeatures, unresolvedReferences)
+            levels: buildSubclassLevels(subclass, featureEntities, unresolvedReferences)
           }))
       };
 
@@ -132,7 +142,8 @@ function buildCatalog(files) {
   return { classes, unresolvedReferences };
 }
 
-function buildClassLevels(classEntity, classFeatureEntities, subclassFeatureEntities, unresolvedReferences) {
+function buildClassLevels(classEntity, featureEntities, unresolvedReferences) {
+  const { classFeatureEntities } = featureEntities;
   const levels = new Map();
 
   for (const rawReference of Array.isArray(classEntity.classFeatures) ? classEntity.classFeatures : []) {
@@ -159,8 +170,7 @@ function buildClassLevels(classEntity, classFeatureEntities, subclassFeatureEnti
           ...feature,
           id: featureId,
           entries: resolveFeatureReferences(feature.entries, {
-            classFeatureEntities,
-            subclassFeatureEntities,
+            ...featureEntities,
             context: feature,
             unresolvedReferences,
             owner: { class: classEntity.name, source: classEntity.source },
@@ -190,7 +200,8 @@ function buildClassLevels(classEntity, classFeatureEntities, subclassFeatureEnti
   return finalizeLevels(levels);
 }
 
-function buildSubclassLevels(subclass, classFeatureEntities, subclassFeatureEntities, unresolvedReferences) {
+function buildSubclassLevels(subclass, featureEntities, unresolvedReferences) {
+  const { subclassFeatureEntities } = featureEntities;
   const levels = new Map();
 
   for (const rawReference of Array.isArray(subclass.subclassFeatures) ? subclass.subclassFeatures : []) {
@@ -219,8 +230,7 @@ function buildSubclassLevels(subclass, classFeatureEntities, subclassFeatureEnti
           ...feature,
           id: featureId,
           entries: resolveFeatureReferences(feature.entries, {
-            classFeatureEntities,
-            subclassFeatureEntities,
+            ...featureEntities,
             context: feature,
             unresolvedReferences,
             owner: {
@@ -260,9 +270,15 @@ function buildSubclassLevels(subclass, classFeatureEntities, subclassFeatureEnti
   return finalizeLevels(levels);
 }
 
-function buildSpanishOverlay(catalog, englishFiles, files, machineSpanish) {
-  const spanishFeatureMaps = buildSpanishFeatureMaps(files);
-  const englishFeatureEntities = buildFeatureEntityCollection(englishFiles);
+function buildSpanishOverlay(
+  catalog,
+  englishFeatureEntities,
+  files,
+  optionalFeatures,
+  feats,
+  machineSpanish
+) {
+  const spanishFeatureMaps = buildSpanishFeatureMaps(files, optionalFeatures, feats);
   const machineTranslations = machineSpanish?.translations ?? {};
   const translations = {};
   let translatedFeatureCount = 0;
@@ -321,21 +337,34 @@ function buildSpanishOverlay(catalog, englishFiles, files, machineSpanish) {
   return { translations, translatedFeatureCount, totalFeatureCount };
 }
 
-function buildFeatureEntityCollection(files) {
-  return Object.values(files).reduce((result, data) => {
-    result.classFeatureEntities.push(...(Array.isArray(data.classFeature) ? data.classFeature : []));
-    result.subclassFeatureEntities.push(...(Array.isArray(data.subclassFeature) ? data.subclassFeature : []));
-    return result;
-  }, { classFeatureEntities: [], subclassFeatureEntities: [] });
+function buildFeatureEntityCollection(files, optionalFeatures = {}, feats = {}) {
+  const result = Object.values(files).reduce((collection, data) => {
+    collection.classFeatureEntities.push(...(Array.isArray(data.classFeature) ? data.classFeature : []));
+    collection.subclassFeatureEntities.push(...(Array.isArray(data.subclassFeature) ? data.subclassFeature : []));
+    return collection;
+  }, {
+    classFeatureEntities: [],
+    subclassFeatureEntities: [],
+    optionalFeatureEntities: [],
+    featEntities: []
+  });
+
+  result.optionalFeatureEntities.push(...(
+    Array.isArray(optionalFeatures.optionalfeature) ? optionalFeatures.optionalfeature : []
+  ));
+  result.featEntities.push(...(Array.isArray(feats.feat) ? feats.feat : []));
+  return result;
 }
 
 function getSpanishFeatureTranslation(feature, kind, spanishFeatureMaps, machineTranslations) {
-  const id = kind === "classFeature"
-    ? createClassFeatureId(feature)
-    : createSubclassFeatureId(feature);
+  const id = createFeatureReferenceId(feature, kind);
   const translated = kind === "classFeature"
     ? spanishFeatureMaps.classFeature.get(getClassFeatureIdentity(feature))
-    : spanishFeatureMaps.subclassFeature.get(getSubclassFeatureIdentity(feature));
+    : kind === "subclassFeature"
+      ? spanishFeatureMaps.subclassFeature.get(getSubclassFeatureIdentity(feature))
+      : kind === "optionalFeature"
+        ? spanishFeatureMaps.optionalFeature.get(getNamedSourceIdentity(feature))
+        : spanishFeatureMaps.feat.get(getNamedSourceIdentity(feature));
   return translated ?? machineTranslations[id];
 }
 
@@ -352,7 +381,11 @@ function resolveFeatureReferences(value, options) {
     ? "classFeature"
     : value.type === "refSubclassFeature"
       ? "subclassFeature"
-      : "";
+      : value.type === "refOptionalfeature"
+        ? "optionalFeature"
+        : value.type === "refFeat"
+          ? "feat"
+          : "";
 
   if (!kind) {
     return Object.fromEntries(
@@ -360,14 +393,26 @@ function resolveFeatureReferences(value, options) {
     );
   }
 
-  const reference = kind === "classFeature" ? value.classFeature : value.subclassFeature;
+  const reference = kind === "classFeature"
+    ? value.classFeature
+    : kind === "subclassFeature"
+      ? value.subclassFeature
+      : kind === "optionalFeature"
+        ? value.optionalfeature
+        : value.feat;
   const parsed = kind === "classFeature"
     ? parseClassFeatureReference(reference, options.context)
-    : parseSubclassFeatureReference(reference, options.context);
+    : kind === "subclassFeature"
+      ? parseSubclassFeatureReference(reference, options.context)
+      : parseNamedSourceReference(reference);
   const feature = parsed
     ? kind === "classFeature"
       ? findClassFeature(options.classFeatureEntities, parsed)
-      : findSubclassFeature(options.subclassFeatureEntities, parsed)
+      : kind === "subclassFeature"
+        ? findSubclassFeature(options.subclassFeatureEntities, parsed)
+        : kind === "optionalFeature"
+          ? findNamedSourceFeature(options.optionalFeatureEntities, parsed)
+          : findNamedSourceFeature(options.featEntities, parsed)
     : null;
 
   if (!feature) {
@@ -379,11 +424,9 @@ function resolveFeatureReferences(value, options) {
     return { ...value, unresolved: true };
   }
 
-  const featureId = kind === "classFeature"
-    ? createClassFeatureId(feature)
-    : createSubclassFeatureId(feature);
+  const featureId = createFeatureReferenceId(feature, kind);
   const content = options.getFeatureContent?.(feature, kind) ?? feature;
-  const metadata = copyWithout(value, ["type", "classFeature", "subclassFeature"]);
+  const metadata = copyWithout(value, ["type", "classFeature", "subclassFeature", "optionalfeature", "feat"]);
 
   if (options.stack?.has(featureId)) {
     return {
@@ -415,9 +458,11 @@ function resolveFeatureReferences(value, options) {
   };
 }
 
-function buildSpanishFeatureMaps(files) {
+function buildSpanishFeatureMaps(files, optionalFeatures = {}, feats = {}) {
   const classFeature = new Map();
   const subclassFeature = new Map();
+  const optionalFeature = new Map();
+  const feat = new Map();
 
   for (const data of Object.values(files)) {
     for (const feature of Array.isArray(data.classFeature) ? data.classFeature : []) {
@@ -429,7 +474,15 @@ function buildSpanishFeatureMaps(files) {
     }
   }
 
-  return { classFeature, subclassFeature };
+  for (const feature of Array.isArray(optionalFeatures.optionalfeature) ? optionalFeatures.optionalfeature : []) {
+    optionalFeature.set(getNamedSourceIdentity(feature), feature);
+  }
+
+  for (const feature of Array.isArray(feats.feat) ? feats.feat : []) {
+    feat.set(getNamedSourceIdentity(feature), feature);
+  }
+
+  return { classFeature, subclassFeature, optionalFeature, feat };
 }
 
 async function buildSpanishReferenceNames() {
@@ -512,6 +565,13 @@ function parseSubclassFeatureReference(value, subclass) {
     : null;
 }
 
+function parseNamedSourceReference(value) {
+  const parts = String(value || "").split("|");
+  const name = parts[0]?.trim();
+  const source = parts[1]?.trim() || "PHB";
+  return name ? { name, source } : null;
+}
+
 function findClassFeature(features, reference) {
   return features.find((feature) => (
     same(feature.name, reference.name)
@@ -544,6 +604,14 @@ function findSubclassFeature(features, reference) {
   ));
 }
 
+function findNamedSourceFeature(features, reference) {
+  const candidates = (Array.isArray(features) ? features : []).filter((feature) => (
+    same(feature.name, reference.name)
+  ));
+  return candidates.find((feature) => same(feature.source, reference.source))
+    ?? (candidates.length === 1 ? candidates[0] : null);
+}
+
 function createClassFeatureId(feature) {
   return createEntityId(
     "class-feature",
@@ -566,6 +634,18 @@ function createSubclassFeatureId(feature) {
     feature.level,
     feature.source
   );
+}
+
+function createFeatureReferenceId(feature, kind) {
+  if (kind === "classFeature") {
+    return createClassFeatureId(feature);
+  }
+
+  if (kind === "subclassFeature") {
+    return createSubclassFeatureId(feature);
+  }
+
+  return createEntityId(kind === "optionalFeature" ? "optional-feature" : "feat", feature.name, feature.source);
 }
 
 function isSubclassForClass(subclass, classEntity) {
@@ -607,6 +687,10 @@ function getSubclassFeatureIdentity(feature) {
     feature.subclassSource,
     feature.level
   ].map(normalizeIdentityPart).join("|");
+}
+
+function getNamedSourceIdentity(feature) {
+  return [feature.name, feature.source].map(normalizeIdentityPart).join("|");
 }
 
 function normalizeIdentityPart(value) {

@@ -15080,6 +15080,33 @@ body.is-table-resizing * {
   color: var(--text);
 }
 
+.character-class-feature__spell-reference {
+  position: relative;
+  display: inline-block;
+}
+
+.character-class-feature__spell-reference .character-spellbook__preview {
+  top: calc(100% + 0.32rem);
+  right: auto;
+  left: 0;
+  z-index: 420;
+  width: min(28rem, calc(100vw - 4rem));
+  transform: translate3d(0, -0.3rem, 0);
+}
+
+.character-class-feature__spell-reference .character-spellbook__preview::after {
+  inset: -0.32rem 0 auto;
+  width: 100%;
+  height: 0.32rem;
+}
+
+.character-class-feature__spell-reference:hover .character-spellbook__preview,
+.character-class-feature__spell-reference:focus-within .character-spellbook__preview {
+  opacity: 1;
+  visibility: visible;
+  transform: translate3d(0, 0, 0);
+}
+
 .bestiary-showcase--hearth {
   border-color: rgba(176, 124, 70, 0.34);
   background:

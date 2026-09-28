@@ -34,6 +34,22 @@ const spanishClassIndex = await downloadJson(
 );
 
 await downloadMany([
+  {
+    url: `${ENGLISH_BASE_URL}/data/optionalfeatures.json`,
+    outputPath: path.join(englishDirectory, "optionalfeatures.json")
+  },
+  {
+    url: `${ENGLISH_BASE_URL}/data/feats.json`,
+    outputPath: path.join(englishDirectory, "feats.json")
+  },
+  {
+    url: `${SPANISH_BASE_URL}/data.es/optionalfeatures.json`,
+    outputPath: path.join(spanishDirectory, "optionalfeatures.json")
+  },
+  {
+    url: `${SPANISH_BASE_URL}/data.es/feats.json`,
+    outputPath: path.join(spanishDirectory, "feats.json")
+  },
   ...Object.values(englishClassIndex).map((fileName) => ({
     url: `${ENGLISH_BASE_URL}/data/class/${fileName}`,
     outputPath: path.join(englishDirectory, fileName)
@@ -59,12 +75,14 @@ const sourceManifest = {
     version: ENGLISH_VERSION,
     baseUrl: ENGLISH_BASE_URL,
     classFiles: Object.values(englishClassIndex),
-    fluffFiles: Object.values(englishFluffIndex)
+    fluffFiles: Object.values(englishFluffIndex),
+    referenceFiles: ["optionalfeatures.json", "feats.json"]
   },
   spanish: {
     snapshot: SPANISH_SNAPSHOT,
     baseUrl: `${SPANISH_BASE_URL}/data.es/class/`,
     classFiles: Object.values(spanishClassIndex),
+    referenceFiles: ["optionalfeatures.json", "feats.json"],
     note: "Machine-translated mirror snapshot. Newer English entities fall back to English."
   }
 };

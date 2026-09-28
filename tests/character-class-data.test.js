@@ -34,7 +34,11 @@ assert.equal(dynamicallyLoadedCatalog.classes.length, 30);
 assert.equal(dynamicallyLoadedCatalog.subclassCount, 330);
 assert.equal(dynamicallyLoadedCatalog.featureCount, 1760);
 assert.equal(dynamicallyLoadedCatalog.translatedFeatureCount, 1760);
-assert.doesNotMatch(JSON.stringify(catalogPayload), /"type":"ref(?:Class|Subclass)Feature"/);
+assert.equal(catalogPayload.unresolvedReferences.length, 0);
+assert.doesNotMatch(JSON.stringify(catalogPayload), /"type":"ref(?:ClassFeature|SubclassFeature|Optionalfeature|Feat)"/);
+const resolvedSupplementalEntries = collectResolvedSupplementalEntries(catalogPayload.classes);
+assert.ok(resolvedSupplementalEntries.length >= 149);
+assert.equal(resolvedSupplementalEntries.filter((entry) => !Array.isArray(entry.entries) || entry.entries.length === 0).length, 0);
 assert.equal(translateCharacterClassName("Artificer", "es"), "Artífice");
 assert.equal(getCharacterClassKey("Compañero guerrero"), "warrior sidekick");
 
@@ -126,6 +130,15 @@ assert.match(spellfireContent, /"name":"Bolstering Flames"/);
 assert.match(spellfireContent, /"name":"Radiant Fire"/);
 assert.match(spellfireContent, /"name":"Spellfire Spells"/);
 
+const metamagicOptions = spellfireSorcerer.levels
+  .flatMap((entry) => entry.features)
+  .find((feature) => feature.name === "Metamagic Options");
+const metamagicContent = JSON.stringify(metamagicOptions.entries);
+assert.match(metamagicContent, /"name":"Careful Spell"/);
+assert.match(metamagicContent, /protect some of those creatures/i);
+assert.match(metamagicContent, /"name":"Twinned Spell"/);
+assert.match(metamagicContent, /Charm Person/);
+
 const cureWounds = {
   id: "arcanum-cure-wounds--xphb--1st",
   identityKey: "arcanum-cure-wounds--xphb--1st",
@@ -150,14 +163,20 @@ const renderedSpellfire = renderCharacterClassFeaturesSection({
   spellEntries: [cureWounds],
   status: "ready",
   interfaceLanguage: "en",
-  contentLanguage: "en"
+  contentLanguage: "en",
+  renderSpellPreview: (entry) => `<div class="character-spellbook__preview" role="tooltip">Preview: ${entry.name}</div>`
 });
 assert.match(renderedSpellfire, /<h6>Spellfire Burst<\/h6>/);
 assert.match(renderedSpellfire, /<h6>Bolstering Flames<\/h6>/);
 assert.match(renderedSpellfire, /<h6>Radiant Fire<\/h6>/);
 assert.match(renderedSpellfire, /<h6>Spellfire Spells<\/h6>/);
+assert.match(renderedSpellfire, /<h6>Careful Spell<\/h6>/);
+assert.match(renderedSpellfire, /protect some of those creatures/i);
+assert.match(renderedSpellfire, /<h6>Twinned Spell<\/h6>/);
 assert.match(renderedSpellfire, /data-arcanum-entry-id="arcanum-cure-wounds--xphb--1st"/);
 assert.match(renderedSpellfire, />Cure Wounds<\/button>/);
+assert.match(renderedSpellfire, /character-class-feature__spell-reference/);
+assert.match(renderedSpellfire, /role="tooltip">Preview: Cure Wounds/);
 assert.doesNotMatch(renderedSpellfire, /data-arcanum-spell-name="Guiding Bolt"/);
 
 const defaultCollapsed = renderCharacterClassFeaturesSection({
@@ -240,4 +259,22 @@ console.log("Character class data tests passed.");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function collectResolvedSupplementalEntries(value, result = []) {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectResolvedSupplementalEntries(entry, result));
+    return result;
+  }
+
+  if (!value || typeof value !== "object") {
+    return result;
+  }
+
+  if (/^(?:optional-feature|feat)-/.test(String(value.id || ""))) {
+    result.push(value);
+  }
+
+  Object.values(value).forEach((entry) => collectResolvedSupplementalEntries(entry, result));
+  return result;
 }

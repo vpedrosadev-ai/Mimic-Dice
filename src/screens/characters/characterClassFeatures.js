@@ -126,6 +126,7 @@ export function renderCharacterClassFeaturesSection({
   character,
   catalog,
   spellEntries = [],
+  renderSpellPreview = null,
   status = "idle",
   error = "",
   interfaceLanguage = "es",
@@ -168,12 +169,12 @@ export function renderCharacterClassFeaturesSection({
           <strong aria-hidden="true">${isOpen ? "-" : "+"}</strong>
         </button>
       </div>
-      ${isOpen ? renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog, spellEntries }) : ""}
+      ${isOpen ? renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog, spellEntries, renderSpellPreview }) : ""}
     </section>
   `;
 }
 
-function renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog, spellEntries }) {
+function renderSectionBody({ entries, status, error, isEnglish, contentLanguage, catalog, spellEntries, renderSpellPreview }) {
   if (status === "loading" || status === "idle") {
     return `<div class="character-class-features__state">${escapeHtml(isEnglish ? "Loading class data..." : "Cargando datos de clases...")}</div>`;
   }
@@ -195,13 +196,14 @@ function renderSectionBody({ entries, status, error, isEnglish, contentLanguage,
         contentLanguage,
         catalog,
         spellEntries,
+        renderSpellPreview,
         collapsible: entries.length > 1
       })).join("")}
     </div>
   `;
 }
 
-function renderClassBlock(selection, { isEnglish, contentLanguage, catalog, spellEntries, collapsible }) {
+function renderClassBlock(selection, { isEnglish, contentLanguage, catalog, spellEntries, renderSpellPreview, collapsible }) {
   const { entry, classEntity, subclass, level } = selection;
   const combinedFeatures = getCombinedFeatures(selection);
   const unlocked = combinedFeatures.filter((feature) => feature.level <= level);
@@ -252,14 +254,16 @@ function renderClassBlock(selection, { isEnglish, contentLanguage, catalog, spel
             emptyText: isEnglish ? "No class features unlocked yet." : "Todavia no hay caracteristicas desbloqueadas.",
             stateClass: "unlocked",
             contentLanguage,
-            spellEntries
+            spellEntries,
+            renderSpellPreview
           })}
           ${renderFeatureGroup(localizedUpcoming, {
             title: isEnglish ? "Upcoming features" : "Proximas caracteristicas",
             emptyText: isEnglish ? "No later features." : "No hay caracteristicas posteriores.",
             stateClass: "upcoming",
             contentLanguage,
-            spellEntries
+            spellEntries,
+            renderSpellPreview
           })}
         </div>
       ` : ""}
@@ -378,18 +382,18 @@ function getCoreTraits(classEntity, language) {
   ];
 }
 
-function renderFeatureGroup(features, { title, emptyText, stateClass, contentLanguage, spellEntries }) {
+function renderFeatureGroup(features, { title, emptyText, stateClass, contentLanguage, spellEntries, renderSpellPreview }) {
   return `
     <section class="character-class-feature-group character-class-feature-group--${stateClass}">
       <h5>${escapeHtml(title)}</h5>
       ${features.length > 0
-        ? `<div class="character-class-feature-group__list">${features.map((entry) => renderFeature(entry, contentLanguage, spellEntries)).join("")}</div>`
+        ? `<div class="character-class-feature-group__list">${features.map((entry) => renderFeature(entry, contentLanguage, spellEntries, renderSpellPreview)).join("")}</div>`
         : `<p class="character-class-feature-group__empty">${escapeHtml(emptyText)}</p>`}
     </section>
   `;
 }
 
-function renderFeature(entry, contentLanguage, spellEntries) {
+function renderFeature(entry, contentLanguage, spellEntries, renderSpellPreview) {
   const feature = entry.feature;
   const isEnglish = contentLanguage === "en";
   const fallbackLabel = contentLanguage === "es" && feature.translationAvailable === false
@@ -408,7 +412,7 @@ function renderFeature(entry, contentLanguage, spellEntries) {
         ${feature.optional ? `<span class="character-class-feature__optional">${isEnglish ? "OPTIONAL" : "OPCIONAL"}</span>` : fallbackLabel}
       </header>
       <div class="character-class-feature__content">
-        ${render5eToolsEntries(feature.entries, contentLanguage, spellEntries)}
+        ${render5eToolsEntries(feature.entries, contentLanguage, spellEntries, renderSpellPreview)}
       </div>
     </article>
   `;
@@ -442,17 +446,17 @@ function flattenLevels(levels, kind, rowId) {
   ));
 }
 
-function render5eToolsEntries(entries, language = "en", spellEntries = []) {
+function render5eToolsEntries(entries, language = "en", spellEntries = [], renderSpellPreview = null) {
   if (entries === null || entries === undefined || entries === "") {
     return `<p class="character-class-feature__empty">—</p>`;
   }
 
   if (typeof entries === "string" || typeof entries === "number") {
-    return `<p>${render5eToolsInline(String(entries), language, spellEntries)}</p>`;
+    return `<p>${render5eToolsInline(String(entries), language, spellEntries, renderSpellPreview)}</p>`;
   }
 
   if (Array.isArray(entries)) {
-    return entries.map((entry) => render5eToolsEntries(entry, language, spellEntries)).join("");
+    return entries.map((entry) => render5eToolsEntries(entry, language, spellEntries, renderSpellPreview)).join("");
   }
 
   if (typeof entries !== "object") {
@@ -460,7 +464,7 @@ function render5eToolsEntries(entries, language = "en", spellEntries = []) {
   }
 
   if (entries.type === "list") {
-    return `<ul>${(entries.items ?? []).map((item) => `<li>${render5eToolsEntryBody(item, language, spellEntries)}</li>`).join("")}</ul>`;
+    return `<ul>${(entries.items ?? []).map((item) => `<li>${render5eToolsEntryBody(item, language, spellEntries, renderSpellPreview)}</li>`).join("")}</ul>`;
   }
 
   if (entries.type === "table") {
@@ -468,15 +472,15 @@ function render5eToolsEntries(entries, language = "en", spellEntries = []) {
     return `
       <div class="character-class-feature__table-wrap">
         <table>
-          ${labels.length > 0 ? `<thead><tr>${labels.map((label) => `<th>${render5eToolsInline(String(label), language, spellEntries)}</th>`).join("")}</tr></thead>` : ""}
-          <tbody>${(entries.rows ?? []).map((row) => `<tr>${(Array.isArray(row) ? row : []).map((cell) => `<td>${render5eToolsEntryBody(cell, language, spellEntries)}</td>`).join("")}</tr>`).join("")}</tbody>
+          ${labels.length > 0 ? `<thead><tr>${labels.map((label) => `<th>${render5eToolsInline(String(label), language, spellEntries, renderSpellPreview)}</th>`).join("")}</tr></thead>` : ""}
+          <tbody>${(entries.rows ?? []).map((row) => `<tr>${(Array.isArray(row) ? row : []).map((cell) => `<td>${render5eToolsEntryBody(cell, language, spellEntries, renderSpellPreview)}</td>`).join("")}</tr>`).join("")}</tbody>
         </table>
       </div>
     `;
   }
 
   if (entries.type === "quote") {
-    return `<blockquote>${render5eToolsEntries(entries.entries, language, spellEntries)}${entries.by ? `<cite>${escapeHtml(entries.by)}</cite>` : ""}</blockquote>`;
+    return `<blockquote>${render5eToolsEntries(entries.entries, language, spellEntries, renderSpellPreview)}${entries.by ? `<cite>${escapeHtml(entries.by)}</cite>` : ""}</blockquote>`;
   }
 
   if (["refClassFeature", "refSubclassFeature", "refOptionalfeature", "refFeat"].includes(entries.type)) {
@@ -487,30 +491,30 @@ function render5eToolsEntries(entries, language = "en", spellEntries = []) {
       ?? "";
     const referenceName = String(reference).split("|")[0]?.trim();
     return referenceName
-      ? `<h6>${render5eToolsInline(translateKnownClassTerm(referenceName, language), language, spellEntries)}</h6>`
+      ? `<h6>${render5eToolsInline(translateKnownClassTerm(referenceName, language), language, spellEntries, renderSpellPreview)}</h6>`
       : "";
   }
 
-  const title = entries.name ? `<h6>${render5eToolsInline(translateKnownClassTerm(String(entries.name), language), language, spellEntries)}</h6>` : "";
+  const title = entries.name ? `<h6>${render5eToolsInline(translateKnownClassTerm(String(entries.name), language), language, spellEntries, renderSpellPreview)}</h6>` : "";
   const body = entries.entries !== undefined
-    ? render5eToolsEntries(entries.entries, language, spellEntries)
+    ? render5eToolsEntries(entries.entries, language, spellEntries, renderSpellPreview)
     : entries.entry !== undefined
-      ? render5eToolsEntries(entries.entry, language, spellEntries)
+      ? render5eToolsEntries(entries.entry, language, spellEntries, renderSpellPreview)
       : entries.items !== undefined
-        ? render5eToolsEntries(entries.items, language, spellEntries)
+        ? render5eToolsEntries(entries.items, language, spellEntries, renderSpellPreview)
         : "";
   return `${title}${body}`;
 }
 
-function render5eToolsEntryBody(value, language = "en", spellEntries = []) {
+function render5eToolsEntryBody(value, language = "en", spellEntries = [], renderSpellPreview = null) {
   if (typeof value === "string" || typeof value === "number") {
-    return render5eToolsInline(String(value), language, spellEntries);
+    return render5eToolsInline(String(value), language, spellEntries, renderSpellPreview);
   }
 
-  return render5eToolsEntries(value, language, spellEntries);
+  return render5eToolsEntries(value, language, spellEntries, renderSpellPreview);
 }
 
-function render5eToolsInline(value, language = "en", spellEntries = []) {
+function render5eToolsInline(value, language = "en", spellEntries = [], renderSpellPreview = null) {
   const source = String(value ?? "");
   const pattern = /\{@([a-zA-Z0-9]+)\s+([^{}]*)\}/g;
   let result = "";
@@ -519,7 +523,7 @@ function render5eToolsInline(value, language = "en", spellEntries = []) {
 
   while ((match = pattern.exec(source))) {
     result += escapeHtml(translateKnownClassText(source.slice(cursor, match.index), language));
-    result += render5eToolsTag(match[1].toLowerCase(), match[2], language, spellEntries);
+    result += render5eToolsTag(match[1].toLowerCase(), match[2], language, spellEntries, renderSpellPreview);
     cursor = pattern.lastIndex;
   }
 
@@ -527,7 +531,7 @@ function render5eToolsInline(value, language = "en", spellEntries = []) {
   return result;
 }
 
-function render5eToolsTag(tag, body, language = "en", spellEntries = []) {
+function render5eToolsTag(tag, body, language = "en", spellEntries = [], renderSpellPreview = null) {
   const parts = String(body ?? "").split("|");
   const primary = parts[0] ?? "";
   const diceDisplay = parts[2] || parts[1] || primary;
@@ -544,15 +548,16 @@ function render5eToolsTag(tag, body, language = "en", spellEntries = []) {
         ? translateKnownClassText(primary, language)
         : display,
     language,
-    spellEntries
+    spellEntries,
+    renderSpellPreview
   );
 
   if (tag === "b" || tag === "bold") {
-    return `<strong>${render5eToolsInline(primary, language, spellEntries)}</strong>`;
+    return `<strong>${render5eToolsInline(primary, language, spellEntries, renderSpellPreview)}</strong>`;
   }
 
   if (tag === "i" || tag === "italic") {
-    return `<em>${render5eToolsInline(primary, language, spellEntries)}</em>`;
+    return `<em>${render5eToolsInline(primary, language, spellEntries, renderSpellPreview)}</em>`;
   }
 
   if (tag === "damage" || tag === "dice" || tag === "scaledice" || tag === "scaledamage") {
@@ -569,7 +574,7 @@ function render5eToolsTag(tag, body, language = "en", spellEntries = []) {
   }
 
   if (tag === "note") {
-    return `<em>${render5eToolsInline(primary, language, spellEntries)}</em>`;
+    return `<em>${render5eToolsInline(primary, language, spellEntries, renderSpellPreview)}</em>`;
   }
 
   if (tag === "spell") {
@@ -580,7 +585,11 @@ function render5eToolsTag(tag, body, language = "en", spellEntries = []) {
 
     if (matchedSpell) {
       const entryId = getCompendiumEntryIdentityKey(matchedSpell);
-      return `<button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(matchedSpell.name || primary)}"${entryId ? ` data-arcanum-entry-id="${escapeHtml(entryId)}"` : ""}${matchedSpell.source ? ` data-arcanum-source="${escapeHtml(matchedSpell.source)}"` : ""}>${rendered}</button>`;
+      const link = `<button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(matchedSpell.name || primary)}"${entryId ? ` data-arcanum-entry-id="${escapeHtml(entryId)}"` : ""}${matchedSpell.source ? ` data-arcanum-source="${escapeHtml(matchedSpell.source)}"` : ""}>${rendered}</button>`;
+      const preview = typeof renderSpellPreview === "function" ? renderSpellPreview(matchedSpell) : "";
+      return preview
+        ? `<span class="character-class-feature__spell-reference">${link}${preview}</span>`
+        : link;
     }
   }
 

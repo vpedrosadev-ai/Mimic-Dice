@@ -15282,6 +15282,7 @@ function renderCharacterEditor(character) {
         character,
         catalog: state.characterClassData,
         spellEntries: state.arcanum,
+        renderSpellPreview: renderCharacterSpellPreview,
         status: state.characterClassDataStatus,
         error: state.characterClassDataMessage,
         interfaceLanguage: isEnglishInterface() ? APP_LANGUAGE_EN : APP_LANGUAGE_ES,
