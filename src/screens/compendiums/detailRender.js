@@ -304,9 +304,16 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
       const matchIndex = match.index ?? 0;
       const spellStartIndex = matchIndex + prefix.length;
       const canonicalName = spellLinkData.namesByLower.get(spellName.toLowerCase()) ?? spellName;
+      const spellEntry = spellLinkData.entriesByLower?.get(canonicalName.toLowerCase())
+        ?? spellLinkData.entriesByLower?.get(spellName.toLowerCase());
 
       chunks.push(escapeHtml(text.slice(lastIndex, spellStartIndex)));
-      chunks.push(`<button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(canonicalName)}">${escapeHtml(spellName)}</button>`);
+      chunks.push(`
+        <span class="bestiary-spell-reference">
+          <button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(canonicalName)}">${escapeHtml(spellName)}</button>
+          ${spellEntry ? `<div class="character-spellbook__preview" role="tooltip"><div class="character-spellbook__preview-card">${renderArcanumDetail(spellEntry)}</div></div>` : ""}
+        </span>
+      `);
       lastIndex = matchIndex + fullMatch.length;
     }
 

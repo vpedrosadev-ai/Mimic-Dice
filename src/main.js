@@ -5,8 +5,10 @@ import {
   findCharacterClassRecord,
   findCharacterSubclassRecord,
   getBundledCharacterClassCatalog,
+  getCharacterActiveClassAbilities,
   getCharacterClassDisplayValue,
   getCharacterClassInputOptions,
+  getCharacterSpellcastingLimitsForClassEntries,
   getCharacterSpellSlotsForClassEntries,
   getCharacterSubclassDisplayValue,
   getCharacterSubclassInputOptions,
@@ -3172,6 +3174,16 @@ async function handleClick(event) {
   if (action === "toggle-combat-spellbook-ability-spent") {
     toggleCombatSpellbookAbilitySpent(
       actionButton.dataset.combatantId,
+      actionButton.dataset.characterSpellbookAbilityRowId,
+      actionButton.dataset.characterSpellbookAbilityUseIndex
+    );
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "toggle-character-spellbook-ability-spent") {
+    toggleCharacterSpellbookAbilitySpent(
       actionButton.dataset.characterSpellbookAbilityRowId,
       actionButton.dataset.characterSpellbookAbilityUseIndex
     );
@@ -12343,6 +12355,13 @@ function getArcanumSpellLinkData() {
   const spellNames = [...new Set(state.arcanum.map((entry) => cleanText(entry.name)).filter((name) => name.length >= 3))]
     .sort((left, right) => right.length - left.length || left.localeCompare(right, "es", { sensitivity: "base" }));
   const namesByLower = new Map(spellNames.map((name) => [name.toLowerCase(), name]));
+  const entriesByLower = new Map();
+  for (const entry of state.arcanum) {
+    for (const name of [entry.name, entry.canonicalName, entry.localizedName]) {
+      const key = cleanText(name).toLowerCase();
+      if (key && !entriesByLower.has(key)) entriesByLower.set(key, entry);
+    }
+  }
   const pattern = spellNames.length > 0
     ? new RegExp(`(^|[^A-Za-z0-9])(${spellNames.map(escapeRegExp).join("|")})(?=$|[^A-Za-z0-9])`, "gi")
     : null;
@@ -12350,7 +12369,8 @@ function getArcanumSpellLinkData() {
   arcanumSpellLinkCache = {
     signature,
     pattern,
-    namesByLower
+    namesByLower,
+    entriesByLower
   };
 
   return arcanumSpellLinkCache;
@@ -13446,7 +13466,7 @@ function clearActiveCombatPreview() {
 function renderCombatSpellbookPopover(combatant, character) {
   const spellSlots = getCombatSpellbookVisibleSlots(character);
   const preparedSpells = getPreparedCombatSpellbookSpells(character);
-  const spellbookAbilities = getMeaningfulCharacterSpellbookAbilityRows(character.spellbookAbilities);
+  const spellbookAbilities = getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(character));
   const showSpellSection = hasCombatSpellData(character);
   const showAbilitySection = spellbookAbilities.length > 0;
   const showMeta = showSpellSection;
@@ -13527,7 +13547,7 @@ function hasCombatSpellData(character) {
 }
 
 function hasCombatAbilityData(character) {
-  return getMeaningfulCharacterSpellbookAbilityRows(character?.spellbookAbilities).length > 0;
+  return getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(character)).length > 0;
 }
 
 function getCombatSpellbookVisibleSlots(character) {
@@ -15819,7 +15839,13 @@ function renderCharacterSpellbookSection(character) {
   const spellCount = getMeaningfulCharacterSpellRows(character.spells).length;
   const preparedCount = character.spells.filter((row) => row.prepared).length;
   const visibleSpellSlots = getVisibleCharacterSpellSlots(character);
-  const spellbookAbilities = normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities);
+  const spellbookAbilities = getCharacterSpellbookAbilities(character);
+  const spellcastingLimits = getCharacterSpellcastingLimitsForClassEntries(
+    state.characterClassData,
+    character.classEntries,
+    character.isMulticlass === true,
+    character
+  );
   const abilityCount = getMeaningfulCharacterSpellbookAbilityRows(spellbookAbilities).length;
   const spellbookTitle = isEnglishInterface() ? "Spells and Abilities" : "Hechizos y habilidades";
   const spellbookToggleLabel = isEnglishInterface()
@@ -15859,6 +15885,7 @@ function renderCharacterSpellbookSection(character) {
                   <small>${escapeHtml(String(spellCount))} conocidos</small>
                 </div>
                 <div class="character-spellbook__slots">
+                  ${renderCharacterSpellcastingLimits(spellcastingLimits)}
                   <div class="character-spellbook__slots-grid character-spellbook__slots-grid--meta">
                     <label class="character-spellbook__slot-field character-spellbook__slot-field--meta character-spellbook__slot-field--modifier">
                       <span>${escapeHtml(modifierLabel)}</span>
@@ -15938,6 +15965,59 @@ function renderCharacterSpellbookSection(character) {
           : ""
       }
     </section>
+  `;
+}
+
+function getCharacterSpellbookAbilities(character) {
+  if (!character) return [];
+
+  const storedRows = normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities);
+  const storedAutoRows = new Map(storedRows
+    .filter((row) => row.autoIncluded && row.featureId)
+    .map((row) => [row.featureId, row]));
+  const automaticRows = getCharacterActiveClassAbilities(
+    state.characterClassData,
+    character.classEntries,
+    character.isMulticlass === true,
+    {
+      abilities: character.abilities,
+      proficiencyBonus: getCharacterProficiencyBonus(character)
+    }
+  ).map((ability) => {
+    const stored = storedAutoRows.get(ability.featureId);
+    return normalizeStoredCharacterSpellbookAbilityRow({
+      ...stored,
+      ...ability,
+      featureLevel: ability.level,
+      autoIncluded: true,
+      spent: stored?.uses === ability.uses ? stored.spent : []
+    });
+  });
+
+  return [
+    ...storedRows.filter((row) => !row.autoIncluded),
+    ...automaticRows
+  ];
+}
+
+function renderCharacterSpellcastingLimits(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return "";
+
+  return `
+    <div class="character-spellbook__known-limits" aria-label="Limites de conjuros por clase">
+      ${entries.map((entry) => {
+        const className = getCharacterClassDisplayValue(entry.classEntity, state.contentLanguage || "es", entry.classEntity?.name);
+        const spellLimit = entry.preparedSpells ?? entry.spellsKnown;
+        const spellLabel = entry.preparedSpells !== null ? "preparados" : "conocidos";
+        return `
+          <div class="character-spellbook__known-limit">
+            <strong>${escapeHtml(className)}</strong>
+            ${entry.cantripsKnown !== null ? `<span><b>${escapeHtml(String(entry.cantripsKnown))}</b> trucos conocidos</span>` : ""}
+            ${spellLimit !== null ? `<span><b>${escapeHtml(String(spellLimit))}</b> conjuros ${spellLabel}</span>` : ""}
+          </div>
+        `;
+      }).join("")}
+    </div>
   `;
 }
 
@@ -16153,6 +16233,22 @@ function renderCharacterSpellbookAbilityRow(row) {
   const description = cleanText(row.description);
   const hasDescription = Boolean(description);
 
+  if (row.autoIncluded) {
+    return `
+      <div class="character-spellbook__ability-row character-spellbook__ability-row--automatic">
+        <div class="character-spellbook__name-cell character-spellbook__name-cell--described">
+          <strong class="character-spellbook__automatic-name">${escapeHtml(row.name)}</strong>
+          ${hasDescription ? renderCharacterSpellbookAbilityPreview(row) : ""}
+        </div>
+        <p class="character-spellbook__ability-auto-description" title="${escapeHtml(description)}">${escapeHtml(description)}</p>
+        <div class="character-spellbook__ability-use-dots" role="group" aria-label="Usos de ${escapeHtml(row.name)}">
+          ${renderCharacterSpellbookAbilityUseDots(row)}
+        </div>
+        <span class="character-spellbook__automatic-badge">NV ${escapeHtml(String(row.featureLevel || 0))}</span>
+      </div>
+    `;
+  }
+
   return `
     <div class="character-spellbook__ability-row">
       <label class="character-spellbook__name-cell${hasDescription ? " character-spellbook__name-cell--described" : ""}">
@@ -16198,6 +16294,23 @@ function renderCharacterSpellbookAbilityRow(row) {
       </button>
     </div>
   `;
+}
+
+function renderCharacterSpellbookAbilityUseDots(row) {
+  const uses = Math.max(0, Math.floor(toNumber(row?.uses) || 0));
+  if (uses <= 0) return `<span class="character-spellbook__unlimited">Sin limite</span>`;
+
+  return Array.from({ length: uses }, (_, index) => `
+    <button
+      class="combat-spellbook-popover__dot${row.spent[index] ? " is-spent" : ""}"
+      type="button"
+      data-action="toggle-character-spellbook-ability-spent"
+      data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+      data-character-spellbook-ability-use-index="${escapeHtml(String(index))}"
+      aria-pressed="${row.spent[index] ? "true" : "false"}"
+      aria-label="${row.spent[index] ? "Recuperar" : "Gastar"} uso ${escapeHtml(String(index + 1))} de ${escapeHtml(row.name)}"
+    ></button>
+  `).join("");
 }
 
 function renderCharacterSpellbookAbilityPreview(row) {
@@ -21277,7 +21390,7 @@ function applyCombatLongRest() {
       ? normalizeStoredCharacter({
         ...character,
         spellSlots: clearCharacterSpellSlotsSpent(character.spellSlots),
-        spellbookAbilities: clearCharacterSpellbookAbilityUsesSpent(character.spellbookAbilities)
+        spellbookAbilities: clearCharacterSpellbookAbilityUsesSpent(getCharacterSpellbookAbilities(character))
       })
       : character);
     saveCharacters();
@@ -21336,28 +21449,27 @@ function toggleCombatSpellbookAbilitySpent(combatantId, rowId, useIndex) {
     return;
   }
 
+  toggleCharacterSpellbookAbilitySpent(normalizedRowId, normalizedUseIndex, linkedCharacter.id);
+}
+
+function toggleCharacterSpellbookAbilitySpent(rowId, useIndex, characterId = state.activeCharacterId) {
+  const normalizedRowId = cleanText(rowId);
+  const normalizedUseIndex = Math.max(0, Math.floor(toNumber(useIndex) || 0));
+  const normalizedCharacterId = cleanText(characterId);
+
+  if (!normalizedRowId || !normalizedCharacterId) return;
+
   state.characters = state.characters.map((character) => {
-    if (character.id !== linkedCharacter.id) {
-      return character;
-    }
+    if (character.id !== normalizedCharacterId) return character;
 
-    const spellbookAbilities = normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities).map((row) => {
-      if (row.id !== normalizedRowId || normalizedUseIndex >= row.uses) {
-        return row;
-      }
-
+    const spellbookAbilities = getCharacterSpellbookAbilities(character).map((row) => {
+      if (row.id !== normalizedRowId || normalizedUseIndex >= row.uses) return row;
       const spent = normalizeStoredCharacterSpellbookAbilitySpent(row.spent, row.uses);
       spent[normalizedUseIndex] = !spent[normalizedUseIndex];
-      return normalizeStoredCharacterSpellbookAbilityRow({
-        ...row,
-        spent
-      });
+      return normalizeStoredCharacterSpellbookAbilityRow({ ...row, spent });
     });
 
-    return normalizeStoredCharacter({
-      ...character,
-      spellbookAbilities
-    });
+    return normalizeStoredCharacter({ ...character, spellbookAbilities });
   });
 }
 

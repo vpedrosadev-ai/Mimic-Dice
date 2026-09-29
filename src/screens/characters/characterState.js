@@ -708,7 +708,13 @@ function normalizeStoredCharacterSpellbookAbilityRow(row) {
     name: cleanText(row.name),
     description: cleanText(row.description),
     uses,
-    spent: normalizeStoredCharacterSpellbookAbilitySpent(row.spent, uses)
+    spent: normalizeStoredCharacterSpellbookAbilitySpent(row.spent, uses),
+    autoIncluded: row.autoIncluded === true,
+    featureId: cleanText(row.featureId),
+    classId: cleanText(row.classId),
+    classEntryId: cleanText(row.classEntryId),
+    featureLevel: Math.max(0, Math.floor(toNumber(normalizeStoredNonNegativeNumber(row.featureLevel)) || 0)),
+    source: cleanText(row.source)
   };
 }
 

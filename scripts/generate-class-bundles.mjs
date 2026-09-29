@@ -12,6 +12,7 @@ const GENERATED_MODULE_ROOT = path.join(PROJECT_ROOT, "src", "data", "generated"
 const ENGLISH_VERSION = "v2.36.1";
 const SPANISH_SNAPSHOT = "translated-mirror-2023-12-18";
 const MACHINE_SPANISH_FILE = path.join(VENDOR_ROOT, "machine-translations.es.json");
+const SUPPLEMENTAL_SPANISH_FILE = path.join(VENDOR_ROOT, "supplemental-translations.es.json");
 const COMPENDIUM_MANIFEST_FILE = path.join(PROJECT_ROOT, "public", "data", "compendium-manifest.json");
 const BUNDLE_SCHEMA_VERSION = 1;
 
@@ -29,6 +30,7 @@ const englishFeats = await readJson(path.join(englishDirectory, "feats.json"));
 const spanishOptionalFeatures = await readJson(path.join(spanishDirectory, "optionalfeatures.json"));
 const spanishFeats = await readJson(path.join(spanishDirectory, "feats.json"));
 const machineSpanish = await readJsonIfExists(MACHINE_SPANISH_FILE);
+const supplementalSpanish = await readJsonIfExists(SUPPLEMENTAL_SPANISH_FILE);
 const spanishReferenceNames = await buildSpanishReferenceNames();
 const englishFeatureEntities = buildFeatureEntityCollection(englishFiles, englishOptionalFeatures, englishFeats);
 const catalog = buildCatalog(englishFiles, englishFeatureEntities);
@@ -38,7 +40,12 @@ const spanishOverlay = buildSpanishOverlay(
   spanishFiles,
   spanishOptionalFeatures,
   spanishFeats,
-  machineSpanish
+  {
+    translations: {
+      ...(machineSpanish?.translations ?? {}),
+      ...(supplementalSpanish?.translations ?? {})
+    }
+  }
 );
 const lore = buildLoreBundle(englishFluffFiles);
 

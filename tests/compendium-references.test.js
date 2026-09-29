@@ -6,6 +6,7 @@ import {
   getUnresolvedCharacterCompendiumReferences
 } from "../src/shared/compendiumReferences.js";
 import { parseCsv } from "../src/shared/csv.js";
+import { createCompendiumDetailRenderers } from "../src/screens/compendiums/detailRender.js";
 
 const witchBolt2014 = {
   id: "arcanum-witch-bolt--phb-14--1st",
@@ -86,6 +87,38 @@ assert.deepEqual(unresolved, {
   spells: ["Hechizo inventado"],
   items: ["Objeto perdido"]
 });
+
+const fireball = {
+  id: "arcanum-fireball--phb-24--3rd",
+  name: "Fireball",
+  source: "PHB'24",
+  sourceLabel: "Player's Handbook 2024",
+  levelValue: 3,
+  text: "A bright streak flashes."
+};
+const spellPattern = /(^|[^A-Za-z0-9])(Fireball)(?=$|[^A-Za-z0-9])/gi;
+const { renderBestiaryDetail } = createCompendiumDetailRenderers({
+  t: (key) => key,
+  getArcanumSpellLinkData: () => ({
+    pattern: spellPattern,
+    namesByLower: new Map([["fireball", "Fireball"]]),
+    entriesByLower: new Map([["fireball", fireball]])
+  }),
+  getItemAttunementLabel: () => "Attunement",
+  getItemSourceDescription: () => "",
+  isItemTypeTokenFilterActive: () => false
+});
+const renderedEnemySpellLink = renderBestiaryDetail({
+  name: "Mage",
+  source: "MM",
+  typeLine: "Humanoid",
+  traits: "The mage casts Fireball.",
+  abilities: {}
+});
+assert.match(renderedEnemySpellLink, /class="bestiary-spell-reference"/);
+assert.match(renderedEnemySpellLink, /data-arcanum-spell-name="Fireball"/);
+assert.match(renderedEnemySpellLink, /character-spellbook__preview/);
+assert.match(renderedEnemySpellLink, /A bright streak flashes/);
 
 const catalogSources = new Set();
 

@@ -175,6 +175,121 @@ export function getLocalizedCharacterClassFeature(feature, catalog) {
     : { ...feature, translationAvailable: catalog?.language !== "es" };
 }
 
+export function getCharacterSpellcastingLimitsForClassEntries(catalog, classEntries, isMulticlass = false, character = {}) {
+  return (Array.isArray(classEntries) ? classEntries : [])
+    .filter((entry, index) => index === 0 || isMulticlass)
+    .map((entry) => {
+      const classEntity = findCharacterClassRecord(catalog, entry);
+      const subclass = classEntity ? findCharacterSubclassRecord(classEntity, entry) : null;
+      const level = Math.max(0, Math.min(20, Math.floor(Number(entry?.level) || 0)));
+
+      if (!classEntity || level <= 0) {
+        return null;
+      }
+
+      const limits = extractSpellcastingLimits(classEntity, level);
+      const subclassLimits = extractSpellcastingLimits(subclass, level);
+      const merged = {
+        cantripsKnown: limits.cantripsKnown ?? subclassLimits.cantripsKnown ?? null,
+        spellsKnown: limits.spellsKnown ?? subclassLimits.spellsKnown ?? null,
+        preparedSpells: limits.preparedSpells ?? subclassLimits.preparedSpells ?? null
+      };
+      if (merged.spellsKnown === null && merged.preparedSpells === null) {
+        merged.preparedSpells = inferPreparedSpellCount(classEntity, level, character.abilities);
+      }
+
+      return Object.values(merged).some((value) => value !== null)
+        ? { classEntity, subclass, level, ...merged }
+        : null;
+    })
+    .filter(Boolean);
+}
+
+export function getCharacterActiveClassAbilities(catalog, classEntries, isMulticlass = false, character = {}) {
+  const proficiencyBonus = Math.max(0, Math.floor(Number(character.proficiencyBonus) || 0));
+  const abilityScores = character.abilities && typeof character.abilities === "object" ? character.abilities : {};
+
+  return (Array.isArray(classEntries) ? classEntries : [])
+    .filter((entry, index) => index === 0 || isMulticlass)
+    .flatMap((entry) => {
+      const classEntity = findCharacterClassRecord(catalog, entry);
+      const subclass = classEntity ? findCharacterSubclassRecord(classEntity, entry) : null;
+      const level = Math.max(0, Math.min(20, Math.floor(Number(entry?.level) || 0)));
+
+      if (!classEntity || level <= 0) {
+        return [];
+      }
+
+      const unlockedFeatures = [
+        ...collectUnlockedActiveFeatures(classEntity?.levels, "class", classEntity, level),
+        ...collectUnlockedActiveFeatures(subclass?.levels, "subclass", classEntity, level)
+      ];
+      const seenFeatureNames = new Set();
+
+      return unlockedFeatures.filter(({ feature }) => {
+        const key = normalizeActiveFeatureName(feature?.name);
+        if (!key || seenFeatureNames.has(key)) return false;
+        seenFeatureNames.add(key);
+        return true;
+      }).map(({ feature, kind }) => {
+        const localized = getLocalizedCharacterClassFeature(feature, catalog);
+        const description = formatClassFeatureEntriesAsText(localized.entries);
+        const uses = inferClassFeatureUses(feature, classEntity, level, description, abilityScores, proficiencyBonus);
+        return {
+          id: `class-ability-${feature.id}`,
+          featureId: feature.id,
+          classId: classEntity.id,
+          classEntryId: clean(entry?.id),
+          kind,
+          level: Number(feature.level) || level,
+          name: localized.name || feature.name || "",
+          description,
+          uses,
+          source: feature.source || classEntity.source || ""
+        };
+      });
+    });
+}
+
+export function formatClassFeatureEntriesAsText(entries) {
+  const lines = [];
+
+  const visit = (entry) => {
+    if (entry === null || entry === undefined || entry === "") return;
+    if (typeof entry === "string" || typeof entry === "number") {
+      const value = stripTags(entry).replace(/\s+/g, " ").trim();
+      if (value) lines.push(value);
+      return;
+    }
+    if (Array.isArray(entry)) {
+      entry.forEach(visit);
+      return;
+    }
+    if (typeof entry !== "object") return;
+    if (entry.name) lines.push(`${stripTags(entry.name)}:`);
+    if (entry.type === "table") {
+      const labels = Array.isArray(entry.colLabels) ? entry.colLabels.map(stripTags) : [];
+      for (const row of Array.isArray(entry.rows) ? entry.rows : []) {
+        if (!Array.isArray(row)) continue;
+        lines.push(row.map((cell, index) => `${labels[index] ? `${labels[index]}: ` : ""}${formatTableValue(cell)}`).join("; "));
+      }
+      return;
+    }
+    if (entry.type === "list") {
+      for (const item of Array.isArray(entry.items) ? entry.items : []) {
+        const before = lines.length;
+        visit(item);
+        if (lines.length > before) lines[before] = `• ${lines[before]}`;
+      }
+      return;
+    }
+    visit(entry.entries ?? entry.entry ?? entry.items);
+  };
+
+  visit(entries);
+  return lines.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function parseCharacterClassInput(value) {
   return parseSourceSuffix(value);
 }
@@ -287,6 +402,154 @@ function extractPactSpellSlotRow(classEntity, level) {
   }
 
   return [];
+}
+
+function extractSpellcastingLimits(entity, level) {
+  const result = { cantripsKnown: null, spellsKnown: null, preparedSpells: null };
+
+  for (const group of Array.isArray(entity?.classTableGroups) ? entity.classTableGroups : []) {
+    const labels = Array.isArray(group.colLabels) ? group.colLabels : [];
+    const rows = Array.isArray(group.rows) ? group.rows : group.rowsSpellProgression;
+    const row = Array.isArray(rows?.[level - 1]) ? rows[level - 1] : null;
+    if (!row) continue;
+
+    labels.forEach((label, index) => {
+      const normalized = normalizeKey(stripTags(label));
+      const value = Number(row[index]);
+      if (!Number.isFinite(value) || value < 0) return;
+      if (/^cantrips?(?:-known)?$/.test(normalized)) result.cantripsKnown = Math.floor(value);
+      if (/^spells?-known$/.test(normalized)) result.spellsKnown = Math.floor(value);
+      if (/^prepared-spells?$/.test(normalized)) result.preparedSpells = Math.floor(value);
+    });
+  }
+
+  return result;
+}
+
+function inferPreparedSpellCount(classEntity, level, abilityScores = {}) {
+  const className = normalizeKey(classEntity?.name);
+  if (!["artificer", "cleric", "druid", "paladin", "wizard"].includes(className)) return null;
+
+  const progression = getCasterProgression(classEntity, null);
+  if (progression === "1/2" && level < 2) return null;
+  const abilityKey = clean(classEntity?.spellcastingAbility).toLowerCase();
+  const score = Number(abilityScores?.[abilityKey]);
+  const modifier = Number.isFinite(score) ? Math.floor((score - 10) / 2) : 0;
+  const levelContribution = progression === "1/2"
+    ? Math.floor(level / 2)
+    : progression === "artificer"
+      ? Math.ceil(level / 2)
+      : level;
+  return Math.max(1, levelContribution + modifier);
+}
+
+function collectUnlockedActiveFeatures(levels, kind, classEntity, currentLevel) {
+  return (Array.isArray(levels) ? levels : []).flatMap((levelEntry) => (
+    Number(levelEntry?.level) <= currentLevel
+      ? (Array.isArray(levelEntry.features) ? levelEntry.features : [])
+        .filter((feature) => isActiveClassFeature(feature, classEntity))
+        .map((feature) => ({ feature, kind }))
+      : []
+  ));
+}
+
+function isActiveClassFeature(feature, classEntity) {
+  const name = normalizeKey(feature?.name);
+  if (!name || feature?.optional === true) return false;
+  if (/spellcasting|prepared-spells|cantrips|ability-score-improvement|subclass|expertise|proficienc|mastery|maestria/.test(name)) return false;
+
+  const text = formatClassFeatureEntriesAsText(feature?.entries);
+  const resourceUses = inferTableResourceUses(feature, classEntity, Number(feature?.level) || 1);
+  return resourceUses > 0 || /\b(action|bonus action|reaction|accion|reaccion)\b/i.test(text)
+    || /\b(can use|puedes usar|number of times|numero de veces|once you use|cuando usas)\b/i.test(text)
+    || /\b(expended uses?|usos? gastados?)\b/i.test(text);
+}
+
+function inferClassFeatureUses(feature, classEntity, level, description, abilityScores, proficiencyBonus) {
+  const tableUses = inferTableResourceUses(feature, classEntity, level);
+  if (tableUses > 0) return tableUses;
+
+  const text = `${feature?.name || ""} ${description || formatClassFeatureEntriesAsText(feature?.entries)}`;
+  const abilityMatch = text.match(/(?:equal to|igual a) (?:your|tu|su) (?:(?:modifier|modificador) (?:de |of )?)?(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma|Fuerza|Destreza|Constituci[oó]n|Inteligencia|Sabidur[ií]a|Carisma)(?: modifier| modificador)?/i);
+  if (abilityMatch) {
+    const abilityKey = getAbilityKey(abilityMatch[1]);
+    const score = Number(abilityScores?.[abilityKey]);
+    if (Number.isFinite(score)) return Math.max(1, Math.floor((score - 10) / 2));
+  }
+
+  if (/(?:equal to|igual a) (?:your|tu) proficiency bonus/i.test(text) && proficiencyBonus > 0) {
+    return proficiencyBonus;
+  }
+
+  const numericMatch = text.match(/(?:can use (?:this feature|it)|puedes usar (?:esta (?:caracteristica|habilidad)|esto)) (?:a )?(?:number of times equal to[^.]+|once|twice|thrice|one time|two times|three times|una vez|dos veces|tres veces|\d+ times?)/i);
+  if (numericMatch) return parseWrittenUseCount(numericMatch[0]);
+
+  if (/(?:once you (?:use|take)|can't do so again|must finish a short or long rest|una vez que|no puedes volver a hacerlo|debes terminar un descanso)/i.test(text)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function inferTableResourceUses(feature, classEntity, level) {
+  const targetNames = [feature?.consumes?.name, feature?.name]
+    .filter(Boolean)
+    .map((name) => normalizeResourceName(name));
+
+  for (const group of Array.isArray(classEntity?.classTableGroups) ? classEntity.classTableGroups : []) {
+    const labels = Array.isArray(group.colLabels) ? group.colLabels : [];
+    const rows = Array.isArray(group.rows) ? group.rows : null;
+    const row = Array.isArray(rows?.[level - 1]) ? rows[level - 1] : null;
+    if (!row) continue;
+
+    for (let index = 0; index < labels.length; index += 1) {
+      const label = normalizeResourceName(stripTags(labels[index]));
+      if (!targetNames.some((target) => target && (target === label || target.includes(label) || label.includes(target)))) continue;
+      const value = Number(row[index]);
+      if (Number.isFinite(value) && value > 0) return Math.floor(value);
+    }
+  }
+
+  return 0;
+}
+
+function normalizeResourceName(value) {
+  return normalizeKey(value).replace(/(?:-uses?|s)$/g, "");
+}
+
+function normalizeActiveFeatureName(value) {
+  return normalizeKey(value)
+    .replace(/-improvement$/, "")
+    .replace(/-d\d+$/, "")
+    .replace(/-\d+$/, "");
+}
+
+function getAbilityKey(value) {
+  const normalized = normalizeKey(value);
+  if (/^(strength|fuerza)$/.test(normalized)) return "str";
+  if (/^(dexterity|destreza)$/.test(normalized)) return "dex";
+  if (/^(constitution|constitucion)$/.test(normalized)) return "con";
+  if (/^(intelligence|inteligencia)$/.test(normalized)) return "int";
+  if (/^(wisdom|sabiduria)$/.test(normalized)) return "wis";
+  return "cha";
+}
+
+function parseWrittenUseCount(value) {
+  const normalized = normalizeKey(value);
+  if (/\b(twice|two|dos)\b/.test(normalized.replaceAll("-", " "))) return 2;
+  if (/\b(thrice|three|tres)\b/.test(normalized.replaceAll("-", " "))) return 3;
+  const numeric = Number(String(value).match(/\d+/)?.[0]);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 1;
+}
+
+function formatTableValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return stripTags(value);
+  if (Array.isArray(value)) return value.map(formatTableValue).filter(Boolean).join(", ");
+  if (typeof value === "object" && Array.isArray(value.toRoll)) {
+    return value.toRoll.map((die) => `${die.number || 1}d${die.faces || "?"}`).join(" + ");
+  }
+  return stripTags(value.exact ?? value.value ?? "");
 }
 
 function getCasterProgression(classEntity, subclass) {

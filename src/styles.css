@@ -11827,6 +11827,37 @@ body.is-table-resizing * {
   background: transparent;
 }
 
+.character-spellbook__known-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem;
+}
+
+.character-spellbook__known-limit {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid rgba(240, 200, 121, 0.14);
+  border-radius: 12px;
+  background: rgba(10, 8, 9, 0.25);
+}
+
+.character-spellbook__known-limit strong {
+  color: var(--accent-soft);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.character-spellbook__known-limit span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.character-spellbook__known-limit b {
+  color: var(--text);
+}
+
 .character-spellbook__slots-header {
   display: flex;
   align-items: center;
@@ -13167,6 +13198,56 @@ body.is-table-resizing * {
   display: flex;
   align-items: stretch;
   justify-content: center;
+}
+
+.character-spellbook__ability-row--automatic {
+  align-items: center;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid rgba(240, 200, 121, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.character-spellbook__automatic-name {
+  display: block;
+  padding: 0.45rem 0.25rem;
+  color: var(--accent-soft);
+  cursor: help;
+}
+
+.character-spellbook__ability-auto-description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.character-spellbook__ability-use-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 2rem;
+  flex-wrap: wrap;
+}
+
+.character-spellbook__unlimited,
+.character-spellbook__automatic-badge {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.character-spellbook__automatic-badge {
+  justify-self: end;
+  padding: 0.25rem 0.42rem;
+  border: 1px solid rgba(240, 200, 121, 0.14);
+  border-radius: 999px;
 }
 
 .character-spellbook__description-button {
@@ -15078,6 +15159,33 @@ body.is-table-resizing * {
 .spell-reference-link:hover,
 .spell-reference-link:focus-visible {
   color: var(--text);
+}
+
+.bestiary-spell-reference {
+  position: relative;
+  display: inline-block;
+}
+
+.bestiary-spell-reference .character-spellbook__preview {
+  top: calc(100% + 0.32rem);
+  right: auto;
+  left: 0;
+  z-index: 460;
+  width: min(28rem, calc(100vw - 4rem));
+  transform: translate3d(0, -0.3rem, 0);
+}
+
+.bestiary-spell-reference .character-spellbook__preview::after {
+  inset: -0.32rem 0 auto;
+  width: 100%;
+  height: 0.32rem;
+}
+
+.bestiary-spell-reference:hover .character-spellbook__preview,
+.bestiary-spell-reference:focus-within .character-spellbook__preview {
+  opacity: 1;
+  visibility: visible;
+  transform: translate3d(0, 0, 0);
 }
 
 .character-class-feature__spell-reference {

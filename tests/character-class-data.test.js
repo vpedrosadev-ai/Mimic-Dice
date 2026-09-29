@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 import {
   findCharacterClassRecord,
   findCharacterSubclassRecord,
+  getCharacterActiveClassAbilities,
   getCharacterClassDisplayValue,
   getCharacterClassInputOptions,
   getCharacterSubclassDisplayValue,
   getCharacterSubclassInputOptions,
   getCharacterSpellSlotsForClassEntries,
+  getCharacterSpellcastingLimitsForClassEntries,
   getLocalizedCharacterClassFeature,
   loadCharacterClassCatalog
 } from "../src/data/characterClassData.js";
@@ -39,6 +41,18 @@ assert.doesNotMatch(JSON.stringify(catalogPayload), /"type":"ref(?:ClassFeature|
 const resolvedSupplementalEntries = collectResolvedSupplementalEntries(catalogPayload.classes);
 assert.ok(resolvedSupplementalEntries.length >= 149);
 assert.equal(resolvedSupplementalEntries.filter((entry) => !Array.isArray(entry.entries) || entry.entries.length === 0).length, 0);
+const translatedSupplementalEntries = new Map(
+  collectResolvedSupplementalEntries(spanishPayload.translations).map((entry) => [entry.id, entry])
+);
+assert.equal(translatedSupplementalEntries.size, 149);
+assert.match(
+  JSON.stringify(translatedSupplementalEntries.get("optional-feature-3bc962b4fc1b8e0c")?.entries),
+  /tirada de salvaci[oó]n/i
+);
+assert.doesNotMatch(
+  JSON.stringify(translatedSupplementalEntries.get("optional-feature-3bc962b4fc1b8e0c")?.entries),
+  /saving throw/i
+);
 assert.equal(translateCharacterClassName("Artificer", "es"), "Artífice");
 assert.equal(getCharacterClassKey("Compañero guerrero"), "warrior sidekick");
 
@@ -86,6 +100,38 @@ assert.deepEqual(getCharacterSpellSlotsForClassEntries(catalog, [
   { level: 1, slots: 4 },
   { level: 2, slots: 3 }
 ]);
+
+const sorcererSpellcastingLimits = getCharacterSpellcastingLimitsForClassEntries(
+  catalog,
+  [{ name: "Hechicero (XPHB)", level: 3 }]
+);
+assert.equal(sorcererSpellcastingLimits[0]?.cantripsKnown, 4);
+assert.equal(sorcererSpellcastingLimits[0]?.preparedSpells, 6);
+assert.equal(sorcererSpellcastingLimits[0]?.spellsKnown, null);
+assert.equal(getCharacterSpellcastingLimitsForClassEntries(
+  catalog,
+  [{ name: "Clerigo (PHB)", level: 5 }],
+  false,
+  { abilities: { wis: 16 } }
+)[0]?.preparedSpells, 8);
+
+const fighterActiveAbilities = getCharacterActiveClassAbilities(
+  catalog,
+  [{ id: "fighter-row", name: "Guerrero (XPHB)", level: 3 }],
+  false,
+  { abilities: { con: 14 }, proficiencyBonus: 2 }
+);
+assert.equal(fighterActiveAbilities.find((entry) => entry.name === "Segundo viento")?.uses, 2);
+assert.ok(fighterActiveAbilities.some((entry) => /Action Surge|Oleada de acci/i.test(entry.name)));
+assert.ok(!fighterActiveAbilities.some((entry) => /Mastery|Maestr/i.test(entry.name)));
+
+const bardActiveAbilities = getCharacterActiveClassAbilities(
+  catalog,
+  [{ id: "bard-row", name: "Bardo (XPHB)", level: 3 }],
+  false,
+  { abilities: { cha: 16 }, proficiencyBonus: 2 }
+);
+assert.equal(bardActiveAbilities.find((entry) => /Inspiraci/i.test(entry.name))?.uses, 3);
 
 const arcaneRecovery = classicWizard.levels
   .flatMap((entry) => entry.features)

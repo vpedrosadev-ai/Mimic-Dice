@@ -1,0 +1,532 @@
+{
+  "schemaVersion": 1,
+  "translations": {
+    "optional-feature-42bbafb21faa2908": {
+      "name": "Emboscada",
+      "entries": [
+        "Cuando hagas una tirada de Destreza ({@skill Stealth|XPHB}) o un lanzamiento de {@variantrule Initiative|XPHB}, puedes gastar un dado de superioridad y añadir el dado al lanzamiento, a menos que tengas la condición {@condition Incapacitated|XPHB}."
+      ]
+    },
+    "optional-feature-024181e040c255d1": {
+      "name": "Cebo y cambio",
+      "entries": [
+        "Cuando estés a menos de 5 pies de una criatura en tu turno, puedes gastar un dado de superioridad y cambiar de lugar con esa criatura, siempre que gastes al menos 5 pies de movimiento y la criatura esté dispuesta y no tenga la condición {@condition Incapacitated|XPHB}. Este movimiento no provoca {@action Opportunity Attack|XPHB|Opportunity Attacks}.",
+        "Lanza el Dado de Superioridad. Hasta el comienzo de tu siguiente turno, tú u otra criatura (a tu elección) gana un bono a la CA igual al número obtenido."
+      ]
+    },
+    "optional-feature-ee890202a5578845": {
+      "name": "Golpe del Comandante",
+      "entries": [
+        "Cuando realizas la acción {@action Attack|XPHB} en tu turno, puedes reemplazar uno de tus ataques para dirigir a uno de tus compañeros a atacar. Cuando lo hagas, elige a una criatura dispuesta que pueda verte o escucharte y gasta un dado de superioridad. Esa criatura puede usar inmediatamente su {@variantrule Reaction|XPHB} para realizar un ataque con un arma o un {@variantrule Unarmed Strike|XPHB}, sumando el dado de superioridad a la tirada de daño del ataque si impacta."
+      ]
+    },
+    "optional-feature-95ae12d4ccabb676": {
+      "name": "Presencia imponente",
+      "entries": [
+        "Cuando haces una tirada de Carisma ({@skill Intimidation|XPHB}, {@skill Performance|XPHB} o {@skill Persuasion|XPHB}), puedes gastar un dado de superioridad y añadir ese dado a la tirada."
+      ]
+    },
+    "optional-feature-168e52d60cb16d6a": {
+      "name": "Ataque desarmador",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque, puedes gastar un dado de superioridad para intentar desarmar al objetivo. Agrega la tirada del dado de superioridad a la tirada de daño del ataque. El objetivo debe tener éxito en una tirada de salvación de Fuerza o soltar un objeto de tu elección que esté sosteniendo, con el objeto cayendo en su espacio."
+      ]
+    },
+    "optional-feature-14a991a6608ed6c8": {
+      "name": "Golpe Distraedor",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque, puedes gastar un dado de superioridad para distraer al objetivo. Agrega la tirada del dado de superioridad a la tirada de daño del ataque. La siguiente tirada de ataque contra el objetivo por un atacante que no seas tú tiene {@variantrule Advantage|XPHB} si el ataque se realiza antes del comienzo de tu próximo turno."
+      ]
+    },
+    "optional-feature-d8bcc0f23219f19c": {
+      "name": "Juego de pies evasivo",
+      "entries": [
+        "Como un {@variantrule Bonus Action|XPHB}, puedes gastar un dado de superioridad y realizar la acción {@action Disengage|XPHB}. También tiras el dado y sumas el número obtenido a tu CA hasta el inicio de tu próximo turno."
+      ]
+    },
+    "optional-feature-a3a8517589384421": {
+      "name": "Ataque simulado",
+      "entries": [
+        "Como un {@variantrule Bonus Action|XPHB}, puedes gastar un Dado de Superioridad para fingir, eligiendo una criatura a 5 pies de ti como tu objetivo. Tienes {@variantrule Advantage|XPHB} en tu siguiente tirada de ataque contra ese objetivo durante este turno. Si ese ataque impacta, suma el Dado de Superioridad a la tirada de daño del ataque."
+      ]
+    },
+    "optional-feature-0e5627d4a00aa6b1": {
+      "name": "Ataque provocador",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque, puedes gastar un dado de superioridad para intentar provocar que el objetivo te ataque. Añade el dado de superioridad a la tirada de daño del ataque. El objetivo debe tener éxito en una tirada de salvación de Sabiduría o tener {@variantrule Disadvantage|XPHB} en las tiradas de ataque contra objetivos que no sean tú hasta el final de tu próximo turno."
+      ]
+    },
+    "optional-feature-ba3d84b6880050cf": {
+      "name": "Ataque de estocada",
+      "entries": [
+        "Como un {@variantrule Bonus Action|XPHB}, puedes gastar un dado de superioridad y realizar la acción {@action Dash|XPHB}. Si te mueves al menos 5 pies en línea recta inmediatamente antes de golpear con un ataque cuerpo a cuerpo como parte de la acción {@action Attack|XPHB} en este turno, puedes añadir el dado de superioridad a la tirada de daño del ataque."
+      ]
+    },
+    "optional-feature-32785fcce628bf6b": {
+      "name": "Ataque de maniobra",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque, puedes gastar un dado de superioridad para maniobrar a uno de tus compañeros a otra posición. Añade la tirada del dado de superioridad a la tirada de daño del ataque, y elige una criatura dispuesta que pueda verte o escucharte. Esa criatura puede usar su {@variantrule Reaction|XPHB} para moverse hasta la mitad de su {@variantrule Speed|XPHB} sin provocar un {@action Opportunity Attack|XPHB} del objetivo de tu ataque."
+      ]
+    },
+    "optional-feature-309af7432fe43e6c": {
+      "name": "Ataque amenazante",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque, puedes gastar un dado de superioridad para intentar asustar al objetivo. Añade el dado de superioridad a la tirada de daño del ataque. El objetivo debe tener éxito en una tirada de salvación de Sabiduría o tendrá la condición {@condition Frightened|XPHB} hasta el final de tu siguiente turno."
+      ]
+    },
+    "optional-feature-003a963032a71471": {
+      "name": "Parar",
+      "entries": [
+        "Cuando otra criatura te daña con un ataque cuerpo a cuerpo, puedes realizar un {@variantrule Reaction|XPHB} y gastar un dado de superioridad para reducir el daño en el número que saques en tu dado de superioridad más tu modificador de Fuerza o Destreza (a tu elección)."
+      ]
+    },
+    "optional-feature-0e8ce499acaa2cab": {
+      "name": "Ataque de precisión",
+      "entries": [
+        "Cuando fallas con una tirada de ataque, puedes gastar un dado de superioridad, lanzar ese dado y sumarlo a la tirada de ataque, lo que podría hacer que el ataque acierte."
+      ]
+    },
+    "optional-feature-e64b3725e3f332fd": {
+      "name": "Ataque de empuje",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque usando un arma o un {@variantrule Unarmed Strike|XPHB}, puedes gastar un dado de superioridad para intentar empujar al objetivo hacia atrás. Añade el dado de superioridad a la tirada de daño del ataque. Si el objetivo es de tamaño Grande o menor, debe tener éxito en una tirada de salvación de Fuerza o ser empujado hasta 15 pies directamente lejos de ti."
+      ]
+    },
+    "optional-feature-a00d12d039baf484": {
+      "name": "Manifestación",
+      "entries": [
+        "Como {@variantrule Bonus Action|XPHB}, puedes gastar un dado de superioridad para fortalecer la determinación de un compañero. Elige un aliado tuyo que esté a 30 pies de ti y que pueda verte o escucharte. Esa criatura gana {@variantrule Temporary Hit Points|XPHB} igual a la tirada del dado de superioridad más la mitad de tu nivel de Guerrero (redondeado hacia abajo)."
+      ]
+    },
+    "optional-feature-0e36edc985998516": {
+      "name": "Represalia",
+      "entries": [
+        "Cuando una criatura te falle con una tirada de ataque cuerpo a cuerpo, puedes realizar un {@variantrule Reaction|XPHB} y gastar un dado de superioridad para hacer una tirada de ataque cuerpo a cuerpo con un arma o un {@variantrule Unarmed Strike|XPHB} contra la criatura. Si aciertas, suma el dado de superioridad al daño del ataque."
+      ]
+    },
+    "optional-feature-bf7bf3fa8feedda8": {
+      "name": "Ataque barrido",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque cuerpo a cuerpo usando un arma o un {@variantrule Unarmed Strike|XPHB}, puedes gastar un dado de superioridad para intentar dañar a otra criatura. Elige otra criatura dentro de 1,5 metros del objetivo original y al alcance de tu alcance. Si la tirada de ataque original impactaría a la segunda criatura, esta recibe daño igual al número que saques en tu dado de superioridad. El daño es del mismo tipo que el infligido por el ataque original."
+      ]
+    },
+    "optional-feature-68f2732026faed1e": {
+      "name": "Evaluación táctica",
+      "entries": [
+        "Cuando hagas una prueba de Inteligencia ({@skill History|XPHB} o {@skill Investigation|XPHB}) o una prueba de Sabiduría ({@skill Insight|XPHB}), puedes gastar un dado de superioridad y añadir ese dado a la prueba de habilidad."
+      ]
+    },
+    "optional-feature-35ec0a5cdb3e35d5": {
+      "name": "Ataque de barrido",
+      "entries": [
+        "Cuando golpeas a una criatura con una tirada de ataque usando un arma o un {@variantrule Unarmed Strike|XPHB}, puedes gastar un dado de superioridad y agregar el dado a la tirada de daño del ataque. Si el objetivo es Grande o más pequeño, debe tener éxito en una tirada de salvación de Fuerza o tener la condición {@condition Prone|XPHB}."
+      ]
+    },
+    "optional-feature-28590676d2e6d3c4": {
+      "name": "Disparo de Destierro",
+      "entries": [
+        "Tu munición secuestra temporalmente a tu objetivo en un semiplano inofensivo. La criatura que golpees recibe daño Psíquico adicional igual a una tirada de tu Dado de Disparo Arcano y debe tener éxito en una tirada de salvación de Carisma o ser desterrada. Mientras está desterrada, la criatura tiene la condición {@condition Incapacitated|XPHB} y un {@variantrule Speed|XPHB} de 0. Al final de su próximo turno, el objetivo reaparece en el espacio que dejó o, si ese espacio está ocupado, en el espacio desocupado más cercano."
+      ]
+    },
+    "optional-feature-df8cef63a212192c": {
+      "name": "Disparo Cautivador",
+      "entries": [
+        "Tu munición engaña a tu objetivo. La criatura a la que golpeas recibe daño Psíquico adicional igual a dos tiradas de tu Dado de Disparo Arcano y debe tener éxito en una tirada de salvación de Sabiduría o tendrá la condición {@condition Charmed|XPHB} hasta el inicio de tu siguiente turno, tratando a ti o a uno de tus aliados dentro de 30 pies del objetivo (a tu elección) como el encantador. La condición {@condition Charmed|XPHB} termina antes si el encantador ataca al objetivo, le causa daño o lo obliga a realizar una tirada de salvación."
+      ]
+    },
+    "optional-feature-e60fb00a977e6205": {
+      "name": "Disparo en ráfaga",
+      "entries": [
+        "Imbuyes tu munición con energía mágica explosiva. Inmediatamente después de que causas daño a la criatura, tu objetivo y cada criatura en un radio de 10 pies {@variantrule Emanation [Area of Effect]|XPHB|Emanation} originado desde el objetivo reciben daño de Fuerza igual a dos tiradas de tu Dado de Disparo Arcano."
+      ]
+    },
+    "optional-feature-f25cc22c3d2eb161": {
+      "name": "Disparo Debilitante",
+      "entries": [
+        "Tu munición drena la fuerza de tu objetivo. La criatura a la que golpeas recibe daño necrótico adicional igual a dos tiradas de tu dado de Disparo Arcano. El objetivo también debe tener éxito en una tirada de salvación de Constitución o tener la condición {@condition Poisoned|XPHB} hasta el final de su siguiente turno. Siempre que un objetivo {@condition Poisoned|XPHB} de esta manera acierte con una tirada de ataque, resta una cantidad igual a una tirada de tu dado de Disparo Arcano del daño total de ese ataque."
+      ]
+    },
+    "optional-feature-de9f52499fd4d89f": {
+      "name": "Disparo de agarre",
+      "entries": [
+        "Tu munición crea zarzas que se agarran alrededor de tu objetivo. La criatura a la que golpeas recibe un daño cortante adicional igual a una tirada de tu Dado de Disparo Arcano y debe tener éxito en una tirada de salvación de Fuerza o tener la condición {@condition Restrained|XPHB} durante 1 minuto o hasta que uses esta opción nuevamente. El objetivo o una criatura en alcance del mismo puede usar una acción para hacer una prueba de Fuerza ({@skill Athletics|XPHB}) contra la CD de salvación de tu Disparo Arcano, eliminando las zarzas y poniendo fin a la condición {@condition Restrained|XPHB} en el objetivo si la prueba tiene éxito."
+      ]
+    },
+    "optional-feature-f05933b3b00d5ce6": {
+      "name": "Disparo Perforante",
+      "entries": [
+        "Le das a tu munición una cualidad etérea. Cuando usas esta opción, no realizas una tirada de ataque para el ataque. En su lugar, la munición se dispara hacia adelante en un {@variantrule Line [Area of Effect]|XPHB|Line} de 30 pies de largo y 1 pie de ancho que se origina en ti, y luego desaparece. El {@variantrule Line [Area of Effect]|XPHB|Line} ignora la cobertura, ya que la munición atraviesa objetos sólidos. Cada criatura en el {@variantrule Line [Area of Effect]|XPHB|Line} debe realizar una tirada de salvación de Destreza. Si falla la tirada, la criatura recibe el daño como si hubiera sido golpeada más un daño adicional por Perforación igual a dos tiradas de tu dado de Disparo Arcano. Si la tirada es exitosa, la criatura recibe la mitad del daño."
+      ]
+    },
+    "optional-feature-813826f56858eb71": {
+      "name": "Buscando disparo",
+      "entries": [
+        "Tu munición puede buscar un objetivo. Cuando usas esta opción, no realizas una tirada de ataque para el ataque. En su lugar, elige una criatura que hayas visto en el último minuto. La munición vuela hacia esa criatura, moviéndose alrededor de esquinas si es necesario e ignorando {@table Cover|XPHB|Half Cover} y {@table Cover|XPHB|Three-Quarters Cover}. Si el objetivo está dentro del alcance largo de tu arma, el objetivo realiza una tirada de salvación de Destreza. En un fallo, el objetivo recibe daño como si hubiera sido alcanzado más daño de Fuerza adicional igual a dos tiradas de tu dado de Disparo Arcano, y aprendes la ubicación actual del objetivo. Si la tirada de salvación es exitosa, el objetivo recibe solo la mitad del daño. Si el objetivo está más allá del alcance largo de tu arma, la munición desaparece después de recorrer la mayor distancia posible."
+      ]
+    },
+    "optional-feature-03f932f89e67690f": {
+      "name": "Disparo de Sombra",
+      "entries": [
+        "Tu munición obstruye la visión de tu enemigo con sombras. La criatura que golpees recibe daño Psíquico adicional igual a una tirada de tu Dado de Disparo Arcano, y debe tener éxito en una tirada de salvación de Sabiduría o tener la condición {@condition Blinded|XPHB} hasta el final de su siguiente turno."
+      ]
+    },
+    "feat-b3cb5d376908f34e": {
+      "name": "Guerrero Bendecido",
+      "entries": [
+        "Aprendes dos trucos de tu elección. Se recomiendan {@spell Guidance|XPHB} y {@spell Sacred Flame|XPHB}. Los trucos elegidos cuentan como hechizos de Paladín para ti, y tu Carisma es tu habilidad de lanzamiento de hechizos para ellos. Siempre que ganes un nivel de Paladín, puedes reemplazar uno de estos trucos con otro truco de Clérigo."
+      ]
+    },
+    "feat-5486f650940397cc": {
+      "name": "Guerrero Druídico",
+      "entries": [
+        "Aprendes dos conjuros a voluntad de tu elección. Se recomiendan {@spell Guidance|XPHB} y {@spell Starry Wisp|XPHB}. Los conjuros elegidos cuentan como conjuros de Guardabosques para ti, y la Sabiduría es tu habilidad de lanzamiento de conjuros para ellos. Siempre que ganes un nivel de Guardabosques, puedes reemplazar uno de estos conjuros a voluntad por otro conjuro a voluntad de Druida."
+      ]
+    },
+    "optional-feature-3bc962b4fc1b8e0c": {
+      "name": "Hechizo Cuidadoso",
+      "entries": [
+        "Cuando lanzas un hechizo que obliga a otras criaturas a realizar una tirada de salvación, puedes proteger a algunas de esas criaturas de la fuerza total del hechizo. Para hacerlo, gasta 1 Punto de Hechicería y elige un número de esas criaturas hasta tu modificador de Carisma (mínimo de una criatura). Una criatura elegida tiene éxito automáticamente en su tirada de salvación contra el hechizo, y no recibe daño si normalmente recibiría la mitad de daño con un éxito en la tirada de salvación."
+      ]
+    },
+    "optional-feature-8c9065abb8637a5c": {
+      "name": "Hechizo distante",
+      "entries": [
+        "Cuando lanzas un hechizo que tiene un alcance de al menos 5 pies, puedes gastar 1 Punto de Hechicería para duplicar el alcance del hechizo. O cuando lanzas un hechizo que tiene un alcance de Toque, puedes gastar 1 Punto de Hechicería para hacer que el alcance del hechizo sea de 30 pies."
+      ]
+    },
+    "optional-feature-decac5a147347243": {
+      "name": "Hechizo Potenciado",
+      "entries": [
+        "Cuando lanzas el daño de un hechizo, puedes gastar 1 Punto de Hechicería para volver a tirar un número de los dados de daño hasta tu modificador de Carisma (mínimo uno), y debes usar los nuevos resultados.",
+        "Puedes usar Hechizo Potenciado incluso si ya has usado una opción de Metamagia diferente durante el lanzamiento del hechizo."
+      ]
+    },
+    "optional-feature-ac6c1abd6dd5998c": {
+      "name": "Hechizo prolongado",
+      "entries": [
+        "Cuando lanzas un hechizo que tiene una duración de 1 minuto o más, puedes gastar 1 Punto de Hechicería para duplicar su duración hasta una duración máxima de 24 horas.",
+        "Si el hechizo afectado requiere {@status Concentration|XPHB}, tienes {@variantrule Advantage|XPHB} en cualquier tirada de salvación que realices para mantener ese {@status Concentration|XPHB}."
+      ]
+    },
+    "optional-feature-2198a9d8e953e418": {
+      "name": "Hechizo Potenciado",
+      "entries": [
+        "Cuando lanzas un hechizo que obliga a una criatura a realizar una tirada de salvación, puedes gastar 2 puntos de Hechicería para dar a un objetivo del hechizo {@variantrule Disadvantage|XPHB} en las tiradas de salvación contra el hechizo."
+      ]
+    },
+    "optional-feature-aa705075260ff596": {
+      "name": "Hechizo Acelerar",
+      "entries": [
+        "Cuando lanzas un hechizo que tiene un tiempo de lanzamiento de una acción, puedes gastar 2 puntos de hechicería para cambiar el tiempo de lanzamiento a un {@variantrule Bonus Action|XPHB} para este lanzamiento. No puedes modificar un hechizo de esta manera si ya has lanzado un hechizo de nivel 1 o más en el turno actual, ni puedes lanzar un hechizo de nivel 1 o más en este turno después de modificar un hechizo de esta manera."
+      ]
+    },
+    "optional-feature-8a2b0f6386a53ee5": {
+      "name": "Hechizo buscador",
+      "entries": [
+        "Si haces una tirada de ataque para un hechizo y fallas, puedes gastar 1 Punto de Hechicería para volver a tirar el {@dice d20}, y debes usar la nueva tirada.",
+        "Puedes usar Hechizo Buscador incluso si ya has usado una opción de Metamagia diferente durante el lanzamiento del hechizo."
+      ]
+    },
+    "optional-feature-645c94f191b9711a": {
+      "name": "Hechizo Sutil",
+      "entries": [
+        "Cuando lanzas un hechizo, puedes gastar 1 Punto de Hechicería para lanzarlo sin componentes Verbales, Somáticos o Materiales, excepto los componentes Materiales que sean consumidos por el hechizo o que tengan un costo especificado en el hechizo."
+      ]
+    },
+    "optional-feature-642c0efc42b861d8": {
+      "name": "Hechizo Transmutado",
+      "entries": [
+        "Cuando lanzas un hechizo que inflige un tipo de daño de la siguiente lista, puedes gastar 1 Punto de Hechicería para cambiar ese tipo de daño a uno de los otros tipos listados: Ácido, Frío, Fuego, Rayo, Veneno, Trueno."
+      ]
+    },
+    "optional-feature-bd16169f5ca63d66": {
+      "name": "Hechizo Gemelo",
+      "entries": [
+        "Cuando lanzas un hechizo, como {@spell Charm Person|XPHB}, que puede lanzarse con un espacio de hechizo de nivel superior para apuntar a una criatura adicional, puedes gastar 1 Punto de Hechicería para aumentar el nivel efectivo del hechizo en 1."
+      ]
+    },
+    "optional-feature-49b3549fe7b16f38": {
+      "name": "Explosión Angustiante",
+      "entries": [
+        "Elige uno de tus {@filter Warlock cantrips|spells|level=0|class=Warlock|damage type=acid;bludgeoning;cold;fire;force;lightning;necrotic;piercing;poison;psychic;radiant;slashing;thunder} conocidos que inflija daño. Puedes agregar tu modificador de Carisma a las tiradas de daño de ese hechizo.",
+        {
+          "type": "entries",
+          "entries": [
+            {
+              "type": "entries",
+              "name": "Repetible",
+              "entries": [
+                "Puedes obtener esta invocación más de una vez. Cada vez que lo hagas, elige un cantrip elegible diferente."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "optional-feature-2b27136108dd238d": {
+      "name": "Armadura de Sombras",
+      "entries": [
+        "Puedes lanzar {@spell Mage Armor|XPHB} sobre ti mismo sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-520584ec6d59021b": {
+      "name": "Paso Ascendente",
+      "entries": [
+        "Puedes lanzar {@spell Levitate|XPHB} sobre ti mismo sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-6d531d972af6aa0a": {
+      "name": "Vista del Diablo",
+      "entries": [
+        "Puedes ver normalmente en {@variantrule Dim Light|XPHB} y {@variantrule Darkness|XPHB}—tanto mágicos como no mágicos—dentro de 120 pies de ti."
+      ]
+    },
+    "optional-feature-9170d55bcd161364": {
+      "name": "Hoja Devastadora",
+      "entries": [
+        "El Ataque Extra de tu invocación {@optfeature Thirsting Blade|XPHB} otorga dos ataques adicionales en lugar de uno."
+      ]
+    },
+    "optional-feature-480be8c8af349363": {
+      "name": "Mente Eldritch",
+      "entries": [
+        "Tienes {@variantrule Advantage|XPHB} en las tiradas de salvación de Constitución que hagas para mantener {@status Concentration|XPHB}."
+      ]
+    },
+    "optional-feature-0f5f93450aca04cd": {
+      "name": "Golpe Eldritch",
+      "entries": [
+        "Una vez por turno, cuando golpeas a una criatura con tu arma de pacto, puedes gastar un espacio de conjuro de Magia de Pacto para infligir un daño adicional de {@damage 1d8} de Fuerza al objetivo, más otro {@dice 1d8} por nivel del espacio de conjuro, y puedes darle al objetivo la condición {@condition Prone|XPHB} si es Grande o más pequeño."
+      ]
+    },
+    "optional-feature-b36d126afb2f735b": {
+      "name": "Lanza Eldritch",
+      "entries": [
+        "Elige uno de tus {@filter Warlock cantrips|spells|level=0|class=Warlock|damage type=acid;bludgeoning;cold;fire;force;lightning;necrotic;piercing;poison;psychic;radiant;slashing;thunder|range=point} conocidos que inflija daño y tenga un alcance de más de 10 pies. Cuando lances ese hechizo, su alcance aumenta en un número de pies igual a 30 veces tu nivel de brujo.",
+        {
+          "type": "entries",
+          "entries": [
+            {
+              "type": "entries",
+              "name": "Repetible",
+              "entries": [
+                "Puedes obtener esta invocación más de una vez. Cada vez que lo hagas, elige un cantrip elegible diferente."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "optional-feature-3b72d6bc16a52688": {
+      "name": "Vigor Endemoniado",
+      "entries": [
+        "Puedes lanzar {@spell False Life|XPHB} sobre ti mismo sin gastar un espacio de conjuro. Cuando lanzas el hechizo con esta característica, no lanzas el dado para el {@variantrule Temporary Hit Points|XPHB}; automáticamente obtienes el número más alto en el dado."
+      ]
+    },
+    "optional-feature-87d44ddba02922e8": {
+      "name": "La mirada de dos mentes",
+      "entries": [
+        "Puedes usar un {@variantrule Bonus Action|XPHB} para tocar a una criatura voluntaria y percibir a través de sus sentidos hasta el final de tu siguiente turno. Mientras la criatura esté en el mismo plano de existencia que tú, puedes tomar un {@variantrule Bonus Action|XPHB} en turnos posteriores para mantener esta conexión, extendiendo la duración hasta el final de tu siguiente turno. La conexión termina si no la mantienes de esta manera.",
+        "Mientras percibes a través de los sentidos de la otra criatura, te beneficias de cualquier sentido especial que posea esa criatura, y puedes lanzar hechizos como si estuvieras en tu espacio o en el espacio de la otra criatura si ambos se encuentran a menos de 60 pies de distancia."
+      ]
+    },
+    "optional-feature-63e7804c6cc4999e": {
+      "name": "Regalo de las Profundidades",
+      "entries": [
+        "Puedes respirar bajo el agua, y obtienes un {@variantrule Swim Speed|XPHB} igual a tu {@variantrule Speed|XPHB}.",
+        "También puedes lanzar {@spell Water Breathing|XPHB} una vez sin gastar un espacio de conjuro. Recuperas la habilidad de lanzarlo de esta manera nuevamente cuando termines un {@variantrule Long Rest|XPHB}."
+      ]
+    },
+    "optional-feature-e982003ca0147234": {
+      "name": "Regalo de los Protectores",
+      "entries": [
+        "Una nueva página aparece en tu Libro de Sombras cuando lo conjuras. Con tu permiso, una criatura puede realizar una acción para escribir su nombre en esa página, la cual puede contener un número de nombres igual a tu modificador de Carisma (mínimo de un nombre).",
+        "Cuando cualquier criatura cuyo nombre esté en la página se reduce a 0 {@variantrule Hit Points|XPHB} pero no muere de inmediato, la criatura mágicamente cae a 1 {@variantrule Hit Points|XPHB|Hit Point} en su lugar. Una vez que se activa esta magia, ninguna criatura puede beneficiarse de ella hasta que termines un {@variantrule Long Rest|XPHB}.",
+        "Como acción de {@action Magic|XPHB}, puedes borrar un nombre en la página tocándolo."
+      ]
+    },
+    "optional-feature-56377668613be105": {
+      "name": "Inversión del Maestro de la Cadena",
+      "entries": [
+        "Cuando lanzas {@spell Find Familiar|XPHB}, infundes al familiar invocado con una medida de tu poder arcano, otorgándole al criatura los siguientes beneficios.",
+        {
+          "type": "entries",
+          "entries": [
+            {
+              "type": "entries",
+              "name": "Aéreo o Acuático",
+              "entries": [
+                "El familiar gana ya sea un {@variantrule Fly Speed|XPHB} o un {@variantrule Swim Speed|XPHB} (a tu elección) de 40 pies."
+              ]
+            },
+            {
+              "type": "entries",
+              "name": "Ataque Rápido",
+              "entries": [
+                "Como {@variantrule Bonus Action|XPHB}, puedes ordenar al familiar que realice la acción {@action Attack|XPHB}."
+              ]
+            },
+            {
+              "type": "entries",
+              "name": "Daño necrótico o radiante",
+              "entries": [
+                "Siempre que el familiar inflija daño Contundente, Perforante o Cortante, puedes hacer que inflija daño Necrótico o Radiante en su lugar."
+              ]
+            },
+            {
+              "type": "entries",
+              "name": "Tu CD de salvación",
+              "entries": [
+                "Si el familiar obliga a una criatura a realizar una tirada de salvación, utiliza tu CD de salvación de hechizo."
+              ]
+            },
+            {
+              "type": "entries",
+              "name": "Resistencia",
+              "entries": [
+                "Cuando el familiar recibe daño, puedes tomar un {@variantrule Reaction|XPHB} para otorgarle {@variantrule Resistance|XPHB} contra ese daño."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "optional-feature-466c32abe5261796": {
+      "name": "Lecciones de los Primeros",
+      "entries": [
+        "Has recibido conocimiento de una entidad mayor del multiverso, lo que te permite obtener un {@filter Origin feat|feats|category=o} de tu elección.",
+        {
+          "type": "entries",
+          "entries": [
+            {
+              "type": "entries",
+              "name": "Repetible",
+              "entries": [
+                "Puedes obtener esta invocación más de una vez. Cada vez que lo hagas, elige una hazaña de Origen diferente."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "optional-feature-229d78426169f5f1": {
+      "name": "Bebedor de vida",
+      "entries": [
+        "Una vez por turno, cuando golpeas a una criatura con tu arma de pacto, puedes infligir un daño adicional {@damage 1d6} Necrótico, Psíquico o Radiante (a tu elección) a la criatura, y puedes gastar uno de tus {@variantrule Hit Point Dice|XPHB} para tirarlo y recuperar un número de {@variantrule Hit Points|XPHB} igual a la tirada más tu modificador de Constitución (mínimo de 1 {@variantrule Hit Points|XPHB|Hit Point})."
+      ]
+    },
+    "optional-feature-32e359d8b9d0a435": {
+      "name": "Máscara de Muchas Caras",
+      "entries": [
+        "Puedes lanzar {@spell Disguise Self|XPHB} sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-b804d42f6a81987a": {
+      "name": "Maestro de las Miríadas de Formas",
+      "entries": [
+        "Puedes lanzar {@spell Alter Self|XPHB} sin gastar un espacio de hechizo."
+      ]
+    },
+    "optional-feature-5b5abcde74babc79": {
+      "name": "Visiones brumosas",
+      "entries": [
+        "Puedes lanzar {@spell Silent Image|XPHB} sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-0e92f6c136445eae": {
+      "name": "Uno con las sombras",
+      "entries": [
+        "Mientras estés en un área de {@variantrule Dim Light|XPHB} o {@variantrule Darkness|XPHB}, puedes lanzar {@spell Invisibility|XPHB} sobre ti mismo sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-4867e546bdaaed6b": {
+      "name": "Salto de otro mundo",
+      "entries": [
+        "Puedes lanzar {@spell Jump|XPHB} sobre ti mismo sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-04397f6847426993": {
+      "name": "Pacto de la Hoja",
+      "entries": [
+        "Como un {@variantrule Bonus Action|XPHB}, puedes conjurar un arma de pacto en tu mano: un arma cuerpo a cuerpo Simple o Marcial de tu elección con la que te vincules, o crear un vínculo con un arma mágica que toques; no puedes vincularte con un arma mágica si otra persona está sintonizada con ella o si otro brujo está vinculado con ella. Hasta que el vínculo termine, tienes competencia con el arma, y puedes usarla como un {@variantrule Spellcasting Focus|XPHB}.",
+        "Siempre que ataques con el arma vinculada, puedes usar tu modificador de Carisma para las tiradas de ataque y de daño en lugar de usar Fuerza o Destreza; y puedes hacer que el arma cause daño necrótico, psíquico o radiante, o su tipo de daño normal.",
+        "Tu vínculo con el arma termina si usas nuevamente el {@variantrule Bonus Action|XPHB} de esta característica, si el arma está a más de 5 pies de ti durante 1 minuto o más, o si mueres. Un arma conjurada desaparece cuando termina el vínculo."
+      ]
+    },
+    "optional-feature-2ce1055aca8aaac5": {
+      "name": "Pacto de la Cadena",
+      "entries": [
+        "Aprendes el hechizo {@spell Find Familiar|XPHB} y puedes lanzarlo como una acción {@action Magic|XPHB} sin gastar un espacio de hechizo.",
+        "Cuando lanzas el hechizo, eliges una de las formas normales para tu familiar o una de las siguientes formas especiales: {@creature Imp|XMM}, {@creature Pseudodragon|XMM}, {@creature Quasit|XMM}, {@creature Skeleton|XMM}, {@creature Slaad Tadpole|XMM}, {@creature Sphinx of Wonder|XMM}, {@creature Sprite|XMM} o {@creature Venomous Snake|XMM} (consulta el apéndice B para la ficha de estadísticas del familiar).",
+        "Además, cuando realizas la acción {@action Attack|XPHB}, puedes renunciar a uno de tus propios ataques para permitir que tu familiar realice un ataque propio con su {@variantrule Reaction|XPHB}."
+      ]
+    },
+    "optional-feature-17397046f444bac1": {
+      "name": "Pacto del Tomo",
+      "entries": [
+        "Uniendo hebras de sombra, conjuras un libro en tu mano al final de un {@variantrule Short Rest|XPHB|Short} o {@variantrule Long Rest|XPHB}. Este Libro de las Sombras (tú determinas su apariencia) contiene magia arcana a la que solo tú puedes acceder, otorgándote los beneficios que se indican a continuación. El libro desaparece si conjuras otro libro con esta característica o si mueres.",
+        {
+          "type": "entries",
+          "entries": [
+            {
+              "type": "entries",
+              "name": "Trucos y Rituales",
+              "entries": [
+                "Cuando aparezca el libro, elige tres {@filter cantrips|spells|level=0}, y elige dos {@filter level 1 spells|spells|level=1|components & miscellaneous=ritual} que tengan la etiqueta {@variantrule Ritual|XPHB}. Los hechizos pueden ser de la lista de hechizos de cualquier clase, y deben ser hechizos que no tengas ya preparados. Mientras el libro esté en tu posesión, tendrás los hechizos elegidos preparados, y funcionarán como hechizos de brujo para ti."
+              ]
+            },
+            {
+              "type": "entries",
+              "name": "Foco de lanzamiento de hechizos",
+              "entries": [
+                "Puedes usar el libro como un {@variantrule Spellcasting Focus|XPHB}."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "optional-feature-454221257bf4237e": {
+      "name": "Explosión Repelente",
+      "entries": [
+        "Elige uno de tus {@filter Warlock cantrips|spells|level=0|class=Warlock|spell attack=m;r;o} conocidos que requiera una tirada de ataque. Cuando golpees a una criatura Grande o más pequeña con ese cantrip, puedes empujar a la criatura hasta 10 pies en línea recta alejándola de ti.",
+        {
+          "type": "entries",
+          "entries": [
+            {
+              "type": "entries",
+              "name": "Repetible",
+              "entries": [
+                "Puedes obtener esta invocación más de una vez. Cada vez que lo hagas, elige un cantrip elegible diferente."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "optional-feature-2f8f577433ccfb62": {
+      "name": "Espada Sedienta",
+      "entries": [
+        "Obtienes la característica Ataque Extra solo para tu arma de pacto. Con esa característica, puedes atacar dos veces con el arma en lugar de una cuando realizas la acción {@action Attack|XPHB} en tu turno."
+      ]
+    },
+    "optional-feature-2c3c0225615a64f8": {
+      "name": "Visiones de Reinos Lejanos",
+      "entries": [
+        "Puedes lanzar {@spell Arcane Eye|XPHB} sin gastar un espacio de hechizo."
+      ]
+    },
+    "optional-feature-9255c66c4b2c6fe2": {
+      "name": "Susurros de la tumba",
+      "entries": [
+        "Puedes lanzar {@spell Speak with Dead|XPHB} sin gastar un espacio de conjuro."
+      ]
+    },
+    "optional-feature-429fafb0ba6a7dc0": {
+      "name": "Vista de bruja",
+      "entries": [
+        "Tienes {@sense Truesight|XPHB} con un alcance de 30 pies."
+      ]
+    }
+  }
+}
