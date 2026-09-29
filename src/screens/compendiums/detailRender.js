@@ -1,6 +1,7 @@
 import { getBestiaryInitials } from "../../data/compendiumEntries.js";
 import { statKeys } from "../../data/gameConstants.js";
 import { formatModifier, getAbilityModifier } from "../../shared/dndRules.js";
+import { findSpellReferenceMatches } from "../../shared/spellReferences.js";
 import { cleanText, escapeHtml } from "../../shared/text.js";
 
 export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, getItemAttunementLabel, getItemSourceDescription, isItemTypeTokenFilterActive }) {
@@ -290,31 +291,24 @@ export function createCompendiumDetailRenderers({ t, getArcanumSpellLinkData, ge
   function renderTextWithSpellLinks(content) {
     const text = cleanText(content);
     const spellLinkData = getArcanumSpellLinkData();
+    const matches = findSpellReferenceMatches(text, spellLinkData);
 
-    if (!text || !spellLinkData.pattern) {
+    if (!text || matches.length === 0) {
       return escapeHtml(content).replaceAll("\n", "<br />");
     }
 
     const chunks = [];
     let lastIndex = 0;
-    spellLinkData.pattern.lastIndex = 0;
 
-    for (const match of text.matchAll(spellLinkData.pattern)) {
-      const [fullMatch, prefix, spellName] = match;
-      const matchIndex = match.index ?? 0;
-      const spellStartIndex = matchIndex + prefix.length;
-      const canonicalName = spellLinkData.namesByLower.get(spellName.toLowerCase()) ?? spellName;
-      const spellEntry = spellLinkData.entriesByLower?.get(canonicalName.toLowerCase())
-        ?? spellLinkData.entriesByLower?.get(spellName.toLowerCase());
+    for (const match of matches) {
+      const spellEntry = match.entry;
+      const displayName = match.text;
+      const referenceName = spellEntry.name || displayName;
+      const referenceKey = spellEntry.identityKey || spellEntry.compositeKey || spellEntry.id || referenceName;
 
-      chunks.push(escapeHtml(text.slice(lastIndex, spellStartIndex)));
-      chunks.push(`
-        <span class="bestiary-spell-reference">
-          <button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(canonicalName)}">${escapeHtml(spellName)}</button>
-          ${spellEntry ? `<div class="character-spellbook__preview" role="tooltip"><div class="character-spellbook__preview-card">${renderArcanumDetail(spellEntry)}</div></div>` : ""}
-        </span>
-      `);
-      lastIndex = matchIndex + fullMatch.length;
+      chunks.push(escapeHtml(text.slice(lastIndex, match.start)));
+      chunks.push(`<span class="bestiary-spell-reference"><button class="spell-reference-link" type="button" data-action="filter-arcanum-by-spell-name" data-arcanum-spell-name="${escapeHtml(referenceName)}" data-arcanum-entry-id="${escapeHtml(referenceKey)}" data-arcanum-source="${escapeHtml(spellEntry.source || "")}" data-combat-preview-kind="spell" data-combat-preview-key="${escapeHtml(referenceKey)}" data-combat-preview-name="${escapeHtml(referenceName)}" data-combat-preview-source="${escapeHtml(spellEntry.source || "")}">${escapeHtml(displayName)}</button></span>`);
+      lastIndex = match.end;
     }
 
     chunks.push(escapeHtml(text.slice(lastIndex)));

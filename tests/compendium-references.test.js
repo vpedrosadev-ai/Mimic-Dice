@@ -6,6 +6,7 @@ import {
   getUnresolvedCharacterCompendiumReferences
 } from "../src/shared/compendiumReferences.js";
 import { parseCsv } from "../src/shared/csv.js";
+import { createSpellReferenceMatcher } from "../src/shared/spellReferences.js";
 import { createCompendiumDetailRenderers } from "../src/screens/compendiums/detailRender.js";
 
 const witchBolt2014 = {
@@ -96,14 +97,9 @@ const fireball = {
   levelValue: 3,
   text: "A bright streak flashes."
 };
-const spellPattern = /(^|[^A-Za-z0-9])(Fireball)(?=$|[^A-Za-z0-9])/gi;
 const { renderBestiaryDetail } = createCompendiumDetailRenderers({
   t: (key) => key,
-  getArcanumSpellLinkData: () => ({
-    pattern: spellPattern,
-    namesByLower: new Map([["fireball", "Fireball"]]),
-    entriesByLower: new Map([["fireball", fireball]])
-  }),
+  getArcanumSpellLinkData: () => createSpellReferenceMatcher([fireball]),
   getItemAttunementLabel: () => "Attunement",
   getItemSourceDescription: () => "",
   isItemTypeTokenFilterActive: () => false
@@ -117,8 +113,8 @@ const renderedEnemySpellLink = renderBestiaryDetail({
 });
 assert.match(renderedEnemySpellLink, /class="bestiary-spell-reference"/);
 assert.match(renderedEnemySpellLink, /data-arcanum-spell-name="Fireball"/);
-assert.match(renderedEnemySpellLink, /character-spellbook__preview/);
-assert.match(renderedEnemySpellLink, /A bright streak flashes/);
+assert.match(renderedEnemySpellLink, /data-combat-preview-kind="spell"/);
+assert.doesNotMatch(renderedEnemySpellLink, />\s+<button class="spell-reference-link"/);
 
 const catalogSources = new Set();
 

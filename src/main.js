@@ -65,6 +65,8 @@ import {
   isSameCompendiumSource
 } from "./shared/compendiumReferences.js";
 import { parseCsv } from "./shared/csv.js";
+import { parseBestiarySpellcasting } from "./shared/bestiarySpellcasting.js";
+import { createSpellReferenceMatcher } from "./shared/spellReferences.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
 import { createCompendiumListRenderers } from "./screens/compendiums/listRender.js";
 import { createCharacterStateController } from "./screens/characters/characterState.js";
@@ -100,7 +102,6 @@ import { isPlainObject, normalizeNumberInput, randomD20, toNumber } from "./shar
 import {
   cleanText,
   escapeHtml,
-  escapeRegExp,
   normalizeSearchText,
   parseLeadingNumber,
   shortenLabel,
@@ -498,6 +499,7 @@ const combatLookupCache = {
 let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
+let activeCombatSpellPreviewTriggerElement = null;
 let combatTurnPopoutWindow = null;
 let combatTurnPopoutPollInterval = 0;
 const combatantPreviewPopoutWindows = new Map();
@@ -3182,6 +3184,17 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-combat-monster-spell-use") {
+    toggleCombatMonsterSpellUse(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.monsterSpellGroupId,
+      actionButton.dataset.monsterSpellUseIndex
+    );
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
   if (action === "toggle-character-spellbook-ability-spent") {
     toggleCharacterSpellbookAbilitySpent(
       actionButton.dataset.characterSpellbookAbilityRowId,
@@ -3594,6 +3607,7 @@ async function handleClick(event) {
     state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
     state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
+    clearActiveCombatPreview();
     render({
       focusSelector: "[data-arcanum-query]"
     });
@@ -4953,7 +4967,13 @@ function handleMouseOver(event) {
   const previewKey = cleanText(previewTrigger.dataset.combatPreviewKey);
   const previewKind = cleanText(previewTrigger.dataset.combatPreviewKind);
 
-  if (!previewKey || !previewKind || (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind)) {
+  if (!previewKey || !previewKind) {
+    return;
+  }
+
+  if (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind) {
+    activeCombatSpellPreviewTriggerElement = previewTrigger;
+    scheduleActiveCombatSpellPreviewSync();
     return;
   }
 
@@ -5035,7 +5055,13 @@ function handleFocusIn(event) {
   const previewKey = cleanText(previewTrigger.dataset.combatPreviewKey);
   const previewKind = cleanText(previewTrigger.dataset.combatPreviewKind);
 
-  if (!previewKey || !previewKind || (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind)) {
+  if (!previewKey || !previewKind) {
+    return;
+  }
+
+  if (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind) {
+    activeCombatSpellPreviewTriggerElement = previewTrigger;
+    scheduleActiveCombatSpellPreviewSync();
     return;
   }
 
@@ -10633,7 +10659,7 @@ function getCombatantPreviewPopoutContent(descriptor) {
 
   return {
     title: cleanText(entry.name) || "Criatura",
-    markup: `<div class="combatant-preview-popout-layout">${renderCombatTokenPreview(entry, { linkDetails: true })}</div>`
+    markup: `<div class="combatant-preview-popout-layout">${renderCombatTokenPreview(entry, { linkDetails: true, combatant })}</div>`
   };
 }
 
@@ -10676,8 +10702,8 @@ function decorateCombatantPreviewPopoutDetailLinks(root) {
     }
 
     link.dataset.combatPreviewKind = "spell";
-    link.dataset.combatPreviewKey = spellName;
-    link.dataset.combatPreviewName = spellName;
+    link.dataset.combatPreviewKey ||= spellName;
+    link.dataset.combatPreviewName ||= spellName;
   });
 }
 
@@ -10876,6 +10902,18 @@ function handleCombatantPreviewPopoutClick(event, descriptor) {
       actionButton.dataset.characterSpellbookAbilityUseIndex
     );
     saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-monster-spell-use") {
+    event.preventDefault();
+    toggleCombatMonsterSpellUse(
+      actionButton.dataset.combatantId,
+      actionButton.dataset.monsterSpellGroupId,
+      actionButton.dataset.monsterSpellUseIndex
+    );
+    saveCombatTrackerState();
     render();
     return;
   }
@@ -12352,25 +12390,9 @@ function getArcanumSpellLinkData() {
     return arcanumSpellLinkCache;
   }
 
-  const spellNames = [...new Set(state.arcanum.map((entry) => cleanText(entry.name)).filter((name) => name.length >= 3))]
-    .sort((left, right) => right.length - left.length || left.localeCompare(right, "es", { sensitivity: "base" }));
-  const namesByLower = new Map(spellNames.map((name) => [name.toLowerCase(), name]));
-  const entriesByLower = new Map();
-  for (const entry of state.arcanum) {
-    for (const name of [entry.name, entry.canonicalName, entry.localizedName]) {
-      const key = cleanText(name).toLowerCase();
-      if (key && !entriesByLower.has(key)) entriesByLower.set(key, entry);
-    }
-  }
-  const pattern = spellNames.length > 0
-    ? new RegExp(`(^|[^A-Za-z0-9])(${spellNames.map(escapeRegExp).join("|")})(?=$|[^A-Za-z0-9])`, "gi")
-    : null;
-
   arcanumSpellLinkCache = {
     signature,
-    pattern,
-    namesByLower,
-    entriesByLower
+    ...createSpellReferenceMatcher(state.arcanum)
   };
 
   return arcanumSpellLinkCache;
@@ -13325,10 +13347,12 @@ function renderCombatSpellPreviewOverlay() {
       return "";
     }
 
+    const previewCombatant = state.combatants.find((combatant) => combatant.id === combatantId) ?? null;
+
     return `
       <aside class="combat-spell-preview-overlay combat-spell-preview-overlay--entity" data-combat-spell-preview-overlay role="dialog" aria-label="Ficha de ${escapeHtml(previewEntry.name || "criatura")}">
         ${renderCombatPreviewPopoutToolbar("bestiary", previewKey, combatantId)}
-        ${renderCombatTokenPreview(previewEntry)}
+        ${renderCombatTokenPreview(previewEntry, { linkDetails: true, combatant: previewCombatant })}
       </aside>
     `;
   }
@@ -13452,6 +13476,7 @@ function setActiveCombatPreviewFromTrigger(trigger) {
   state.activeCombatPreviewName = cleanText(trigger?.dataset?.combatPreviewName);
   state.activeCombatPreviewSource = cleanText(trigger?.dataset?.combatPreviewSource);
   state.activeCombatPreviewDescription = cleanText(trigger?.dataset?.combatPreviewDescription);
+  activeCombatSpellPreviewTriggerElement = trigger ?? null;
 }
 
 function clearActiveCombatPreview() {
@@ -13461,6 +13486,7 @@ function clearActiveCombatPreview() {
   state.activeCombatPreviewName = "";
   state.activeCombatPreviewSource = "";
   state.activeCombatPreviewDescription = "";
+  activeCombatSpellPreviewTriggerElement = null;
 }
 
 function renderCombatSpellbookPopover(combatant, character) {
@@ -14164,7 +14190,7 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
     `;
   }
 
-  if (bestiaryEntry && tokenUrl) {
+  if (bestiaryEntry) {
     return `
       <span class="combat-name-token-wrap">
         <button
@@ -14177,14 +14203,18 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
           data-combat-preview-combatant-id="${escapeHtml(combatant.id)}"
           aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
         >
-          <img
-            class="combat-name-token"
-            src="${escapeHtml(tokenUrl)}"
-            alt=""
-            loading="lazy"
-            decoding="async"
-            aria-hidden="true"
-          />
+          ${
+            tokenUrl
+              ? `<img
+                  class="combat-name-token"
+                  src="${escapeHtml(tokenUrl)}"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  aria-hidden="true"
+                />`
+              : `<span class="combat-name-token__placeholder">${escapeHtml(initials)}</span>`
+          }
         </button>
       </span>
     `;
@@ -14223,6 +14253,7 @@ function renderCombatTokenPreview(entry, options = {}) {
   const sizeLabel = isEnglishInterface() ? "SIZE" : "TAMAÑO";
   const sourceLabel = entry.sourceFullName || getBestiarySourceFullName(entry.source) || entry.source || "Sin fuente";
   const crLabel = entry.crBaseLabel || entry.crLabel || "-";
+  const spellcasting = parseBestiarySpellcasting(entry);
 
   return `
     <div class="combat-token-preview combat-token-preview--floating">
@@ -14252,6 +14283,7 @@ function renderCombatTokenPreview(entry, options = {}) {
           `
           : ""
       }
+      ${spellcasting ? renderCombatMonsterSpellcasting(options.combatant, spellcasting) : ""}
       <div class="combat-token-preview__sections">
         ${
           sections.length > 0
@@ -14261,6 +14293,95 @@ function renderCombatTokenPreview(entry, options = {}) {
             : `<section class="detail-section"><h4>Traits</h4><p>Sin traits o acciones indicadas.</p></section>`
         }
       </div>
+    </div>
+  `;
+}
+
+function renderCombatMonsterSpellcasting(combatant, spellcasting) {
+  const metricItems = [
+    spellcasting.ability ? { label: isEnglishInterface() ? "SPELLCASTING ABILITY" : "APTITUD DE LANZAMIENTO", value: spellcasting.ability } : null,
+    spellcasting.saveDc !== "" ? { label: isEnglishInterface() ? "SPELL SAVE DC" : "CD SALVACIÓN CONJUROS", value: spellcasting.saveDc } : null,
+    spellcasting.attackModifier !== "" ? { label: isEnglishInterface() ? "SPELL ATTACK" : "ATAQUE MÁGICO", value: formatModifier(spellcasting.attackModifier) } : null
+  ].filter(Boolean);
+
+  return `
+    <section class="combat-monster-spellcasting" aria-label="${escapeHtml(isEnglishInterface() ? "Creature spells" : "Hechizos de criatura")}">
+      <div class="combat-monster-spellcasting__title">${escapeHtml(isEnglishInterface() ? "Spells" : "Hechizos")}</div>
+      ${
+        metricItems.length > 0
+          ? `<div class="combat-monster-spellcasting__metrics">${metricItems.map((metric) => renderCombatSpellbookMetric(metric.label, metric.value)).join("")}</div>`
+          : ""
+      }
+      <div class="combat-monster-spellcasting__groups">
+        ${spellcasting.groups.map((group) => renderCombatMonsterSpellGroup(combatant, group)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCombatMonsterSpellGroup(combatant, group) {
+  return `
+    <div class="combat-monster-spellcasting__group">
+      <div class="combat-monster-spellcasting__group-header">
+        <strong>${escapeHtml(group.label)}</strong>
+        ${group.uses > 0 ? renderCombatMonsterSpellUseDots(combatant, group) : `<span class="combat-monster-spellcasting__at-will">∞</span>`}
+      </div>
+      <div class="combat-monster-spellcasting__spell-list">
+        ${group.spells.map((spell) => renderCombatMonsterSpellLink(spell)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderCombatMonsterSpellLink(spell) {
+  const spellEntry = findCompendiumEntryByReference(state.arcanum, {
+    name: spell.lookupName,
+    canonicalName: spell.lookupName,
+    localizedName: spell.lookupName
+  });
+
+  if (!spellEntry) {
+    return `<span class="combat-monster-spellcasting__spell-name">${escapeHtml(spell.displayName)}</span>`;
+  }
+
+  const spellKey = getCompendiumEntryIdentityKey(spellEntry) || spellEntry.id || spellEntry.name;
+
+  return `
+    <button
+      class="spell-reference-link combat-monster-spellcasting__spell-link"
+      type="button"
+      data-action="filter-arcanum-by-spell-name"
+      data-arcanum-spell-name="${escapeHtml(spellEntry.name)}"
+      data-arcanum-entry-id="${escapeHtml(spellKey)}"
+      data-arcanum-source="${escapeHtml(spellEntry.source || "")}"
+      data-combat-preview-kind="spell"
+      data-combat-preview-key="${escapeHtml(spellKey)}"
+      data-combat-preview-name="${escapeHtml(spellEntry.name)}"
+      data-combat-preview-source="${escapeHtml(spellEntry.source || "")}"
+    >${escapeHtml(spell.displayName)}</button>
+  `;
+}
+
+function renderCombatMonsterSpellUseDots(combatant, group) {
+  const spent = Array.isArray(combatant?.monsterSpellUses?.[group.id])
+    ? combatant.monsterSpellUses[group.id]
+    : [];
+
+  return `
+    <div class="combat-monster-spellcasting__uses" role="group" aria-label="${escapeHtml(group.label)}">
+      ${Array.from({ length: group.uses }, (_, index) => `
+        <button
+          class="combat-spellbook-popover__dot${spent[index] ? " is-spent" : ""}"
+          type="button"
+          data-action="toggle-combat-monster-spell-use"
+          data-combatant-id="${escapeHtml(combatant?.id || "")}"
+          data-monster-spell-group-id="${escapeHtml(group.id)}"
+          data-monster-spell-use-index="${escapeHtml(String(index))}"
+          aria-pressed="${spent[index] ? "true" : "false"}"
+          aria-label="${escapeHtml(spent[index] ? "Recuperar uso" : "Gastar uso")} ${escapeHtml(String(index + 1))}"
+          ${combatant?.id ? "" : "disabled"}
+        ></button>
+      `).join("")}
     </div>
   `;
 }
@@ -21115,11 +21236,13 @@ function formatStandNumber(value) {
 function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options = {}) {
   const pgMax = getEnemyHitPointValue(entry);
   const ca = entry.acValue || parseLeadingNumber(entry.ac) || "";
+  const entryKey = getCompendiumEntryIdentityKey(entry) || cleanText(existingCombatant.entryKey);
+  const keepsExistingSpellUses = Boolean(entryKey && entryKey === cleanText(existingCombatant.entryKey));
   const combatant = {
     id: existingCombatant.id,
     side: "enemies",
     entryId: entry.id ?? existingCombatant.entryId ?? "",
-    entryKey: getCompendiumEntryIdentityKey(entry) || cleanText(existingCombatant.entryKey),
+    entryKey,
     canonicalName: entry.canonicalName || entry.name || cleanText(existingCombatant.canonicalName),
     localizedName: entry.localizedName || (entry.canonicalName && entry.canonicalName !== entry.name ? entry.name : cleanText(existingCombatant.localizedName)),
     canonicalSource: entry.canonicalSource || entry.source || cleanText(existingCombatant.canonicalSource),
@@ -21142,6 +21265,7 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     vision: entry.senses ?? "",
     lenguas: entry.languages ?? "",
     crExp: entry.crBaseLabel || entry.crLabel || entry.cr || "",
+    monsterSpellUses: keepsExistingSpellUses ? { ...(existingCombatant.monsterSpellUses ?? {}) } : {},
     tag: "ENEMIGO",
     initiativeRoll: existingCombatant.initiativeRoll ?? null,
     initiativeNat20: existingCombatant.initiativeNat20 ?? false
@@ -21379,6 +21503,7 @@ function applyCombatLongRest() {
       hitDice: restoredHitDice,
       necrotic: 0,
       condiciones: "",
+      monsterSpellUses: {},
       iniactiva: "",
       initiativeRoll: null,
       initiativeNat20: false
@@ -21450,6 +21575,40 @@ function toggleCombatSpellbookAbilitySpent(combatantId, rowId, useIndex) {
   }
 
   toggleCharacterSpellbookAbilitySpent(normalizedRowId, normalizedUseIndex, linkedCharacter.id);
+}
+
+function toggleCombatMonsterSpellUse(combatantId, groupId, useIndex) {
+  const normalizedCombatantId = cleanText(combatantId);
+  const normalizedGroupId = cleanText(groupId);
+  const normalizedUseIndex = Math.max(0, Math.floor(toNumber(useIndex) || 0));
+
+  if (!normalizedCombatantId || !normalizedGroupId) {
+    return;
+  }
+
+  state.combatants = state.combatants.map((combatant) => {
+    if (combatant.id !== normalizedCombatantId) {
+      return combatant;
+    }
+
+    const entry = getCombatantBestiaryEntry(combatant);
+    const group = parseBestiarySpellcasting(entry)?.groups.find((candidate) => candidate.id === normalizedGroupId);
+
+    if (!group || normalizedUseIndex >= group.uses) {
+      return combatant;
+    }
+
+    const spent = Array.from({ length: group.uses }, (_, index) => combatant.monsterSpellUses?.[normalizedGroupId]?.[index] === true);
+    spent[normalizedUseIndex] = !spent[normalizedUseIndex];
+
+    return {
+      ...combatant,
+      monsterSpellUses: {
+        ...(combatant.monsterSpellUses ?? {}),
+        [normalizedGroupId]: spent
+      }
+    };
+  });
 }
 
 function toggleCharacterSpellbookAbilitySpent(rowId, useIndex, characterId = state.activeCharacterId) {
@@ -29756,8 +29915,10 @@ function syncActiveCombatSpellPreviewPosition() {
     return;
   }
 
-  const trigger = [...app.querySelectorAll("[data-combat-preview-key][data-combat-preview-kind]")]
-    .find((element) => element.dataset.combatPreviewKey === state.activeCombatPreviewKey && element.dataset.combatPreviewKind === state.activeCombatPreviewKind);
+  const trigger = activeCombatSpellPreviewTriggerElement?.isConnected
+    ? activeCombatSpellPreviewTriggerElement
+    : [...app.querySelectorAll("[data-combat-preview-key][data-combat-preview-kind]")]
+      .find((element) => element.dataset.combatPreviewKey === state.activeCombatPreviewKey && element.dataset.combatPreviewKind === state.activeCombatPreviewKind);
   const preview = app.querySelector("[data-combat-spell-preview-overlay]");
 
   if (!trigger || !preview) {

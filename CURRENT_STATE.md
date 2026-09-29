@@ -113,6 +113,7 @@
 - La ventana extraida de iniciativa muestra directamente los controles y la cadena, sin repetir una cabecera de "Orden de iniciativa".
 - Las previews de aliados y enemigos del combat tracker incluyen un boton para abrir cada ficha en una ventana independiente; se admiten varias a la vez y las de personaje incorporan su panel configurado de hechizos/habilidades.
 - En los pop-outs de fichas funcionan tambien los enlaces y detalles flotantes de objetos, hechizos y habilidades; cada ventana gestiona su propio panel de detalle y los enlaces pueden abrir el compendio correspondiente en la ventana principal.
+- Las menciones de hechizos en fichas de criatura se enlazan con alias bilingues y sin alterar espacios/saltos; su ficha flotante usa overlay ajustado al viewport. Las criaturas lanzadoras muestran en su ficha de combate aptitud, CD/ataque, grupos de conjuros y usos diarios/espacios marcables, persistentes y restaurados con descanso largo.
 - La exportacion de personajes (JSON, PDF o XML de Fight Club) exige elegir de forma explicita una unica ficha de la lista antes de continuar.
 - El autoguardado cloud reintenta automaticamente fallos temporales de red/HTTP (`408`, `425`, `429` y `5xx`) con espera progresiva; al recuperarse retira el aviso persistente y confirma el guardado correcto.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.

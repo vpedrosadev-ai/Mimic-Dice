@@ -7074,6 +7074,106 @@ input[type="number"]::-webkit-inner-spin-button {
   gap: 0.65rem;
 }
 
+.combat-monster-spellcasting {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(240, 200, 121, 0.24);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(62, 39, 22, 0.58), rgba(26, 18, 13, 0.84)),
+    rgba(255, 255, 255, 0.025);
+}
+
+.combat-monster-spellcasting__title {
+  color: var(--accent-soft);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.combat-monster-spellcasting__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.65rem;
+}
+
+.combat-monster-spellcasting__metrics .combat-spellbook-popover__metric {
+  width: 100%;
+  min-width: 0;
+}
+
+.combat-monster-spellcasting__metrics .combat-spellbook-popover__metric-value {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.8rem;
+}
+
+.combat-monster-spellcasting__groups {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.combat-monster-spellcasting__group {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem 0.72rem;
+  border: 1px solid rgba(240, 200, 121, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.combat-monster-spellcasting__group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.combat-monster-spellcasting__group-header strong {
+  color: var(--accent-soft);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.combat-monster-spellcasting__uses {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  flex-wrap: wrap;
+}
+
+.combat-monster-spellcasting__at-will {
+  color: #fff0cf;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.combat-monster-spellcasting__spell-list {
+  display: flex;
+  align-items: baseline;
+  gap: 0.28rem 0.42rem;
+  flex-wrap: wrap;
+}
+
+.combat-monster-spellcasting__spell-link,
+.combat-monster-spellcasting__spell-name {
+  display: inline;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.combat-monster-spellcasting__spell-link:not(:last-child)::after,
+.combat-monster-spellcasting__spell-name:not(:last-child)::after {
+  content: ",";
+  color: var(--muted);
+  text-decoration: none;
+}
+
 .combat-token-preview--character {
   border: 1px solid var(--line-strong);
   width: min(32rem, 72vw);

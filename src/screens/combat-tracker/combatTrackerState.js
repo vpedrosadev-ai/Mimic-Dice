@@ -213,6 +213,7 @@ function normalizeStoredCombatant(combatant) {
     vision: cleanText(combatant.vision),
     lenguas: cleanText(combatant.lenguas),
     crExp: cleanText(combatant.crExp),
+    monsterSpellUses: normalizeStoredMonsterSpellUses(combatant.monsterSpellUses),
     tag,
     experienceGranted: combatant.experienceGranted === true,
     initiativeRoll: combatant.initiativeRoll === null || combatant.initiativeRoll === ""
@@ -327,6 +328,19 @@ function normalizeStoredStandLabel(value) {
 function normalizeStoredNonNegativeNumber(value) {
   const normalizedValue = normalizeStoredNumber(value);
   return normalizedValue === "" ? "" : Math.max(0, normalizedValue);
+}
+
+function normalizeStoredMonsterSpellUses(value) {
+  if (!isPlainObject(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(Object.entries(value)
+    .map(([groupId, spent]) => [
+      cleanText(groupId),
+      Array.isArray(spent) ? spent.map((item) => item === true) : []
+    ])
+    .filter(([groupId]) => groupId));
 }
 
   return {
