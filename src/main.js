@@ -500,6 +500,7 @@ let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 let activeCombatSpellPreviewTriggerElement = null;
+let pendingCombatantBestiaryTokenClickTimer = 0;
 let combatTurnPopoutWindow = null;
 let combatTurnPopoutPollInterval = 0;
 const combatantPreviewPopoutWindows = new Map();
@@ -1180,6 +1181,7 @@ const {
 synchronizeAllCharacterSpellSlotsFromClasses();
 
 app.addEventListener("click", handleClick);
+app.addEventListener("dblclick", handleDoubleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("keydown", handleKeydown);
@@ -2677,6 +2679,18 @@ async function handleClick(event) {
   }
 
   if (action === "open-combatant-bestiary") {
+    if (event.detail > 0) {
+      event.preventDefault();
+
+      if (event.detail > 1) {
+        cancelPendingCombatantBestiaryTokenClick();
+        return;
+      }
+
+      scheduleCombatantBestiaryTokenClick(actionButton.dataset.entryId);
+      return;
+    }
+
     clearActiveCombatPreview();
     openCombatantBestiary(actionButton.dataset.entryId);
     render();
@@ -3664,6 +3678,45 @@ async function handleClick(event) {
     });
     return;
   }
+}
+
+function handleDoubleClick(event) {
+  const tokenButton = event.target.closest?.(
+    '.combat-name-token-button[data-action="open-combatant-bestiary"][data-combat-preview-kind="bestiary"]'
+  );
+
+  if (!tokenButton) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  cancelPendingCombatantBestiaryTokenClick();
+  clearActiveCombatPreview();
+  openCombatantPreviewPopout({
+    kind: "bestiary",
+    key: tokenButton.dataset.combatPreviewKey,
+    combatantId: tokenButton.dataset.combatPreviewCombatantId
+  });
+}
+
+function scheduleCombatantBestiaryTokenClick(entryId) {
+  cancelPendingCombatantBestiaryTokenClick();
+  pendingCombatantBestiaryTokenClickTimer = window.setTimeout(() => {
+    pendingCombatantBestiaryTokenClickTimer = 0;
+    clearActiveCombatPreview();
+    openCombatantBestiary(entryId);
+    render();
+  }, 500);
+}
+
+function cancelPendingCombatantBestiaryTokenClick() {
+  if (!pendingCombatantBestiaryTokenClickTimer) {
+    return;
+  }
+
+  window.clearTimeout(pendingCombatantBestiaryTokenClickTimer);
+  pendingCombatantBestiaryTokenClickTimer = 0;
 }
 
 async function handleChange(event) {
@@ -14201,7 +14254,8 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
           data-combat-preview-kind="bestiary"
           data-combat-preview-key="${escapeHtml(getCompendiumEntryIdentityKey(bestiaryEntry) || bestiaryEntry.id)}"
           data-combat-preview-combatant-id="${escapeHtml(combatant.id)}"
-          aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario"
+          aria-label="Abrir ${escapeHtml(bestiaryEntry.name)} en bestiario; doble clic para abrir ventana independiente"
+          title="Clic: abrir en Bestiario. Doble clic: abrir ventana independiente."
         >
           ${
             tokenUrl
