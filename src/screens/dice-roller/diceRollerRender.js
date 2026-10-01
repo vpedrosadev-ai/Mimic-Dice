@@ -8,7 +8,8 @@ export function renderDiceRollerDock({
   rect = null,
   appIconUrl = "",
   language = "es",
-  isPopout = false
+  isPopout = false,
+  helpOpen = false
 } = {}) {
   const isEnglish = language === "en";
 
@@ -49,6 +50,16 @@ export function renderDiceRollerDock({
           </div>
         </div>
         <div class="dice-roller-panel__actions">
+          <button
+            class="dice-roller-panel__icon-button${helpOpen ? " is-active" : ""}"
+            type="button"
+            data-action="toggle-dice-roller-help"
+            aria-expanded="${helpOpen}"
+            aria-label="${escapeHtml(isEnglish ? "Formula syntax help" : "Ayuda de sintaxis de formulas")}"
+            title="${escapeHtml(isEnglish ? "Formula syntax" : "Sintaxis de formulas")}"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 10h2v7h-2v-7Zm0-4h2v2h-2V6Zm1-4a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" /></svg>
+          </button>
           ${!isPopout ? `
             <button class="dice-roller-panel__icon-button" type="button" data-action="popout-dice-roller" aria-label="${escapeHtml(popoutLabel)}" title="${escapeHtml(popoutLabel)}">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h6v2H6v12h12v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm8 0h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4Z" /></svg>
@@ -59,9 +70,10 @@ export function renderDiceRollerDock({
           </button>
         </div>
       </header>
+      ${helpOpen ? renderDiceFormulaHelp(isEnglish) : ""}
       <div class="dice-roller-log" data-dice-roller-log aria-live="polite">
         ${history.length > 0
-          ? history.map((entry) => renderDiceRollEntry(entry)).join("")
+          ? history.map((entry) => renderDiceRollEntry(entry, language)).join("")
           : `<div class="dice-roller-log__empty"><strong>${escapeHtml(isEnglish ? "Ready to roll" : "Listo para lanzar")}</strong><p>${escapeHtml(isEnglish ? "Try 2d20+5 or (6d6+2d4*2+6)." : "Prueba 2d20+5 o (6d6+2d4*2+6).")}</p></div>`}
       </div>
       <form class="dice-roller-form" data-dice-roller-form>
@@ -86,11 +98,37 @@ export function renderDiceRollerDock({
   `;
 }
 
-function renderDiceRollEntry(entry) {
+function renderDiceFormulaHelp(isEnglish) {
+  const examples = ["1d20+5", "2d6+1d4*2", "(4d6+8)/2"];
+
+  return `
+    <aside class="dice-roller-help" role="dialog" aria-label="${escapeHtml(isEnglish ? "Dice formula syntax" : "Sintaxis de formulas de dados")}">
+      <strong>${escapeHtml(isEnglish ? "Formula syntax" : "Sintaxis de formulas")}</strong>
+      <p>${escapeHtml(isEnglish
+        ? "Use NdS to roll N dice with S sides. Spaces are optional."
+        : "Usa NdN para lanzar una cantidad de dados con el numero de caras indicado, por ejemplo 2d6. Los espacios son opcionales.")}</p>
+      <ul>
+        <li><code>2d6</code> — ${escapeHtml(isEnglish ? "two six-sided dice" : "dos dados de seis caras")}</li>
+        <li><code>+ − * /</code> — ${escapeHtml(isEnglish ? "add, subtract, multiply, divide" : "sumar, restar, multiplicar, dividir")}</li>
+        <li><code>( )</code> — ${escapeHtml(isEnglish ? "control operation order" : "controlar el orden de operaciones")}</li>
+      </ul>
+      <div class="dice-roller-help__examples">
+        ${examples.map((formula) => `<button type="button" data-action="roll-dice-formula" data-dice-formula="${escapeHtml(formula)}"><code>${escapeHtml(formula)}</code></button>`).join("")}
+      </div>
+    </aside>
+  `;
+}
+
+function renderDiceRollEntry(entry, language) {
+  const timeLabel = formatRollTime(entry.rolledAt, language);
+
   return `
     <article class="dice-roll-entry">
       <header>
-        <code>${escapeHtml(entry.formula)}</code>
+        <div class="dice-roll-entry__title">
+          ${timeLabel ? `<time datetime="${escapeHtml(new Date(entry.rolledAt).toISOString())}">${escapeHtml(timeLabel)}</time>` : ""}
+          <code>${escapeHtml(entry.formula)}</code>
+        </div>
         <strong>= ${escapeHtml(formatTotal(entry.total))}</strong>
       </header>
       <div class="dice-roll-entry__groups">
@@ -100,11 +138,24 @@ function renderDiceRollEntry(entry) {
             <div class="dice-roll-group__dice">
               ${(group.rolls || []).map((value) => renderDie(group.sides, value)).join("")}
             </div>
+            <strong class="dice-roll-group__subtotal">= ${escapeHtml(formatTotal(group.subtotal))}</strong>
           </section>
         `).join("")}
       </div>
     </article>
   `;
+}
+
+function formatRollTime(value, language) {
+  const date = new Date(value);
+
+  if (!Number.isFinite(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
 }
 
 function renderDie(sides, value) {

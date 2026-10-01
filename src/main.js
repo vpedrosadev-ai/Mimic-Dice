@@ -503,6 +503,7 @@ let activeTableColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 let activeCombatSpellPreviewTriggerElement = null;
+let activeCombatSpellPreviewCloseTimeout = 0;
 let pendingCombatantBestiaryTokenClickTimer = 0;
 let combatTurnPopoutWindow = null;
 let combatTurnPopoutPollInterval = 0;
@@ -822,6 +823,7 @@ state = {
   diceRollerOpen: false,
   diceRollerDraft: "",
   diceRollerError: "",
+  diceRollerHelpOpen: false,
   diceRollHistory: [],
   diceRollerRect: null,
   autosaveProblemDialogOpen: false,
@@ -1660,6 +1662,12 @@ async function handleClick(event) {
 
   if (action === "popout-dice-roller") {
     openDiceRollerPopout();
+    return;
+  }
+
+  if (action === "toggle-dice-roller-help") {
+    state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
+    render();
     return;
   }
 
@@ -3776,6 +3784,11 @@ function cancelPendingCombatantBestiaryTokenClick() {
 async function handleChange(event) {
   const target = event.target;
 
+  if (target.matches("[data-combat-dice-input]") && /\d*d\d+/i.test(target.value)) {
+    resolveCombatDiceFormulaInput(target);
+    return;
+  }
+
   if (target.matches("[data-account-profile-image]")) {
     updateAccountProfileImage(target.files?.[0] ?? null);
     target.value = "";
@@ -4845,6 +4858,12 @@ function handleGlobalKeydown(event) {
 function handleKeydown(event) {
   const target = event.target;
 
+  if (target.matches("[data-combat-dice-input]") && event.key === "Enter") {
+    event.preventDefault();
+    target.blur();
+    return;
+  }
+
   if (target.matches("[data-campaign-save-name-input]") && event.key === "Enter") {
     event.preventDefault();
     submitCampaignSaveNameDialog();
@@ -5072,6 +5091,11 @@ function handleMouseOver(event) {
     showCharacterOverviewHeaderTooltip(overviewTooltipTrigger);
   }
 
+  if (event.target.closest("[data-combat-spell-preview-overlay]")) {
+    cancelActiveCombatPreviewClose();
+    return;
+  }
+
   const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
@@ -5084,6 +5108,8 @@ function handleMouseOver(event) {
   if (!previewKey || !previewKind) {
     return;
   }
+
+  cancelActiveCombatPreviewClose();
 
   if (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind) {
     activeCombatSpellPreviewTriggerElement = previewTrigger;
@@ -5123,8 +5149,7 @@ function handleMouseOut(event) {
       return;
     }
 
-    clearActiveCombatPreview();
-    syncCombatSpellPreviewOverlayMarkup();
+    scheduleActiveCombatPreviewClose();
     return;
   }
 
@@ -5143,8 +5168,7 @@ function handleMouseOut(event) {
     return;
   }
 
-  clearActiveCombatPreview();
-  syncCombatSpellPreviewOverlayMarkup();
+  scheduleActiveCombatPreviewClose();
 }
 
 function handleFocusIn(event) {
@@ -5160,6 +5184,11 @@ function handleFocusIn(event) {
     showCharacterOverviewHeaderTooltip(overviewTooltipTrigger);
   }
 
+  if (event.target.closest("[data-combat-spell-preview-overlay]")) {
+    cancelActiveCombatPreviewClose();
+    return;
+  }
+
   const previewTrigger = event.target.closest("[data-combat-preview-key]");
 
   if (!previewTrigger) {
@@ -5172,6 +5201,8 @@ function handleFocusIn(event) {
   if (!previewKey || !previewKind) {
     return;
   }
+
+  cancelActiveCombatPreviewClose();
 
   if (state.activeCombatPreviewKey === previewKey && state.activeCombatPreviewKind === previewKind) {
     activeCombatSpellPreviewTriggerElement = previewTrigger;
@@ -5215,12 +5246,15 @@ function handleFocusOut(event) {
     return;
   }
 
+  if (event.relatedTarget?.closest?.("[data-combat-spell-preview-overlay]")) {
+    return;
+  }
+
   if (!state.activeCombatPreviewKey) {
     return;
   }
 
-  clearActiveCombatPreview();
-  syncCombatSpellPreviewOverlayMarkup();
+  scheduleActiveCombatPreviewClose();
 }
 
 function handleDragStart(event) {
@@ -7898,7 +7932,8 @@ function render(focusState = null) {
         history: state.diceRollHistory,
         rect: state.diceRollerRect,
         appIconUrl,
-        language: state.appLanguage
+        language: state.appLanguage,
+        helpOpen: state.diceRollerHelpOpen
       })}
     </div>
   `;
@@ -10394,21 +10429,7 @@ function submitDiceFormula(formula) {
   const source = cleanText(formula);
 
   try {
-    const result = rollDiceFormula(source);
-    state.diceRollHistory = [
-      ...state.diceRollHistory,
-      {
-        id: createStableId("dice-roll"),
-        formula: result.normalizedFormula,
-        total: result.total,
-        groups: result.groups,
-        rolledAt: Date.now()
-      }
-    ].slice(-DICE_ROLLER_MAX_HISTORY);
-    state.diceRollerDraft = "";
-    state.diceRollerError = "";
-    state.diceRollerOpen = !isDiceRollerPopoutOpen();
-    playInterfaceSound(diceRollSoundUrl, 0.72);
+    rollAndRecordDiceFormula(source);
     render({ focusSelector: state.diceRollerOpen ? "[data-dice-roller-input]" : "" });
 
     if (isDiceRollerPopoutOpen()) {
@@ -10416,11 +10437,73 @@ function submitDiceFormula(formula) {
       focusDiceRollerPopoutInput();
     }
   } catch (error) {
-    state.diceRollerDraft = source;
-    state.diceRollerError = formatDiceFormulaError(error);
-    state.diceRollerOpen = !isDiceRollerPopoutOpen();
+    setDiceFormulaErrorState(source, error);
     render({ focusSelector: state.diceRollerOpen ? "[data-dice-roller-input]" : "" });
     focusDiceRollerPopoutInput();
+  }
+}
+
+function rollAndRecordDiceFormula(formula) {
+  const result = rollDiceFormula(formula);
+  state.diceRollHistory = [
+    ...state.diceRollHistory,
+    {
+      id: createStableId("dice-roll"),
+      formula: result.normalizedFormula,
+      total: result.total,
+      groups: result.groups,
+      rolledAt: Date.now()
+    }
+  ].slice(-DICE_ROLLER_MAX_HISTORY);
+  state.diceRollerDraft = "";
+  state.diceRollerError = "";
+  state.diceRollerOpen = !isDiceRollerPopoutOpen();
+  playInterfaceSound(diceRollSoundUrl, 0.72);
+  return result;
+}
+
+function setDiceFormulaErrorState(formula, error) {
+  state.diceRollerDraft = cleanText(formula);
+  state.diceRollerError = formatDiceFormulaError(error);
+  state.diceRollerOpen = !isDiceRollerPopoutOpen();
+}
+
+function resolveCombatDiceFormulaInput(target) {
+  const source = cleanText(target?.value);
+
+  if (!source || !target) {
+    return false;
+  }
+
+  try {
+    const result = rollAndRecordDiceFormula(source);
+    const value = String(Math.round(result.total * 10000) / 10000);
+    target.value = value;
+
+    if (target.matches("[data-edit-id][data-edit-key]")) {
+      updateCombatantField(target.dataset.editId, target.dataset.editKey, value);
+    } else if (target.matches("[data-stat-id][data-stat-key]")) {
+      updateCombatantStat(target.dataset.statId, target.dataset.statKey, value);
+    } else if (target.matches("[data-adjust-id][data-adjust-field]")) {
+      setInlineAdjustment(target.dataset.adjustId, target.dataset.adjustField, value);
+    } else if (target.matches("[data-area-damage]")) {
+      state.areaDamage = value;
+    } else if (target.matches("[data-combat-turn-quick-value]")) {
+      state.combatTurnQuickMenu = { ...state.combatTurnQuickMenu, value };
+    } else if (target.matches("[data-character-xp-draft]")) {
+      state.characterXpAwardDrafts = {
+        ...state.characterXpAwardDrafts,
+        [target.dataset.characterXpDraft]: value
+      };
+    }
+
+    saveCombatTrackerState();
+    scheduleRender(null, 0);
+    return true;
+  } catch (error) {
+    setDiceFormulaErrorState(source, error);
+    scheduleRender(state.diceRollerOpen ? { focusSelector: "[data-dice-roller-input]" } : null, 0);
+    return false;
   }
 }
 
@@ -10604,7 +10687,8 @@ function syncDiceRollerPopout() {
     history: state.diceRollHistory,
     appIconUrl,
     language: state.appLanguage,
-    isPopout: true
+    isPopout: true,
+    helpOpen: state.diceRollerHelpOpen
   });
   applyInterfaceTranslations(root);
   scrollDiceRollerLogToBottom(root);
@@ -10633,6 +10717,11 @@ function handleDiceRollerPopoutClick(event) {
 
   if (action === "close-dice-roller") {
     closeDiceRollerPopout({ focusMainWindow: true, renderMainWindow: true });
+  } else if (action === "toggle-dice-roller-help") {
+    state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
+    syncDiceRollerPopout();
+  } else if (action === "roll-dice-formula") {
+    submitDiceFormula(actionButton.dataset.diceFormula);
   } else if (action === "submit-dice-formula") {
     const input = diceRollerPopoutWindow?.document?.querySelector("[data-dice-roller-input]");
     submitDiceFormula(input?.value ?? state.diceRollerDraft);
@@ -10822,6 +10911,7 @@ function initializeCombatTurnPopout(popout) {
     </html>`);
   popout.document.close();
   popout.document.addEventListener("click", handleCombatTurnPopoutClick);
+  popout.document.addEventListener("change", handleCombatTurnPopoutChange);
   popout.document.addEventListener("input", handleCombatTurnPopoutInput);
   popout.document.addEventListener("keydown", handleCombatTurnPopoutKeydown);
   popout.document.addEventListener("pointerdown", handleCombatTurnPopoutPointerDown);
@@ -10983,7 +11073,19 @@ function handleCombatTurnPopoutInput(event) {
   }
 }
 
+function handleCombatTurnPopoutChange(event) {
+  if (event.target.matches("[data-combat-dice-input]") && /\d*d\d+/i.test(event.target.value)) {
+    resolveCombatDiceFormulaInput(event.target);
+  }
+}
+
 function handleCombatTurnPopoutKeydown(event) {
+  if (event.target.matches("[data-combat-dice-input]") && event.key === "Enter") {
+    event.preventDefault();
+    event.target.blur();
+    return;
+  }
+
   if (event.target.matches("[data-combat-turn-round-input]") && event.key === "Enter") {
     event.preventDefault();
     setCombatTurnRound(event.target.value);
@@ -11427,6 +11529,13 @@ function handleCombatantPreviewPopoutClick(event, descriptor) {
 
   const action = actionButton.dataset.action;
 
+  if (action === "roll-dice-formula") {
+    event.preventDefault();
+    submitDiceFormula(actionButton.dataset.diceFormula);
+    window.focus();
+    return;
+  }
+
   if (action === "toggle-combat-spell-slot-spent") {
     event.preventDefault();
     toggleCombatSpellSlotSpent(
@@ -11587,11 +11696,12 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
           <div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls">
             <input
               class="mini-input combat-turn-quick-menu__input"
-              type="number"
-              inputmode="numeric"
+              type="text"
+              inputmode="text"
               placeholder="0"
               value="${escapeHtml(state.combatTurnQuickMenu?.value ?? "")}"
               data-combat-turn-quick-value
+              data-combat-dice-input
               aria-label="Cantidad para ajustar recursos de ${escapeHtml(cleanText(combatant.nombre) || combatant.id)}"
             />
             <div class="mini-actions combat-turn-quick-menu__actions">
@@ -13341,7 +13451,6 @@ function syncNotificationUi() {
 function renderDataCell(combatant, column, isDead, rowContext = getCombatRowContext(combatant)) {
   const value = getCombatantColumnValue(combatant, column.key);
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
-  const inputMode = column.type === "number" ? "numeric" : "text";
   const inlineValues = getInlineAdjustment(combatant.id);
 
   if (column.key === "iniactiva") {
@@ -13355,6 +13464,7 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
             value="${escapeHtml(String(value))}"
             data-edit-id="${combatant.id}"
             data-edit-key="${column.key}"
+            data-combat-dice-input
           />
           ${
             isInitiativeNat20
@@ -13433,11 +13543,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
     const maxHpInput = `
       <input
         class="cell-input cell-input--center${showEffectiveMax ? " cell-input--hp" : ""}"
-        type="number"
-        inputmode="${inputMode}"
+        type="text"
+        inputmode="text"
         value="${escapeHtml(String(showEffectiveMax ? effectiveMax : value))}"
         data-edit-id="${combatant.id}"
         data-edit-key="${column.key}"
+        data-combat-dice-input
       />
     `;
     const maxHpField = showEffectiveMax
@@ -13455,11 +13566,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
               </svg>
               <input
                 class="armor-badge__input"
-                type="number"
-                inputmode="numeric"
+                type="text"
+                inputmode="text"
                 value="${escapeHtml(String(armorClass))}"
                 data-edit-id="${combatant.id}"
                 data-edit-key="ca"
+                data-combat-dice-input
                 aria-label="CA de ${escapeHtml(combatant.nombre || combatant.id)}"
               />
             </label>
@@ -13500,11 +13612,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
               <label class="hp-bar hp-bar--compact" style="--hp-fill:${hpVisualFill}%;--hp-tone-color:${hpToneColor}">
                 <input
                   class="cell-input cell-input--hp cell-input--center"
-                  type="number"
-                  inputmode="${inputMode}"
+                  type="text"
+                  inputmode="text"
                   value="${escapeHtml(String(value))}"
                   data-edit-id="${combatant.id}"
                   data-edit-key="${column.key}"
+                  data-combat-dice-input
                 />
               </label>
               <span class="resource-cell__act-label"><span>${escapeHtml(getCurrentHitPointLabelShort())}</span></span>
@@ -13512,11 +13625,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
             <div class="resource-cell__temp-wrap">
               <input
                 class="cell-input resource-cell__temp-input cell-input--center"
-                type="number"
-                inputmode="${inputMode}"
+                type="text"
+                inputmode="text"
                 value="${escapeHtml(String(combatant.pgTemp ?? ""))}"
                 data-edit-id="${combatant.id}"
                 data-edit-key="pgTemp"
+                data-combat-dice-input
                 aria-label="PG TEMP de ${escapeHtml(combatant.nombre || combatant.id)}"
               />
               ${renderCombatResourceIcon(getCombatMiniActionIconUrl("temp"), "Vida temporal", "combat-resource-icon--temp")}
@@ -13526,12 +13640,13 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
             <div class="inline-adjust inline-adjust--group">
             <input
               class="mini-input"
-              type="number"
-              inputmode="numeric"
+              type="text"
+              inputmode="text"
               placeholder="0"
               value="${escapeHtml(inlineValues.pgAct)}"
               data-adjust-id="${combatant.id}"
               data-adjust-field="pgAct"
+              data-combat-dice-input
               aria-label="Cantidad para ajustar recursos de ${escapeHtml(combatant.nombre)}"
             />
             <div class="mini-actions">
@@ -13575,11 +13690,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
                   <div class="resource-cell__temp-wrap resource-cell__hit-dice-wrap">
                     <input
                       class="cell-input resource-cell__temp-input cell-input--center"
-                      type="number"
-                      inputmode="${inputMode}"
+                      type="text"
+                      inputmode="text"
                       value="${escapeHtml(String(hitDiceValue))}"
                       data-edit-id="${combatant.id}"
                       data-edit-key="hitDice"
+                      data-combat-dice-input
                       aria-label="Dados de golpe de ${escapeHtml(combatant.nombre || combatant.id)}"
                     />
                     ${renderCombatResourceIcon(combatHitDiceIconUrl, isEnglishInterface() ? "HIT DICE" : "Dados de golpe", "combat-resource-icon--hit-dice")}
@@ -13609,11 +13725,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
                   <span class="stat-chip__label">${statKey} (${modifier})</span>
                   <input
                     class="stat-chip__input"
-                    type="number"
-                    inputmode="numeric"
+                    type="text"
+                    inputmode="text"
                     value="${escapeHtml(String(score))}"
                     data-stat-id="${combatant.id}"
                     data-stat-key="${statKey}"
+                    data-combat-dice-input
                     aria-label="${statKey} de ${escapeHtml(combatant.nombre)}"
                   />
                 </label>
@@ -13667,11 +13784,12 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
     <td>
       <input
         class="cell-input ${["numPeana"].includes(column.key) ? "cell-input--center" : ""}"
-        type="${column.type === "number" ? "number" : "text"}"
-        inputmode="${inputMode}"
+        type="text"
+        inputmode="text"
         value="${escapeHtml(String(value))}"
         data-edit-id="${combatant.id}"
         data-edit-key="${column.key}"
+        ${column.type === "number" ? "data-combat-dice-input" : ""}
       />
     </td>
   `;
@@ -14003,10 +14121,12 @@ function syncCombatSpellPreviewOverlayMarkup() {
     shellRoot?.insertAdjacentHTML("beforeend", overlayMarkup);
   }
 
+  applyInterfaceTranslations(app.querySelector("[data-combat-spell-preview-overlay]"));
   scheduleActiveCombatSpellPreviewSync();
 }
 
 function setActiveCombatPreviewFromTrigger(trigger) {
+  cancelActiveCombatPreviewClose();
   const previewKind = cleanText(trigger?.dataset?.combatPreviewKind);
   const previewKey = cleanText(trigger?.dataset?.combatPreviewKey);
 
@@ -14024,7 +14144,36 @@ function setActiveCombatPreviewFromTrigger(trigger) {
   activeCombatSpellPreviewTriggerElement = trigger ?? null;
 }
 
+function cancelActiveCombatPreviewClose() {
+  if (!activeCombatSpellPreviewCloseTimeout || typeof window === "undefined") {
+    return;
+  }
+
+  window.clearTimeout(activeCombatSpellPreviewCloseTimeout);
+  activeCombatSpellPreviewCloseTimeout = 0;
+}
+
+function scheduleActiveCombatPreviewClose() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  cancelActiveCombatPreviewClose();
+  activeCombatSpellPreviewCloseTimeout = window.setTimeout(() => {
+    activeCombatSpellPreviewCloseTimeout = 0;
+    const overlay = app.querySelector("[data-combat-spell-preview-overlay]");
+
+    if (overlay?.matches(":hover") || activeCombatSpellPreviewTriggerElement?.matches?.(":hover")) {
+      return;
+    }
+
+    clearActiveCombatPreview();
+    syncCombatSpellPreviewOverlayMarkup();
+  }, 220);
+}
+
 function clearActiveCombatPreview() {
+  cancelActiveCombatPreviewClose();
   state.activeCombatPreviewKind = "";
   state.activeCombatPreviewKey = "";
   state.activeCombatPreviewCombatantId = "";
@@ -15311,11 +15460,12 @@ function renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, has
     >
       <input
         class="area-damage__input"
-        type="number"
-        inputmode="numeric"
+        type="text"
+        inputmode="text"
         placeholder="${escapeHtml(t("amount_label"))}"
         value="${escapeHtml(state.areaDamage)}"
         data-area-damage
+        data-combat-dice-input
         aria-label="Cantidad para efecto en area"
       />
       <div class="mini-actions area-damage__actions">
@@ -17984,13 +18134,14 @@ function renderCharacterExperienceControls(character, options = {}) {
     <div class="${controlClassName}">
       <input
         class="cell-input character-xp-controls__input"
-        type="number"
-        inputmode="numeric"
+        type="${combatInline ? "text" : "number"}"
+        inputmode="${combatInline ? "text" : "numeric"}"
         min="0"
         step="1"
         value="${escapeHtml(String(draftValue))}"
         placeholder="XP"
         data-character-xp-draft="${escapeHtml(character.id)}"
+        ${combatInline ? "data-combat-dice-input" : ""}
         aria-label="${escapeHtml(t("xp_adjust_input_aria"))}"
       />
       <button

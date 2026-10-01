@@ -12,6 +12,7 @@ assert.deepEqual(result.groups.map((group) => group.rolls), [
   [4, 2]
 ]);
 assert.equal(result.total, 37);
+assert.deepEqual(result.groups.map((group) => group.subtotal), [19, 6]);
 assert.equal(result.normalizedFormula, "(6d6+2d4*2+6)");
 
 assert.equal(rollDiceFormula("d20+3", { random: () => 0.999 }).total, 23);

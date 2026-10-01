@@ -157,10 +157,69 @@
 }
 
 .dice-roller-panel__icon-button:hover,
-.dice-roller-panel__icon-button:focus-visible {
+.dice-roller-panel__icon-button:focus-visible,
+.dice-roller-panel__icon-button.is-active {
   color: var(--text);
   border-color: rgba(215, 171, 103, 0.56);
   background: rgba(217, 171, 93, 0.11);
+  outline: none;
+}
+
+.dice-roller-help {
+  position: absolute;
+  top: 4.2rem;
+  right: 0.75rem;
+  z-index: 8;
+  width: min(24rem, calc(100% - 1.5rem));
+  padding: 0.9rem;
+  border: 1px solid rgba(215, 171, 103, 0.46);
+  border-radius: 14px;
+  background: rgba(20, 12, 7, 0.985);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.58);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.dice-roller-help > strong {
+  color: var(--accent-soft);
+  font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
+  font-size: 1rem;
+}
+
+.dice-roller-help p,
+.dice-roller-help ul {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.dice-roller-help ul {
+  padding-left: 1.15rem;
+}
+
+.dice-roller-help code {
+  color: #f5d9a4;
+}
+
+.dice-roller-help__examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  margin-top: 0.72rem;
+}
+
+.dice-roller-help__examples button {
+  padding: 0.38rem 0.52rem;
+  cursor: pointer;
+  border: 1px solid rgba(120, 191, 242, 0.32);
+  border-radius: 8px;
+  background: rgba(120, 191, 242, 0.08);
+}
+
+.dice-roller-help__examples button:hover,
+.dice-roller-help__examples button:focus-visible {
+  border-color: rgba(120, 191, 242, 0.72);
+  background: rgba(120, 191, 242, 0.16);
   outline: none;
 }
 
@@ -226,6 +285,21 @@
   font-size: 0.78rem;
 }
 
+.dice-roll-entry__title {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 0.55rem;
+}
+
+.dice-roll-entry__title time {
+  flex: 0 0 auto;
+  color: var(--accent-soft);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
 .dice-roll-entry > header strong {
   flex: 0 0 auto;
   color: var(--accent-soft);
@@ -240,9 +314,17 @@
 
 .dice-roll-group {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 0.55rem;
+}
+
+.dice-roll-group__subtotal {
+  align-self: center;
+  color: var(--accent-soft);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .dice-roll-group__notation {
@@ -262,8 +344,8 @@
 .dice-result {
   display: inline-grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.75rem;
+  height: 2.75rem;
   color: #f3d7a2;
 }
 
@@ -292,13 +374,13 @@
   stroke-width: 2.4px;
   paint-order: stroke;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 900;
 }
 
 .dice-result--d4 text,
 .dice-result--d100 text {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .dice-roller-form {
