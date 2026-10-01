@@ -65,6 +65,8 @@ import {
   isSameCompendiumSource
 } from "./shared/compendiumReferences.js";
 import { parseCsv } from "./shared/csv.js";
+import { DiceFormulaError, rollDiceFormula } from "./shared/diceFormula.js";
+import { enhanceDiceFormulaLinks } from "./shared/diceFormulaLinks.js";
 import { parseBestiarySpellcasting } from "./shared/bestiarySpellcasting.js";
 import { createSpellReferenceMatcher } from "./shared/spellReferences.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
@@ -84,6 +86,7 @@ import { createCombatTrackerStateController } from "./screens/combat-tracker/com
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
+import { renderDiceRollerDock } from "./screens/dice-roller/diceRollerRender.js";
 import {
   extractCrBaseLabel,
   formatCombatCrDisplay,
@@ -503,6 +506,9 @@ let activeCombatSpellPreviewTriggerElement = null;
 let pendingCombatantBestiaryTokenClickTimer = 0;
 let combatTurnPopoutWindow = null;
 let combatTurnPopoutPollInterval = 0;
+let diceRollerPopoutWindow = null;
+let diceRollerPopoutPollInterval = 0;
+let activeDiceRollerResize = null;
 const combatantPreviewPopoutWindows = new Map();
 let combatantPreviewPopoutPollInterval = 0;
 const notificationTimeouts = new Map();
@@ -813,6 +819,11 @@ state = {
   cloudAutosaveMessage: "",
   campaignLoadedFromPublic: false,
   notifications: [],
+  diceRollerOpen: false,
+  diceRollerDraft: "",
+  diceRollerError: "",
+  diceRollHistory: [],
+  diceRollerRect: null,
   autosaveProblemDialogOpen: false,
   autosaveProblemDetailTitle: "",
   autosaveProblemDetailText: "",
@@ -1185,6 +1196,7 @@ app.addEventListener("dblclick", handleDoubleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("keydown", handleKeydown);
+app.addEventListener("submit", handleSubmit);
 app.addEventListener("paste", handlePaste);
 app.addEventListener("mouseover", handleMouseOver);
 app.addEventListener("mouseout", handleMouseOut);
@@ -1635,6 +1647,33 @@ async function handleClick(event) {
   }
 
   const { action } = actionButton.dataset;
+
+  if (action === "open-dice-roller") {
+    openDiceRoller();
+    return;
+  }
+
+  if (action === "close-dice-roller") {
+    closeDiceRoller();
+    return;
+  }
+
+  if (action === "popout-dice-roller") {
+    openDiceRollerPopout();
+    return;
+  }
+
+  if (action === "submit-dice-formula") {
+    event.preventDefault();
+    submitDiceFormula(state.diceRollerDraft);
+    return;
+  }
+
+  if (action === "roll-dice-formula") {
+    event.preventDefault();
+    submitDiceFormula(actionButton.dataset.diceFormula);
+    return;
+  }
 
   if (action === "toggle-account-dialog") {
     if (state.accountDialogOpen) {
@@ -3681,6 +3720,14 @@ async function handleClick(event) {
 }
 
 function handleDoubleClick(event) {
+  const dicePanel = event.target.closest?.("[data-dice-roller-panel]");
+
+  if (dicePanel && !event.target.closest("button, input, form, [data-dice-roller-resize]")) {
+    event.preventDefault();
+    openDiceRollerPopout();
+    return;
+  }
+
   const tokenButton = event.target.closest?.(
     '.combat-name-token-button[data-action="open-combatant-bestiary"][data-combat-preview-kind="bestiary"]'
   );
@@ -3698,6 +3745,13 @@ function handleDoubleClick(event) {
     key: tokenButton.dataset.combatPreviewKey,
     combatantId: tokenButton.dataset.combatPreviewCombatantId
   });
+}
+
+function handleSubmit(event) {
+  if (!event.target.matches?.("[data-dice-roller-form]")) return;
+  event.preventDefault();
+  const input = event.target.querySelector("[data-dice-roller-input]");
+  submitDiceFormula(input?.value ?? state.diceRollerDraft);
 }
 
 function scheduleCombatantBestiaryTokenClick(entryId) {
@@ -4281,6 +4335,12 @@ async function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
+
+  if (target.matches("[data-dice-roller-input]")) {
+    state.diceRollerDraft = target.value;
+    state.diceRollerError = "";
+    return;
+  }
 
   if (target.matches("[data-account-profile-name]")) {
     state.accountProfileNameDraft = target.value;
@@ -4995,6 +5055,7 @@ function handleScroll(event) {
 }
 
 function handleWindowResize() {
+  clampDiceRollerRectToViewport();
   syncCompendiumLayoutHeights();
   updateBestiaryListViewport(true);
   updateItemListViewport(true);
@@ -5263,6 +5324,13 @@ function handleDragEnd() {
 }
 
 function handlePointerDown(event) {
+  const diceResizeHandle = event.target.closest("[data-dice-roller-resize]");
+
+  if (diceResizeHandle) {
+    beginDiceRollerResize(event, diceResizeHandle);
+    return;
+  }
+
   if (
     state.combatTurnQuickMenu?.combatantId
     && !event.target.closest("[data-combat-turn-quick-menu]")
@@ -5361,6 +5429,11 @@ function handleContextMenu(event) {
 }
 
 function handlePointerMove(event) {
+  if (activeDiceRollerResize && event.pointerId === activeDiceRollerResize.pointerId) {
+    updateDiceRollerResize(event);
+    return;
+  }
+
   if (!activeTableColumnResize || event.pointerId !== activeTableColumnResize.pointerId) {
     return;
   }
@@ -5372,6 +5445,11 @@ function handlePointerMove(event) {
 }
 
 function handlePointerUp(event) {
+  if (activeDiceRollerResize && (event.pointerId === undefined || event.pointerId === activeDiceRollerResize.pointerId)) {
+    finishDiceRollerResize(event);
+    return;
+  }
+
   if (!activeTableColumnResize || (event.pointerId !== undefined && event.pointerId !== activeTableColumnResize.pointerId)) {
     return;
   }
@@ -7813,6 +7891,15 @@ function render(focusState = null) {
       ${renderAutosaveProblemDialog()}
       ${renderAccountDialog()}
       ${renderCloudImportUpdateDialog()}
+      ${renderDiceRollerDock({
+        open: state.diceRollerOpen,
+        draft: state.diceRollerDraft,
+        error: state.diceRollerError,
+        history: state.diceRollHistory,
+        rect: state.diceRollerRect,
+        appIconUrl,
+        language: state.appLanguage
+      })}
     </div>
   `;
 
@@ -7834,6 +7921,7 @@ function render(focusState = null) {
 
   syncCompendiumLayoutHeights();
   applyInterfaceTranslations(app);
+  scrollDiceRollerLogToBottom(app);
   syncTopbarNavigationMetrics();
   lastRenderedScreen = state.activeScreen;
   restoreRenderViewportState(viewportState);
@@ -7849,6 +7937,7 @@ function render(focusState = null) {
   hideCharacterOverviewHeaderTooltip();
   syncCombatTurnPopout();
   syncCombatantPreviewPopouts();
+  syncDiceRollerPopout();
 
   saveCombatTrackerState();
 
@@ -9724,7 +9813,12 @@ function shouldSkipUiTranslation(element) {
 }
 
 function applyInterfaceTranslations(root = app) {
-  if (!root || normalizeStoredAppLanguage(state.appLanguage) !== APP_LANGUAGE_EN) {
+  if (!root) {
+    return;
+  }
+
+  if (normalizeStoredAppLanguage(state.appLanguage) !== APP_LANGUAGE_EN) {
+    enhanceDiceFormulaLinks(root);
     return;
   }
 
@@ -9778,6 +9872,8 @@ function applyInterfaceTranslations(root = app) {
       }
     });
   });
+
+  enhanceDiceFormulaLinks(root);
 }
 
 function renderScreen() {
@@ -10266,6 +10362,402 @@ function renderCombatTurnPopoutToggleButton(isOpen = false) {
       <span>${escapeHtml(label)}</span>
     </button>
   `;
+}
+
+const DICE_ROLLER_MIN_WIDTH = 300;
+const DICE_ROLLER_MIN_HEIGHT = 300;
+const DICE_ROLLER_MARGIN = 16;
+const DICE_ROLLER_MAX_HISTORY = 100;
+
+function isDiceRollerPopoutOpen() {
+  return Boolean(diceRollerPopoutWindow && !diceRollerPopoutWindow.closed);
+}
+
+function openDiceRoller() {
+  if (isDiceRollerPopoutOpen()) {
+    diceRollerPopoutWindow.focus();
+    return;
+  }
+
+  state.diceRollerOpen = true;
+  state.diceRollerError = "";
+  render({ focusSelector: "[data-dice-roller-input]" });
+}
+
+function closeDiceRoller() {
+  state.diceRollerOpen = false;
+  state.diceRollerError = "";
+  render();
+}
+
+function submitDiceFormula(formula) {
+  const source = cleanText(formula);
+
+  try {
+    const result = rollDiceFormula(source);
+    state.diceRollHistory = [
+      ...state.diceRollHistory,
+      {
+        id: createStableId("dice-roll"),
+        formula: result.normalizedFormula,
+        total: result.total,
+        groups: result.groups,
+        rolledAt: Date.now()
+      }
+    ].slice(-DICE_ROLLER_MAX_HISTORY);
+    state.diceRollerDraft = "";
+    state.diceRollerError = "";
+    state.diceRollerOpen = !isDiceRollerPopoutOpen();
+    playInterfaceSound(diceRollSoundUrl, 0.72);
+    render({ focusSelector: state.diceRollerOpen ? "[data-dice-roller-input]" : "" });
+
+    if (isDiceRollerPopoutOpen()) {
+      diceRollerPopoutWindow.focus();
+      focusDiceRollerPopoutInput();
+    }
+  } catch (error) {
+    state.diceRollerDraft = source;
+    state.diceRollerError = formatDiceFormulaError(error);
+    state.diceRollerOpen = !isDiceRollerPopoutOpen();
+    render({ focusSelector: state.diceRollerOpen ? "[data-dice-roller-input]" : "" });
+    focusDiceRollerPopoutInput();
+  }
+}
+
+function formatDiceFormulaError(error) {
+  if (!(error instanceof DiceFormulaError)) {
+    return isEnglishInterface() ? "Could not roll that formula." : "No se pudo lanzar esa formula.";
+  }
+
+  const messages = isEnglishInterface()
+    ? {
+        empty: "Enter a dice formula.",
+        "no-dice": "The formula must contain dice, such as 2d6+3.",
+        "division-zero": "The formula cannot divide by zero.",
+        "too-long": "The formula is too long.",
+        "too-many-dice": "That formula contains too many dice.",
+        "invalid-sides": "Dice must have between 2 and 1000 sides.",
+        "invalid-count": "The dice count must be positive.",
+        syntax: "Invalid formula. Try 2d6+3."
+      }
+    : {
+        empty: "Escribe una formula de dados.",
+        "no-dice": "La formula debe contener dados, como 2d6+3.",
+        "division-zero": "La formula no puede dividir entre cero.",
+        "too-long": "La formula es demasiado larga.",
+        "too-many-dice": "La formula contiene demasiados dados.",
+        "invalid-sides": "Los dados deben tener entre 2 y 1000 caras.",
+        "invalid-count": "La cantidad de dados debe ser positiva.",
+        syntax: "Formula no valida. Prueba 2d6+3."
+      };
+
+  return messages[error.code] || messages.syntax;
+}
+
+function scrollDiceRollerLogToBottom(root = document) {
+  const log = root?.querySelector?.("[data-dice-roller-log]");
+
+  if (!log) {
+    return;
+  }
+
+  const viewport = root.defaultView || root.ownerDocument?.defaultView || window;
+  viewport.requestAnimationFrame(() => {
+    log.scrollTop = log.scrollHeight;
+  });
+}
+
+function openDiceRollerPopout() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (isDiceRollerPopoutOpen()) {
+    diceRollerPopoutWindow.focus();
+    return;
+  }
+
+  const popout = window.open(
+    "",
+    "mimic-dice-roller",
+    "popup=yes,width=520,height=680,resizable=yes,scrollbars=no"
+  );
+
+  if (!popout) {
+    pushNotification({
+      title: isEnglishInterface() ? "Could not open window" : "No se pudo abrir la ventana",
+      message: isEnglishInterface()
+        ? "Allow pop-up windows for Mimic Dice and try again."
+        : "Permite ventanas emergentes para Mimic Dice y vuelve a intentarlo.",
+      tone: "danger"
+    });
+    syncNotificationUi();
+    return;
+  }
+
+  diceRollerPopoutWindow = popout;
+  state.diceRollerOpen = false;
+  initializeDiceRollerPopout(popout);
+  startDiceRollerPopoutMonitor();
+  render();
+  popout.focus();
+  focusDiceRollerPopoutInput();
+}
+
+function initializeDiceRollerPopout(popout) {
+  const inheritedStyles = [...document.head.querySelectorAll('link[rel="stylesheet"], style')]
+    .map((element) => element.outerHTML)
+    .join("\n");
+
+  popout.document.open();
+  popout.document.write(`<!doctype html>
+    <html lang="${escapeHtml(state.appLanguage || APP_LANGUAGE_ES)}">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <base href="${escapeHtml(document.baseURI)}" />
+        <title>${escapeHtml(isEnglishInterface() ? "Dice roller" : "Lanzador de dados")} - Mimic Dice</title>
+        ${inheritedStyles}
+      </head>
+      <body class="dice-roller-popout-body">
+        <main data-dice-roller-popout-root></main>
+      </body>
+    </html>`);
+  popout.document.close();
+  popout.document.addEventListener("click", handleDiceRollerPopoutClick);
+  popout.document.addEventListener("input", handleDiceRollerPopoutInput);
+  popout.document.addEventListener("submit", handleDiceRollerPopoutSubmit);
+  popout.addEventListener("beforeunload", () => handleDiceRollerPopoutClosed(popout));
+}
+
+function startDiceRollerPopoutMonitor() {
+  if (diceRollerPopoutPollInterval || typeof window === "undefined") {
+    return;
+  }
+
+  diceRollerPopoutPollInterval = window.setInterval(() => {
+    if (diceRollerPopoutWindow?.closed) {
+      handleDiceRollerPopoutClosed(diceRollerPopoutWindow);
+    }
+  }, 500);
+}
+
+function stopDiceRollerPopoutMonitor() {
+  if (diceRollerPopoutPollInterval && typeof window !== "undefined") {
+    window.clearInterval(diceRollerPopoutPollInterval);
+  }
+
+  diceRollerPopoutPollInterval = 0;
+}
+
+function handleDiceRollerPopoutClosed(popout) {
+  if (diceRollerPopoutWindow !== popout) {
+    return;
+  }
+
+  diceRollerPopoutWindow = null;
+  stopDiceRollerPopoutMonitor();
+  state.diceRollerOpen = false;
+  render();
+}
+
+function closeDiceRollerPopout({ focusMainWindow = false, renderMainWindow = false } = {}) {
+  const popout = diceRollerPopoutWindow;
+  diceRollerPopoutWindow = null;
+  stopDiceRollerPopoutMonitor();
+
+  if (popout && !popout.closed) {
+    popout.close();
+  }
+
+  state.diceRollerOpen = false;
+
+  if (focusMainWindow && typeof window !== "undefined") {
+    window.focus();
+  }
+
+  if (renderMainWindow) {
+    render();
+  }
+}
+
+function syncDiceRollerPopout() {
+  if (!isDiceRollerPopoutOpen()) {
+    return;
+  }
+
+  const popout = diceRollerPopoutWindow;
+  const root = popout.document.querySelector("[data-dice-roller-popout-root]");
+
+  if (!root) {
+    return;
+  }
+
+  const inputHadFocus = popout.document.activeElement?.matches?.("[data-dice-roller-input]");
+  const selectionStart = inputHadFocus ? popout.document.activeElement.selectionStart : null;
+  popout.document.documentElement.lang = state.appLanguage || APP_LANGUAGE_ES;
+  popout.document.title = `${isEnglishInterface() ? "Dice roller" : "Lanzador de dados"} - Mimic Dice`;
+  root.innerHTML = renderDiceRollerDock({
+    open: true,
+    draft: state.diceRollerDraft,
+    error: state.diceRollerError,
+    history: state.diceRollHistory,
+    appIconUrl,
+    language: state.appLanguage,
+    isPopout: true
+  });
+  applyInterfaceTranslations(root);
+  scrollDiceRollerLogToBottom(root);
+
+  if (inputHadFocus) {
+    const input = root.querySelector("[data-dice-roller-input]");
+    input?.focus({ preventScroll: true });
+    input?.setSelectionRange?.(selectionStart, selectionStart);
+  }
+}
+
+function focusDiceRollerPopoutInput() {
+  const input = diceRollerPopoutWindow?.document?.querySelector("[data-dice-roller-input]");
+  input?.focus({ preventScroll: true });
+}
+
+function handleDiceRollerPopoutClick(event) {
+  const actionButton = event.target.closest("[data-action]");
+
+  if (!actionButton) {
+    return;
+  }
+
+  const action = actionButton.dataset.action;
+  event.preventDefault();
+
+  if (action === "close-dice-roller") {
+    closeDiceRollerPopout({ focusMainWindow: true, renderMainWindow: true });
+  } else if (action === "submit-dice-formula") {
+    const input = diceRollerPopoutWindow?.document?.querySelector("[data-dice-roller-input]");
+    submitDiceFormula(input?.value ?? state.diceRollerDraft);
+  }
+}
+
+function handleDiceRollerPopoutInput(event) {
+  if (!event.target.matches("[data-dice-roller-input]")) {
+    return;
+  }
+
+  state.diceRollerDraft = event.target.value;
+  state.diceRollerError = "";
+}
+
+function handleDiceRollerPopoutSubmit(event) {
+  if (!event.target.matches("[data-dice-roller-form]")) {
+    return;
+  }
+
+  event.preventDefault();
+  const input = event.target.querySelector("[data-dice-roller-input]");
+  submitDiceFormula(input?.value ?? state.diceRollerDraft);
+}
+
+function beginDiceRollerResize(event, handle) {
+  const panel = handle.closest("[data-dice-roller-panel]");
+
+  if (!panel || event.button !== 0) {
+    return;
+  }
+
+  const rect = panel.getBoundingClientRect();
+  activeDiceRollerResize = {
+    pointerId: event.pointerId,
+    edge: handle.dataset.diceRollerResize,
+    startX: event.clientX,
+    startY: event.clientY,
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    panel,
+    handle
+  };
+  handle.setPointerCapture?.(event.pointerId);
+  document.body.classList.add("is-dice-roller-resizing");
+  event.preventDefault();
+}
+
+function updateDiceRollerResize(event) {
+  const resize = activeDiceRollerResize;
+
+  if (!resize || event.pointerId !== resize.pointerId) {
+    return;
+  }
+
+  const edge = resize.edge;
+  const deltaX = event.clientX - resize.startX;
+  const deltaY = event.clientY - resize.startY;
+  const maxRight = window.innerWidth - DICE_ROLLER_MARGIN;
+  const maxBottom = window.innerHeight - DICE_ROLLER_MARGIN;
+  let left = resize.left;
+  let top = resize.top;
+  let width = resize.width;
+  let height = resize.height;
+
+  if (edge.includes("w")) {
+    const right = resize.left + resize.width;
+    left = Math.max(DICE_ROLLER_MARGIN, Math.min(resize.left + deltaX, right - DICE_ROLLER_MIN_WIDTH));
+    width = right - left;
+  } else if (edge.includes("e")) {
+    width = Math.max(DICE_ROLLER_MIN_WIDTH, Math.min(resize.width + deltaX, maxRight - resize.left));
+  }
+
+  if (edge.includes("n")) {
+    const bottom = resize.top + resize.height;
+    top = Math.max(DICE_ROLLER_MARGIN, Math.min(resize.top + deltaY, bottom - DICE_ROLLER_MIN_HEIGHT));
+    height = bottom - top;
+  } else if (edge.includes("s")) {
+    height = Math.max(DICE_ROLLER_MIN_HEIGHT, Math.min(resize.height + deltaY, maxBottom - resize.top));
+  }
+
+  state.diceRollerRect = { left, top, width, height };
+  applyDiceRollerRect(resize.panel, state.diceRollerRect);
+  event.preventDefault();
+}
+
+function finishDiceRollerResize(event) {
+  if (!activeDiceRollerResize || event.pointerId !== activeDiceRollerResize.pointerId) {
+    return;
+  }
+
+  activeDiceRollerResize.handle.releasePointerCapture?.(event.pointerId);
+  activeDiceRollerResize = null;
+  document.body.classList.remove("is-dice-roller-resizing");
+  event.preventDefault();
+}
+
+function clampDiceRollerRectToViewport() {
+  if (!state.diceRollerRect || typeof window === "undefined") {
+    return;
+  }
+
+  const maxWidth = Math.max(DICE_ROLLER_MIN_WIDTH, window.innerWidth - DICE_ROLLER_MARGIN * 2);
+  const maxHeight = Math.max(DICE_ROLLER_MIN_HEIGHT, window.innerHeight - DICE_ROLLER_MARGIN * 2);
+  const width = Math.min(state.diceRollerRect.width, maxWidth);
+  const height = Math.min(state.diceRollerRect.height, maxHeight);
+  const left = Math.max(DICE_ROLLER_MARGIN, Math.min(state.diceRollerRect.left, window.innerWidth - width - DICE_ROLLER_MARGIN));
+  const top = Math.max(DICE_ROLLER_MARGIN, Math.min(state.diceRollerRect.top, window.innerHeight - height - DICE_ROLLER_MARGIN));
+  state.diceRollerRect = { left, top, width, height };
+  applyDiceRollerRect(document.querySelector("[data-dice-roller-panel]"), state.diceRollerRect);
+}
+
+function applyDiceRollerRect(panel, rect) {
+  if (!panel || !rect) {
+    return;
+  }
+
+  panel.style.left = `${rect.left}px`;
+  panel.style.top = `${rect.top}px`;
+  panel.style.width = `${rect.width}px`;
+  panel.style.height = `${rect.height}px`;
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
 }
 
 function isCombatTurnPopoutOpen() {
