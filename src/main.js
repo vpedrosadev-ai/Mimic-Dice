@@ -2822,7 +2822,7 @@ async function handleClick(event) {
     const previousCharacters = state.characters;
     applyPgActAdjustment(combatantId, actionButton.dataset.mode);
     syncCombatTrackerMutation(combatantId, {
-      forceFullRender: previousCharacters !== state.characters
+      forceFullRender: previousCharacters !== state.characters || actionButton.dataset.combatFormulaResolved === "true"
     });
     return;
   }
@@ -2832,7 +2832,7 @@ async function handleClick(event) {
     const previousCharacters = state.characters;
     applyNecroticAdjustment(combatantId);
     syncCombatTrackerMutation(combatantId, {
-      forceFullRender: previousCharacters !== state.characters
+      forceFullRender: previousCharacters !== state.characters || actionButton.dataset.combatFormulaResolved === "true"
     });
     return;
   }
@@ -2905,7 +2905,7 @@ async function handleClick(event) {
     const previousCharacters = state.characters;
     applyCombatTurnQuickMenuAdjustment(actionButton.dataset.mode);
     syncCombatTrackerMutation(combatantId, {
-      forceFullRender: previousCharacters !== state.characters
+      forceFullRender: previousCharacters !== state.characters || actionButton.dataset.combatFormulaResolved === "true"
     });
     return;
   }
@@ -4229,6 +4229,14 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-combat-turn-quick-hide]")) {
+    updateCombatantInitiativeHidden(target.dataset.combatTurnQuickHide, target.checked);
+    closeCombatTurnQuickMenu();
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
   if (target.matches("[data-combat-turn-quick-value]")) {
     state.combatTurnQuickMenu = {
       ...state.combatTurnQuickMenu,
@@ -5373,6 +5381,8 @@ function handlePointerDown(event) {
     beginDiceRollerResize(event, diceResizeHandle);
     return;
   }
+
+  resolveCombatDiceFormulaBeforeAction(event);
 
   if (
     state.combatTurnQuickMenu?.combatantId
@@ -10483,7 +10493,7 @@ function setDiceFormulaErrorState(formula, error) {
   state.diceRollerOpen = !isDiceRollerPopoutOpen();
 }
 
-function resolveCombatDiceFormulaInput(target) {
+function resolveCombatDiceFormulaInput(target, options = {}) {
   const source = cleanText(target?.value);
 
   if (!source || !target) {
@@ -10513,13 +10523,38 @@ function resolveCombatDiceFormulaInput(target) {
     }
 
     saveCombatTrackerState();
-    scheduleRender(null, 0);
+    if (options.render !== false) {
+      scheduleRender(null, 0);
+    }
     return true;
   } catch (error) {
     setDiceFormulaErrorState(source, error);
     scheduleRender(state.diceRollerOpen ? { focusSelector: "[data-dice-roller-input]" } : null, 0);
     return false;
   }
+}
+
+function resolveCombatDiceFormulaBeforeAction(event) {
+  const actionButton = event.target.closest(".mini-action[data-action]");
+
+  if (!actionButton) {
+    return false;
+  }
+
+  const inputScope = actionButton.closest(".resource-cell__actions-row, .area-damage");
+  const input = inputScope?.querySelector("[data-combat-dice-input]");
+
+  if (!input || !/\d*d\d+/i.test(input.value)) {
+    return false;
+  }
+
+  const resolved = resolveCombatDiceFormulaInput(input, { render: false });
+
+  if (resolved) {
+    actionButton.dataset.combatFormulaResolved = "true";
+  }
+
+  return resolved;
 }
 
 function formatDiceFormulaError(error) {
@@ -11072,7 +11107,7 @@ function handleCombatTurnPopoutClick(event) {
     const previousCharacters = state.characters;
     applyCombatTurnQuickMenuAdjustment(actionButton.dataset.mode);
     syncCombatTrackerMutation(combatantId, {
-      forceFullRender: previousCharacters !== state.characters
+      forceFullRender: previousCharacters !== state.characters || actionButton.dataset.combatFormulaResolved === "true"
     });
   }
 }
@@ -11089,6 +11124,14 @@ function handleCombatTurnPopoutInput(event) {
 }
 
 function handleCombatTurnPopoutChange(event) {
+  if (event.target.matches("[data-combat-turn-quick-hide]")) {
+    updateCombatantInitiativeHidden(event.target.dataset.combatTurnQuickHide, event.target.checked);
+    closeCombatTurnQuickMenu();
+    saveCombatTrackerState();
+    render();
+    return;
+  }
+
   if (event.target.matches("[data-combat-dice-input]") && /\d*d\d+/i.test(event.target.value)) {
     resolveCombatDiceFormulaInput(event.target);
   }
@@ -11125,6 +11168,8 @@ function handleCombatTurnPopoutKeydown(event) {
 }
 
 function handleCombatTurnPopoutPointerDown(event) {
+  resolveCombatDiceFormulaBeforeAction(event);
+
   if (
     state.combatTurnQuickMenu?.combatantId
     && !event.target.closest("[data-combat-turn-quick-menu]")
@@ -11708,6 +11753,14 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
           <strong>${escapeHtml(cleanText(combatant.nombre) || "Entidad")}</strong>
           <span>${escapeHtml(`${getCurrentHitPointLabelShort()} ${toNumber(combatant.pgAct)}/${effectiveMax} | TEMP ${tempHp}`)}</span>
         </div>
+        <label class="combat-turn-quick-menu__hide">
+          <input
+            type="checkbox"
+            data-combat-turn-quick-hide="${escapeHtml(combatant.id)}"
+            ${combatant.hiddenFromInitiative ? "checked" : ""}
+          />
+          <span>Hide</span>
+        </label>
         <div class="resource-cell__actions-row combat-turn-quick-menu__actions-row">
           <div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls">
             <input
@@ -11867,7 +11920,7 @@ function selectCombatTurnToken(combatantId, options = {}) {
   }
 
   state.selectedIds = new Set([normalizedCombatantId]);
-  render();
+  render({ scrollIntoView: true });
   focusCombatantRow(normalizedCombatantId);
 }
 
