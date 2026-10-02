@@ -10097,6 +10097,7 @@ function renderCombatTracker() {
   const turnOrder = Array.isArray(turnOrderResult) ? turnOrderResult : [];
   const turnParticipantResult = getCombatTurnParticipants(turnOrder);
   const turnParticipants = Array.isArray(turnParticipantResult) ? turnParticipantResult : [];
+  const turnDisplayParticipants = getCombatTurnDisplayParticipants(turnOrder);
   const activeTurnCombatantId = state.isCombatActive ? getActiveTurnCombatantId(turnParticipants) : "";
   const allVisibleSelected =
     visibleCombatants.length > 0 &&
@@ -10135,7 +10136,7 @@ function renderCombatTracker() {
           ? `
             <div class="combat-top-row">
               ${state.isCombatActive
-                ? renderCombatTurnPanel(turnParticipants, activeTurnCombatantId)
+                ? renderCombatTurnPanel(turnDisplayParticipants, activeTurnCombatantId, { turnParticipants })
                 : ""}
               ${state.combatTimerPanelOpen ? renderCombatTimerPanel(battleTimerLabel) : ""}
             </div>
@@ -10338,6 +10339,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
     `;
   }
 
+  const turnParticipants = Array.isArray(options.turnParticipants) ? options.turnParticipants : turnOrder;
   const turnTokenScale = getCombatTurnTokenScale(turnOrder.length);
 
   return `
@@ -10348,6 +10350,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
             class="summary-button summary-button--turn combat-turn-panel__button"
             type="button"
             data-action="advance-combat-turn"
+            ${turnParticipants.length === 0 ? "disabled" : ""}
           >
             ${escapeHtml(t("Pasar turno"))}
           </button>
@@ -10357,10 +10360,13 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
               type="button"
               data-action="toggle-combat-turn-jump-menu"
               aria-expanded="${state.combatTurnJumpMenuOpen}"
+              ${turnParticipants.length === 0 ? "disabled" : ""}
             >
               ${escapeHtml(t("jump_turn_to"))}
             </button>
-            ${state.combatTurnJumpMenuOpen ? renderCombatTurnJumpMenu(turnOrder, activeTurnCombatantId) : ""}
+            ${state.combatTurnJumpMenuOpen && turnParticipants.length > 0
+              ? renderCombatTurnJumpMenu(turnParticipants, activeTurnCombatantId)
+              : ""}
           </div>
           <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
             <button
@@ -11643,6 +11649,7 @@ function renderCombatTurnToken(combatant, isActive) {
   const initials = getCombatantInitials(combatant);
   const statusNames = getCombatantStatusNames(combatant).slice(0, 3);
   const isFallenAlly = side === "allies" && toNumber(combatant.pgAct) < 1;
+  const isHiddenFromInitiative = combatant.hiddenFromInitiative === true;
   const maxHp = Math.max(1, getEffectivePgMax(combatant));
   const hpFill = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
   const hpVisualFill = getCombatHealthVisualFill(hpFill);
@@ -11650,7 +11657,7 @@ function renderCombatTurnToken(combatant, isActive) {
 
   return `
     <div
-      class="combat-turn-token-wrap ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""}"
+      class="combat-turn-token-wrap ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""}"
       style="--turn-hp-fill:${hpVisualFill}%;--turn-hp-color:${hpToneColor}"
       role="button"
       tabindex="0"
@@ -13322,9 +13329,9 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
   );
   const combatantById = new Map(visibleCombatants.map((combatant) => [combatant.id, combatant]));
   const rowById = new Map(renderedRows.map((row) => [cleanText(row.dataset.combatRowId), row]));
-  const turnParticipants = state.isCombatActive
-    ? getCombatTurnParticipants(getCombatTurnOrder(visibleCombatants))
-    : [];
+  const currentTurnOrder = state.isCombatActive ? getCombatTurnOrder(visibleCombatants) : [];
+  const turnParticipants = getCombatTurnParticipants(currentTurnOrder);
+  const turnDisplayParticipants = getCombatTurnDisplayParticipants(currentTurnOrder);
   const activeTurnCombatantId = state.isCombatActive
     ? getActiveTurnCombatantId(turnParticipants)
     : "";
@@ -13344,7 +13351,7 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
     }
   }
 
-  if (!syncCombatTurnTokens(targetIds, turnParticipants, activeTurnCombatantId)) {
+  if (!syncCombatTurnTokens(targetIds, turnDisplayParticipants, activeTurnCombatantId)) {
     render();
     return false;
   }
@@ -13364,7 +13371,7 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
   return true;
 }
 
-function syncCombatTurnTokens(targetIds, turnParticipants, activeTurnCombatantId) {
+function syncCombatTurnTokens(targetIds, turnDisplayParticipants, activeTurnCombatantId) {
   if (!state.isCombatActive) {
     return true;
   }
@@ -13374,7 +13381,7 @@ function syncCombatTurnTokens(targetIds, turnParticipants, activeTurnCombatantId
     ? [...turnStrip.querySelectorAll(':scope > [data-action="focus-combatant-row"]')]
     : [];
   const renderedIds = renderedTokens.map((token) => cleanText(token.dataset.combatantId));
-  const participantIds = turnParticipants.map((combatant) => combatant.id);
+  const participantIds = turnDisplayParticipants.map((combatant) => combatant.id);
 
   if (
     !turnStrip
@@ -13384,7 +13391,7 @@ function syncCombatTurnTokens(targetIds, turnParticipants, activeTurnCombatantId
     return false;
   }
 
-  const participantById = new Map(turnParticipants.map((combatant) => [combatant.id, combatant]));
+  const participantById = new Map(turnDisplayParticipants.map((combatant) => [combatant.id, combatant]));
 
   renderedTokens.forEach((token) => {
     const combatantId = cleanText(token.dataset.combatantId);
@@ -18354,11 +18361,19 @@ function getCombatTurnParticipants(turnOrder = getCombatTurnOrder()) {
   return turnOrder.filter(shouldShowInCombatTurnChain);
 }
 
+function getCombatTurnDisplayParticipants(turnOrder = getCombatTurnOrder()) {
+  return turnOrder.filter(shouldShowInCombatTurnDisplay);
+}
+
 function shouldShowInCombatTurnChain(combatant) {
+  return shouldShowInCombatTurnDisplay(combatant) && combatant.hiddenFromInitiative !== true;
+}
+
+function shouldShowInCombatTurnDisplay(combatant) {
   const side = combatant.tag ? mapTagToSide(combatant.tag) : combatant.side;
   const hasInitiative = cleanText(combatant.iniactiva) !== "";
 
-  if (!hasInitiative || combatant.hiddenFromInitiative === true) {
+  if (!hasInitiative) {
     return false;
   }
 
