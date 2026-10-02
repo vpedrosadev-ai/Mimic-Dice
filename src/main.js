@@ -4220,6 +4220,15 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-combat-initiative-hidden]")) {
+    updateCombatantInitiativeHidden(target.dataset.combatInitiativeHidden, target.checked);
+    saveCombatTrackerState();
+    render({
+      focusSelector: `[data-combat-initiative-hidden="${target.dataset.combatInitiativeHidden}"]`
+    });
+    return;
+  }
+
   if (target.matches("[data-combat-turn-quick-value]")) {
     state.combatTurnQuickMenu = {
       ...state.combatTurnQuickMenu,
@@ -13470,7 +13479,7 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
             isInitiativeNat20
               ? `<span class="nat20-badge">Nat 20</span>`
               : combatant.initiativeRoll
-                ? `<span class="initiative-note">d20 ${combatant.initiativeRoll}</span>`
+                ? `<span class="initiative-note" data-no-dice-links>d20 ${combatant.initiativeRoll}</span>`
                 : ""
           }
         </div>
@@ -13522,6 +13531,34 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
               `
               : ""
           }
+        </div>
+      </td>
+    `;
+  }
+
+  if (column.key === "numPeana") {
+    const hideLabel = "Hide";
+
+    return `
+      <td>
+        <div class="combat-stand-cell">
+          <input
+            class="cell-input cell-input--center"
+            type="text"
+            inputmode="text"
+            value="${escapeHtml(String(value))}"
+            data-edit-id="${combatant.id}"
+            data-edit-key="${column.key}"
+          />
+          <label class="combat-stand-cell__hide" title="${escapeHtml(hideLabel)}">
+            <input
+              type="checkbox"
+              data-combat-initiative-hidden="${escapeHtml(combatant.id)}"
+              aria-label="${escapeHtml(`${hideLabel}: ${combatant.nombre || combatant.id}`)}"
+              ${combatant.hiddenFromInitiative ? "checked" : ""}
+            />
+            <span>${escapeHtml(hideLabel)}</span>
+          </label>
         </div>
       </td>
     `;
@@ -18321,7 +18358,7 @@ function shouldShowInCombatTurnChain(combatant) {
   const side = combatant.tag ? mapTagToSide(combatant.tag) : combatant.side;
   const hasInitiative = cleanText(combatant.iniactiva) !== "";
 
-  if (!hasInitiative) {
+  if (!hasInitiative || combatant.hiddenFromInitiative === true) {
     return false;
   }
 
@@ -19023,6 +19060,26 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
     distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
     applyReviveExhaustion(previousCombatants);
     notifyCombatantDeaths(previousCombatants);
+  }
+}
+
+function updateCombatantInitiativeHidden(id, isHidden) {
+  const normalizedId = cleanText(id);
+  const previousParticipants = getCombatTurnParticipants();
+  const previousActiveIndex = previousParticipants.findIndex((combatant) => combatant.id === normalizedId);
+
+  state.combatants = state.combatants.map((combatant) => combatant.id === normalizedId
+    ? { ...combatant, hiddenFromInitiative: isHidden === true }
+    : combatant);
+
+  if (isHidden && state.activeTurnCombatantId === normalizedId) {
+    const nextParticipants = getCombatTurnParticipants();
+    const nextParticipantIds = new Set(nextParticipants.map((combatant) => combatant.id));
+    const nextAfterHidden = previousParticipants
+      .slice(Math.max(0, previousActiveIndex + 1))
+      .find((combatant) => nextParticipantIds.has(combatant.id));
+
+    state.activeTurnCombatantId = nextAfterHidden?.id || nextParticipants[0]?.id || "";
   }
 }
 
@@ -21047,7 +21104,7 @@ function isCharacterAlreadyInCombat(characterId) {
   return state.combatants.some((combatant) => cleanText(combatant.characterId) === cleanCharacterId);
 }
 
-function createCombatantFromCharacter(character, id) {
+function createCombatantFromCharacter(character, id, existingCombatant = {}) {
   const abilities = getCombatStatsFromCharacter(character);
   const maxHp = Math.max(0, toNumber(character.maxHp));
   const currentHp = maxHp;
@@ -21077,6 +21134,7 @@ function createCombatantFromCharacter(character, id) {
     lenguas: "",
     crExp: formatCharacterSubtitle(character),
     tag: "ALIADO",
+    hiddenFromInitiative: existingCombatant.hiddenFromInitiative === true,
     initiativeRoll: null,
     initiativeNat20: false
   });
@@ -21964,6 +22022,7 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     crExp: entry.crBaseLabel || entry.crLabel || entry.cr || "",
     monsterSpellUses: keepsExistingSpellUses ? { ...(existingCombatant.monsterSpellUses ?? {}) } : {},
     tag: "ENEMIGO",
+    hiddenFromInitiative: existingCombatant.hiddenFromInitiative === true,
     initiativeRoll: existingCombatant.initiativeRoll ?? null,
     initiativeNat20: existingCombatant.initiativeNat20 ?? false
   };
@@ -21979,7 +22038,7 @@ function fillCombatantFromCharacter(combatantId, characterId) {
   }
 
   state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
-    ? createCombatantFromCharacter(character, combatant.id)
+    ? createCombatantFromCharacter(character, combatant.id, combatant)
     : combatant);
   state.activeCombatNameSearchId = "";
   state.activeCombatSourceId = "";
@@ -22087,6 +22146,7 @@ function addBlankCombatant() {
       lenguas: "",
       crExp: "",
       tag: "ENEMIGO",
+      hiddenFromInitiative: false,
       initiativeRoll: null,
       initiativeNat20: false
     },
@@ -23231,6 +23291,7 @@ function normalizeCombatant(combatant, changedKey = "") {
     pgTemp,
     hitDice,
     necrotic,
+    hiddenFromInitiative: combatant.hiddenFromInitiative === true,
     stats: changedKey === "stats" ? formatStatsWithModifiers(combatant.stats) : combatant.stats,
     side: changedKey === "tag" ? mapTagToSide(combatant.tag) : combatant.side
   };

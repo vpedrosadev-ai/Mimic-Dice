@@ -216,6 +216,7 @@ function normalizeStoredCombatant(combatant) {
     monsterSpellUses: normalizeStoredMonsterSpellUses(combatant.monsterSpellUses),
     tag,
     experienceGranted: combatant.experienceGranted === true,
+    hiddenFromInitiative: combatant.hiddenFromInitiative === true,
     initiativeRoll: combatant.initiativeRoll === null || combatant.initiativeRoll === ""
       ? null
       : normalizeStoredNumber(combatant.initiativeRoll),

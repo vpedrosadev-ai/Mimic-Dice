@@ -435,27 +435,6 @@
   font-size: 0.72rem;
 }
 
-.dice-formula-link {
-  display: inline;
-  padding: 0;
-  cursor: pointer;
-  border: 0;
-  color: #78bff2;
-  background: none;
-  font: inherit;
-  text-decoration: underline;
-  text-decoration-color: rgba(120, 191, 242, 0.42);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.14em;
-}
-
-.dice-formula-link:hover,
-.dice-formula-link:focus-visible {
-  color: #b8ddf7;
-  text-decoration-color: currentColor;
-  outline: none;
-}
-
 .dice-roller-resize {
   position: absolute;
   z-index: 3;
@@ -6683,6 +6662,37 @@ button.is-cloud-busy:disabled {
 .combat-table tfoot td {
   padding: 0.18rem 0 0;
   text-align: left;
+}
+
+.combat-stand-cell {
+  display: grid;
+  gap: 0.42rem;
+  justify-items: center;
+}
+
+.combat-stand-cell__hide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.combat-stand-cell__hide input {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.combat-stand-cell__hide:has(input:checked) {
+  color: var(--accent-soft);
 }
 
 .add-row-cell {
@@ -15764,7 +15774,8 @@ body.is-table-resizing * {
   overflow-wrap: anywhere;
 }
 
-.spell-reference-link {
+.spell-reference-link,
+.dice-formula-link {
   display: inline;
   padding: 0;
   border: 0;
@@ -15778,7 +15789,9 @@ body.is-table-resizing * {
 }
 
 .spell-reference-link:hover,
-.spell-reference-link:focus-visible {
+.spell-reference-link:focus-visible,
+.dice-formula-link:hover,
+.dice-formula-link:focus-visible {
   color: var(--text);
 }
 
