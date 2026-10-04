@@ -1026,6 +1026,12 @@ const combatMapController = createCombatMapController({
   getActiveCombatantId: () => state.isCombatActive ? state.activeTurnCombatantId : "",
   getEncounterMaps: getLoadedCombatEncounterMapChoices,
   getAccountSession: () => state.accountSession,
+  renderInitiativeOrder: () => {
+    const turnOrder = getCombatTurnDisplayParticipants(getCombatTurnOrder());
+    const activeId = state.isCombatActive ? getActiveTurnCombatantId(getCombatTurnParticipants(turnOrder)) : "";
+    const scale = getCombatTurnTokenScale(turnOrder.length);
+    return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId)).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
+  },
   renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
   openContextMenu: (combatantId, x, y) => openCombatTurnQuickMenu(combatantId, x, y),
   closeContextMenu: closeCombatTurnQuickMenu,
@@ -1033,6 +1039,11 @@ const combatMapController = createCombatMapController({
   handleContextInput: handleCombatTurnPopoutInput,
   handleContextChange: handleCombatTurnPopoutChange,
   handleContextKeydown: handleCombatTurnPopoutKeydown,
+  handleInitiativeClick: handleCombatTurnPopoutClick,
+  handleInitiativeInput: handleCombatTurnPopoutInput,
+  handleInitiativeChange: handleCombatTurnPopoutChange,
+  handleInitiativeKeydown: handleCombatTurnPopoutKeydown,
+  handleInitiativeContextMenu: handleCombatTurnPopoutContextMenu,
   onChange: () => scheduleDesktopCampaignDirtyStateSync(60),
   onCloudChanged: () => {
     if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
