@@ -223,6 +223,8 @@ function normalizeStoredCombatant(combatant) {
     tag,
     experienceGranted: combatant.experienceGranted === true,
     hiddenFromInitiative: combatant.hiddenFromInitiative === true,
+    isFlying: combatant.isFlying === true,
+    flyingHeight: Math.max(0, Math.round(toNumber(combatant.flyingHeight) / 5) * 5),
     initiativeRoll: combatant.initiativeRoll === null || combatant.initiativeRoll === ""
       ? null
       : normalizeStoredNumber(combatant.initiativeRoll),

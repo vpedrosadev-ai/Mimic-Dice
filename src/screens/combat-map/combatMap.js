@@ -16,7 +16,12 @@ const MAX_SAVED_MAP_LAYOUTS = 20;
 const MIN_MAP_ZOOM = 0.25;
 const MAX_MAP_ZOOM = 3;
 const GRID_LABEL_GUTTER = 34;
+const TEXT_SHAPE_GUTTER = 180;
 const MAP_STORAGE_KEY = "mimic-dice:combat-map:v1";
+
+function getTextShapeGutter(width, height) {
+  return Math.max(TEXT_SHAPE_GUTTER, Math.round(Math.min(Number(width) || DEFAULT_WIDTH, Number(height) || DEFAULT_HEIGHT) * .2));
+}
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -111,21 +116,42 @@ function columnLabelToIndex(label) {
   return value - 1;
 }
 
+function columnIndexToLabel(index) {
+  let value = Math.max(0, Math.floor(index)) + 1;
+  let label = "";
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
+}
+
 function normalizeAreaShapes(value) {
   if (!Array.isArray(value)) return [];
-  return value.slice(-MAX_AREA_SHAPES).map((shape, index) => ({
-    id: clean(shape?.id) || `shape-${index + 1}`,
-    type: ["circle", "square", "cone"].includes(shape?.type) ? shape.type : "circle",
-    color: normalizeColor(shape?.color, "#f97316"),
-    distanceFeet: clamp(Math.round((Number(shape?.distanceFeet) || 15) / 5) * 5, 5, 500),
-    x: Number(shape?.x) || 0,
-    y: Number(shape?.y) || 0,
-    rotation: ((Number(shape?.rotation) || 0) % 360 + 360) % 360
-  }));
+  return value.slice(-MAX_AREA_SHAPES).map((shape, index) => {
+    const type = ["circle", "square", "cone", "text"].includes(shape?.type) ? shape.type : "circle";
+    return {
+      id: clean(shape?.id) || `shape-${index + 1}`,
+      type,
+      color: normalizeColor(shape?.color, "#f97316"),
+      distanceFeet: clamp(Math.round((Number(shape?.distanceFeet) || 15) / 5) * 5, 5, 500),
+      x: Number(shape?.x) || 0,
+      y: Number(shape?.y) || 0,
+      rotation: ((Number(shape?.rotation) || 0) % 360 + 360) % 360,
+      ...(type === "text" ? {
+        text: clean(shape?.text).slice(0, 500),
+        textBoxVisible: shape?.textBoxVisible !== false,
+        textBoxColor: normalizeColor(shape?.textBoxColor, "#111827"),
+        textColor: normalizeColor(shape?.textColor, "#ffffff"),
+        fontSize: clamp(shape?.fontSize || 32, 10, 120)
+      } : {})
+    };
+  });
 }
 
 export function getAreaShapeMetrics(shape, grid) {
-  const type = ["circle", "square", "cone"].includes(shape?.type) ? shape.type : "circle";
+  const type = ["circle", "square", "cone", "text"].includes(shape?.type) ? shape.type : "circle";
   const distanceFeet = clamp(Math.round((Number(shape?.distanceFeet) || 5) / 5) * 5, 5, 500);
   const cells = distanceFeet / 5;
   const distancePx = cells * clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
@@ -160,6 +186,56 @@ function getImageFileMimeType(file) {
   return IMAGE_MIME_BY_EXTENSION[extension] || "";
 }
 
+function readAscii(bytes, start, length) {
+  return String.fromCharCode(...bytes.slice(start, start + length));
+}
+
+export async function inspectImageFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const isWebp = bytes.length >= 12 && readAscii(bytes, 0, 4) === "RIFF" && readAscii(bytes, 8, 4) === "WEBP";
+  const isGif = bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(readAscii(bytes, 0, 6));
+  let isAnimated = false;
+  if (isWebp) {
+    for (let offset = 12; offset + 8 <= bytes.length;) {
+      const chunk = readAscii(bytes, offset, 4);
+      const size = bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16) | (bytes[offset + 7] << 24);
+      if (chunk === "ANIM" || chunk === "ANMF") { isAnimated = true; break; }
+      offset += 8 + Math.max(0, size) + (size % 2);
+    }
+  } else if (isGif) {
+    let frames = 0;
+    let index = 13;
+    if (bytes[10] & 0x80) index += 3 * (2 ** ((bytes[10] & 0x07) + 1));
+    const skipSubBlocks = () => {
+      while (index < bytes.length) {
+        const size = bytes[index++];
+        if (!size) break;
+        index += size;
+      }
+    };
+    while (index < bytes.length && frames < 2) {
+      const marker = bytes[index++];
+      if (marker === 0x3b) break;
+      if (marker === 0x21) { index += 1; skipSubBlocks(); continue; }
+      if (marker !== 0x2c || index + 9 > bytes.length) break;
+      frames += 1;
+      const packed = bytes[index + 8];
+      index += 9;
+      if (packed & 0x80) index += 3 * (2 ** ((packed & 0x07) + 1));
+      index += 1;
+      skipSubBlocks();
+    }
+    isAnimated = frames > 1;
+  }
+  return {
+    bytes,
+    mimeType: isWebp ? "image/webp" : isGif ? "image/gif" : getImageFileMimeType(file),
+    isWebp,
+    isGif,
+    isAnimated
+  };
+}
+
 export function isImageFileLike(file) {
   return Boolean(file && typeof file.arrayBuffer === "function" && getImageFileMimeType(file));
 }
@@ -167,6 +243,105 @@ export function isImageFileLike(file) {
 function getHexMetrics(size) {
   const height = size * 2 / Math.sqrt(3);
   return { height, halfHeight: height / 2, rowStep: height * .75 };
+}
+
+function concatBytes(parts) {
+  const length = parts.reduce((total, part) => total + part.length, 0);
+  const output = new Uint8Array(length);
+  let offset = 0;
+  parts.forEach((part) => { output.set(part, offset); offset += part.length; });
+  return output;
+}
+
+function integerBytes(value, length) {
+  const bytes = new Uint8Array(length);
+  let remaining = Math.max(0, Math.round(Number(value) || 0));
+  for (let index = 0; index < length; index += 1) {
+    bytes[index] = remaining & 0xff;
+    remaining = Math.floor(remaining / 256);
+  }
+  return bytes;
+}
+
+function webpChunk(type, payload) {
+  const name = new TextEncoder().encode(type);
+  const padding = payload.length % 2 ? new Uint8Array(1) : new Uint8Array(0);
+  return concatBytes([name, integerBytes(payload.length, 4), payload, padding]);
+}
+
+function extractWebpImageChunks(bytes) {
+  const chunks = [];
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const type = readAscii(bytes, offset, 4);
+    const size = bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16) | (bytes[offset + 7] << 24);
+    const end = offset + 8 + Math.max(0, size) + (size % 2);
+    if (end > bytes.length) break;
+    if (["ALPH", "VP8 ", "VP8L"].includes(type)) chunks.push(bytes.slice(offset, end));
+    offset = end;
+  }
+  return concatBytes(chunks);
+}
+
+async function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")), { once: true });
+    reader.addEventListener("error", () => reject(new Error("No se pudo leer la imagen convertida.")), { once: true });
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function convertAnimatedGifToWebp(bytes, quality) {
+  if (typeof ImageDecoder !== "function") {
+    throw new Error("Este navegador no permite convertir GIF animado. Usa Mimic Dice Desktop o sube un WebP animado.");
+  }
+  const decoder = new ImageDecoder({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), type: "image/gif", preferAnimation: true });
+  await decoder.tracks.ready;
+  const frameCount = decoder.tracks.selectedTrack?.frameCount || 0;
+  if (frameCount < 2) throw new Error("El GIF no contiene varios fotogramas decodificables.");
+  if (frameCount > 900) throw new Error("El GIF tiene demasiados fotogramas para convertirlo de forma segura.");
+  const canvas = document.createElement("canvas");
+  const frameChunks = [];
+  let width = 0;
+  let height = 0;
+  try {
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+      const result = await decoder.decode({ frameIndex, completeFramesOnly: true });
+      const frame = result.image;
+      if (!width || !height) {
+        width = frame.displayWidth || frame.codedWidth;
+        height = frame.displayHeight || frame.codedHeight;
+        canvas.width = width;
+        canvas.height = height;
+        if (width * height * frameCount > 500_000_000) throw new Error("La animación es demasiado grande para convertirla de forma segura.");
+      }
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      context.drawImage(frame, 0, 0, width, height);
+      const duration = clamp(Math.round((Number(frame.duration) || 100000) / 1000), 10, 0xffffff);
+      frame.close?.();
+      const stillBlob = await new Promise((resolve, reject) => canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("No se pudo codificar un fotograma animado.")),
+        "image/webp",
+        quality
+      ));
+      const imageChunks = extractWebpImageChunks(new Uint8Array(await stillBlob.arrayBuffer()));
+      if (!imageChunks.length) throw new Error("No se pudo preparar el WebP animado.");
+      const frameHeader = concatBytes([
+        integerBytes(0, 3), integerBytes(0, 3), integerBytes(width - 1, 3), integerBytes(height - 1, 3), integerBytes(duration, 3),
+        new Uint8Array([2])
+      ]);
+      frameChunks.push(webpChunk("ANMF", concatBytes([frameHeader, imageChunks])));
+    }
+  } finally {
+    decoder.close?.();
+  }
+  const vp8x = concatBytes([new Uint8Array([2, 0, 0, 0]), integerBytes(width - 1, 3), integerBytes(height - 1, 3)]);
+  const anim = concatBytes([new Uint8Array(4), integerBytes(0, 2)]);
+  const payload = concatBytes([new TextEncoder().encode("WEBP"), webpChunk("VP8X", vp8x), webpChunk("ANIM", anim), ...frameChunks]);
+  const bytesOut = concatBytes([new TextEncoder().encode("RIFF"), integerBytes(payload.length, 4), payload]);
+  const blob = new Blob([bytesOut], { type: "image/webp" });
+  return { blob, dataUrl: await blobToDataUrl(blob), width, height, isAnimated: true };
 }
 
 export function resolveGridCoordinatePosition(coordinate, grid, width, height) {
@@ -214,6 +389,48 @@ export function resolveGridCoordinatePosition(coordinate, grid, width, height) {
   return cell ? { x: cell.x, y: row.y, coordinate: `${match[1]}${rowIndex + 1}` } : null;
 }
 
+export function getGridCoordinateForPosition(point, grid, width, height) {
+  const boardWidth = Math.max(1, Number(width) || DEFAULT_WIDTH);
+  const boardHeight = Math.max(1, Number(height) || DEFAULT_HEIGHT);
+  const snapped = snapTokenPosition(point, grid);
+  const size = clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const offsetX = Number(grid?.offsetX) || 0;
+  const offsetY = Number(grid?.offsetY) || 0;
+  if (grid?.type !== "hex") {
+    let firstX = offsetX + Math.floor((-offsetX) / size) * size + size / 2;
+    let firstY = offsetY + Math.floor((-offsetY) / size) * size + size / 2;
+    while (firstX < 0) firstX += size;
+    while (firstY < 0) firstY += size;
+    const column = Math.round((snapped.x - firstX) / size);
+    const row = Math.round((snapped.y - firstY) / size);
+    if (column < 0 || row < 0 || snapped.x < 0 || snapped.x > boardWidth || snapped.y < 0 || snapped.y > boardHeight) return "";
+    return `${columnIndexToLabel(column)}${row + 1}`;
+  }
+  const { halfHeight, rowStep } = getHexMetrics(size);
+  const firstRow = Math.ceil((-offsetY - halfHeight) / rowStep) - 1;
+  const visibleRows = [];
+  const columnIds = new Set();
+  for (let row = firstRow; row <= Math.floor((boardHeight - offsetY - halfHeight) / rowStep) + 1; row += 1) {
+    const y = offsetY + row * rowStep + halfHeight;
+    if (y < 0 || y > boardHeight) continue;
+    const rowOffset = Math.abs(row) % 2 ? size / 2 : 0;
+    const cells = [];
+    for (let column = Math.ceil((-offsetX - rowOffset - size / 2) / size) - 1; column <= Math.floor((boardWidth - offsetX - rowOffset - size / 2) / size) + 1; column += 1) {
+      const x = offsetX + rowOffset + column * size + size / 2;
+      if (x >= 0 && x <= boardWidth) { cells.push({ x, column }); columnIds.add(column); }
+    }
+    if (cells.length) visibleRows.push({ y, cells });
+  }
+  const columns = [...columnIds].sort((a, b) => a - b);
+  let nearest = null;
+  visibleRows.forEach((row, rowIndex) => row.cells.forEach((cell) => {
+    const distance = Math.hypot(cell.x - snapped.x, row.y - snapped.y);
+    if (!nearest || distance < nearest.distance) nearest = { rowIndex, column: cell.column, distance };
+  }));
+  if (!nearest) return "";
+  return `${columnIndexToLabel(columns.indexOf(nearest.column))}${nearest.rowIndex + 1}`;
+}
+
 export function normalizeMapReference(value) {
   if (!isObject(value)) return null;
   const imageUrl = clean(value.imageUrl);
@@ -225,7 +442,8 @@ export function normalizeMapReference(value) {
     width: Math.max(1, Math.round(Number(value.width) || DEFAULT_WIDTH)),
     height: Math.max(1, Math.round(Number(value.height) || DEFAULT_HEIGHT)),
     cloudEntryId,
-    isPrivate: value.isPrivate === true
+    isPrivate: value.isPrivate === true,
+    ...(value.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl) ? { isAnimated: true } : {})
   };
 }
 
@@ -290,10 +508,15 @@ export function normalizeMapEditorState(value) {
       strokes: normalizePaintStrokes(source.paint?.strokes)
     },
     shapes: {
-      type: ["circle", "square", "cone"].includes(source.shapes?.type) ? source.shapes.type : "circle",
+      type: ["circle", "square", "cone", "text"].includes(source.shapes?.type) ? source.shapes.type : "circle",
       color: normalizeColor(source.shapes?.color, "#f97316"),
       distanceFeet: clamp(Math.round((Number(source.shapes?.distanceFeet) || 15) / 5) * 5, 5, 500),
       coordinate: clean(source.shapes?.coordinate).toUpperCase().replaceAll(" ", "").slice(0, 12),
+      text: clean(source.shapes?.text).slice(0, 500),
+      textBoxVisible: source.shapes?.textBoxVisible !== false,
+      textBoxColor: normalizeColor(source.shapes?.textBoxColor, "#111827"),
+      textColor: normalizeColor(source.shapes?.textColor, "#ffffff"),
+      fontSize: clamp(source.shapes?.fontSize || 32, 10, 120),
       selectedId: clean(source.shapes?.selectedId),
       items: normalizeAreaShapes(source.shapes?.items)
     },
@@ -375,10 +598,10 @@ export async function convertImageFileToWebp(file, quality = 0.95) {
   if (!isImageFileLike(file)) {
     throw new Error("Selecciona un archivo de imagen válido.");
   }
-  const mimeType = getImageFileMimeType(file);
-  const sourceBlob = typeof Blob !== "undefined" && file instanceof Blob
-    ? file
-    : new Blob([await file.arrayBuffer()], { type: mimeType });
+  const inspection = await inspectImageFile(file);
+  const mimeType = inspection.mimeType;
+  const sourceBlob = new Blob([inspection.bytes], { type: mimeType });
+  if (inspection.isGif && inspection.isAnimated) return convertAnimatedGifToWebp(inspection.bytes, quality);
   const objectUrl = URL.createObjectURL(sourceBlob);
   try {
     const image = new Image();
@@ -392,18 +615,13 @@ export async function convertImageFileToWebp(file, quality = 0.95) {
         image.addEventListener("error", () => reject(new Error("No se pudo decodificar la imagen.")), { once: true });
       });
     }
-    const readDataUrl = (blob) => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.addEventListener("load", () => resolve(String(reader.result || "")), { once: true });
-      reader.addEventListener("error", () => reject(new Error("No se pudo leer la imagen convertida.")), { once: true });
-      reader.readAsDataURL(blob);
-    });
-    if (mimeType === "image/webp") {
+    if (inspection.isWebp) {
       return {
-        blob: sourceBlob,
-        dataUrl: await readDataUrl(sourceBlob),
+        blob: new Blob([inspection.bytes], { type: "image/webp" }),
+        dataUrl: await blobToDataUrl(sourceBlob),
         width: image.naturalWidth,
-        height: image.naturalHeight
+        height: image.naturalHeight,
+        isAnimated: inspection.isAnimated
       };
     }
     const canvas = document.createElement("canvas");
@@ -417,8 +635,8 @@ export async function convertImageFileToWebp(file, quality = 0.95) {
       "image/webp",
       quality
     ));
-    const dataUrl = await readDataUrl(blob);
-    return { blob, dataUrl, width: canvas.width, height: canvas.height };
+    const dataUrl = await blobToDataUrl(blob);
+    return { blob, dataUrl, width: canvas.width, height: canvas.height, isAnimated: false };
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -461,6 +679,8 @@ export function createCombatMapController(options = {}) {
   let mapFitScale = 1;
   let tokenSearch = "";
   let initiativeLayout = { scale: 1, columns: 1, count: 0 };
+  let blankMapRatio = "1:1";
+  let lastCombatantFingerprint = "";
 
   function loadLocalState() {
     try {
@@ -477,6 +697,14 @@ export function createCombatMapController(options = {}) {
 
   function getCombatants() {
     return (options.getCombatants?.() || []).filter(Boolean);
+  }
+
+  function getCombatantFingerprint() {
+    return JSON.stringify(getCombatants().map((combatant) => [
+      combatant.id, combatant.nombre, combatant.numPeana, combatant.pgAct, combatant.pgMax,
+      combatant.condiciones, combatant.hiddenFromInitiative, combatant.iniactiva,
+      combatant.tokenUrl, combatant.tamano, combatant.isFlying, combatant.flyingHeight
+    ]));
   }
 
   function getStatusMeta(statusName) {
@@ -628,6 +856,40 @@ export function createCombatMapController(options = {}) {
     return state.map ? { ...state.map } : null;
   }
 
+  function hasGrid() {
+    return Boolean(state.map && state.grid.visible);
+  }
+
+  function getTokenCoordinate(combatantId) {
+    if (!hasGrid()) return "";
+    const combatants = getCombatants();
+    const index = combatants.findIndex((combatant) => combatant.id === clean(combatantId));
+    if (index < 0) return "";
+    return getGridCoordinateForPosition(
+      getTokenPosition(combatants[index], index),
+      state.grid,
+      state.map.width,
+      state.map.height
+    );
+  }
+
+  function setTokenCoordinate(combatantId, coordinate) {
+    if (!hasGrid()) return false;
+    const position = resolveGridCoordinatePosition(coordinate, state.grid, state.map.width, state.map.height);
+    if (!position) return false;
+    state.tokenPositions[clean(combatantId)] = { x: position.x, y: position.y };
+    persist();
+    sync();
+    return true;
+  }
+
+  function notifyTokenCoordinates() {
+    options.onTokenCoordinatesChange?.(getCombatants().map((combatant) => ({
+      id: combatant.id,
+      coordinate: getTokenCoordinate(combatant.id)
+    })));
+  }
+
   function isOpen() {
     return Boolean(editorWindow && !editorWindow.closed);
   }
@@ -649,7 +911,11 @@ export function createCombatMapController(options = {}) {
     initializeWindow(popup);
     pollInterval = window.setInterval(() => {
       if (editorWindow?.closed) close();
-      else captureWindowBounds();
+      else {
+        captureWindowBounds();
+        const fingerprint = getCombatantFingerprint();
+        if (fingerprint !== lastCombatantFingerprint) sync();
+      }
     }, 500);
     sync();
     popup.focus();
@@ -737,6 +1003,7 @@ export function createCombatMapController(options = {}) {
       ${mapLoadMenuOpen ? `<div class="combat-map-load-menu">
         <label class="combat-map-file-button">Desde equipo<input type="file" accept="image/*" data-map-file></label>
         <button type="button" data-map-action="open-cloud-map-catalog">Desde la nube</button>
+        <div class="combat-map-blank-map"><strong>Hoja en blanco</strong><label>ProporciÃ³n <select data-blank-map-ratio><option value="1:1" ${blankMapRatio === "1:1" ? "selected" : ""}>Cuadrado 1:1</option><option value="4:3" ${blankMapRatio === "4:3" ? "selected" : ""}>RectÃ¡ngulo 4:3</option><option value="16:9" ${blankMapRatio === "16:9" ? "selected" : ""}>PanorÃ¡mico 16:9</option><option value="3:2" ${blankMapRatio === "3:2" ? "selected" : ""}>RectÃ¡ngulo 3:2</option><option value="3:4" ${blankMapRatio === "3:4" ? "selected" : ""}>Vertical 3:4</option><option value="9:16" ${blankMapRatio === "9:16" ? "selected" : ""}>Vertical 9:16</option></select></label><button type="button" data-map-action="create-blank-map">Crear hoja blanca</button></div>
         ${savedMaps.length ? `<div class="combat-map-priority-list"><h3>Usados recientemente</h3><div class="combat-map-cloud-grid">${savedMaps.map((layout) => `<button type="button" data-map-saved-layout="${escapeHtml(layout.key)}">${layout.map.imageUrl ? `<img src="${escapeHtml(layout.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(layout.map.name)}</span><small>Disposición guardada</small></button>`).join("")}</div></div>` : ""}
         ${encounterMaps.length ? `<div class="combat-map-priority-list"><h3>Vinculados a encuentros cargados</h3><div class="combat-map-cloud-grid">${encounterMaps.map((choice, index) => `<button type="button" data-map-encounter-choice="${index}">${choice.map.imageUrl ? `<img src="${escapeHtml(choice.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(choice.map.name)}</span><small>${escapeHtml(choice.encounterName || "Encuentro")}</small></button>`).join("")}</div></div>` : ""}
       </div>` : ""}
@@ -811,18 +1078,17 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderShapesMenu() {
+    const isText = state.shapes.type === "text";
     const distanceLabel = state.shapes.type === "cone" ? "Longitud" : state.shapes.type === "square" ? "Lado" : "Radio";
     const selected = state.shapes.items.some((shape) => shape.id === state.shapes.selectedId);
     return `<section class="combat-map-popover" data-map-panel="shapes" ${openPanel === "shapes" ? "" : "hidden"}>
       <h2>Formas de área</h2>
-      <label>Forma <select data-shape-type><option value="circle" ${state.shapes.type === "circle" ? "selected" : ""}>Círculo</option><option value="square" ${state.shapes.type === "square" ? "selected" : ""}>Cuadrado</option><option value="cone" ${state.shapes.type === "cone" ? "selected" : ""}>Cono</option></select></label>
-      <label>Color <input type="color" value="${state.shapes.color}" data-shape-color></label>
-      <label>${distanceLabel} <input type="number" min="5" max="500" step="5" value="${state.shapes.distanceFeet}" data-shape-distance> pies</label>
-      <label>Casilla inicial <input type="text" maxlength="12" placeholder="A8" value="${escapeHtml(state.shapes.coordinate)}" data-shape-coordinate></label>
+      <label>Forma <select data-shape-type><option value="circle" ${state.shapes.type === "circle" ? "selected" : ""}>Círculo</option><option value="square" ${state.shapes.type === "square" ? "selected" : ""}>Cuadrado</option><option value="cone" ${state.shapes.type === "cone" ? "selected" : ""}>Cono</option><option value="text" ${isText ? "selected" : ""}>Texto</option></select></label>
+      ${isText ? `<label>Contenido <textarea rows="3" maxlength="500" data-shape-text>${escapeHtml(state.shapes.text)}</textarea></label><label><input type="checkbox" data-shape-text-box ${state.shapes.textBoxVisible ? "checked" : ""}> Mostrar rectángulo de fondo</label><label>Color del rectángulo <input type="color" value="${state.shapes.textBoxColor}" data-shape-text-box-color ${state.shapes.textBoxVisible ? "" : "disabled"}></label><label>Color del texto <input type="color" value="${state.shapes.textColor}" data-shape-text-color></label><label>Tamaño <input type="range" min="10" max="120" step="1" value="${state.shapes.fontSize}" data-shape-font-size><output>${Math.round(state.shapes.fontSize)} px</output></label>` : `<label>Color <input type="color" value="${state.shapes.color}" data-shape-color></label><label>${distanceLabel} <input type="number" min="5" max="500" step="5" value="${state.shapes.distanceFeet}" data-shape-distance> pies</label><label>Casilla inicial <input type="text" maxlength="12" placeholder="A8" value="${escapeHtml(state.shapes.coordinate)}" data-shape-coordinate></label>`}
       ${shapeCoordinateError ? `<p class="combat-map-error" role="alert">${escapeHtml(shapeCoordinateError)}</p>` : ""}
       <button type="button" data-map-action="add-shape">Añadir forma</button>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="rotate-shape-left" ${selected ? "" : "disabled"}>Girar −15°</button><button type="button" data-map-action="rotate-shape-right" ${selected ? "" : "disabled"}>Girar +15°</button><button type="button" data-map-action="delete-shape" ${selected ? "" : "disabled"}>Eliminar</button></div>
-      <p class="combat-map-help">La casilla es opcional: centra círculos y cuadrados; en conos coloca el origen. Círculo usa radio, cuadrado usa lado y el cono termina con una anchura igual a su longitud.</p>
+      <p class="combat-map-help">${isText ? "El texto puede arrastrarse fuera de la imagen, dentro del espacio del editor." : "La casilla es opcional: centra círculos y cuadrados; en conos coloca el origen."}</p>
     </section>`;
   }
 
@@ -852,7 +1118,10 @@ export function createCombatMapController(options = {}) {
       const conditionMeta = conditions.map(getStatusMeta);
       const tokenSize = state.grid.size * getCreatureSizeMultiplier(combatant);
       const counterRotation = state.rotationOrientation === "upright" ? -state.rotation : 0;
-      return `<div class="combat-map-token combat-map-token--${side}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px" title="${escapeHtml(combatant.nombre || "Entidad")}">
+      const isFlying = combatant.isFlying === true;
+      const flyingHeight = Math.max(0, Math.round(Number(combatant.flyingHeight) || 0));
+      return `<div class="combat-map-token combat-map-token--${side} ${isFlying ? "is-flying" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px" title="${escapeHtml(combatant.nombre || "Entidad")}">
+        ${isFlying ? `<span class="combat-map-token__wing combat-map-token__wing--left" aria-hidden="true">🪽</span><span class="combat-map-token__wing combat-map-token__wing--right" aria-hidden="true">🪽</span><span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
         <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span><strong>${escapeHtml(combatant.numPeana || "—")}</strong>
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
         ${showHealth(combatant) ? `<span class="combat-map-token__health"><i style="width:${(hp / maxHp) * 100}%"></i></span>` : ""}
@@ -862,7 +1131,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderAreaShapes() {
-    return state.shapes.items.map((shape) => {
+    return state.shapes.items.filter((shape) => shape.type !== "text").map((shape) => {
       const metrics = getAreaShapeMetrics(shape, state.grid);
       const selected = shape.id === state.shapes.selectedId;
       const geometry = shape.type === "circle"
@@ -872,11 +1141,19 @@ export function createCombatMapController(options = {}) {
           : `<polygon points="0,100 196,4 196,196"></polygon>`;
       const labelCounterRotation = state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0;
       const anchorX = shape.type === "cone" ? "0%" : "-50%";
-      return `<div class="combat-map-area-shape combat-map-area-shape--${shape.type} ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" style="--shape-color:${shape.color};--shape-size:${metrics.distancePx}px;--shape-width:${metrics.width}px;--shape-height:${metrics.height}px;--shape-anchor-x:${anchorX};--shape-label-counter-rotation:${labelCounterRotation}deg;left:${shape.x}px;top:${shape.y}px;transform:translate(${anchorX},-50%) rotate(${shape.rotation}deg)" title="${metrics.distanceFeet} pies">
+      return `<div class="combat-map-area-shape combat-map-area-shape--${shape.type} ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" style="--shape-color:${shape.color};--shape-size:${metrics.distancePx}px;--shape-width:${metrics.width}px;--shape-height:${metrics.height}px;--shape-anchor-x:${anchorX};--shape-label-counter-rotation:${labelCounterRotation}deg;left:${shape.x}px;top:${shape.y}px;transform:translate(${anchorX},-50%) rotate(${shape.rotation}deg)">
         <svg viewBox="0 0 200 200" aria-hidden="true">${geometry}</svg>
-        <span class="combat-map-area-shape__measure">${metrics.distanceFeet} pies</span>
         <button type="button" class="combat-map-area-shape__rotate" data-map-shape-rotate="${escapeHtml(shape.id)}" title="Arrastrar para rotar" aria-label="Rotar forma"></button>
       </div>`;
+    }).join("");
+  }
+
+  function renderTextShapes(gutter, width, height) {
+    return state.shapes.items.filter((shape) => shape.type === "text").map((shape) => {
+      const point = rotateDisplayPoint(shape, width, height);
+      const selected = shape.id === state.shapes.selectedId;
+      const rotation = shape.rotation + (state.rotationOrientation === "with-map" ? state.rotation : 0);
+      return `<div class="combat-map-text-shape ${shape.textBoxVisible ? "has-box" : "is-transparent"} ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" data-map-text-shape style="left:${gutter + point.x}px;top:${gutter + point.y}px;--text-box-color:${shape.textBoxColor};--text-color:${shape.textColor};--text-size:${shape.fontSize}px;transform:translate(-50%,-50%) rotate(${rotation}deg)"><span>${escapeHtml(shape.text || "Texto")}</span><button type="button" class="combat-map-area-shape__rotate" data-map-shape-rotate="${escapeHtml(shape.id)}" title="Arrastrar para rotar" aria-label="Rotar texto"></button></div>`;
     }).join("");
   }
 
@@ -887,7 +1164,9 @@ export function createCombatMapController(options = {}) {
     const sideways = state.rotation === 90 || state.rotation === 270;
     const displayWidth = sideways ? height : width;
     const displayHeight = sideways ? width : height;
-    const gutter = state.grid.visible ? GRID_LABEL_GUTTER : 0;
+    const gridGutter = state.grid.visible ? GRID_LABEL_GUTTER : 0;
+    const textGutter = state.shapes.items.some((shape) => shape.type === "text") ? getTextShapeGutter(displayWidth, displayHeight) : 0;
+    const gutter = gridGutter + textGutter;
     const totalWidth = displayWidth + gutter * 2;
     const totalHeight = displayHeight + gutter * 2;
     return `<div class="combat-map-viewport"><div class="combat-map-frame" data-map-frame><div class="combat-map-scale-layer" data-map-scale-layer style="width:${totalWidth}px;height:${totalHeight}px"><div class="combat-map-board" data-map-board data-map-width="${width}" data-map-height="${height}" data-display-width="${displayWidth}" data-display-height="${displayHeight}" style="left:${gutter}px;top:${gutter}px;width:${displayWidth}px;height:${displayHeight}px;aspect-ratio:${displayWidth}/${displayHeight}">
@@ -904,7 +1183,7 @@ export function createCombatMapController(options = {}) {
         <div class="combat-map-brush-cursor" data-map-brush-cursor></div>
       </div>
       </div>
-    </div><canvas class="combat-map-grid-labels ${state.grid.visible ? "is-visible" : ""}" data-map-grid-labels width="${totalWidth}" height="${totalHeight}" style="width:${totalWidth}px;height:${totalHeight}px"></canvas></div></div></div>`;
+    </div><canvas class="combat-map-grid-labels ${state.grid.visible ? "is-visible" : ""}" data-map-grid-labels width="${displayWidth + gridGutter * 2}" height="${displayHeight + gridGutter * 2}" style="left:${textGutter}px;top:${textGutter}px;width:${displayWidth + gridGutter * 2}px;height:${displayHeight + gridGutter * 2}px"></canvas><div class="combat-map-text-layer ${openPanel === "shapes" ? "is-editing" : ""}">${renderTextShapes(gutter, width, height)}</div></div></div></div>`;
   }
 
   function render() {
@@ -933,6 +1212,7 @@ export function createCombatMapController(options = {}) {
     drawGridLabels();
     drawPaint();
     drawFog();
+    lastCombatantFingerprint = getCombatantFingerprint();
   }
 
   function updateMapScale() {
@@ -944,7 +1224,7 @@ export function createCombatMapController(options = {}) {
     if (!viewport || !frame || !scaleLayer || !board) return;
     const width = Number(board.dataset.displayWidth) || Number(board.dataset.mapWidth) || DEFAULT_WIDTH;
     const height = Number(board.dataset.displayHeight) || Number(board.dataset.mapHeight) || DEFAULT_HEIGHT;
-    const gutter = state.grid.visible ? GRID_LABEL_GUTTER : 0;
+    const gutter = (state.grid.visible ? GRID_LABEL_GUTTER : 0) + (state.shapes.items.some((shape) => shape.type === "text") ? getTextShapeGutter(width, height) : 0);
     const totalWidth = width + gutter * 2;
     const totalHeight = height + gutter * 2;
     const availableWidth = Math.max(1, viewport.clientWidth - 24);
@@ -1327,7 +1607,7 @@ export function createCombatMapController(options = {}) {
     sync();
     try {
       const converted = await convertImageFileToWebp(file);
-      const map = { name: clean(file.name).replace(/\.[^.]+$/, "") || "Mapa", imageUrl: converted.dataUrl, width: converted.width, height: converted.height, cloudEntryId: "", isPrivate: false };
+      const map = { name: clean(file.name).replace(/\.[^.]+$/, "") || "Mapa", imageUrl: converted.dataUrl, width: converted.width, height: converted.height, cloudEntryId: "", isPrivate: false, isAnimated: converted.isAnimated === true };
       localImageBusy = false;
       setMap(map);
       showUploadPrompt(map, converted.blob);
@@ -1339,6 +1619,33 @@ export function createCombatMapController(options = {}) {
       options.onNotify?.("No se pudo cargar el mapa", localImageError, "danger");
       return null;
     }
+  }
+
+  async function createBlankMap() {
+    const [ratioWidth, ratioHeight] = blankMapRatio.split(":").map(Number);
+    const landscape = ratioWidth >= ratioHeight;
+    const width = landscape ? 1600 : Math.round(1600 * ratioWidth / ratioHeight);
+    const height = landscape ? Math.round(1600 * ratioHeight / ratioWidth) : 1600;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    const blob = await new Promise((resolve, reject) => canvas.toBlob(
+      (result) => result ? resolve(result) : reject(new Error("No se pudo crear la hoja en blanco.")),
+      "image/webp",
+      1
+    ));
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result || "")), { once: true });
+      reader.addEventListener("error", () => reject(new Error("No se pudo leer la hoja en blanco.")), { once: true });
+      reader.readAsDataURL(blob);
+    });
+    const map = { name: `Hoja blanca ${blankMapRatio}`, imageUrl: dataUrl, width, height, cloudEntryId: "", isPrivate: false, isAnimated: false };
+    setMap(map);
+    showUploadPrompt(map, blob);
   }
 
   function showUploadPrompt(map, blob) {
@@ -1359,8 +1666,9 @@ export function createCombatMapController(options = {}) {
         const uploaded = await uploadCloudImage(blob, { width: map.width, height: map.height });
         const name = clean(prompt.querySelector("[data-map-upload-name]")?.value) || map.name;
         const isPublic = prompt.querySelector("[data-map-upload-private]")?.checked !== true;
-        const created = await createCloudLibraryEntry({ type: "map", name, imageUrl: uploaded.asset.url, isPublic, payload: { map: { name, imageUrl: uploaded.asset.url, width: map.width, height: map.height } } });
-        setMap({ name, imageUrl: uploaded.asset.url, width: map.width, height: map.height, cloudEntryId: created.entry.id, isPrivate: !isPublic }, { retainWorkspace: true });
+        const imageUrl = `${uploaded.asset.url}${map.isAnimated ? "?animated=1" : ""}`;
+        const created = await createCloudLibraryEntry({ type: "map", name, imageUrl, isPublic, payload: { map: { name, imageUrl, width: map.width, height: map.height, isAnimated: map.isAnimated === true } } });
+        setMap({ name, imageUrl, width: map.width, height: map.height, cloudEntryId: created.entry.id, isPrivate: !isPublic, isAnimated: map.isAnimated === true }, { retainWorkspace: true });
         prompt.remove();
         options.onCloudChanged?.();
         options.onNotify?.("Mapa guardado", `${name} está ${isPublic ? "público" : "privado"} en la nube.`);
@@ -1400,6 +1708,11 @@ export function createCombatMapController(options = {}) {
       type: state.shapes.type,
       color: state.shapes.color,
       distanceFeet: state.shapes.distanceFeet,
+      text: state.shapes.text || "Texto",
+      textBoxVisible: state.shapes.textBoxVisible,
+      textBoxColor: state.shapes.textBoxColor,
+      textColor: state.shapes.textColor,
+      fontSize: state.shapes.fontSize,
       x: clamp(position.x, 0, boardWidth),
       y: clamp(position.y, 0, boardHeight),
       rotation: 0
@@ -1465,6 +1778,7 @@ export function createCombatMapController(options = {}) {
     if (!action) return;
     if (action === "open-map-menu") togglePanel("map");
     if (action === "toggle-map-load-menu") { mapLoadMenuOpen = !mapLoadMenuOpen; sync(); }
+    if (action === "create-blank-map") createBlankMap();
     if (action === "open-cloud-map-catalog") options.openCloudMapCatalog?.();
     if (action === "reset-map-canvas") resetMapCanvas();
     if (action === "toggle-grid-menu") togglePanel("grid");
@@ -1499,7 +1813,11 @@ export function createCombatMapController(options = {}) {
     if (target.closest("[data-map-initiative-order]")) { options.handleInitiativeChange?.(event); return; }
     if (target.closest("[data-combat-turn-quick-menu]")) { options.handleContextChange?.(event); return; }
     if (target.matches("[data-map-file], [data-map-file-hidden]")) { const file = target.files?.[0]; if (file) handleImageFile(file); return; }
-    if (target.matches("[data-grid-visible]")) state.grid.visible = target.checked;
+    if (target.matches("[data-blank-map-ratio]")) { blankMapRatio = target.value; return; }
+    if (target.matches("[data-grid-visible]")) {
+      state.grid.visible = target.checked;
+      options.onGridVisibilityChange?.(state.grid.visible);
+    }
     else if (target.matches("[data-grid-type]")) state.grid.type = target.value === "hex" ? "hex" : "square";
     else if (target.matches("[data-grid-color]")) state.grid.color = normalizeColor(target.value, "#ffffff");
     else if (target.matches("[data-grid-size]")) state.grid.size = clamp(target.value, MIN_GRID_SIZE, MAX_GRID_SIZE);
@@ -1511,7 +1829,7 @@ export function createCombatMapController(options = {}) {
     else if (target.matches("[data-map-initiative-position]")) state.initiative.position = target.value;
     else if (target.matches("[data-map-rotation-orientation]")) state.rotationOrientation = target.value === "with-map" ? "with-map" : "upright";
     else if (target.matches("[data-shape-type]")) {
-      state.shapes.type = ["circle", "square", "cone"].includes(target.value) ? target.value : "circle";
+      state.shapes.type = ["circle", "square", "cone", "text"].includes(target.value) ? target.value : "circle";
       const shape = getSelectedShape();
       if (shape) shape.type = state.shapes.type;
     } else if (target.matches("[data-shape-color]")) {
@@ -1522,9 +1840,22 @@ export function createCombatMapController(options = {}) {
       state.shapes.distanceFeet = clamp(Math.round((Number(target.value) || 5) / 5) * 5, 5, 500);
       const shape = getSelectedShape();
       if (shape) shape.distanceFeet = state.shapes.distanceFeet;
+    } else if (target.matches("[data-shape-text-box]")) {
+      state.shapes.textBoxVisible = target.checked;
+      const shape = getSelectedShape();
+      if (shape?.type === "text") shape.textBoxVisible = target.checked;
+    } else if (target.matches("[data-shape-text-box-color]")) {
+      state.shapes.textBoxColor = normalizeColor(target.value, "#111827");
+      const shape = getSelectedShape();
+      if (shape?.type === "text") shape.textBoxColor = state.shapes.textBoxColor;
+    } else if (target.matches("[data-shape-text-color]")) {
+      state.shapes.textColor = normalizeColor(target.value, "#ffffff");
+      const shape = getSelectedShape();
+      if (shape?.type === "text") shape.textColor = state.shapes.textColor;
     }
     else return;
     persist(); sync();
+    if (target.matches("[data-grid-visible], [data-grid-type], [data-grid-size]")) notifyTokenCoordinates();
   }
 
   function handleInput(event) {
@@ -1563,6 +1894,20 @@ export function createCombatMapController(options = {}) {
       state.shapes.coordinate = clean(event.target.value).toUpperCase().replaceAll(" ", "").slice(0, 12);
       event.target.value = state.shapes.coordinate;
       shapeCoordinateError = "";
+      persist();
+    } else if (event.target.matches("[data-shape-text]")) {
+      state.shapes.text = String(event.target.value || "").slice(0, 500);
+      const shape = getSelectedShape();
+      if (shape?.type === "text") shape.text = state.shapes.text;
+      const label = shape ? editorWindow?.document.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"] > span`) : null;
+      if (label) label.textContent = state.shapes.text || "Texto";
+      persist();
+    } else if (event.target.matches("[data-shape-font-size]")) {
+      state.shapes.fontSize = clamp(event.target.value, 10, 120);
+      const shape = getSelectedShape();
+      if (shape?.type === "text") shape.fontSize = state.shapes.fontSize;
+      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.shapes.fontSize)} px`);
+      if (shape) editorWindow?.document.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"]`)?.style.setProperty("--text-size", `${state.shapes.fontSize}px`);
       persist();
     }
   }
@@ -1629,6 +1974,17 @@ export function createCombatMapController(options = {}) {
   function updateShapeElement(shape) {
     const element = editorWindow.document.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"]`);
     if (!element) return;
+    if (shape.type === "text") {
+      const board = editorWindow.document.querySelector("[data-map-board]");
+      const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
+      const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
+      const gutter = (state.grid.visible ? GRID_LABEL_GUTTER : 0) + getTextShapeGutter(Number(board?.dataset.displayWidth) || width, Number(board?.dataset.displayHeight) || height);
+      const point = rotateDisplayPoint(shape, width, height);
+      element.style.left = `${gutter + point.x}px`;
+      element.style.top = `${gutter + point.y}px`;
+      element.style.transform = `translate(-50%,-50%) rotate(${shape.rotation + (state.rotationOrientation === "with-map" ? state.rotation : 0)}deg)`;
+      return;
+    }
     element.style.left = `${shape.x}px`;
     element.style.top = `${shape.y}px`;
     element.style.transform = `translate(${shape.type === "cone" ? "0%" : "-50%"},-50%) rotate(${shape.rotation}deg)`;
@@ -1642,12 +1998,27 @@ export function createCombatMapController(options = {}) {
       state.shapes.type = shape.type;
       state.shapes.color = shape.color;
       state.shapes.distanceFeet = shape.distanceFeet;
+      state.shapes.text = shape.text || "";
+      state.shapes.textBoxVisible = shape.textBoxVisible !== false;
+      state.shapes.textBoxColor = shape.textBoxColor;
+      state.shapes.textColor = shape.textColor;
+      state.shapes.fontSize = shape.fontSize;
       const typeInput = editorWindow.document.querySelector("[data-shape-type]");
       const colorInput = editorWindow.document.querySelector("[data-shape-color]");
       const distanceInput = editorWindow.document.querySelector("[data-shape-distance]");
+      const textInput = editorWindow.document.querySelector("[data-shape-text]");
+      const boxInput = editorWindow.document.querySelector("[data-shape-text-box]");
+      const boxColorInput = editorWindow.document.querySelector("[data-shape-text-box-color]");
+      const textColorInput = editorWindow.document.querySelector("[data-shape-text-color]");
+      const fontSizeInput = editorWindow.document.querySelector("[data-shape-font-size]");
       if (typeInput) typeInput.value = shape.type;
       if (colorInput) colorInput.value = shape.color;
       if (distanceInput) distanceInput.value = String(shape.distanceFeet);
+      if (textInput) textInput.value = shape.text || "";
+      if (boxInput) boxInput.checked = shape.textBoxVisible !== false;
+      if (boxColorInput) boxColorInput.value = shape.textBoxColor;
+      if (textColorInput) textColorInput.value = shape.textColor;
+      if (fontSizeInput) fontSizeInput.value = String(shape.fontSize);
     }
     editorWindow.document.querySelectorAll("[data-map-shape]").forEach((element) => {
       element.classList.toggle("is-selected", element.dataset.mapShape === id);
@@ -1688,7 +2059,8 @@ export function createCombatMapController(options = {}) {
       event.preventDefault();
       return;
     }
-    if (!event.target.closest("[data-map-board]")) return;
+    const shapeElement = event.target.closest("[data-map-shape]");
+    if (!event.target.closest("[data-map-board]") && !shapeElement) return;
     const token = event.target.closest("[data-map-token]");
     const point = boardPoint(event);
     if (!point) return;
@@ -1698,7 +2070,6 @@ export function createCombatMapController(options = {}) {
       event.preventDefault();
       return;
     }
-    const shapeElement = event.target.closest("[data-map-shape]");
     if (openPanel === "shapes" && shapeElement) {
       const shape = state.shapes.items.find((item) => item.id === shapeElement.dataset.mapShape);
       const shapePoint = layerPoint(event);
@@ -1783,8 +2154,9 @@ export function createCombatMapController(options = {}) {
     } else if (activeDrag.type === "shape") {
       const shape = state.shapes.items.find((item) => item.id === activeDrag.id);
       if (shape) {
-        shape.x = clamp(point.x - activeDrag.deltaX, 0, point.width);
-        shape.y = clamp(point.y - activeDrag.deltaY, 0, point.height);
+        const overflow = shape.type === "text" ? getTextShapeGutter(point.width, point.height) : 0;
+        shape.x = clamp(point.x - activeDrag.deltaX, -overflow, point.width + overflow);
+        shape.y = clamp(point.y - activeDrag.deltaY, -overflow, point.height + overflow);
         updateShapeElement(shape);
       }
     } else if (activeDrag.type === "shape-rotate") {
@@ -1820,7 +2192,7 @@ export function createCombatMapController(options = {}) {
       );
     } else if (activeDrag.type === "shape") {
       const shape = state.shapes.items.find((item) => item.id === activeDrag.id);
-      if (shape) {
+      if (shape && shape.type !== "text") {
         const snapped = snapTokenPosition(shape, state.grid);
         const board = editorWindow?.document.querySelector("[data-map-board]");
         const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
@@ -1833,6 +2205,7 @@ export function createCombatMapController(options = {}) {
     }
     activeDrag = null;
     persist(); sync();
+    notifyTokenCoordinates();
   }
 
   function chooseMap(callback) {
@@ -1847,5 +2220,5 @@ export function createCombatMapController(options = {}) {
     }, 0);
   }
 
-  return { open, sync, isOpen, getSaveData, applySave, setMap, selectMap: finishMapSelection, getMap, chooseMap, convertAndSetFile: handleImageFile };
+  return { open, sync, isOpen, getSaveData, applySave, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, chooseMap, convertAndSetFile: handleImageFile };
 }

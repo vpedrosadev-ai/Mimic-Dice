@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   getAreaShapeMetrics,
+  getGridCoordinateForPosition,
   getMapLayoutKey,
   normalizeMapEditorState,
   getPortableMapReference,
   isImageFileLike,
+  inspectImageFile,
   normalizeMapReference,
   resolveGridCoordinatePosition,
   snapCreaturePosition,
@@ -113,6 +115,43 @@ test("grid coordinates resolve to the same square and hex cell centers shown on 
   assert.equal(hex.x, 40);
   assert.ok(Math.abs(hex.y - 46.188021535170066) < 0.000001);
   assert.equal(resolveGridCoordinatePosition("Z99", { type: "square", size: 80 }, 300, 300), null);
+});
+
+test("token positions are converted back to editable grid coordinates", () => {
+  assert.equal(getGridCoordinateForPosition(
+    { x: 130, y: 120 },
+    { type: "square", size: 80, offsetX: 10, offsetY: 0 },
+    300,
+    300
+  ), "B2");
+  const hexGrid = { type: "hex", size: 80, offsetX: 0, offsetY: 0 };
+  const hexPoint = resolveGridCoordinatePosition("B1", hexGrid, 300, 300);
+  assert.equal(getGridCoordinateForPosition(hexPoint, hexGrid, 300, 300), "B1");
+});
+
+test("animated WebP files are detected from bytes instead of the declared MIME type", async () => {
+  const bytes = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x0c, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+    0x41, 0x4e, 0x49, 0x4d, 0, 0, 0, 0
+  ]);
+  const inspected = await inspectImageFile({
+    name: "mapa.jpg",
+    type: "image/jpeg",
+    arrayBuffer: async () => bytes.buffer
+  });
+  assert.equal(inspected.isWebp, true);
+  assert.equal(inspected.isAnimated, true);
+  assert.equal(inspected.mimeType, "image/webp");
+});
+
+test("text annotations retain their visual properties", () => {
+  const shape = normalizeMapEditorState({
+    shapes: { items: [{ id: "note", type: "text", text: "Entrada", textBoxVisible: false, textBoxColor: "#123456", textColor: "#abcdef", fontSize: 48, x: -40, y: 90 }] }
+  }).shapes.items[0];
+  assert.deepEqual(shape, {
+    id: "note", type: "text", color: "#f97316", distanceFeet: 15, x: -40, y: 90, rotation: 0,
+    text: "Entrada", textBoxVisible: false, textBoxColor: "#123456", textColor: "#abcdef", fontSize: 48
+  });
 });
 
 test("map layout keys identify cloud entries and local image contents", () => {

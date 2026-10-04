@@ -802,6 +802,7 @@ state = {
   cloudCatalogOwner: "",
   cloudCatalogCampaign: "",
   cloudCatalogSort: "updated-desc",
+  cloudCatalogAnimated: "all",
   cloudCatalogGroupBy: "owner-campaign",
   cloudCatalogSelectedIds: new Set(),
   cloudCatalogCollapsedGroups: new Set(),
@@ -1070,6 +1071,15 @@ const combatMapController = createCombatMapController({
   handleInitiativeChange: handleCombatTurnPopoutChange,
   handleInitiativeKeydown: handleCombatTurnPopoutKeydown,
   handleInitiativeContextMenu: handleCombatTurnPopoutContextMenu,
+  onGridVisibilityChange: () => {
+    if (state.activeScreen === "combat-tracker") render();
+  },
+  onTokenCoordinatesChange: (entries) => {
+    entries.forEach(({ id, coordinate }) => {
+      const input = app.querySelector(`[data-combat-map-coordinate="${CSS.escape(id)}"]`);
+      if (input && document.activeElement !== input) input.value = coordinate;
+    });
+  },
   onChange: () => scheduleDesktopCampaignDirtyStateSync(60),
   onCloudChanged: () => {
     if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
@@ -3983,6 +3993,12 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-cloud-catalog-animated]")) {
+    state.cloudCatalogAnimated = ["all", "animated", "static"].includes(target.value) ? target.value : "all";
+    render();
+    return;
+  }
+
   if (target.matches("[data-cloud-catalog-group-by]")) {
     state.cloudCatalogGroupBy = ["none", "campaign", "owner", "owner-campaign"].includes(target.value)
       ? target.value
@@ -4361,10 +4377,39 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-combat-map-coordinate]")) {
+    const coordinate = cleanText(target.value).toUpperCase().replaceAll(" ", "");
+    if (!combatMapController.setTokenCoordinate(target.dataset.combatMapCoordinate, coordinate)) {
+      target.setCustomValidity("La casilla no existe en la rejilla actual.");
+      target.reportValidity();
+      target.value = combatMapController.getTokenCoordinate(target.dataset.combatMapCoordinate);
+    } else {
+      target.setCustomValidity("");
+      target.value = combatMapController.getTokenCoordinate(target.dataset.combatMapCoordinate);
+    }
+    return;
+  }
+
   if (target.matches("[data-combat-turn-quick-hide]")) {
     updateCombatantInitiativeHidden(target.dataset.combatTurnQuickHide, target.checked);
     closeCombatTurnQuickMenu();
     saveCombatTrackerState();
+    render();
+    return;
+  }
+
+  if (target.matches("[data-combat-turn-quick-flying]")) {
+    updateCombatantFlight(target.dataset.combatTurnQuickFlying, { isFlying: target.checked });
+    saveCombatTrackerState();
+    combatMapController.sync();
+    render();
+    return;
+  }
+
+  if (target.matches("[data-combat-turn-quick-flight-height]")) {
+    updateCombatantFlight(target.dataset.combatTurnQuickFlightHeight, { flyingHeight: target.value });
+    saveCombatTrackerState();
+    combatMapController.sync();
     render();
     return;
   }
@@ -8370,7 +8415,8 @@ function normalizeCloudCatalogItem(item, kind) {
     ...item,
     catalogKind: kind,
     type: kind === "campaign" ? "campaign" : cleanText(item?.type).toLowerCase(),
-    ownerName: cleanText(item?.ownerName) || "Usuario de Mimic Dice"
+    ownerName: cleanText(item?.ownerName) || "Usuario de Mimic Dice",
+    isAnimated: item?.isAnimated === true || item?.payload?.map?.isAnimated === true || /[?&]animated=1(?:&|$)/.test(cleanText(item?.imageUrl))
   };
 }
 
@@ -8584,7 +8630,10 @@ function filterAndSortCloudCatalogItems(items) {
   const query = normalizeSearchText(state.cloudCatalogQuery);
   const owner = cleanText(state.cloudCatalogOwner);
   const campaign = cleanText(state.cloudCatalogCampaign);
+  const animated = state.cloudCatalogTab === "map" ? cleanText(state.cloudCatalogAnimated) : "all";
   const filtered = items.filter((item) => {
+    if (animated === "animated" && item.isAnimated !== true) return false;
+    if (animated === "static" && item.isAnimated === true) return false;
     if (owner && item.ownerName !== owner && item.importedFromOwnerName !== owner) {
       return false;
     }
@@ -8764,6 +8813,7 @@ function renderOwnedCloudCatalogCard(item) {
       <div class="cloud-catalog-card__badges">
         <span class="account-library-card__type">${escapeHtml(getCloudLibraryTypeLabel(item.type))}</span>
         <span class="account-campaign-card__visibility ${item.isPublic ? "is-public" : ""}">${visibilityLabel}</span>
+        ${item.isAnimated ? `<span class="account-campaign-card__visibility is-animated">Animado</span>` : ""}
       </div>
       <strong>${escapeHtml(item.name || "Contenido sin nombre")}</strong>
       ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}
@@ -8798,7 +8848,7 @@ function renderPublicCloudCatalogCard(item) {
   `;
   const body = `
     <div class="cloud-catalog-card__body">
-      <span class="account-library-card__type">${escapeHtml(getCloudLibraryTypeLabel(item.type))}</span>
+      <div class="cloud-catalog-card__badges"><span class="account-library-card__type">${escapeHtml(getCloudLibraryTypeLabel(item.type))}</span>${isMap ? `<span class="account-campaign-card__visibility is-public">Público</span>` : ""}${item.isAnimated ? `<span class="account-campaign-card__visibility is-animated">Animado</span>` : ""}</div>
       <strong>${escapeHtml(item.name || "Contenido sin nombre")}</strong>
       ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}
       ${renderCloudCatalogMeta(item)}
@@ -9106,6 +9156,7 @@ async function uploadCommunityMapFile(file) {
       previewUrl: converted.dataUrl,
       width: converted.width,
       height: converted.height,
+      isAnimated: converted.isAnimated === true,
       name,
       isPublic: true,
       error: ""
@@ -9142,7 +9193,8 @@ async function savePendingCommunityMapUpload() {
       width: draft.width,
       height: draft.height
     });
-    const imageUrl = cleanText(uploadResult?.asset?.url);
+    const assetUrl = cleanText(uploadResult?.asset?.url);
+    const imageUrl = assetUrl ? `${assetUrl}${draft.isAnimated ? "?animated=1" : ""}` : "";
     if (!imageUrl) throw new Error("La imagen no pudo guardarse en la nube.");
     await createCloudLibraryEntry({
       type: "map",
@@ -9154,7 +9206,8 @@ async function savePendingCommunityMapUpload() {
           name,
           imageUrl,
           width: draft.width,
-          height: draft.height
+          height: draft.height,
+          isAnimated: draft.isAnimated === true
         }
       }
     });
@@ -9190,7 +9243,7 @@ function renderCloudMapUploadDialog() {
     <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
       <section class="cloud-map-upload-dialog__panel">
         <header>
-          <div><p class="account-dialog__eyebrow">Mapa preparado en WebP</p><h2 id="cloud-map-upload-title">Guardar mapa en la nube</h2></div>
+        <div><p class="account-dialog__eyebrow">Mapa preparado en WebP ${draft.isAnimated ? "animado" : ""}</p><h2 id="cloud-map-upload-title">Guardar mapa en la nube</h2></div>
           <button class="account-dialog__close" type="button" data-action="cancel-cloud-map-upload" aria-label="Cerrar" ${busy ? "disabled" : ""}>×</button>
         </header>
         <img src="${escapeHtml(draft.previewUrl)}" alt="Previsualización del mapa">
@@ -9221,6 +9274,7 @@ function renderCloudMapCatalog(ownedItems, publicItems) {
     <div class="cloud-catalog-filters">
       <label><span>Buscar</span><input type="search" value="${escapeHtml(state.cloudCatalogQuery)}" placeholder="Nombre o usuario" data-cloud-catalog-query></label>
       <label><span>Orden</span><select data-cloud-catalog-sort><option value="updated-desc" ${state.cloudCatalogSort === "updated-desc" ? "selected" : ""}>Más recientes</option><option value="updated-asc" ${state.cloudCatalogSort === "updated-asc" ? "selected" : ""}>Más antiguos</option><option value="name-asc" ${state.cloudCatalogSort === "name-asc" ? "selected" : ""}>Nombre A–Z</option><option value="name-desc" ${state.cloudCatalogSort === "name-desc" ? "selected" : ""}>Nombre Z–A</option></select></label>
+      <label><span>Animación</span><select data-cloud-catalog-animated><option value="all" ${state.cloudCatalogAnimated === "all" ? "selected" : ""}>Todos</option><option value="animated" ${state.cloudCatalogAnimated === "animated" ? "selected" : ""}>Animados</option><option value="static" ${state.cloudCatalogAnimated === "static" ? "selected" : ""}>Estáticos</option></select></label>
       <button class="account-action-button${getCloudButtonBusyClass("saving", uploadTarget)}" type="button" data-action="select-cloud-map-upload" ${uploadAttributes}>${renderCloudButtonLabel("Subir mapa nuevo", "Convirtiendo…", "saving", uploadTarget)}</button>
       <input type="file" accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.avif" data-cloud-map-upload-file hidden>
       <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", "catalog:refresh")}" type="button" data-action="refresh-community-catalog" ${renderCloudButtonBusyAttributes("loading", "catalog:refresh")}>${renderCloudButtonLabel("Actualizar", "Actualizando...", "loading", "catalog:refresh")}</button>
@@ -11482,6 +11536,22 @@ function handleCombatTurnPopoutChange(event) {
     return;
   }
 
+  if (event.target.matches("[data-combat-turn-quick-flying]")) {
+    updateCombatantFlight(event.target.dataset.combatTurnQuickFlying, { isFlying: event.target.checked });
+    saveCombatTrackerState();
+    combatMapController.sync();
+    syncCombatTurnPopout();
+    return;
+  }
+
+  if (event.target.matches("[data-combat-turn-quick-flight-height]")) {
+    updateCombatantFlight(event.target.dataset.combatTurnQuickFlightHeight, { flyingHeight: event.target.value });
+    saveCombatTrackerState();
+    combatMapController.sync();
+    syncCombatTurnPopout();
+    return;
+  }
+
   if (event.target.matches("[data-combat-dice-input]") && /\d*d\d+/i.test(event.target.value)) {
     resolveCombatDiceFormulaInput(event.target);
   }
@@ -12117,6 +12187,13 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
           />
           <span>Hide</span>
         </label>
+        <div class="combat-turn-quick-menu__flight">
+          <label class="combat-turn-quick-menu__hide">
+            <input type="checkbox" data-combat-turn-quick-flying="${escapeHtml(combatant.id)}" ${combatant.isFlying === true ? "checked" : ""} />
+            <span>Volando</span>
+          </label>
+          <label class="combat-turn-quick-menu__flight-height"><span>Altura</span><input type="number" min="0" step="5" value="${Math.max(0, Math.round(toNumber(combatant.flyingHeight)))}" data-combat-turn-quick-flight-height="${escapeHtml(combatant.id)}" ${combatant.isFlying === true ? "" : "disabled"} /><span>pies</span></label>
+        </div>
         <div class="resource-cell__actions-row combat-turn-quick-menu__actions-row">
           <div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls">
             <input
@@ -13804,6 +13881,7 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
   scheduleActiveCombatSpellbookPopoverSync();
   scheduleActiveCombatSpellPreviewSync();
   syncCombatantPreviewPopouts();
+  combatMapController.sync();
   return true;
 }
 
@@ -13981,6 +14059,7 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
 
   if (column.key === "numPeana") {
     const hideLabel = "Hide";
+    const mapCoordinate = combatMapController.hasGrid() ? combatMapController.getTokenCoordinate(combatant.id) : "";
 
     return `
       <td>
@@ -14002,6 +14081,7 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
             />
             <span>${escapeHtml(hideLabel)}</span>
           </label>
+          ${combatMapController.hasGrid() ? `<label class="combat-stand-cell__coordinate" title="Casilla de la peana"><span>Casilla</span><input type="text" maxlength="12" value="${escapeHtml(mapCoordinate)}" placeholder="A8" data-combat-map-coordinate="${escapeHtml(combatant.id)}" aria-label="Casilla de ${escapeHtml(combatant.nombre || combatant.id)}"></label>` : ""}
         </div>
       </td>
     `;
@@ -19532,6 +19612,15 @@ function updateCombatantInitiativeHidden(id, isHidden) {
 
     state.activeTurnCombatantId = nextAfterHidden?.id || nextParticipants[0]?.id || "";
   }
+}
+
+function updateCombatantFlight(id, changes = {}) {
+  const combatantId = cleanText(id);
+  state.combatants = state.combatants.map((combatant) => combatant.id === combatantId ? {
+    ...combatant,
+    ...(changes.isFlying === undefined ? {} : { isFlying: changes.isFlying === true }),
+    ...(changes.flyingHeight === undefined ? {} : { flyingHeight: Math.max(0, Math.round(toNumber(changes.flyingHeight) / 5) * 5) })
+  } : combatant);
 }
 
 function updateCombatantStat(id, statKey, rawValue, normalize = true) {
