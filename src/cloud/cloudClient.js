@@ -272,6 +272,17 @@ export async function setCloudLibraryEntryVisibility(entryId, { isPublic, baseRe
   });
 }
 
+export async function updateCloudLibraryEntry(entryId, { name, isPublic, baseRevision }) {
+  return requestJson(`/api/library/${encodeURIComponent(entryId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...(name !== undefined ? { name } : {}),
+      ...(isPublic !== undefined ? { isPublic } : {}),
+      baseRevision
+    })
+  });
+}
+
 export async function deleteCloudLibraryEntry(entryId) {
   const response = await fetch(`/api/library/${encodeURIComponent(entryId)}`, {
     method: "DELETE",

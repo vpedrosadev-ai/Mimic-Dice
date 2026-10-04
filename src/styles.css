@@ -2618,6 +2618,74 @@ button.is-cloud-busy:disabled {
   overflow-wrap: anywhere;
 }
 
+.cloud-map-upload-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 4100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(4, 3, 2, .84);
+  backdrop-filter: blur(6px);
+}
+
+.cloud-map-upload-dialog__panel {
+  display: grid;
+  gap: .9rem;
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 1.15rem;
+  overflow: auto;
+  border: 1px solid rgba(219, 170, 94, .52);
+  border-radius: 1rem;
+  background: linear-gradient(155deg, #2a1b13, #100b08);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .65);
+}
+
+.cloud-map-upload-dialog__panel header,
+.cloud-map-upload-dialog__panel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.cloud-map-upload-dialog__panel h2,
+.cloud-map-upload-dialog__panel p {
+  margin: 0;
+}
+
+.cloud-map-upload-dialog__panel > img {
+  display: block;
+  width: 100%;
+  max-height: 46vh;
+  border-radius: .7rem;
+  object-fit: contain;
+  background: #0d1014;
+}
+
+.cloud-map-upload-dialog__panel > label {
+  display: grid;
+  gap: .35rem;
+  color: #d5c2a2;
+  font-weight: 700;
+}
+
+.cloud-map-upload-dialog__panel input,
+.cloud-map-upload-dialog__panel select {
+  width: 100%;
+  padding: .62rem .7rem;
+  border: 1px solid rgba(219, 170, 94, .38);
+  border-radius: .55rem;
+  background: #1b1511;
+  color: #f5e3c4;
+  font: inherit;
+}
+
+.cloud-map-upload-dialog__panel footer {
+  justify-content: flex-end;
+}
+
 .account-campaign-card {
   display: grid;
   gap: 0.72rem;

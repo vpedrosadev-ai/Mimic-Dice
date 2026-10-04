@@ -134,6 +134,7 @@ import {
   setCloudLibraryEntryVisibility,
   signOutAccount,
   updateCloudCampaign,
+  updateCloudLibraryEntry,
   updateCloudProfileImage,
   updateCloudProfileName,
   uploadCloudImage,
@@ -807,6 +808,7 @@ state = {
   cloudLocalCatalogItems: [],
   cloudCatalogPreview: null,
   cloudCatalogPreviewBusy: false,
+  cloudMapUploadDraft: null,
   cloudOperationKind: "",
   cloudOperationTarget: "",
   cloudCampaignId: "",
@@ -1993,6 +1995,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "rename-cloud-map") {
+    await renameOwnedCloudMap(actionButton.dataset.cloudEntryId);
+    return;
+  }
+
   if (action === "delete-cloud-library-entry") {
     await removeCloudLibraryEntry(actionButton.dataset.cloudEntryId);
     return;
@@ -2976,6 +2983,16 @@ async function handleClick(event) {
       return;
     }
     app.querySelector("[data-cloud-map-upload-file]")?.click();
+    return;
+  }
+
+  if (action === "confirm-cloud-map-upload") {
+    await savePendingCommunityMapUpload();
+    return;
+  }
+
+  if (action === "cancel-cloud-map-upload") {
+    discardPendingCommunityMapUpload();
     return;
   }
 
@@ -8701,6 +8718,10 @@ function renderOwnedCloudCatalogCard(item) {
   const actionLabel = item.loadedOrigin === "imported" && !item.isPublic
     ? "Publicar alternativa"
     : !item.isPublic ? "Hacer público" : "Hacer privado";
+  const isOwnedMap = cleanText(item.type).toLowerCase() === "map"
+    && item.catalogKind === "entry"
+    && item.isOwner === true;
+  const renameTarget = `library-rename:${item.id}`;
   const body = `
     <div class="cloud-catalog-card__body">
       <div class="cloud-catalog-card__badges">
@@ -8718,9 +8739,10 @@ function renderOwnedCloudCatalogCard(item) {
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
         ${state.accountSession?.user?.id ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>` : ""}
+        ${isOwnedMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", renameTarget)}" type="button" data-action="rename-cloud-map" data-cloud-entry-id="${escapeHtml(item.id)}" ${renderCloudButtonBusyAttributes("saving", renameTarget)}>${renderCloudButtonLabel("Renombrar", "Guardando...", "saving", renameTarget)}</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
         <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
-        ${cleanText(item.type).toLowerCase() === "map" ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
+        ${isOwnedMap ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
       </div>
     </article>
   `;
@@ -8932,7 +8954,7 @@ function renderCloudCatalogPreviewContent() {
   const type = cleanText(preview.item?.type).toLowerCase();
 
   if (type === "map") {
-    const map = normalizeMapReference(payload.map);
+    const map = normalizeMapReference({ ...payload.map, name: preview.item?.name || payload.map?.name });
     return map
       ? `<figure class="cloud-catalog-map-preview"><img src="${escapeHtml(map.imageUrl)}" alt="${escapeHtml(map.name)}"><figcaption>${escapeHtml(map.name)}</figcaption></figure>`
       : `<p class="account-dialog__empty">Imagen de mapa no disponible.</p>`;
@@ -9030,40 +9052,27 @@ async function uploadCommunityMapFile(file) {
     return;
   }
 
-  const operationTarget = "map:upload";
+  const operationTarget = "map:convert";
   beginCloudOperation("saving", operationTarget);
 
   try {
-    const converted = await convertImageFileToWebp(file);
-    const uploadResult = await uploadCloudImage(converted.blob, {
-      width: converted.width,
-      height: converted.height
-    });
-    const imageUrl = cleanText(uploadResult?.asset?.url);
-    if (!imageUrl) throw new Error("La imagen no pudo guardarse en la nube.");
-
+    let converted = await convertImageFileToWebp(file, 0.84);
+    if (converted.blob.size > 5 * 1024 * 1024) converted = await convertImageFileToWebp(file, 0.68);
+    if (converted.blob.size > 5 * 1024 * 1024) converted = await convertImageFileToWebp(file, 0.52);
+    if (converted.blob.size > 5 * 1024 * 1024) {
+      throw new Error("El mapa convertido supera el límite cloud de 5 MB.");
+    }
     const name = cleanText(file.name).replace(/\.[^.]+$/, "").slice(0, 120) || "Mapa";
-    await createCloudLibraryEntry({
-      type: "map",
+    state.cloudMapUploadDraft = {
+      blob: converted.blob,
+      previewUrl: converted.dataUrl,
+      width: converted.width,
+      height: converted.height,
       name,
-      imageUrl,
       isPublic: true,
-      payload: {
-        map: {
-          name,
-          imageUrl,
-          width: converted.width,
-          height: converted.height
-        }
-      }
-    });
+      error: ""
+    };
     state.accountError = "";
-    await refreshCommunityCatalog();
-    pushNotification({
-      title: "Mapa subido",
-      message: `${name} ya está disponible como mapa público.`
-    });
-    syncNotificationUi();
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
   }
@@ -9072,9 +9081,97 @@ async function uploadCommunityMapFile(file) {
   render();
 }
 
+async function savePendingCommunityMapUpload() {
+  const draft = state.cloudMapUploadDraft;
+  if (!draft || !state.accountSession?.user?.id) return;
+  const dialog = app.querySelector("[data-cloud-map-upload-dialog]");
+  const name = cleanText(dialog?.querySelector("[data-cloud-map-upload-name]")?.value).slice(0, 120);
+  const isPublic = dialog?.querySelector("[data-cloud-map-upload-visibility]")?.value !== "private";
+  if (!name) {
+    draft.error = "Escribe un nombre para el mapa.";
+    render({ focusSelector: "[data-cloud-map-upload-name]" });
+    return;
+  }
+
+  draft.name = name;
+  draft.isPublic = isPublic;
+  draft.error = "";
+  const operationTarget = "map:upload";
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    const uploadResult = await uploadCloudImage(draft.blob, {
+      width: draft.width,
+      height: draft.height
+    });
+    const imageUrl = cleanText(uploadResult?.asset?.url);
+    if (!imageUrl) throw new Error("La imagen no pudo guardarse en la nube.");
+    await createCloudLibraryEntry({
+      type: "map",
+      name,
+      imageUrl,
+      isPublic,
+      payload: {
+        map: {
+          name,
+          imageUrl,
+          width: draft.width,
+          height: draft.height
+        }
+      }
+    });
+    state.cloudMapUploadDraft = null;
+    state.accountError = "";
+    await refreshCommunityCatalog();
+    pushNotification({
+      title: "Mapa subido",
+      message: `${name} se ha guardado como mapa ${isPublic ? "público" : "privado"}.`
+    });
+    syncNotificationUi();
+  } catch (error) {
+    draft.error = getCloudErrorMessage(error);
+    state.accountError = draft.error;
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+function discardPendingCommunityMapUpload() {
+  if (isCloudOperationActive("saving", "map:upload")) return;
+  state.cloudMapUploadDraft = null;
+  render();
+}
+
+function renderCloudMapUploadDialog() {
+  const draft = state.cloudMapUploadDraft;
+  if (!draft) return "";
+  const operationTarget = "map:upload";
+  const busy = isCloudOperationActive("saving", operationTarget);
+  return `
+    <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
+      <section class="cloud-map-upload-dialog__panel">
+        <header>
+          <div><p class="account-dialog__eyebrow">Mapa preparado en WebP</p><h2 id="cloud-map-upload-title">Guardar mapa en la nube</h2></div>
+          <button class="account-dialog__close" type="button" data-action="cancel-cloud-map-upload" aria-label="Cerrar" ${busy ? "disabled" : ""}>×</button>
+        </header>
+        <img src="${escapeHtml(draft.previewUrl)}" alt="Previsualización del mapa">
+        <label><span>Nombre</span><input type="text" maxlength="120" value="${escapeHtml(draft.name)}" data-cloud-map-upload-name></label>
+        <label><span>Visibilidad</span><select data-cloud-map-upload-visibility><option value="public" ${draft.isPublic ? "selected" : ""}>Público</option><option value="private" ${draft.isPublic ? "" : "selected"}>Privado</option></select></label>
+        <p class="combat-map-help">La imagen ya está convertida. No se enviará hasta que pulses Guardar.</p>
+        ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
+        <footer>
+          <button class="account-action-button account-action-button--ghost" type="button" data-action="cancel-cloud-map-upload" ${busy ? "disabled" : ""}>Cancelar</button>
+          <button class="account-action-button${getCloudButtonBusyClass("saving", operationTarget)}" type="button" data-action="confirm-cloud-map-upload" ${renderCloudButtonBusyAttributes("saving", operationTarget)}>${renderCloudButtonLabel("Guardar", "Guardando…", "saving", operationTarget)}</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
 function renderCloudMapCatalog(ownedItems, publicItems) {
   const communityItems = publicItems.filter((item) => item.isOwner !== true);
-  const uploadTarget = "map:upload";
+  const uploadTarget = "map:convert";
   const uploadAttributes = state.accountSession?.user?.id
     ? renderCloudButtonBusyAttributes("saving", uploadTarget)
     : "disabled";
@@ -9086,7 +9183,7 @@ function renderCloudMapCatalog(ownedItems, publicItems) {
     <div class="cloud-catalog-filters">
       <label><span>Buscar</span><input type="search" value="${escapeHtml(state.cloudCatalogQuery)}" placeholder="Nombre o usuario" data-cloud-catalog-query></label>
       <label><span>Orden</span><select data-cloud-catalog-sort><option value="updated-desc" ${state.cloudCatalogSort === "updated-desc" ? "selected" : ""}>Más recientes</option><option value="updated-asc" ${state.cloudCatalogSort === "updated-asc" ? "selected" : ""}>Más antiguos</option><option value="name-asc" ${state.cloudCatalogSort === "name-asc" ? "selected" : ""}>Nombre A–Z</option><option value="name-desc" ${state.cloudCatalogSort === "name-desc" ? "selected" : ""}>Nombre Z–A</option></select></label>
-      <button class="account-action-button${getCloudButtonBusyClass("saving", uploadTarget)}" type="button" data-action="select-cloud-map-upload" ${uploadAttributes}>${renderCloudButtonLabel("Subir mapa nuevo", "Convirtiendo y subiendo…", "saving", uploadTarget)}</button>
+      <button class="account-action-button${getCloudButtonBusyClass("saving", uploadTarget)}" type="button" data-action="select-cloud-map-upload" ${uploadAttributes}>${renderCloudButtonLabel("Subir mapa nuevo", "Convirtiendo…", "saving", uploadTarget)}</button>
       <input type="file" accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.avif" data-cloud-map-upload-file hidden>
       <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", "catalog:refresh")}" type="button" data-action="refresh-community-catalog" ${renderCloudButtonBusyAttributes("loading", "catalog:refresh")}>${renderCloudButtonLabel("Actualizar", "Actualizando...", "loading", "catalog:refresh")}</button>
     </div>
@@ -9098,6 +9195,7 @@ function renderCloudMapCatalog(ownedItems, publicItems) {
       <div class="account-dialog__section-heading"><h3>Tus mapas</h3><span>${ownedItems.length}</span></div>
       ${ownedItems.length ? renderCloudCatalogGrid(ownedItems, true) : `<p class="account-dialog__empty">Todavía no has subido mapas.</p>`}
     </section>` : ""}
+    ${renderCloudMapUploadDialog()}
   `;
 }
 
@@ -28122,7 +28220,7 @@ async function applyCloudLibraryEntryResult(result, options = {}) {
   } else if (type === "table") {
     return importCloudTableEntry(payload, options);
   } else if (type === "map") {
-    const map = normalizeMapReference(payload.map);
+    const map = normalizeMapReference({ ...payload.map, name: result.entry?.name || payload.map?.name });
     if (!map) throw new Error("El mapa cloud no contiene una imagen válida.");
     combatMapController.setMap({ ...map, cloudEntryId: result.entry?.id });
     combatMapController.open();
@@ -28267,6 +28365,45 @@ async function toggleCloudLibraryEntryPublic(entryId) {
     state.accountError = getCloudErrorMessage(error);
   }
 
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+async function renameOwnedCloudMap(entryId) {
+  const entry = state.cloudLibraryEntries.find((item) => (
+    item.id === cleanText(entryId)
+    && item.isOwner === true
+    && cleanText(item.type).toLowerCase() === "map"
+  ));
+  if (!entry) {
+    state.accountError = "Solo puedes renombrar mapas subidos con tu cuenta.";
+    render();
+    return;
+  }
+
+  const requestedName = window.prompt("Nuevo nombre del mapa:", entry.name || "Mapa");
+  if (requestedName === null) return;
+  const name = cleanText(requestedName).slice(0, 120);
+  if (!name) {
+    state.accountError = "El nombre del mapa no puede estar vacío.";
+    render();
+    return;
+  }
+  if (name === entry.name) return;
+
+  const operationTarget = `library-rename:${entry.id}`;
+  beginCloudOperation("saving", operationTarget);
+  try {
+    await updateCloudLibraryEntry(entry.id, {
+      name,
+      baseRevision: entry.revision
+    });
+    await refreshCommunityCatalog();
+    pushNotification({ title: "Mapa renombrado", message: `Ahora se llama ${name}.` });
+    syncNotificationUi();
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
   endCloudOperation("saving", operationTarget);
   render();
 }
@@ -28640,6 +28777,7 @@ function clearPrivateCloudAccountState() {
   state.cloudCatalogSelectedIds = new Set();
   state.cloudCatalogPreview = null;
   state.cloudCatalogPreviewBusy = false;
+  state.cloudMapUploadDraft = null;
   state.accountProfileNameDraft = "";
   state.accountProfileNameEditing = false;
 }

@@ -278,7 +278,15 @@ async function createEntry(context, user) {
     ),
     ...chunkStatements(context.env.DB, entryId, payloadVersion, chunks)
   ];
-  await context.env.DB.batch(statements);
+  try {
+    await context.env.DB.batch(statements);
+  } catch (error) {
+    const detail = String(error?.message || error);
+    if (type === "map" && /check constraint failed|cloud_library_entries\.type/i.test(detail)) {
+      throw new HttpError(503, "map_storage_migration_required", "Map storage is being updated. Apply the pending database migration and retry.");
+    }
+    throw error;
+  }
   await syncCloudAssetReferences(context.env.DB, user.id, "library", entryId, body.payload);
   const entry = await getEntryRecord(context.env.DB, entryId);
   return jsonResponse({ entry: entrySummary(entry, user.id) }, 201);
@@ -300,7 +308,7 @@ async function getEntry(context, entryId, user) {
   });
 }
 
-async function updateEntryVisibility(context, entryId, user) {
+async function updateEntry(context, entryId, user) {
   const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
   const entry = catalogEntry || await getEntryRecord(context.env.DB, entryId);
 
@@ -315,13 +323,25 @@ async function updateEntryVisibility(context, entryId, user) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");
   }
 
+  const changesName = Object.prototype.hasOwnProperty.call(body, "name");
+  const changesVisibility = Object.prototype.hasOwnProperty.call(body, "isPublic");
+  if (!changesName && !changesVisibility) {
+    throw new HttpError(400, "invalid_library_update", "Library update must change its name or visibility.");
+  }
+
+  const nextName = changesName ? cleanText(body.name, 160) : entry.name;
+  if (!nextName) {
+    throw new HttpError(400, "invalid_library_name", "Library entry name is required.");
+  }
+  const nextVisibility = changesVisibility ? body.isPublic === true : entry.isPublic === 1;
+
   const now = new Date().toISOString();
   const tableName = catalogEntry ? "cloud_catalog_entries" : "cloud_library_entries";
   const result = await context.env.DB.prepare(`
     UPDATE "${tableName}"
-    SET "isPublic" = ?, "revision" = "revision" + 1, "updatedAt" = ?
+    SET "name" = ?, "isPublic" = ?, "revision" = "revision" + 1, "updatedAt" = ?
     WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
-  `).bind(body.isPublic === true ? 1 : 0, now, entryId, user.id, baseRevision).run();
+  `).bind(nextName, nextVisibility ? 1 : 0, now, entryId, user.id, baseRevision).run();
 
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");
@@ -406,7 +426,7 @@ export async function handleLibraryRequest(context) {
     const user = await requireAuthenticatedUser(context);
 
     if (method === "PATCH") {
-      return await updateEntryVisibility(context, entryId, user);
+      return await updateEntry(context, entryId, user);
     }
     if (method === "DELETE") {
       return await deleteEntry(context, entryId, user);

@@ -300,6 +300,7 @@ export function createCombatMapController(options = {}) {
       const result = await getCloudLibraryEntry(entryId);
       const resolved = normalizeMapReference({
         ...(result.payload?.map || {}),
+        name: result.entry?.name || result.payload?.map?.name,
         cloudEntryId: entryId,
         isPrivate: result.entry?.isPublic !== true
       });
@@ -679,6 +680,7 @@ export function createCombatMapController(options = {}) {
       const result = await getCloudLibraryEntry(entryId);
       const map = normalizeMapReference({
         ...(result.payload?.map || { name: result.entry?.name, imageUrl: result.entry?.imageUrl }),
+        name: result.entry?.name || result.payload?.map?.name,
         cloudEntryId: entryId,
         isPrivate: result.entry?.isPublic !== true
       });
