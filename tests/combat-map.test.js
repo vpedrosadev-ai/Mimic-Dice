@@ -39,6 +39,7 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
     windowBounds: { width: 200, height: 5000, left: -80, top: 25 },
     viewport: { scrollLeft: 140, scrollTop: 75 },
     rotation: 91,
+    rotationOrientation: "with-map",
     grid: { type: "triangle", size: 1000 },
     healthMode: "invalid",
     fog: { brushSize: 1, revealed: [{ x: 5, y: 7, r: 2 }] },
@@ -47,6 +48,7 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
   });
 
   assert.equal(normalized.rotation, 0);
+  assert.equal(normalized.rotationOrientation, "with-map");
   assert.equal(normalized.openPanel, "grid");
   assert.deepEqual(normalized.windowBounds, { width: 720, height: 2160, left: -80, top: 25 });
   assert.deepEqual(normalized.viewport, { scrollLeft: 140, scrollTop: 75, zoom: 1 });

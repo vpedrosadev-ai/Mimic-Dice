@@ -3354,6 +3354,15 @@ button.is-cloud-busy:disabled {
   border-bottom: 1px solid rgba(255, 255, 255, .12);
 }
 
+.combat-map-load-menu {
+  display: grid;
+  gap: .6rem;
+  padding: .7rem;
+  border: 1px solid rgba(224, 173, 96, .28);
+  border-radius: .6rem;
+  background: rgba(10, 8, 6, .35);
+}
+
 .combat-map-priority-list h3 {
   margin: 0;
   color: #efc681;
@@ -3444,15 +3453,26 @@ button.is-cloud-busy:disabled {
   place-items: center;
   min-width: 0;
   min-height: 0;
-  padding: 7rem;
+  padding: .75rem;
   overflow: auto;
 }
 
-.combat-map-board {
+.combat-map-frame {
   position: relative;
   flex: none;
+}
+
+.combat-map-scale-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.combat-map-board {
+  position: absolute;
+  flex: none;
   overflow: visible;
-  transform-origin: center;
 }
 
 .combat-map-clip {
@@ -3600,7 +3620,7 @@ button.is-cloud-busy:disabled {
   top: 50%;
   left: 50%;
   padding: .18rem .38rem;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) rotate(var(--shape-label-counter-rotation, 0deg));
   border: 1px solid rgba(255, 255, 255, .7);
   border-radius: 999px;
   background: rgba(10, 13, 17, .82);
@@ -3827,7 +3847,7 @@ button.is-cloud-busy:disabled {
   min-width: 0;
   min-height: 0;
   padding: .75rem;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid rgba(215, 171, 103, .28);
   background:
     radial-gradient(circle at 10% 0, rgba(217, 171, 93, .1), transparent 30%),
@@ -3835,20 +3855,27 @@ button.is-cloud-busy:disabled {
 }
 
 .combat-map-initiative-order-inner {
-  min-width: max-content;
-  min-height: max-content;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .combat-map-initiative .combat-turn-strip {
-  width: max-content;
+  display: grid;
+  grid-template-columns: repeat(var(--initiative-columns, 1), max-content);
+  width: 100%;
+  height: 100%;
   max-height: none;
-  flex-wrap: nowrap;
+  align-content: center;
+  justify-content: center;
+  gap: .5rem;
+  overflow: hidden;
 }
 
 .combat-map-workspace--left .combat-map-initiative .combat-turn-strip,
 .combat-map-workspace--right .combat-map-initiative .combat-turn-strip {
-  flex-direction: column;
-  align-items: center;
+  grid-auto-flow: row;
 }
 
 .combat-map-initiative-resizer {

@@ -1026,6 +1026,17 @@ const combatMapController = createCombatMapController({
   getActiveCombatantId: () => state.isCombatActive ? state.activeTurnCombatantId : "",
   getEncounterMaps: getLoadedCombatEncounterMapChoices,
   getAccountSession: () => state.accountSession,
+  openCloudMapCatalog: () => {
+    state.accountDialogOpen = true;
+    state.accountDialogView = "catalog";
+    state.cloudCatalogTab = "map";
+    state.cloudCatalogOwner = "";
+    state.cloudCatalogCampaign = "";
+    state.cloudCatalogPreview = null;
+    render();
+    refreshCommunityCatalog();
+    window.focus();
+  },
   renderInitiativeOrder: () => {
     const turnOrder = getCombatTurnDisplayParticipants(getCombatTurnOrder());
     const activeId = state.isCombatActive ? getActiveTurnCombatantId(getCombatTurnParticipants(turnOrder)) : "";
@@ -8749,6 +8760,7 @@ function renderOwnedCloudCatalogCard(item) {
     <article class="cloud-catalog-card cloud-catalog-card--owned ${checked ? "is-selected" : ""}">
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
+        ${isOwnedMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
         ${state.accountSession?.user?.id ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>` : ""}
         ${isOwnedMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", renameTarget)}" type="button" data-action="rename-cloud-map" data-cloud-entry-id="${escapeHtml(item.id)}" ${renderCloudButtonBusyAttributes("saving", renameTarget)}>${renderCloudButtonLabel("Renombrar", "Guardando...", "saving", renameTarget)}</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
@@ -9067,9 +9079,9 @@ async function uploadCommunityMapFile(file) {
   beginCloudOperation("saving", operationTarget);
 
   try {
-    let converted = await convertImageFileToWebp(file, 0.84);
-    if (converted.blob.size > 5 * 1024 * 1024) converted = await convertImageFileToWebp(file, 0.68);
-    if (converted.blob.size > 5 * 1024 * 1024) converted = await convertImageFileToWebp(file, 0.52);
+    let converted = await convertImageFileToWebp(file, 0.95);
+    if (converted.blob.size > 5 * 1024 * 1024 && converted.blob !== file) converted = await convertImageFileToWebp(file, 0.86);
+    if (converted.blob.size > 5 * 1024 * 1024 && converted.blob !== file) converted = await convertImageFileToWebp(file, 0.74);
     if (converted.blob.size > 5 * 1024 * 1024) {
       throw new Error("El mapa convertido supera el límite cloud de 5 MB.");
     }
@@ -28233,7 +28245,7 @@ async function applyCloudLibraryEntryResult(result, options = {}) {
   } else if (type === "map") {
     const map = normalizeMapReference({ ...payload.map, name: result.entry?.name || payload.map?.name });
     if (!map) throw new Error("El mapa cloud no contiene una imagen válida.");
-    combatMapController.setMap({ ...map, cloudEntryId: result.entry?.id });
+    combatMapController.selectMap({ ...map, cloudEntryId: result.entry?.id });
     combatMapController.open();
     return { entityIds: [] };
   } else if (["spell", "item", "monster"].includes(type)) {
