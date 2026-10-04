@@ -86,6 +86,9 @@ function normalizeStoredCombatTrackerState(value, defaultState = getDefaultComba
     isCombatActive: value.isCombatActive === true,
     activeTurnCombatantId: normalizeStoredActiveTurnCombatantId(value.activeTurnCombatantId, combatants),
     combatRound: normalizeStoredCombatRound(value.combatRound),
+    combatEncounterLoadOrder: Array.isArray(value.combatEncounterLoadOrder)
+      ? [...new Set(value.combatEncounterLoadOrder.map(cleanText).filter(Boolean))]
+      : [],
     enemyHpMode: normalizeStoredEnemyHpMode(value.enemyHpMode)
   };
 }
@@ -128,6 +131,7 @@ function getCombatTrackerSaveData(options = {}) {
     isCombatActive: state.isCombatActive,
     activeTurnCombatantId: state.activeTurnCombatantId,
     combatRound: state.combatRound,
+    combatEncounterLoadOrder: Array.isArray(state.combatEncounterLoadOrder) ? state.combatEncounterLoadOrder : [],
     enemyHpMode: state.enemyHpMode
   };
 
@@ -156,6 +160,7 @@ function getDefaultCombatTrackerState() {
     isCombatActive: false,
     activeTurnCombatantId: "",
     combatRound: 1,
+    combatEncounterLoadOrder: [],
     enemyHpMode: ENEMY_HP_MODE_FIXED
   };
 }
@@ -195,6 +200,7 @@ function normalizeStoredCombatant(combatant) {
     canonicalSource: cleanText(combatant.canonicalSource),
     source: cleanText(combatant.source),
     tokenUrl: cleanText(combatant.tokenUrl),
+    sourceEncounterId: cleanText(combatant.sourceEncounterId),
     ubicacion: cleanText(combatant.ubicacion),
     iniactiva: normalizeStoredNumber(combatant.iniactiva),
     nombre: cleanText(combatant.nombre),

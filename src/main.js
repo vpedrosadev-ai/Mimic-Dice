@@ -83,6 +83,7 @@ import {
   getFightClubCharacterXmlFileName
 } from "./screens/characters/characterFightClubXml.js";
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
+import { createCombatMapController, getPortableMapReference, normalizeMapReference } from "./screens/combat-map/combatMap.js";
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
@@ -891,6 +892,7 @@ state = {
   isCombatActive: initialCombatTrackerState.isCombatActive,
   activeTurnCombatantId: initialCombatTrackerState.activeTurnCombatantId,
   combatRound: initialCombatTrackerState.combatRound,
+  combatEncounterLoadOrder: initialCombatTrackerState.combatEncounterLoadOrder,
   enemyHpMode: initialCombatTrackerState.enemyHpMode,
   battleTimer: {
     elapsedMs: 0,
@@ -1016,6 +1018,28 @@ state = {
   combatTurnRoundDraft: "",
   combatTurnJumpMenuOpen: false
 };
+
+const combatMapController = createCombatMapController({
+  getCombatants: () => [...state.combatants].filter(Boolean).sort(compareCombatants),
+  getActiveCombatantId: () => state.isCombatActive ? state.activeTurnCombatantId : "",
+  getEncounterMaps: getLoadedCombatEncounterMapChoices,
+  getAccountSession: () => state.accountSession,
+  renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
+  openContextMenu: (combatantId, x, y) => openCombatTurnQuickMenu(combatantId, x, y),
+  closeContextMenu: closeCombatTurnQuickMenu,
+  handleContextClick: handleCombatTurnPopoutClick,
+  handleContextInput: handleCombatTurnPopoutInput,
+  handleContextChange: handleCombatTurnPopoutChange,
+  handleContextKeydown: handleCombatTurnPopoutKeydown,
+  onChange: () => scheduleDesktopCampaignDirtyStateSync(60),
+  onCloudChanged: () => {
+    if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
+  },
+  onNotify: (title, message, tone = "success") => {
+    pushNotification({ title, message, tone });
+    syncNotificationUi();
+  }
+});
 
 let activeDiaryMentionContext = null;
 let activeDiaryTagColorPicker = null;
@@ -2935,6 +2959,32 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-combat-map") {
+    combatMapController.open();
+    return;
+  }
+
+  if (action === "open-combat-map-picker") {
+    combatMapController.chooseMap();
+    return;
+  }
+
+  if (action === "choose-encounter-map") {
+    const encounterId = cleanText(actionButton.dataset.encounterId);
+    combatMapController.chooseMap((map) => setEncounterMap(encounterId, map));
+    return;
+  }
+
+  if (action === "upload-encounter-map") {
+    app.querySelector(`[data-encounter-map-file="${CSS.escape(cleanText(actionButton.dataset.encounterId))}"]`)?.click();
+    return;
+  }
+
+  if (action === "remove-encounter-map") {
+    setEncounterMap(actionButton.dataset.encounterId, null);
+    return;
+  }
+
   if (action === "toggle-encounter-inventory") {
     state.encounterInventoryOpen = !state.encounterInventoryOpen;
     state.activeEncounterSourceRowId = "";
@@ -3783,6 +3833,17 @@ function cancelPendingCombatantBestiaryTokenClick() {
 
 async function handleChange(event) {
   const target = event.target;
+
+  if (target.matches("[data-encounter-map-file]")) {
+    const file = target.files?.[0];
+    const encounterId = cleanText(target.dataset.encounterMapFile);
+    target.value = "";
+    if (file && encounterId) {
+      const map = await combatMapController.convertAndSetFile(file);
+      if (map) setEncounterMap(encounterId, map);
+    }
+    return;
+  }
 
   if (target.matches("[data-combat-dice-input]") && /\d*d\d+/i.test(target.value)) {
     resolveCombatDiceFormulaInput(target);
@@ -6148,7 +6209,7 @@ function getSelectedEncounterExportBundle() {
       .filter(Boolean),
     encounters: state.encounters
       .filter((encounter) => selectedEncounterIds.has(encounter.id))
-      .map((encounter) => normalizeStoredEncounter(encounter))
+      .map((encounter) => getPortableEncounter(encounter))
       .filter(Boolean)
   };
 }
@@ -7992,6 +8053,7 @@ function render(focusState = null) {
   syncCombatTurnPopout();
   syncCombatantPreviewPopouts();
   syncDiceRollerPopout();
+  combatMapController.sync();
 
   saveCombatTrackerState();
 
@@ -8183,6 +8245,7 @@ function getCloudLibraryTypeLabel(type) {
     spell: "Hechizo",
     item: "Objeto",
     monster: "Enemigo",
+    map: "Mapa",
     diary: "Diario",
     table: "Tabla"
   }[cleanText(type).toLowerCase()] || "Contenido";
@@ -8224,6 +8287,7 @@ const CLOUD_CATALOG_TABS = Object.freeze([
   { id: "character", label: "Personajes" },
   { id: "monster", label: "Enemigos" },
   { id: "encounter", label: "Encuentros" },
+  { id: "map", label: "Mapas" },
   { id: "item", label: "Objetos" },
   { id: "spell", label: "Hechizos" },
   { id: "diary", label: "Diarios" },
@@ -8304,6 +8368,14 @@ function getCloudCatalogItems({ owned = false } = {}) {
       .map((campaign) => normalizeCloudCatalogItem(campaign, "campaign"));
   }
 
+  if (tab === "map") {
+    const source = owned ? state.cloudLibraryEntries : state.publicCloudLibraryEntries;
+    return [...new Map(source
+      .filter((entry) => cleanText(entry.type).toLowerCase() === "map")
+      .filter((entry) => owned ? entry.isOwner === true : entry.isPublic === true)
+      .map((entry) => [entry.id, normalizeCloudCatalogItem(entry, "entry")])).values()];
+  }
+
   if (!owned) {
     const activeCampaignId = cleanText(state.cloudCampaignId);
     const loadedSourceEntryIds = getLoadedCloudImportSourceEntryIds();
@@ -8374,6 +8446,10 @@ function getCloudCatalogOtherCampaignItems() {
   const tab = state.cloudCatalogTab;
   const activeCampaignId = cleanText(state.cloudCampaignId);
   const activeCampaignName = normalizeSearchText(state.campaignName);
+
+  if (tab === "map") {
+    return [];
+  }
 
   if (tab === "campaign") {
     return state.cloudCampaigns
@@ -8548,7 +8624,7 @@ function renderCloudCatalogMeta(item) {
 }
 
 function renderCloudCatalogCardImage(item) {
-  if (!["character", "monster", "item", "spell"].includes(cleanText(item.type).toLowerCase()) || !cleanText(item.imageUrl)) {
+  if (!["character", "monster", "item", "spell", "map"].includes(cleanText(item.type).toLowerCase()) || !cleanText(item.imageUrl)) {
     return "";
   }
 
@@ -8627,15 +8703,17 @@ function renderOwnedCloudCatalogCard(item) {
         ${state.accountSession?.user?.id ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
         <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
+        ${cleanText(item.type).toLowerCase() === "map" ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
       </div>
     </article>
   `;
 }
 
 function renderPublicCloudCatalogCard(item) {
+  const isMap = cleanText(item.type).toLowerCase() === "map";
   const selectionKey = getCloudCatalogSelectionKey(item);
   const checked = isCloudCatalogSelectionKeySelected(selectionKey);
-  const selection = `
+  const selection = isMap ? "" : `
     <label class="cloud-catalog-card__check">
       <input type="checkbox" data-cloud-catalog-select="${escapeHtml(selectionKey)}" ${checked ? "checked" : ""} />
       <span>Seleccionar</span>
@@ -8654,6 +8732,7 @@ function renderPublicCloudCatalogCard(item) {
     <article class="cloud-catalog-card ${checked ? "is-selected" : ""}">
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
+        ${isMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
         <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
       </div>
@@ -8668,7 +8747,7 @@ function renderCloudCatalogGrid(items, owned) {
 
 function renderCloudCatalogGroup(key, title, items, owned, content, subtitle = "") {
   const isExpanded = !state.cloudCatalogCollapsedGroups.has(key);
-  const selectionKeys = owned || state.cloudCatalogTab === "campaign"
+  const selectionKeys = owned || state.cloudCatalogTab === "campaign" || state.cloudCatalogTab === "map"
     ? []
     : items.map(getCloudCatalogSelectionKey);
   const allSelected = selectionKeys.length > 0 && selectionKeys.every(isCloudCatalogSelectionKeySelected);
@@ -8835,6 +8914,13 @@ function renderCloudCatalogPreviewContent() {
 
   const type = cleanText(preview.item?.type).toLowerCase();
 
+  if (type === "map") {
+    const map = normalizeMapReference(payload.map);
+    return map
+      ? `<figure class="cloud-catalog-map-preview"><img src="${escapeHtml(map.imageUrl)}" alt="${escapeHtml(map.name)}"><figcaption>${escapeHtml(map.name)}</figcaption></figure>`
+      : `<p class="account-dialog__empty">Imagen de mapa no disponible.</p>`;
+  }
+
   if (type === "character") {
     const character = normalizeStoredCharacter(payload.characters?.[0], payload.characterSkills?.definitions);
     return character
@@ -8914,6 +9000,30 @@ function renderCloudCatalogPreview() {
   `;
 }
 
+function renderCloudMapCatalog(ownedItems, publicItems) {
+  const communityItems = publicItems.filter((item) => item.isOwner !== true);
+  return `
+    <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
+    <nav class="cloud-catalog-tabs" aria-label="Categorías del catálogo">
+      ${CLOUD_CATALOG_TABS.map((tab) => `<button class="cloud-catalog-tab ${state.cloudCatalogTab === tab.id ? "is-active" : ""}" type="button" data-action="set-cloud-catalog-tab" data-cloud-catalog-tab="${tab.id}">${escapeHtml(tab.label)}</button>`).join("")}
+    </nav>
+    <div class="cloud-catalog-filters">
+      <label><span>Buscar</span><input type="search" value="${escapeHtml(state.cloudCatalogQuery)}" placeholder="Nombre o usuario" data-cloud-catalog-query></label>
+      <label><span>Orden</span><select data-cloud-catalog-sort><option value="updated-desc" ${state.cloudCatalogSort === "updated-desc" ? "selected" : ""}>Más recientes</option><option value="updated-asc" ${state.cloudCatalogSort === "updated-asc" ? "selected" : ""}>Más antiguos</option><option value="name-asc" ${state.cloudCatalogSort === "name-asc" ? "selected" : ""}>Nombre A–Z</option><option value="name-desc" ${state.cloudCatalogSort === "name-desc" ? "selected" : ""}>Nombre Z–A</option></select></label>
+      <button class="account-action-button" type="button" data-action="open-combat-map-picker">Subir mapa nuevo</button>
+      <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", "catalog:refresh")}" type="button" data-action="refresh-community-catalog" ${renderCloudButtonBusyAttributes("loading", "catalog:refresh")}>${renderCloudButtonLabel("Actualizar", "Actualizando...", "loading", "catalog:refresh")}</button>
+    </div>
+    <section class="account-dialog__section cloud-catalog-section">
+      <div class="account-dialog__section-heading"><h3>Mapas públicos</h3><span>${communityItems.length}</span></div>
+      ${communityItems.length ? renderCloudCatalogGrid(communityItems, false) : `<p class="account-dialog__empty">No hay mapas públicos con estos filtros.</p>`}
+    </section>
+    ${state.accountSession?.user?.id ? `<section class="account-dialog__section cloud-catalog-section">
+      <div class="account-dialog__section-heading"><h3>Tus mapas</h3><span>${ownedItems.length}</span></div>
+      ${ownedItems.length ? renderCloudCatalogGrid(ownedItems, true) : `<p class="account-dialog__empty">Todavía no has subido mapas.</p>`}
+    </section>` : ""}
+  `;
+}
+
 function renderCommunityCatalog() {
   cloudCatalogSelectionGroups.clear();
   cloudCatalogGroupCollections.clear();
@@ -8926,16 +9036,19 @@ function renderCommunityCatalog() {
   const ownedItems = filterAndSortCloudCatalogItems(ownedCatalogItems);
   const otherCampaignItems = filterAndSortCloudCatalogItems(otherCampaignCatalogItems);
   const publicItems = filterAndSortCloudCatalogItems(publicCatalogItems);
+  if (state.cloudCatalogTab === "map") {
+    return renderCloudMapCatalog(ownedItems, publicItems);
+  }
   const originalItems = ownedItems.filter((item) => item.loadedOrigin !== "imported");
   const importedItems = ownedItems.filter((item) => item.loadedOrigin === "imported");
   const ownerOptions = getCloudCatalogOwnerOptions(allCatalogItems);
   const campaignOptions = getCloudCatalogCampaignOptions(allCatalogItems);
   const otherCampaignSelectionGroupKey = `other-campaigns-filtered:${state.cloudCatalogTab}`;
-  const otherCampaignSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : otherCampaignItems.map(getCloudCatalogSelectionKey);
+  const otherCampaignSelectionKeys = ["campaign", "map"].includes(state.cloudCatalogTab) ? [] : otherCampaignItems.map(getCloudCatalogSelectionKey);
   const allOtherCampaignSelected = otherCampaignSelectionKeys.length > 0
     && otherCampaignSelectionKeys.every(isCloudCatalogSelectionKeySelected);
   const filteredSelectionGroupKey = `filtered:${state.cloudCatalogTab}`;
-  const filteredSelectionKeys = state.cloudCatalogTab === "campaign" ? [] : publicItems.map(getCloudCatalogSelectionKey);
+  const filteredSelectionKeys = ["campaign", "map"].includes(state.cloudCatalogTab) ? [] : publicItems.map(getCloudCatalogSelectionKey);
   const allFilteredSelected = filteredSelectionKeys.length > 0
     && filteredSelectionKeys.every(isCloudCatalogSelectionKeySelected);
   const otherCampaignGroupCollectionKey = `other-campaigns:${state.cloudCatalogTab}`;
@@ -10134,6 +10247,7 @@ function renderCombatTracker() {
           ${!state.combatTimerPanelOpen
             ? `
               <div class="combat-heading__actions">
+                ${renderCombatMapButton()}
                 ${renderCombatTimerToggleButton(false)}
               </div>
             `
@@ -10290,11 +10404,28 @@ function renderCombatTimerToggleButton(isActive = false) {
   `;
 }
 
+function renderCombatMapButton() {
+  return `
+    <button
+      class="toolbar-button toolbar-button--combat combat-overview-toggle"
+      type="button"
+      data-action="open-combat-map"
+      aria-label="Abrir mapa de combate"
+    >
+      <span class="button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="m3 5 5-2 8 2 5-2v16l-5 2-8-2-5 2V5Zm6 .2v11.9l6 1.5V6.7L9 5.2Zm-4 1.3v11.6l2-.8V5.7l-2 .8Zm12 .2v11.6l2-.8V5.9l-2 .8Z" /></svg>
+      </span>
+      Mapa
+    </button>
+  `;
+}
+
 function renderCombatTimerPanel(battleTimerLabel) {
   return `
     <div class="combat-timer">
       <article class="combat-timer__card">
         <div class="combat-timer__toolbar">
+          ${renderCombatMapButton()}
           ${renderCombatTimerToggleButton(true)}
         </div>
         <div class="combat-timer__visual">
@@ -12348,6 +12479,8 @@ function renderEncounterEditor(activeEncounter) {
       </div>
     </div>
 
+    ${renderEncounterMapField(activeEncounter)}
+
     <div class="encounter-rows" role="list" aria-label="Criaturas del encuentro">
       ${
         activeEncounter.rows.length > 0
@@ -12360,6 +12493,19 @@ function renderEncounterEditor(activeEncounter) {
       }
     </div>
   `;
+}
+
+function renderEncounterMapField(encounter) {
+  const map = normalizeMapReference(encounter?.map);
+  return `<section class="encounter-map-field" aria-label="Mapa del encuentro">
+    <div class="encounter-map-field__preview">
+      ${map?.imageUrl ? `<img src="${escapeHtml(map.imageUrl)}" alt=""><span><strong>Mapa asociado</strong><br>${escapeHtml(map.name)}</span>` : map ? `<span><strong>Mapa privado asociado</strong><br>${escapeHtml(map.name)} · requiere cuenta propietaria</span>` : `<span><strong>Mapa asociado</strong><br>Ninguno</span>`}
+    </div>
+    <button class="toolbar-button" type="button" data-action="choose-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Elegir nube</button>
+    <button class="toolbar-button" type="button" data-action="upload-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Subir imagen</button>
+    ${map ? `<button class="toolbar-button toolbar-button--danger" type="button" data-action="remove-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Quitar</button>` : ""}
+    <input type="file" accept="image/*" data-encounter-map-file="${escapeHtml(encounter.id)}" hidden>
+  </section>`;
 }
 
 function renderEncounterEditorEmpty() {
@@ -21265,6 +21411,7 @@ function createEncounter() {
     id: createStableId("encounter"),
     name: `Encuentro ${nextNumber}`,
     folderId: state.activeEncounterFolderId,
+    map: null,
     rows: []
   };
 
@@ -21514,6 +21661,21 @@ function updateActiveEncounterName(name) {
     }
     : encounter);
   saveEncounterInventory();
+}
+
+function setEncounterMap(encounterId, map) {
+  const normalizedId = cleanText(encounterId);
+  const normalizedMap = normalizeMapReference(map);
+
+  if (!normalizedId || !state.encounters.some((encounter) => encounter.id === normalizedId)) {
+    return;
+  }
+
+  state.encounters = state.encounters.map((encounter) => encounter.id === normalizedId
+    ? { ...encounter, map: normalizedMap }
+    : encounter);
+  saveEncounterInventory();
+  render();
 }
 
 function addCreatureToActiveEncounter(entryId) {
@@ -21932,6 +22094,30 @@ function getCombatEncounterPickerGroups() {
   ];
 }
 
+function getLoadedCombatEncounterMapChoices() {
+  const presentEncounterIds = new Set(state.combatants.map((combatant) => cleanText(combatant.sourceEncounterId)).filter(Boolean));
+  state.encounters.forEach((encounter) => {
+    const encounterName = cleanText(encounter.name);
+    if (encounterName && state.combatants.some((combatant) => !cleanText(combatant.sourceEncounterId) && cleanText(combatant.ubicacion) === encounterName)) {
+      presentEncounterIds.add(encounter.id);
+    }
+  });
+  const orderedIds = [
+    ...state.combatEncounterLoadOrder.filter((id) => presentEncounterIds.has(id)),
+    ...[...presentEncounterIds].filter((id) => !state.combatEncounterLoadOrder.includes(id))
+  ];
+
+  return orderedIds.map((encounterId) => {
+    const encounter = state.encounters.find((entry) => entry.id === encounterId);
+    const map = normalizeMapReference(encounter?.map);
+    return map ? {
+      encounterId,
+      encounterName: cleanText(encounter?.name) || "Encuentro",
+      map
+    } : null;
+  }).filter(Boolean);
+}
+
 function toggleCombatEncounterPickerFolder(folderId) {
   const cleanFolderId = cleanText(folderId);
 
@@ -21965,7 +22151,7 @@ function importEncounterToCombat(encounterId) {
 
     for (let index = 0; index < units; index += 1) {
       const id = `entity-${state.nextId + combatants.length}`;
-      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber, encounter.name);
+      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber, encounter.name, encounter.id);
       combatants.push(combatant);
       state.inlineAdjustments[id] = { ...blankInlineAdjustments };
       nextEnemyNumber += 1;
@@ -21981,11 +22167,18 @@ function importEncounterToCombat(encounterId) {
     ...state.combatants
   ];
   state.nextId += combatants.length;
+  state.combatEncounterLoadOrder = [
+    encounter.id,
+    ...state.combatEncounterLoadOrder.filter((id) => id !== encounter.id)
+  ];
   state.combatEncounterPickerOpen = false;
   state.combatAddPickerMode = "";
+  if (!combatMapController.getMap() && encounter.map) {
+    combatMapController.setMap(encounter.map);
+  }
 }
 
-function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "") {
+function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "", encounterId = "") {
   const bestiaryEntry = getEncounterRowBestiaryEntry(row);
 
   if (bestiaryEntry) {
@@ -21995,6 +22188,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
     }, {
       id,
       ubicacion: encounterName,
+      sourceEncounterId: encounterId,
       numPeana: formatStandNumber(standNumber)
     }, {
       rollInitiative: true
@@ -22017,6 +22211,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
   }, {
     id,
     ubicacion: encounterName,
+    sourceEncounterId: encounterId,
     numPeana: formatStandNumber(standNumber)
   }, {
     rollInitiative: true
@@ -22070,6 +22265,7 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     localizedName: entry.localizedName || (entry.canonicalName && entry.canonicalName !== entry.name ? entry.name : cleanText(existingCombatant.localizedName)),
     canonicalSource: entry.canonicalSource || entry.source || cleanText(existingCombatant.canonicalSource),
     ubicacion: existingCombatant.ubicacion ?? "",
+    sourceEncounterId: cleanText(existingCombatant.sourceEncounterId),
     iniactiva: existingCombatant.iniactiva ?? "",
     nombre: entry.name,
     source: entry.source ?? "",
@@ -27333,7 +27529,7 @@ async function publishCurrentCloudLibraryEntry(type) {
   beginCloudOperation("publishing", operationTarget);
 
   try {
-    const payload = await preparePayloadImagesForCloud(draft.payload);
+    const payload = await preparePayloadImagesForCloud(sanitizeCampaignMapsForCloud(draft.payload));
     const imageUrl = draft.type === "character"
       ? cleanText(payload.characters?.[0]?.tokenUrl)
       : draft.type === "encounter"
@@ -27848,6 +28044,12 @@ async function applyCloudLibraryEntryResult(result, options = {}) {
     return importDiaryFromPayload(payload, options);
   } else if (type === "table") {
     return importCloudTableEntry(payload, options);
+  } else if (type === "map") {
+    const map = normalizeMapReference(payload.map);
+    if (!map) throw new Error("El mapa cloud no contiene una imagen válida.");
+    combatMapController.setMap({ ...map, cloudEntryId: result.entry?.id });
+    combatMapController.open();
+    return { entityIds: [] };
   } else if (["spell", "item", "monster"].includes(type)) {
     return importCloudCompendiumEntry(payload);
   } else {
@@ -28430,7 +28632,7 @@ async function saveCurrentCampaignToCloud() {
   beginCloudOperation("saving", operationTarget);
 
   try {
-    const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload());
+    const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload({ cloudSafe: true }));
     const payload = await preparePayloadImagesForCloud(catalogPayload);
     const result = await createCloudCampaign({ name: campaignName, payload });
     activateCloudCampaign(result.campaign, payload);
@@ -28528,7 +28730,7 @@ async function createCloudCampaignFromFile(file) {
         name: campaignName
       }
     };
-    const catalogPayload = await attachCloudCatalogToCampaignPayload(localPayload);
+    const catalogPayload = await attachCloudCatalogToCampaignPayload(sanitizeCampaignMapsForCloud(localPayload));
     const payload = await preparePayloadImagesForCloud(catalogPayload);
     const result = await createCloudCampaign({ name: campaignName, payload });
     state.campaignFileName = "";
@@ -28917,7 +29119,7 @@ async function autosaveCloudCampaign(options = {}) {
 
   savePromise = (async () => {
     try {
-      const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload());
+      const catalogPayload = await attachCloudCatalogToCampaignPayload(createCampaignSavePayload({ cloudSafe: true }));
       const payload = await preparePayloadImagesForCloud(catalogPayload);
       const comparableSnapshot = getComparableCampaignSnapshot(payload);
 
@@ -30145,7 +30347,7 @@ function createCampaignSavePayload(options = {}) {
   const name = cleanText(state.campaignName) || "Campaña sin nombre";
   const savedAt = options.savedAt ?? new Date().toISOString();
 
-  return {
+  const payload = {
     schema: CAMPAIGN_FILE_SCHEMA,
     version: CAMPAIGN_FILE_VERSION,
     app: "Mimic Dice",
@@ -30163,6 +30365,7 @@ function createCampaignSavePayload(options = {}) {
     combatTracker: getCombatTrackerSaveData({
       includeBattleTimer: true
     }),
+    combatMap: combatMapController.getSaveData({ portable: true }),
     repositoryCsvOverrides: getRepositoryCsvOverridesSaveData(),
     compendiumCustomMaps: {
       bestiary: isPlainObject(state.customBestiaryImageMap) ? state.customBestiaryImageMap : {},
@@ -30182,6 +30385,33 @@ function createCampaignSavePayload(options = {}) {
       soundSettings: normalizeStoredSoundSettings(state.soundSettings),
       repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
     }
+  };
+
+  return options.cloudSafe === true ? sanitizeCampaignMapsForCloud(payload) : payload;
+}
+
+function sanitizeCampaignMapsForCloud(payload) {
+  if (!isPlainObject(payload)) return payload;
+  const hasInventory = isPlainObject(payload.encounterInventory);
+  const inventory = hasInventory ? payload.encounterInventory : {};
+  const encounters = Array.isArray(inventory.encounters) ? inventory.encounters.map((encounter) => {
+    const map = normalizeMapReference(encounter?.map);
+    return {
+      ...encounter,
+      map: map?.cloudEntryId ? getPortableMapReference(map) : null
+    };
+  }) : [];
+  const hasCombatMap = isPlainObject(payload.combatMap);
+  const combatMap = hasCombatMap ? payload.combatMap : {};
+  const currentMap = normalizeMapReference(combatMap.map);
+
+  return {
+    ...payload,
+    ...(hasInventory ? { encounterInventory: { ...inventory, encounters } } : {}),
+    ...(hasCombatMap ? { combatMap: {
+      ...combatMap,
+      map: currentMap?.cloudEntryId ? getPortableMapReference(currentMap) : null
+    } } : {})
   };
 }
 
@@ -30239,6 +30469,7 @@ function normalizeCampaignSave(value) {
     diary,
     tables,
     combatTracker,
+    combatMap: isPlainObject(value.combatMap) ? value.combatMap : {},
     battleTimer,
     activeScreen: normalizeStoredActiveScreen(ui.activeScreen),
     activeEncounterId: cleanText(ui.activeEncounterId),
@@ -30353,8 +30584,10 @@ function applyCampaignSave(campaign, fileResult = null, options = {}) {
   state.isCombatActive = campaign.combatTracker.isCombatActive;
   state.activeTurnCombatantId = campaign.combatTracker.activeTurnCombatantId;
   state.combatRound = campaign.combatTracker.combatRound;
+  state.combatEncounterLoadOrder = campaign.combatTracker.combatEncounterLoadOrder;
   state.enemyHpMode = campaign.combatTracker.enemyHpMode;
   state.battleTimer = campaign.battleTimer;
+  combatMapController.applySave(campaign.combatMap);
   state.characterSkillDefinitions = campaign.characterSkillDefinitions;
   state.characters = campaign.characters;
   state.activeCharacterId = state.characters[0]?.id ?? "";
@@ -31035,8 +31268,13 @@ function getEncounterInventorySaveData() {
   return {
     folders: state.encounterFolders,
     systemFolderExpanded: state.systemEncounterFolderExpanded,
-    encounters: state.encounters
+    encounters: state.encounters.map(getPortableEncounter).filter(Boolean)
   };
+}
+
+function getPortableEncounter(encounter) {
+  const normalized = normalizeStoredEncounter(encounter);
+  return normalized ? { ...normalized, map: getPortableMapReference(normalized.map) } : null;
 }
 
 function loadDiaryState() {
@@ -32547,6 +32785,7 @@ function normalizeStoredEncounter(encounter) {
     id: cleanText(encounter.id) || createStableId("encounter"),
     name: cleanText(encounter.name),
     folderId: cleanText(encounter.folderId),
+    map: normalizeMapReference(encounter.map),
     rows
   };
 }

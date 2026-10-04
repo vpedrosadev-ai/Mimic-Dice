@@ -23,17 +23,21 @@ const visibleCombatant = controller.normalizeStoredCombatant({
   id: "visible-enemy",
   tag: "ENEMIGO",
   iniactiva: 12,
-  nombre: "Visible enemy"
+  nombre: "Visible enemy",
+  sourceEncounterId: "encounter-2"
 });
 
 assert.equal(hiddenCombatant.hiddenFromInitiative, true);
 assert.equal(visibleCombatant.hiddenFromInitiative, false);
 
 const restoredState = controller.normalizeStoredCombatTrackerState({
-  combatants: [hiddenCombatant, visibleCombatant]
+  combatants: [hiddenCombatant, visibleCombatant],
+  combatEncounterLoadOrder: ["encounter-2", "encounter-1", "encounter-2"]
 });
 
 assert.equal(restoredState.combatants[0].hiddenFromInitiative, true);
 assert.equal(restoredState.combatants[1].hiddenFromInitiative, false);
+assert.equal(restoredState.combatants[1].sourceEncounterId, "encounter-2");
+assert.deepEqual(restoredState.combatEncounterLoadOrder, ["encounter-2", "encounter-1"]);
 
 console.log("Combat tracker state tests passed.");

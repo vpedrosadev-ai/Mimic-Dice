@@ -11,7 +11,7 @@ import {
   readJsonBody
 } from "./http.js";
 
-const ALLOWED_TYPES = new Set(["character", "encounter", "spell", "item", "monster"]);
+const ALLOWED_TYPES = new Set(["character", "encounter", "spell", "item", "monster", "map"]);
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const MAX_ENTRIES_PER_USER = 200;
 const MAX_LIBRARY_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;

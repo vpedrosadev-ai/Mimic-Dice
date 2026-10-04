@@ -6,6 +6,7 @@ export const CATALOG_TYPES = new Set([
   "spell",
   "item",
   "monster",
+  "map",
   "diary",
   "table"
 ]);
