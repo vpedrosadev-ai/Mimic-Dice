@@ -125,15 +125,19 @@ function normalizeAreaShapes(value) {
 }
 
 export function getAreaShapeMetrics(shape, grid) {
+  const type = ["circle", "square", "cone"].includes(shape?.type) ? shape.type : "circle";
   const distanceFeet = clamp(Math.round((Number(shape?.distanceFeet) || 5) / 5) * 5, 5, 500);
   const cells = distanceFeet / 5;
   const distancePx = cells * clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const width = type === "circle" ? distancePx * 2 : distancePx;
+  const height = type === "circle" ? distancePx * 2 : distancePx;
   return {
+    type,
     distanceFeet,
     cells,
     distancePx,
-    width: distancePx * 2,
-    height: distancePx * 2
+    width,
+    height
   };
 }
 
@@ -327,6 +331,46 @@ export function snapTokenPosition(point, grid) {
   };
 }
 
+export function snapCreaturePosition(point, grid, sizeMultiplier = 1) {
+  const multiplier = Number(sizeMultiplier) || 1;
+  const size = clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const offsetX = Number(grid?.offsetX) || 0;
+  const offsetY = Number(grid?.offsetY) || 0;
+  const x = Number(point?.x) || 0;
+  const y = Number(point?.y) || 0;
+  if (multiplier % 2 !== 0 || multiplier < 2) return snapTokenPosition(point, grid);
+  if (grid?.type !== "hex") {
+    return {
+      x: offsetX + Math.round((x - offsetX) / size) * size,
+      y: offsetY + Math.round((y - offsetY) / size) * size
+    };
+  }
+
+  const { halfHeight, rowStep } = getHexMetrics(size);
+  const approximateRow = Math.round((y - offsetY - halfHeight) / rowStep);
+  let nearest = null;
+  for (let row = approximateRow - 2; row <= approximateRow + 2; row += 1) {
+    const rowOffset = Math.abs(row) % 2 ? size / 2 : 0;
+    const approximateColumn = Math.round((x - offsetX - rowOffset - size / 2) / size);
+    for (let column = approximateColumn - 2; column <= approximateColumn + 2; column += 1) {
+      const centerX = offsetX + rowOffset + column * size + size / 2;
+      const centerY = offsetY + row * rowStep + halfHeight;
+      for (const vertex of [
+        { x: centerX, y: centerY - halfHeight },
+        { x: centerX + size / 2, y: centerY - halfHeight / 2 },
+        { x: centerX + size / 2, y: centerY + halfHeight / 2 },
+        { x: centerX, y: centerY + halfHeight },
+        { x: centerX - size / 2, y: centerY + halfHeight / 2 },
+        { x: centerX - size / 2, y: centerY - halfHeight / 2 }
+      ]) {
+        const distance = Math.hypot(vertex.x - x, vertex.y - y);
+        if (!nearest || distance < nearest.distance) nearest = { ...vertex, distance };
+      }
+    }
+  }
+  return nearest ? { x: nearest.x, y: nearest.y } : snapTokenPosition(point, grid);
+}
+
 export async function convertImageFileToWebp(file, quality = 0.95) {
   if (!isImageFileLike(file)) {
     throw new Error("Selecciona un archivo de imagen válido.");
@@ -415,6 +459,8 @@ export function createCombatMapController(options = {}) {
   let shapeCoordinateError = "";
   let mapLoadMenuOpen = false;
   let mapFitScale = 1;
+  let tokenSearch = "";
+  let initiativeLayout = { scale: 1, columns: 1, count: 0 };
 
   function loadLocalState() {
     try {
@@ -433,19 +479,44 @@ export function createCombatMapController(options = {}) {
     return (options.getCombatants?.() || []).filter(Boolean);
   }
 
+  function getStatusMeta(statusName) {
+    return options.getStatusMeta?.(statusName) || {
+      label: clean(statusName),
+      description: "",
+      tone: "combat-status-chip--default",
+      iconUrl: ""
+    };
+  }
+
+  function getCreatureSizeMultiplier(combatant) {
+    const value = clean(combatant?.tamano || combatant?.talla || combatant?.size)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (/^(tiny|diminut|minuscul)/.test(value)) return .5;
+    if (/^(large|grande)/.test(value)) return 2;
+    if (/^(huge|enorme)/.test(value)) return 3;
+    if (/^(gargantuan|gargantues)/.test(value)) return 4;
+    return 1;
+  }
+
   function getTokenEnabled(combatant) {
     return Object.prototype.hasOwnProperty.call(state.tokenVisibility, combatant.id)
       ? state.tokenVisibility[combatant.id] === true
       : isDefaultTokenVisible(combatant);
   }
 
-  function getDefaultPosition(index) {
+  function getDefaultPosition(combatant, index) {
     const size = state.grid.size;
-    return snapTokenPosition({ x: size * (1.5 + index % 8), y: size * (1.5 + Math.floor(index / 8)) }, state.grid);
+    return snapCreaturePosition(
+      { x: size * (1.5 + index % 8), y: size * (1.5 + Math.floor(index / 8)) },
+      state.grid,
+      getCreatureSizeMultiplier(combatant)
+    );
   }
 
   function getTokenPosition(combatant, index) {
-    return state.tokenPositions[combatant.id] || getDefaultPosition(index);
+    return state.tokenPositions[combatant.id] || getDefaultPosition(combatant, index);
   }
 
   function getSaveData(options = {}) {
@@ -713,8 +784,19 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderTokenMenu() {
-    const rows = getCombatants().map((combatant) => `<label><input type="checkbox" data-map-token-toggle="${escapeHtml(combatant.id)}" ${getTokenEnabled(combatant) ? "checked" : ""}><span>${escapeHtml(combatant.numPeana || "—")}</span> ${escapeHtml(combatant.nombre || "Entidad")}</label>`).join("");
-    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${openPanel === "tokens" ? "" : "hidden"}><h2>Peanas</h2><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
+    const query = tokenSearch.toLocaleLowerCase("es");
+    const rows = getCombatants().map((combatant) => {
+      const name = clean(combatant.nombre) || "Entidad";
+      const stand = clean(combatant.numPeana) || "—";
+      const hidden = query && !`${name} ${stand}`.toLocaleLowerCase("es").includes(query);
+      return `<label class="combat-map-token-checklist__row" data-map-token-row data-map-token-search-value="${escapeHtml(`${name} ${stand}`.toLocaleLowerCase("es"))}" ${hidden ? "hidden" : ""}>
+        <input type="checkbox" data-map-token-toggle="${escapeHtml(combatant.id)}" ${getTokenEnabled(combatant) ? "checked" : ""}>
+        <span class="combat-map-token-checklist__name">${escapeHtml(name)}</span>
+        <span class="combat-map-token-checklist__portrait">${renderPortrait(combatant)}</span>
+        <strong class="combat-map-token-checklist__number">${escapeHtml(stand)}</strong>
+      </label>`;
+    }).join("");
+    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${openPanel === "tokens" ? "" : "hidden"}><h2>Peanas</h2><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
   }
 
   function renderPaintMenu() {
@@ -729,7 +811,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderShapesMenu() {
-    const distanceLabel = state.shapes.type === "cone" ? "Longitud" : "Radio";
+    const distanceLabel = state.shapes.type === "cone" ? "Longitud" : state.shapes.type === "square" ? "Lado" : "Radio";
     const selected = state.shapes.items.some((shape) => shape.id === state.shapes.selectedId);
     return `<section class="combat-map-popover" data-map-panel="shapes" ${openPanel === "shapes" ? "" : "hidden"}>
       <h2>Formas de área</h2>
@@ -740,13 +822,13 @@ export function createCombatMapController(options = {}) {
       ${shapeCoordinateError ? `<p class="combat-map-error" role="alert">${escapeHtml(shapeCoordinateError)}</p>` : ""}
       <button type="button" data-map-action="add-shape">Añadir forma</button>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="rotate-shape-left" ${selected ? "" : "disabled"}>Girar −15°</button><button type="button" data-map-action="rotate-shape-right" ${selected ? "" : "disabled"}>Girar +15°</button><button type="button" data-map-action="delete-shape" ${selected ? "" : "disabled"}>Eliminar</button></div>
-      <p class="combat-map-help">La casilla es opcional: centra círculos y cuadrados; en conos coloca la punta corta. Cada 5 pies equivalen a una casilla.</p>
+      <p class="combat-map-help">La casilla es opcional: centra círculos y cuadrados; en conos coloca el origen. Círculo usa radio, cuadrado usa lado y el cono termina con una anchura igual a su longitud.</p>
     </section>`;
   }
 
   function renderInitiative() {
     if (!state.initiative.visible) return "";
-    const content = options.renderInitiativeOrder?.(editorWindow) || "<p>Sin iniciativa.</p>";
+    const content = options.renderInitiativeOrder?.(editorWindow, initiativeLayout) || "<p>Sin iniciativa.</p>";
     return `<aside class="combat-map-initiative combat-tracker-panel" data-map-initiative-order>${content}</aside><div class="combat-map-initiative-resizer" data-map-initiative-resizer title="Arrastrar para cambiar el tamaño"></div>`;
   }
 
@@ -767,11 +849,14 @@ export function createCombatMapController(options = {}) {
       const maxHp = Math.max(1, Number(combatant.pgMax) || 1);
       const hp = clamp(combatant.pgAct === "" ? maxHp : combatant.pgAct, 0, maxHp);
       const conditions = getConditions(combatant);
+      const conditionMeta = conditions.map(getStatusMeta);
+      const tokenSize = state.grid.size * getCreatureSizeMultiplier(combatant);
       const counterRotation = state.rotationOrientation === "upright" ? -state.rotation : 0;
-      return `<div class="combat-map-token combat-map-token--${side}" data-map-token="${escapeHtml(combatant.id)}" style="--token-size:${state.grid.size}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px" title="${escapeHtml(combatant.nombre || "Entidad")}">
+      return `<div class="combat-map-token combat-map-token--${side}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px" title="${escapeHtml(combatant.nombre || "Entidad")}">
         <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span><strong>${escapeHtml(combatant.numPeana || "—")}</strong>
+        ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
         ${showHealth(combatant) ? `<span class="combat-map-token__health"><i style="width:${(hp / maxHp) * 100}%"></i></span>` : ""}
-        ${conditions.length ? `<span class="combat-map-token__statuses">${conditions.map((status) => `<em>${escapeHtml(status)}</em>`).join("")}</span>` : ""}
+        ${conditionMeta.length ? `<span class="combat-map-token__statuses">${conditionMeta.map((meta) => `<em class="${escapeHtml(meta.tone)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : ""}<span>${escapeHtml(meta.label)}</span></em>`).join("")}</span>` : ""}
       </div>`;
     }).join("");
   }
@@ -784,9 +869,10 @@ export function createCombatMapController(options = {}) {
         ? `<circle cx="100" cy="100" r="96"></circle>`
         : shape.type === "square"
           ? `<rect x="4" y="4" width="192" height="192" rx="4"></rect>`
-          : `<polygon points="100,100 196,52 196,148"></polygon>`;
+          : `<polygon points="0,100 196,4 196,196"></polygon>`;
       const labelCounterRotation = state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0;
-      return `<div class="combat-map-area-shape ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" style="--shape-color:${shape.color};--shape-size:${metrics.distancePx}px;--shape-label-counter-rotation:${labelCounterRotation}deg;left:${shape.x}px;top:${shape.y}px;transform:translate(-50%,-50%) rotate(${shape.rotation}deg)" title="${metrics.distanceFeet} pies">
+      const anchorX = shape.type === "cone" ? "0%" : "-50%";
+      return `<div class="combat-map-area-shape combat-map-area-shape--${shape.type} ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" style="--shape-color:${shape.color};--shape-size:${metrics.distancePx}px;--shape-width:${metrics.width}px;--shape-height:${metrics.height}px;--shape-anchor-x:${anchorX};--shape-label-counter-rotation:${labelCounterRotation}deg;left:${shape.x}px;top:${shape.y}px;transform:translate(${anchorX},-50%) rotate(${shape.rotation}deg)" title="${metrics.distanceFeet} pies">
         <svg viewBox="0 0 200 200" aria-hidden="true">${geometry}</svg>
         <span class="combat-map-area-shape__measure">${metrics.distanceFeet} pies</span>
         <button type="button" class="combat-map-area-shape__rotate" data-map-shape-rotate="${escapeHtml(shape.id)}" title="Arrastrar para rotar" aria-label="Rotar forma"></button>
@@ -892,6 +978,7 @@ export function createCombatMapController(options = {}) {
     }
     strip.style.setProperty("--turn-token-scale", String(best.scale));
     strip.style.setProperty("--initiative-columns", String(best.columns));
+    initiativeLayout = { ...best, count };
   }
 
   function handleViewportScroll(event) {
@@ -908,6 +995,10 @@ export function createCombatMapController(options = {}) {
   function setMapZoom(value) {
     state.viewport.zoom = clamp(value, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
     updateMapScale();
+    drawGridCoordinates();
+    drawGridLabels();
+    drawPaint();
+    drawFog();
     const input = editorWindow?.document.querySelector("[data-map-zoom]");
     if (input) {
       input.value = String(Math.round(state.viewport.zoom * 100));
@@ -920,6 +1011,24 @@ export function createCombatMapController(options = {}) {
     if (!event.target.closest?.("[data-map-board]")) return;
     event.preventDefault();
     setMapZoom(state.viewport.zoom + (event.deltaY < 0 ? .1 : -.1));
+  }
+
+  function prepareCanvas(canvas, logicalWidth, logicalHeight) {
+    const frameScale = Number(editorWindow?.document.querySelector("[data-map-frame]")?.dataset.mapScale) || 1;
+    const pixelRatio = clamp((editorWindow?.devicePixelRatio || 1) * frameScale, 1, 4);
+    const pixelWidth = Math.max(1, Math.round(logicalWidth * pixelRatio));
+    const pixelHeight = Math.max(1, Math.round(logicalHeight * pixelRatio));
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    canvas.style.width = `${logicalWidth}px`;
+    canvas.style.height = `${logicalHeight}px`;
+    const context = canvas.getContext("2d");
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    return context;
   }
 
   function toColumnLabel(index) {
@@ -953,13 +1062,13 @@ export function createCombatMapController(options = {}) {
     if (!isOpen()) return;
     const canvas = editorWindow.document.querySelector("[data-map-grid-coordinates]");
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    const board = editorWindow.document.querySelector("[data-map-board]");
+    const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
+    const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
+    const context = prepareCanvas(canvas, width, height);
     if (!state.grid.visible) return;
 
     const size = state.grid.size;
-    const width = canvas.width;
-    const height = canvas.height;
     context.strokeStyle = state.grid.color;
     context.lineWidth = Math.max(1, Math.min(2, size * .025));
 
@@ -1000,11 +1109,25 @@ export function createCombatMapController(options = {}) {
   function updateGridScaleVisuals(input = null) {
     input?.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.grid.size)} px`);
     editorWindow?.document.querySelectorAll("[data-map-token]").forEach((token) => {
-      token.style.setProperty("--token-size", `${state.grid.size}px`);
+      const multiplier = Number(token.dataset.mapTokenSizeMultiplier) || 1;
+      token.style.setProperty("--token-size", `${state.grid.size * multiplier}px`);
+      const current = {
+        x: Number.parseFloat(token.style.left) || 0,
+        y: Number.parseFloat(token.style.top) || 0
+      };
+      const snapped = snapCreaturePosition(current, state.grid, multiplier);
+      state.tokenPositions[token.dataset.mapToken] = snapped;
+      token.style.left = `${snapped.x}px`;
+      token.style.top = `${snapped.y}px`;
     });
     editorWindow?.document.querySelectorAll("[data-map-shape]").forEach((element) => {
       const shape = state.shapes.items.find((item) => item.id === element.dataset.mapShape);
-      if (shape) element.style.setProperty("--shape-size", `${getAreaShapeMetrics(shape, state.grid).distancePx}px`);
+      if (shape) {
+        const metrics = getAreaShapeMetrics(shape, state.grid);
+        element.style.setProperty("--shape-size", `${metrics.distancePx}px`);
+        element.style.setProperty("--shape-width", `${metrics.width}px`);
+        element.style.setProperty("--shape-height", `${metrics.height}px`);
+      }
     });
     drawGridCoordinates();
     drawGridLabels();
@@ -1076,15 +1199,14 @@ export function createCombatMapController(options = {}) {
     if (!isOpen()) return;
     const canvas = editorWindow.document.querySelector("[data-map-grid-labels]");
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    if (!state.grid.visible) return;
     const gutter = GRID_LABEL_GUTTER;
     const board = editorWindow.document.querySelector("[data-map-board]");
     const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
     const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
     const displayWidth = Number(board?.dataset.displayWidth) || width;
     const displayHeight = Number(board?.dataset.displayHeight) || height;
+    const context = prepareCanvas(canvas, displayWidth + gutter * 2, displayHeight + gutter * 2);
+    if (!state.grid.visible) return;
     const data = getGridLabelData(width, height);
     const cellFont = Math.max(9, Math.min(16, state.grid.size * .17));
     const edgeFont = Math.max(12, Math.min(21, state.grid.size * .24));
@@ -1144,8 +1266,10 @@ export function createCombatMapController(options = {}) {
     if (!isOpen()) return;
     const canvas = editorWindow.document.querySelector("[data-map-paint]");
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    const board = editorWindow.document.querySelector("[data-map-board]");
+    const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
+    const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
+    const context = prepareCanvas(canvas, width, height);
     state.paint.strokes.forEach((stroke) => paintStroke(context, stroke));
   }
 
@@ -1153,10 +1277,13 @@ export function createCombatMapController(options = {}) {
     if (!isOpen()) return;
     const canvas = editorWindow.document.querySelector("[data-map-fog]");
     if (!canvas) return;
-    const context = canvas.getContext("2d");
+    const board = editorWindow.document.querySelector("[data-map-board]");
+    const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
+    const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
+    const context = prepareCanvas(canvas, width, height);
     context.globalCompositeOperation = "source-over";
     context.fillStyle = state.fog.translucent ? "rgba(42, 45, 52, .72)" : "rgb(18, 18, 20)";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillRect(0, 0, width, height);
     context.globalCompositeOperation = "destination-out";
     state.fog.revealed.forEach((point) => {
       const gradient = context.createRadialGradient(point.x, point.y, point.r * .45, point.x, point.y, point.r);
@@ -1403,7 +1530,13 @@ export function createCombatMapController(options = {}) {
   function handleInput(event) {
     if (event.target.closest("[data-map-initiative-order]")) { options.handleInitiativeInput?.(event); return; }
     if (event.target.closest("[data-combat-turn-quick-menu]")) { options.handleContextInput?.(event); return; }
-    if (event.target.matches("[data-grid-size]")) {
+    if (event.target.matches("[data-map-token-search]")) {
+      tokenSearch = clean(event.target.value);
+      const query = tokenSearch.toLocaleLowerCase("es");
+      editorWindow?.document.querySelectorAll("[data-map-token-row]").forEach((row) => {
+        row.hidden = Boolean(query && !clean(row.dataset.mapTokenSearchValue).includes(query));
+      });
+    } else if (event.target.matches("[data-grid-size]")) {
       state.grid.size = clamp(event.target.value, MIN_GRID_SIZE, MAX_GRID_SIZE);
       updateGridScaleVisuals(event.target);
     } else if (event.target.matches("[data-fog-size]")) {
@@ -1498,7 +1631,7 @@ export function createCombatMapController(options = {}) {
     if (!element) return;
     element.style.left = `${shape.x}px`;
     element.style.top = `${shape.y}px`;
-    element.style.transform = `translate(-50%,-50%) rotate(${shape.rotation}deg)`;
+    element.style.transform = `translate(${shape.type === "cone" ? "0%" : "-50%"},-50%) rotate(${shape.rotation}deg)`;
     element.style.setProperty("--shape-label-counter-rotation", `${state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0}deg`);
   }
 
@@ -1679,7 +1812,12 @@ export function createCombatMapController(options = {}) {
   function handlePointerUp(event) {
     if (!activeDrag || event.pointerId !== activeDrag.pointerId) return;
     if (activeDrag.type === "token") {
-      state.tokenPositions[activeDrag.id] = snapTokenPosition(state.tokenPositions[activeDrag.id], state.grid);
+      const combatant = getCombatants().find((entry) => entry.id === activeDrag.id);
+      state.tokenPositions[activeDrag.id] = snapCreaturePosition(
+        state.tokenPositions[activeDrag.id],
+        state.grid,
+        getCreatureSizeMultiplier(combatant)
+      );
     } else if (activeDrag.type === "shape") {
       const shape = state.shapes.items.find((item) => item.id === activeDrag.id);
       if (shape) {

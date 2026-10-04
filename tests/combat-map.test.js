@@ -9,6 +9,7 @@ import {
   isImageFileLike,
   normalizeMapReference,
   resolveGridCoordinatePosition,
+  snapCreaturePosition,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
 
@@ -31,6 +32,16 @@ test("hex token snapping uses staggered row centers", () => {
   const snapped = snapTokenPosition({ x: 130, y: 105 }, { type: "hex", size: 80, offsetX: 0, offsetY: 0 });
   assert.equal(snapped.x, 160);
   assert.ok(Math.abs(snapped.y - 115.47005383792516) < 0.000001);
+});
+
+test("large creature snapping uses square intersections and hex vertices", () => {
+  assert.deepEqual(
+    snapCreaturePosition({ x: 141, y: 116 }, { type: "square", size: 80, offsetX: 10, offsetY: 0 }, 2),
+    { x: 170, y: 80 }
+  );
+  const hex = snapCreaturePosition({ x: 42, y: 5 }, { type: "hex", size: 80, offsetX: 0, offsetY: 0 }, 2);
+  assert.ok(Math.abs(hex.x - 40) < 0.000001);
+  assert.ok(Math.abs(hex.y) < 0.000001);
 });
 
 test("map editor state clamps controls and rejects unsafe shapes", () => {
@@ -68,13 +79,29 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
 
 test("area shapes use one grid cell for every five feet", () => {
   assert.deepEqual(getAreaShapeMetrics({ type: "circle", distanceFeet: 15 }, { size: 80 }), {
+    type: "circle",
     distanceFeet: 15,
     cells: 3,
     distancePx: 240,
     width: 480,
     height: 480
   });
-  assert.equal(getAreaShapeMetrics({ type: "cone", distanceFeet: 30 }, { size: 48 }).distancePx, 288);
+  assert.deepEqual(getAreaShapeMetrics({ type: "square", distanceFeet: 15 }, { size: 80 }), {
+    type: "square",
+    distanceFeet: 15,
+    cells: 3,
+    distancePx: 240,
+    width: 240,
+    height: 240
+  });
+  assert.deepEqual(getAreaShapeMetrics({ type: "cone", distanceFeet: 30 }, { size: 48 }), {
+    type: "cone",
+    distanceFeet: 30,
+    cells: 6,
+    distancePx: 288,
+    width: 288,
+    height: 288
+  });
 });
 
 test("grid coordinates resolve to the same square and hex cell centers shown on the map", () => {

@@ -1022,7 +1022,21 @@ state = {
 };
 
 const combatMapController = createCombatMapController({
-  getCombatants: () => [...state.combatants].filter(Boolean).sort(compareCombatants),
+  getCombatants: () => [...state.combatants].filter(Boolean).sort(compareCombatants).map((combatant) => {
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+    return {
+      ...combatant,
+      tokenUrl: getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry),
+      tamano: cleanText(linkedCharacter?.size || bestiaryEntry?.size || combatant.tamano) || "Mediano"
+    };
+  }),
+  getStatusMeta: (statusName) => ({
+    label: translateCombatStatusNameForLanguage(statusName, state.appLanguage),
+    description: getCombatStatusDescription(statusName),
+    tone: getCombatStatusToneClass(statusName),
+    iconUrl: getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName))
+  }),
   getActiveCombatantId: () => state.isCombatActive ? state.activeTurnCombatantId : "",
   getEncounterMaps: getLoadedCombatEncounterMapChoices,
   getAccountSession: () => state.accountSession,
@@ -1037,11 +1051,12 @@ const combatMapController = createCombatMapController({
     refreshCommunityCatalog();
     window.focus();
   },
-  renderInitiativeOrder: () => {
+  renderInitiativeOrder: (_viewportWindow, layout = {}) => {
     const turnOrder = getCombatTurnDisplayParticipants(getCombatTurnOrder());
     const activeId = state.isCombatActive ? getActiveTurnCombatantId(getCombatTurnParticipants(turnOrder)) : "";
-    const scale = getCombatTurnTokenScale(turnOrder.length);
-    return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId)).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
+    const scale = layout.count === turnOrder.length ? layout.scale : getCombatTurnTokenScale(turnOrder.length);
+    const columns = layout.count === turnOrder.length ? layout.columns : 1;
+    return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId)).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
   },
   renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
   openContextMenu: (combatantId, x, y) => openCombatTurnQuickMenu(combatantId, x, y),
@@ -11438,6 +11453,12 @@ function handleCombatTurnPopoutClick(event) {
     syncCombatTrackerMutation(combatantId, {
       forceFullRender: previousCharacters !== state.characters || actionButton.dataset.combatFormulaResolved === "true"
     });
+  } else if (action === "toggle-combat-status") {
+    const combatantId = cleanText(actionButton.dataset.combatantId || state.combatTurnQuickMenu?.combatantId);
+    toggleCombatantStatus(combatantId, actionButton.dataset.combatStatus);
+    saveCombatTrackerState();
+    combatMapController.sync();
+    syncCombatTurnPopout();
   }
 }
 
@@ -12074,6 +12095,12 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
   const menuStyle = getCombatTurnQuickMenuStyle(viewportWindow);
   const effectiveMax = getEffectivePgMax(combatant);
   const tempHp = Math.max(0, toNumber(combatant.pgTemp));
+  const activeStatuses = getCombatantStatusNames(combatant);
+  const activeKeys = new Set(activeStatuses.map((statusName) => normalizeTranslationKey(getCanonicalCombatStatusName(statusName).toLowerCase())));
+  const statusOptions = [...new Map([
+    ...getCombatStatusReferenceEntries().map((entry) => [getCanonicalCombatStatusName(entry.name), entry]),
+    ...activeStatuses.map((name) => [getCanonicalCombatStatusName(name), { name, description: getCombatStatusDescription(name) }])
+  ]).values()];
 
   return `
     <div class="combat-turn-quick-menu" style="${escapeHtml(menuStyle)}" data-combat-turn-quick-menu>
@@ -12118,6 +12145,18 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
             </div>
           </div>
         </div>
+        <section class="combat-turn-quick-menu__statuses">
+          <strong>Estados</strong>
+          <div class="combat-turn-quick-menu__status-grid">
+            ${statusOptions.map((entry) => {
+              const canonicalName = getCanonicalCombatStatusName(entry.name);
+              const localizedName = translateCombatStatusNameForLanguage(canonicalName, state.appLanguage);
+              const isActive = activeKeys.has(normalizeTranslationKey(canonicalName.toLowerCase()));
+              const iconUrl = getCombatStatusIconUrl(canonicalName);
+              return `<button class="combat-turn-quick-menu__status ${getCombatStatusToneClass(canonicalName)} ${isActive ? "is-active" : ""}" type="button" data-action="toggle-combat-status" data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(canonicalName)}" title="${escapeHtml(isActive ? `Quitar ${localizedName}` : `Añadir ${localizedName}`)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}<span>${escapeHtml(localizedName)}</span></button>`;
+            }).join("")}
+          </div>
+        </section>
       </div>
     </div>
   `;
@@ -12160,8 +12199,8 @@ function getCombatTurnQuickMenuStyle(viewportWindow = window) {
   const viewportWidth = viewportWindow?.innerWidth || document.documentElement.clientWidth || 1280;
   const viewportHeight = viewportWindow?.innerHeight || document.documentElement.clientHeight || 720;
   const padding = 12;
-  const menuWidth = 320;
-  const menuHeight = 120;
+  const menuWidth = 380;
+  const menuHeight = 430;
   const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
   const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));
 
