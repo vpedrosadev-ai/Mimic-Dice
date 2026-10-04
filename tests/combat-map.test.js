@@ -4,9 +4,18 @@ import assert from "node:assert/strict";
 import {
   normalizeMapEditorState,
   getPortableMapReference,
+  isImageFileLike,
   normalizeMapReference,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
+
+test("accepts image files created in a different window realm", () => {
+  const popupFile = { name: "barco.jpg", type: "image/jpeg", arrayBuffer: async () => new ArrayBuffer(0) };
+  const untypedDownloadedFile = { name: "cueva.JPEG", type: "", arrayBuffer: async () => new ArrayBuffer(0) };
+  assert.equal(isImageFileLike(popupFile), true);
+  assert.equal(isImageFileLike(untypedDownloadedFile), true);
+  assert.equal(isImageFileLike({ name: "mapa.txt", type: "text/plain", arrayBuffer: async () => new ArrayBuffer(0) }), false);
+});
 
 test("square token snapping centers token in nearest cell", () => {
   assert.deepEqual(

@@ -83,7 +83,7 @@ import {
   getFightClubCharacterXmlFileName
 } from "./screens/characters/characterFightClubXml.js";
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
-import { createCombatMapController, getPortableMapReference, normalizeMapReference } from "./screens/combat-map/combatMap.js";
+import { convertImageFileToWebp, createCombatMapController, getPortableMapReference, normalizeMapReference } from "./screens/combat-map/combatMap.js";
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
@@ -2969,6 +2969,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "select-cloud-map-upload") {
+    if (!state.accountSession?.user?.id) {
+      state.accountError = "Inicia sesión para subir mapas a la nube.";
+      render();
+      return;
+    }
+    app.querySelector("[data-cloud-map-upload-file]")?.click();
+    return;
+  }
+
   if (action === "choose-encounter-map") {
     const encounterId = cleanText(actionButton.dataset.encounterId);
     combatMapController.chooseMap((map) => setEncounterMap(encounterId, map));
@@ -3833,6 +3843,13 @@ function cancelPendingCombatantBestiaryTokenClick() {
 
 async function handleChange(event) {
   const target = event.target;
+
+  if (target.matches("[data-cloud-map-upload-file]")) {
+    const file = target.files?.[0] ?? null;
+    target.value = "";
+    if (file) await uploadCommunityMapFile(file);
+    return;
+  }
 
   if (target.matches("[data-encounter-map-file]")) {
     const file = target.files?.[0];
@@ -9000,8 +9017,67 @@ function renderCloudCatalogPreview() {
   `;
 }
 
+async function uploadCommunityMapFile(file) {
+  if (!state.accountSession?.user?.id) {
+    state.accountError = "Inicia sesión para subir mapas a la nube.";
+    render();
+    return;
+  }
+
+  if (Number(file?.size) > 25 * 1024 * 1024) {
+    state.accountError = "La imagen original no puede superar 25 MB.";
+    render();
+    return;
+  }
+
+  const operationTarget = "map:upload";
+  beginCloudOperation("saving", operationTarget);
+
+  try {
+    const converted = await convertImageFileToWebp(file);
+    const uploadResult = await uploadCloudImage(converted.blob, {
+      width: converted.width,
+      height: converted.height
+    });
+    const imageUrl = cleanText(uploadResult?.asset?.url);
+    if (!imageUrl) throw new Error("La imagen no pudo guardarse en la nube.");
+
+    const name = cleanText(file.name).replace(/\.[^.]+$/, "").slice(0, 120) || "Mapa";
+    await createCloudLibraryEntry({
+      type: "map",
+      name,
+      imageUrl,
+      isPublic: true,
+      payload: {
+        map: {
+          name,
+          imageUrl,
+          width: converted.width,
+          height: converted.height
+        }
+      }
+    });
+    state.accountError = "";
+    await refreshCommunityCatalog();
+    pushNotification({
+      title: "Mapa subido",
+      message: `${name} ya está disponible como mapa público.`
+    });
+    syncNotificationUi();
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
 function renderCloudMapCatalog(ownedItems, publicItems) {
   const communityItems = publicItems.filter((item) => item.isOwner !== true);
+  const uploadTarget = "map:upload";
+  const uploadAttributes = state.accountSession?.user?.id
+    ? renderCloudButtonBusyAttributes("saving", uploadTarget)
+    : "disabled";
   return `
     <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
     <nav class="cloud-catalog-tabs" aria-label="Categorías del catálogo">
@@ -9010,7 +9086,8 @@ function renderCloudMapCatalog(ownedItems, publicItems) {
     <div class="cloud-catalog-filters">
       <label><span>Buscar</span><input type="search" value="${escapeHtml(state.cloudCatalogQuery)}" placeholder="Nombre o usuario" data-cloud-catalog-query></label>
       <label><span>Orden</span><select data-cloud-catalog-sort><option value="updated-desc" ${state.cloudCatalogSort === "updated-desc" ? "selected" : ""}>Más recientes</option><option value="updated-asc" ${state.cloudCatalogSort === "updated-asc" ? "selected" : ""}>Más antiguos</option><option value="name-asc" ${state.cloudCatalogSort === "name-asc" ? "selected" : ""}>Nombre A–Z</option><option value="name-desc" ${state.cloudCatalogSort === "name-desc" ? "selected" : ""}>Nombre Z–A</option></select></label>
-      <button class="account-action-button" type="button" data-action="open-combat-map-picker">Subir mapa nuevo</button>
+      <button class="account-action-button${getCloudButtonBusyClass("saving", uploadTarget)}" type="button" data-action="select-cloud-map-upload" ${uploadAttributes}>${renderCloudButtonLabel("Subir mapa nuevo", "Convirtiendo y subiendo…", "saving", uploadTarget)}</button>
+      <input type="file" accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.avif" data-cloud-map-upload-file hidden>
       <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", "catalog:refresh")}" type="button" data-action="refresh-community-catalog" ${renderCloudButtonBusyAttributes("loading", "catalog:refresh")}>${renderCloudButtonLabel("Actualizar", "Actualizando...", "loading", "catalog:refresh")}</button>
     </div>
     <section class="account-dialog__section cloud-catalog-section">

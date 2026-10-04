@@ -3240,6 +3240,16 @@ button.is-cloud-busy:disabled {
   color: #ff9e9e;
 }
 
+.combat-map-converting {
+  margin: 0;
+  padding: .6rem .7rem;
+  border: 1px solid rgba(224, 173, 96, .45);
+  border-radius: .55rem;
+  background: rgba(224, 173, 96, .1);
+  color: #f1cc91;
+  font-size: .82rem;
+}
+
 .combat-map-priority-list {
   display: grid;
   gap: .5rem;

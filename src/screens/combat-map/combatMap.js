@@ -33,6 +33,29 @@ function isObject(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+const IMAGE_MIME_BY_EXTENSION = Object.freeze({
+  avif: "image/avif",
+  bmp: "image/bmp",
+  gif: "image/gif",
+  jfif: "image/jpeg",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  svg: "image/svg+xml",
+  webp: "image/webp"
+});
+
+function getImageFileMimeType(file) {
+  const declaredType = clean(file?.type).toLowerCase();
+  if (declaredType.startsWith("image/")) return declaredType;
+  const extension = clean(file?.name).toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+  return IMAGE_MIME_BY_EXTENSION[extension] || "";
+}
+
+export function isImageFileLike(file) {
+  return Boolean(file && typeof file.arrayBuffer === "function" && getImageFileMimeType(file));
+}
+
 function getHexMetrics(size) {
   const height = size * 2 / Math.sqrt(3);
   return { height, halfHeight: height / 2, rowStep: height * .75 };
@@ -136,25 +159,44 @@ export function snapTokenPosition(point, grid) {
 }
 
 export async function convertImageFileToWebp(file, quality = 0.9) {
-  if (!(file instanceof Blob) || !String(file.type).startsWith("image/")) {
+  if (!isImageFileLike(file)) {
     throw new Error("Selecciona un archivo de imagen válido.");
   }
-  const objectUrl = URL.createObjectURL(file);
+  const mimeType = getImageFileMimeType(file);
+  const sourceBlob = typeof Blob !== "undefined" && file instanceof Blob
+    ? file
+    : new Blob([await file.arrayBuffer()], { type: mimeType });
+  const objectUrl = URL.createObjectURL(sourceBlob);
   try {
     const image = new Image();
     image.decoding = "async";
     image.src = objectUrl;
-    await image.decode();
+    if (typeof image.decode === "function") {
+      await image.decode();
+    } else {
+      await new Promise((resolve, reject) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", () => reject(new Error("No se pudo decodificar la imagen.")), { once: true });
+      });
+    }
     const canvas = document.createElement("canvas");
     canvas.width = image.naturalWidth;
     canvas.height = image.naturalHeight;
-    canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0);
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context || canvas.width <= 0 || canvas.height <= 0) throw new Error("La imagen no tiene dimensiones válidas.");
+    context.drawImage(image, 0, 0);
     const blob = await new Promise((resolve, reject) => canvas.toBlob(
       (result) => result ? resolve(result) : reject(new Error("No se pudo convertir la imagen a WebP.")),
       "image/webp",
       quality
     ));
-    return { blob, dataUrl: canvas.toDataURL("image/webp", quality), width: canvas.width, height: canvas.height };
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result || "")), { once: true });
+      reader.addEventListener("error", () => reject(new Error("No se pudo leer la imagen convertida.")), { once: true });
+      reader.readAsDataURL(blob);
+    });
+    return { blob, dataUrl, width: canvas.width, height: canvas.height };
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -193,6 +235,8 @@ export function createCombatMapController(options = {}) {
   let cloudEntries = [];
   let cloudBusy = false;
   let cloudError = "";
+  let localImageBusy = false;
+  let localImageError = "";
 
   function loadLocalState() {
     try {
@@ -365,6 +409,8 @@ export function createCombatMapController(options = {}) {
     const encounterMaps = getEncounterMapChoices();
     return `<section class="combat-map-popover" data-map-panel="map" ${openPanel === "map" ? "" : "hidden"}>
       <h2>Cargar mapa</h2>
+      ${localImageBusy ? `<p class="combat-map-converting" role="status">Convirtiendo imagen a WebP…</p>` : ""}
+      ${localImageError ? `<p class="combat-map-error" role="alert">${escapeHtml(localImageError)}</p>` : ""}
       ${encounterMaps.length ? `<div class="combat-map-priority-list"><h3>Mapas de encuentros cargados</h3><div class="combat-map-cloud-grid">${encounterMaps.map((choice, index) => `<button type="button" data-map-encounter-choice="${index}">${choice.map.imageUrl ? `<img src="${escapeHtml(choice.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(choice.map.name)}</span><small>${escapeHtml(choice.encounterName || "Encuentro")}</small></button>`).join("")}</div></div>` : ""}
       <label class="combat-map-file-button">Desde equipo<input type="file" accept="image/*" data-map-file></label>
       <button type="button" data-map-action="load-cloud-list">Desde la nube</button>
@@ -659,14 +705,21 @@ export function createCombatMapController(options = {}) {
   }
 
   async function handleImageFile(file) {
+    localImageBusy = true;
+    localImageError = "";
+    sync();
     try {
       const converted = await convertImageFileToWebp(file);
       const map = { name: clean(file.name).replace(/\.[^.]+$/, "") || "Mapa", imageUrl: converted.dataUrl, width: converted.width, height: converted.height, cloudEntryId: "", isPrivate: false };
+      localImageBusy = false;
       setMap(map);
       showUploadPrompt(map, converted.blob);
       return map;
     } catch (error) {
-      options.onNotify?.("No se pudo cargar el mapa", error?.message || "Imagen no válida.", "danger");
+      localImageBusy = false;
+      localImageError = error?.message || "Imagen no válida.";
+      sync();
+      options.onNotify?.("No se pudo cargar el mapa", localImageError, "danger");
       return null;
     }
   }
