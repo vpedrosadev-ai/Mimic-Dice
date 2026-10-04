@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  getAreaShapeMetrics,
+  getMapLayoutKey,
   normalizeMapEditorState,
   getPortableMapReference,
   isImageFileLike,
   normalizeMapReference,
+  resolveGridCoordinatePosition,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
 
@@ -38,7 +41,9 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
     rotation: 91,
     grid: { type: "triangle", size: 1000 },
     healthMode: "invalid",
-    fog: { brushSize: 1, revealed: [{ x: 5, y: 7, r: 2 }] }
+    fog: { brushSize: 1, revealed: [{ x: 5, y: 7, r: 2 }] },
+    paint: { color: "red; background:url(x)", size: 999, strokes: [{ color: "#00ff88", size: 0, points: [{ x: 4, y: 9 }] }] },
+    shapes: { type: "triangle", color: "invalid", distanceFeet: 13, items: [{ id: "area-1", type: "cone", color: "#112233", distanceFeet: 22, x: 120, y: 80, rotation: -15 }] }
   });
 
   assert.equal(normalized.rotation, 0);
@@ -50,6 +55,56 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
   assert.equal(normalized.healthMode, "all");
   assert.equal(normalized.fog.brushSize, 12);
   assert.deepEqual(normalized.fog.revealed[0], { x: 5, y: 7, r: 4 });
+  assert.equal(normalized.paint.color, "#ef4444");
+  assert.equal(normalized.paint.size, 120);
+  assert.deepEqual(normalized.paint.strokes[0], { color: "#00ff88", size: 12, mode: "paint", points: [{ x: 4, y: 9 }] });
+  assert.equal(normalized.shapes.type, "circle");
+  assert.equal(normalized.shapes.distanceFeet, 15);
+  assert.deepEqual(normalized.shapes.items[0], { id: "area-1", type: "cone", color: "#112233", distanceFeet: 20, x: 120, y: 80, rotation: 345 });
+});
+
+test("area shapes use one grid cell for every five feet", () => {
+  assert.deepEqual(getAreaShapeMetrics({ type: "circle", distanceFeet: 15 }, { size: 80 }), {
+    distanceFeet: 15,
+    cells: 3,
+    distancePx: 240,
+    width: 480,
+    height: 480
+  });
+  assert.equal(getAreaShapeMetrics({ type: "cone", distanceFeet: 30 }, { size: 48 }).distancePx, 288);
+});
+
+test("grid coordinates resolve to the same square and hex cell centers shown on the map", () => {
+  assert.deepEqual(
+    resolveGridCoordinatePosition(" b 2 ", { type: "square", size: 80, offsetX: 10, offsetY: 0 }, 300, 300),
+    { x: 130, y: 120, coordinate: "B2" }
+  );
+  const hex = resolveGridCoordinatePosition("B1", { type: "hex", size: 80, offsetX: 0, offsetY: 0 }, 300, 300);
+  assert.equal(hex.x, 40);
+  assert.ok(Math.abs(hex.y - 46.188021535170066) < 0.000001);
+  assert.equal(resolveGridCoordinatePosition("Z99", { type: "square", size: 80 }, 300, 300), null);
+});
+
+test("map layout keys identify cloud entries and local image contents", () => {
+  assert.equal(getMapLayoutKey({ name: "Mapa", imageUrl: "/asset", cloudEntryId: "map-7" }), "cloud:map-7");
+  assert.equal(
+    getMapLayoutKey({ name: "Local", imageUrl: "data:image/webp;base64,abc", width: 10, height: 20 }),
+    getMapLayoutKey({ name: "Local", imageUrl: "data:image/webp;base64,abc", width: 10, height: 20 })
+  );
+});
+
+test("eraser strokes and per-map layouts survive state normalization", () => {
+  const normalized = normalizeMapEditorState({
+    paint: { mode: "erase", strokes: [{ mode: "erase", color: "#ffffff", size: 20, points: [{ x: 2, y: 3 }] }] },
+    savedMapLayouts: [{
+      map: { name: "Anterior", imageUrl: "/old.webp", width: 800, height: 600 },
+      state: { rotation: 90, shapes: { coordinate: " a8 " } }
+    }]
+  });
+  assert.equal(normalized.paint.mode, "erase");
+  assert.equal(normalized.paint.strokes[0].mode, "erase");
+  assert.equal(normalized.savedMapLayouts[0].state.rotation, 90);
+  assert.equal(normalized.savedMapLayouts[0].state.shapes.coordinate, "A8");
 });
 
 test("map editor keeps automatic popup positioning when bounds have no coordinates", () => {

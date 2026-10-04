@@ -3211,6 +3211,7 @@ button.is-cloud-busy:disabled {
   border-bottom: 1px solid rgba(212, 168, 98, .38);
   background: rgba(20, 24, 30, .96);
   box-shadow: 0 .5rem 1.4rem rgba(0, 0, 0, .3);
+  overflow-x: auto;
 }
 
 .combat-map-toolbar button,
@@ -3236,6 +3237,7 @@ button.is-cloud-busy:disabled {
 .combat-map-toolbar button:hover,
 .combat-map-toolbar button.is-active,
 .combat-map-popover button:hover,
+.combat-map-popover button.is-active,
 .combat-map-file-button:hover {
   border-color: #e0ad60;
   background: #3a3027;
@@ -3291,6 +3293,29 @@ button.is-cloud-busy:disabled {
 
 .combat-map-popover input[type="range"] {
   flex: 1;
+}
+
+.combat-map-popover input[type="color"] {
+  width: 3rem;
+  height: 2.2rem;
+  padding: .15rem;
+  cursor: pointer;
+}
+
+.combat-map-popover input[type="number"] {
+  width: 6rem;
+  padding: .42rem;
+}
+
+.combat-map-popover button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.combat-map-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
 }
 
 .combat-map-file-button input {
@@ -3434,6 +3459,8 @@ button.is-cloud-busy:disabled {
 .combat-map-image,
 .combat-map-grid,
 .combat-map-grid-coordinates,
+.combat-map-paint,
+.combat-map-shape-layer,
 .combat-map-fog,
 .combat-map-token-layer,
 .combat-map-empty {
@@ -3482,17 +3509,132 @@ button.is-cloud-busy:disabled {
   display: block;
 }
 
+.combat-map-paint {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.combat-map-paint.is-editing {
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.combat-map-paint.is-editing.is-erasing {
+  cursor: cell;
+}
+
+.combat-map-shape-layer {
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.combat-map-area-shape {
+  position: absolute;
+  width: calc(var(--shape-size) * 2);
+  height: calc(var(--shape-size) * 2);
+  transform-origin: center;
+  pointer-events: none;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+
+.combat-map-area-shape svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 .15rem .2rem rgba(0, 0, 0, .55));
+  pointer-events: none;
+}
+
+.combat-map-area-shape svg > * {
+  fill: var(--shape-color);
+  fill-opacity: .28;
+  stroke: var(--shape-color);
+  stroke-width: 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.combat-map-shape-layer.is-editing .combat-map-area-shape svg > * {
+  cursor: move;
+  pointer-events: visiblePainted;
+}
+
+.combat-map-shape-layer.is-editing .combat-map-area-shape__rotate {
+  pointer-events: auto;
+}
+
+.combat-map-area-shape.is-selected svg > * {
+  stroke: #fff;
+  stroke-dasharray: 10 7;
+}
+
+.combat-map-area-shape__measure {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: .18rem .38rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 999px;
+  background: rgba(10, 13, 17, .82);
+  color: #fff;
+  font-size: clamp(.62rem, calc(var(--shape-size) * .12), .9rem);
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.combat-map-area-shape__rotate {
+  position: absolute;
+  top: -.8rem;
+  left: 50%;
+  display: none;
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  transform: translateX(-50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--shape-color);
+  box-shadow: 0 .15rem .45rem rgba(0, 0, 0, .65);
+  cursor: grab;
+  touch-action: none;
+}
+
+.combat-map-area-shape__rotate::after {
+  content: "↻";
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.combat-map-area-shape.is-selected .combat-map-area-shape__rotate {
+  display: grid;
+  place-items: center;
+}
+
 .combat-map-fog {
+  z-index: 4;
   display: none;
   touch-action: none;
   cursor: crosshair;
+  pointer-events: none;
 }
 
 .combat-map-fog.is-visible {
   display: block;
 }
 
+.combat-map-fog.is-editing {
+  pointer-events: auto;
+}
+
 .combat-map-token-layer {
+  z-index: 6;
   pointer-events: none;
 }
 

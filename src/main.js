@@ -30619,13 +30619,20 @@ function sanitizeCampaignMapsForCloud(payload) {
   const hasCombatMap = isPlainObject(payload.combatMap);
   const combatMap = hasCombatMap ? payload.combatMap : {};
   const currentMap = normalizeMapReference(combatMap.map);
+  const savedMapLayouts = Array.isArray(combatMap.savedMapLayouts)
+    ? combatMap.savedMapLayouts.map((layout) => {
+      const map = normalizeMapReference(layout?.map);
+      return map?.cloudEntryId ? { ...layout, map: getPortableMapReference(map) } : null;
+    }).filter(Boolean)
+    : [];
 
   return {
     ...payload,
     ...(hasInventory ? { encounterInventory: { ...inventory, encounters } } : {}),
     ...(hasCombatMap ? { combatMap: {
       ...combatMap,
-      map: currentMap?.cloudEntryId ? getPortableMapReference(currentMap) : null
+      map: currentMap?.cloudEntryId ? getPortableMapReference(currentMap) : null,
+      savedMapLayouts
     } } : {})
   };
 }
