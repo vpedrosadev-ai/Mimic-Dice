@@ -246,6 +246,7 @@ export async function createCloudLibraryEntry({
   imageUrl = "",
   sourceEntityKey = "",
   sourceCampaignName = "",
+  tags = [],
   isPublic = false,
   payload
 }) {
@@ -259,6 +260,7 @@ export async function createCloudLibraryEntry({
       imageUrl,
       sourceEntityKey,
       sourceCampaignName,
+      tags,
       isPublic,
       payload
     })
@@ -272,12 +274,13 @@ export async function setCloudLibraryEntryVisibility(entryId, { isPublic, baseRe
   });
 }
 
-export async function updateCloudLibraryEntry(entryId, { name, isPublic, baseRevision }) {
+export async function updateCloudLibraryEntry(entryId, { name, isPublic, tags, baseRevision }) {
   return requestJson(`/api/library/${encodeURIComponent(entryId)}`, {
     method: "PATCH",
     body: JSON.stringify({
       ...(name !== undefined ? { name } : {}),
       ...(isPublic !== undefined ? { isPublic } : {}),
+      ...(tags !== undefined ? { tags } : {}),
       baseRevision
     })
   });

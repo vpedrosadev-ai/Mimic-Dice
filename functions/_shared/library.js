@@ -27,6 +27,19 @@ function normalizeType(value) {
   return type;
 }
 
+function normalizeTags(value) {
+  const source = Array.isArray(value) ? value : [];
+  return [...new Set(source.map((tag) => cleanText(tag, 40)).filter(Boolean))].slice(0, 12);
+}
+
+function parseTags(value) {
+  try {
+    return normalizeTags(JSON.parse(value || "[]"));
+  } catch {
+    return [];
+  }
+}
+
 function serializePayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new HttpError(400, "invalid_library_payload", "Library payload must be an object.");
@@ -90,7 +103,8 @@ function entrySummary(row, currentUserId = "") {
     sourceEntityKey: row.sourceEntityKey || "",
     groupName: row.groupName || "",
     imageUrl: row.imageUrl || "",
-    contentHash: row.contentHash || ""
+    contentHash: row.contentHash || "",
+    tags: parseTags(row.tags)
   };
 }
 
@@ -154,7 +168,7 @@ async function listOwnedEntries(context, user) {
     WHERE e."ownerId" = ?
     ORDER BY e."updatedAt" DESC
     LIMIT ?
-  `).bind(user.id, MAX_ENTRIES_PER_USER).all(),
+  `).bind(user.id, 2000).all(),
     context.env.DB.prepare(`
       SELECT e.*, u."name" AS "ownerName", c."name" AS "sourceCampaignName",
              'campaign' AS "entryKind"
@@ -230,17 +244,17 @@ async function createEntry(context, user) {
     throw new HttpError(400, "invalid_library_name", "Library entry name is required.");
   }
 
-  const count = await context.env.DB.prepare(
-    'SELECT COUNT(*) AS "count", COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "cloud_library_entries" WHERE "ownerId" = ?'
+  const quota = await context.env.DB.prepare(
+    'SELECT COUNT(*) AS "count", COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "cloud_library_entries" WHERE "ownerId" = ? AND "type" <> \'map\''
   ).bind(user.id).first();
 
-  if (Number(count?.count || 0) >= MAX_ENTRIES_PER_USER) {
+  if (type !== "map" && Number(quota?.count || 0) >= MAX_ENTRIES_PER_USER) {
     throw new HttpError(409, "library_entry_limit", `Maximum ${MAX_ENTRIES_PER_USER} library entries per user.`);
   }
 
   const { serialized, payloadBytes } = serializePayload(body.payload);
 
-  if (Number(count?.bytes || 0) + payloadBytes > MAX_LIBRARY_STORAGE_BYTES_PER_USER) {
+  if (type !== "map" && Number(quota?.bytes || 0) + payloadBytes > MAX_LIBRARY_STORAGE_BYTES_PER_USER) {
     throw new HttpError(413, "storage_quota", "Cloud library storage quota exceeded.");
   }
 
@@ -252,13 +266,14 @@ async function createEntry(context, user) {
   const imageUrl = cleanText(body.imageUrl, 600);
   const sourceEntityKey = cleanText(body.sourceEntityKey, 180);
   const sourceCampaignName = cleanText(body.sourceCampaignName, 160);
+  const tags = normalizeTags(body.tags);
   const statements = [
     context.env.DB.prepare(`
       INSERT INTO "cloud_library_entries" (
         "id", "ownerId", "type", "name", "description", "groupName", "imageUrl",
-        "sourceEntityKey", "sourceCampaignName", "isPublic", "revision",
+        "sourceEntityKey", "sourceCampaignName", "tags", "isPublic", "revision",
         "payloadVersion", "payloadBytes", "chunkCount", "createdAt", "updatedAt"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
     `).bind(
       entryId,
       user.id,
@@ -269,6 +284,7 @@ async function createEntry(context, user) {
       imageUrl,
       sourceEntityKey,
       sourceCampaignName,
+      JSON.stringify(tags),
       body.isPublic === true ? 1 : 0,
       payloadVersion,
       payloadBytes,
@@ -325,8 +341,9 @@ async function updateEntry(context, entryId, user) {
 
   const changesName = Object.prototype.hasOwnProperty.call(body, "name");
   const changesVisibility = Object.prototype.hasOwnProperty.call(body, "isPublic");
-  if (!changesName && !changesVisibility) {
-    throw new HttpError(400, "invalid_library_update", "Library update must change its name or visibility.");
+  const changesTags = Object.prototype.hasOwnProperty.call(body, "tags");
+  if (!changesName && !changesVisibility && !changesTags) {
+    throw new HttpError(400, "invalid_library_update", "Library update must change its name, visibility, or tags.");
   }
 
   const nextName = changesName ? cleanText(body.name, 160) : entry.name;
@@ -334,14 +351,15 @@ async function updateEntry(context, entryId, user) {
     throw new HttpError(400, "invalid_library_name", "Library entry name is required.");
   }
   const nextVisibility = changesVisibility ? body.isPublic === true : entry.isPublic === 1;
+  const nextTags = changesTags ? normalizeTags(body.tags) : parseTags(entry.tags);
 
   const now = new Date().toISOString();
   const tableName = catalogEntry ? "cloud_catalog_entries" : "cloud_library_entries";
   const result = await context.env.DB.prepare(`
     UPDATE "${tableName}"
-    SET "name" = ?, "isPublic" = ?, "revision" = "revision" + 1, "updatedAt" = ?
+    SET "name" = ?, "isPublic" = ?, "tags" = ?, "revision" = "revision" + 1, "updatedAt" = ?
     WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
-  `).bind(nextName, nextVisibility ? 1 : 0, now, entryId, user.id, baseRevision).run();
+  `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, user.id, baseRevision).run();
 
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");

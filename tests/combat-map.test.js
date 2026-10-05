@@ -70,7 +70,7 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
   assert.equal(normalized.grid.color, "#ffffff");
   assert.equal(normalized.healthMode, "all");
   assert.equal(normalized.fog.brushSize, 12);
-  assert.deepEqual(normalized.fog.revealed[0], { x: 5, y: 7, r: 4 });
+  assert.deepEqual(normalized.fog.revealed[0], { type: "circle", x: 5, y: 7, r: 4 });
   assert.equal(normalized.paint.color, "#ef4444");
   assert.equal(normalized.paint.size, 120);
   assert.deepEqual(normalized.paint.strokes[0], { color: "#00ff88", size: 12, mode: "paint", points: [{ x: 4, y: 9 }] });
@@ -174,6 +174,31 @@ test("eraser strokes and per-map layouts survive state normalization", () => {
   assert.equal(normalized.paint.strokes[0].mode, "erase");
   assert.equal(normalized.savedMapLayouts[0].state.rotation, 90);
   assert.equal(normalized.savedMapLayouts[0].state.shapes.coordinate, "A8");
+});
+
+test("line and icon paint strokes retain their settings", () => {
+  const normalized = normalizeMapEditorState({
+    opacity: { overall: .7, grid: .4, fog: 2 },
+    paint: {
+      mode: "icon",
+      icon: "⭐",
+      iconSize: 96,
+      iconRotation: 405,
+      strokes: [
+        { mode: "line", color: "#112233", size: 8, points: [{ x: 1, y: 2 }, { x: 30, y: 40 }] },
+        { mode: "icon", color: "#abcdef", size: 72, icon: "☠", rotation: -30, points: [{ x: 8, y: 9 }] }
+      ]
+    }
+  });
+
+  assert.deepEqual(normalized.opacity, {
+    overall: .7, grid: .4, tokens: 1, fog: 1, paint: 1, shapes: 1, health: 1, initiative: 1
+  });
+  assert.equal(normalized.paint.iconRotation, 45);
+  assert.deepEqual(normalized.paint.strokes[0].points, [{ x: 1, y: 2 }, { x: 30, y: 40 }]);
+  assert.deepEqual(normalized.paint.strokes[1], {
+    color: "#abcdef", size: 72, mode: "icon", points: [{ x: 8, y: 9 }], icon: "☠", rotation: 330
+  });
 });
 
 test("map editor keeps automatic popup positioning when bounds have no coordinates", () => {

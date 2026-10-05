@@ -8,10 +8,12 @@ import {
   methodNotAllowed
 } from "./http.js";
 
-const MAX_IMAGE_ASSET_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_ASSET_BYTES = 75 * 1024 * 1024;
 const MAX_PDF_ASSET_BYTES = 20 * 1024 * 1024;
-const MAX_ASSET_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;
+const MAX_GLOBAL_ASSET_STORAGE_BYTES = 9_000_000_000;
 const ASSET_ID_PATTERN = /\/api\/assets\/([0-9a-f-]{36})(?![0-9a-f-])/gi;
+const GLOBAL_STORAGE_QUOTA_CODE = "global_asset_storage_quota";
+const GLOBAL_STORAGE_QUOTA_MESSAGE = "El almacenamiento de la aplicación está cerca del límite de 10 GB. No se ha subido el archivo para evitar superar 9 GB. Contacta con los administradores de Mimic Dice.";
 
 function assertAssetBucket(context) {
   if (!context.env.CLOUD_ASSETS) {
@@ -25,6 +27,14 @@ function bytesToHex(bytes) {
 
 function assetUrl(assetId) {
   return `/api/assets/${encodeURIComponent(assetId)}`;
+}
+
+function globalStorageQuotaError() {
+  return new HttpError(413, GLOBAL_STORAGE_QUOTA_CODE, GLOBAL_STORAGE_QUOTA_MESSAGE);
+}
+
+function isGlobalStorageQuotaError(error) {
+  return String(error?.message || error || "").includes(GLOBAL_STORAGE_QUOTA_CODE);
 }
 
 export function extractCloudAssetIds(payload) {
@@ -83,7 +93,7 @@ async function uploadAsset(context, user) {
   assertAssetBucket(context);
   const contentType = cleanText(context.request.headers.get("Content-Type"), 100).toLowerCase().split(";")[0];
   const assetConfig = contentType === "image/webp"
-    ? { extension: "webp", maxBytes: MAX_IMAGE_ASSET_BYTES, tooLargeCode: "asset_too_large", tooLargeMessage: "Cloud image exceeds 5 MiB limit." }
+    ? { extension: "webp", maxBytes: MAX_IMAGE_ASSET_BYTES, tooLargeCode: "asset_too_large", tooLargeMessage: "Cloud image exceeds 75 MiB limit." }
     : contentType === "application/pdf"
       ? { extension: "pdf", maxBytes: MAX_PDF_ASSET_BYTES, tooLargeCode: "pdf_too_large", tooLargeMessage: "Character sheet PDF exceeds 20 MiB limit." }
       : null;
@@ -129,12 +139,12 @@ async function uploadAsset(context, user) {
     });
   }
 
-  const storage = await context.env.DB.prepare(
-    'SELECT COALESCE(SUM("byteSize"), 0) AS "bytes" FROM "cloud_assets" WHERE "ownerId" = ?'
-  ).bind(user.id).first();
+  const globalStorage = await context.env.DB.prepare(
+    'SELECT "storedBytes" FROM "cloud_asset_storage_usage" WHERE "id" = 1'
+  ).first();
 
-  if (Number(storage?.bytes || 0) + bytes.byteLength > MAX_ASSET_STORAGE_BYTES_PER_USER) {
-    throw new HttpError(413, "storage_quota", "Cloud asset storage quota exceeded.");
+  if (Number(globalStorage?.storedBytes || 0) + bytes.byteLength > MAX_GLOBAL_ASSET_STORAGE_BYTES) {
+    throw globalStorageQuotaError();
   }
 
   const assetId = crypto.randomUUID();
@@ -151,11 +161,40 @@ async function uploadAsset(context, user) {
     httpMetadata: { contentType },
     customMetadata: { ownerId: user.id, assetId }
   });
-  await context.env.DB.prepare(`
-    INSERT INTO "cloud_assets" (
-      "id", "ownerId", "objectKey", "sha256", "mimeType", "byteSize", "width", "height", "createdAt"
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(assetId, user.id, objectKey, sha256, contentType, bytes.byteLength, width, height, now).run();
+  try {
+    await context.env.DB.prepare(`
+      INSERT INTO "cloud_assets" (
+        "id", "ownerId", "objectKey", "sha256", "mimeType", "byteSize", "width", "height", "createdAt"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(assetId, user.id, objectKey, sha256, contentType, bytes.byteLength, width, height, now).run();
+  } catch (error) {
+    const concurrentlyCreated = await context.env.DB.prepare(`
+      SELECT * FROM "cloud_assets" WHERE "ownerId" = ? AND "sha256" = ? LIMIT 1
+    `).bind(user.id, sha256).first();
+
+    if (concurrentlyCreated) {
+      return jsonResponse({
+        asset: {
+          id: concurrentlyCreated.id,
+          url: assetUrl(concurrentlyCreated.id),
+          byteSize: concurrentlyCreated.byteSize,
+          mimeType: concurrentlyCreated.mimeType,
+          deduplicated: true
+        }
+      });
+    }
+
+    if (isGlobalStorageQuotaError(error)) {
+      try {
+        await context.env.CLOUD_ASSETS.delete(objectKey);
+      } catch (cleanupError) {
+        console.error("Could not remove rejected cloud asset.", cleanupError);
+      }
+      throw globalStorageQuotaError();
+    }
+
+    throw error;
+  }
 
   return jsonResponse({
     asset: {

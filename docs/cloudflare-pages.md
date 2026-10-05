@@ -135,6 +135,8 @@ npx wrangler d1 migrations apply mimic-dice-production --remote
 - R2 (`mimic-dice-assets`, binding `CLOUD_ASSETS`) guarda imágenes privadas.
 - Antes del primer guardado cloud, las imágenes `data:` se redimensionan a un máximo de 1024 px y se convierten a WebP.
 - Los objetos R2 se deduplican por SHA-256 dentro de cada usuario. D1 solo conserva sus URL y relaciones de acceso.
+- Las imágenes y publicaciones de mapas no tienen cuota acumulada por usuario. Cada imagen de mapa admite hasta 75 MiB y todas comparten el corte global de seguridad.
+- El almacenamiento conjunto de archivos R2 tiene un corte de seguridad en 9 GB decimales. La migración `0008_global_asset_storage_limit.sql` mantiene un contador transaccional y rechaza la subida que superaría ese umbral.
 - Una imagen es accesible por su propietario y por usuarios propietarios de una campaña que la referencia. El acceso anónimo solo se permite si alguna campaña o publicación relacionada es pública.
 
 La biblioteca comunitaria admite personajes, encuentros, hechizos, objetos y criaturas. Importar crea una copia en la campaña actual; no modifica la publicación original.
