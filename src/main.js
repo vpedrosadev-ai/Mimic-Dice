@@ -83,7 +83,7 @@ import {
   getFightClubCharacterXmlFileName
 } from "./screens/characters/characterFightClubXml.js";
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
-import { convertImageFileToWebp, createCombatMapController, getPortableMapReference, normalizeMapReference } from "./screens/combat-map/combatMap.js";
+import { convertImageFileToWebp, createCombatMapController, getPortableMapReference, normalizeMapEditorState, normalizeMapReference } from "./screens/combat-map/combatMap.js";
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
@@ -1020,6 +1020,7 @@ state = {
   },
   combatMapMirrorVisible: false,
   combatMapMirrorCollapsed: false,
+  encounterMapEditorId: "",
   combatTurnRoundEditorOpen: false,
   combatTurnRoundDraft: "",
   combatTurnJumpMenuOpen: false
@@ -1084,6 +1085,30 @@ const combatMapController = createCombatMapController({
     });
   },
   onChange: () => {
+    scheduleDesktopCampaignDirtyStateSync(60);
+  },
+  onCloudChanged: () => {
+    if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
+  },
+  onNotify: (title, message, tone = "success") => {
+    pushNotification({ title, message, tone });
+    syncNotificationUi();
+  }
+});
+
+const encounterMapController = createCombatMapController({
+  storageKey: "mimic-dice:encounter-map-editor:v1",
+  windowName: "mimic-dice-encounter-map-editor",
+  getCombatants: getEncounterMapEditorCombatants,
+  getStatusMeta: (statusName) => ({
+    label: translateCombatStatusNameForLanguage(statusName, state.appLanguage),
+    description: getCombatStatusDescription(statusName),
+    tone: getCombatStatusToneClass(statusName),
+    iconUrl: getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName))
+  }),
+  getAccountSession: () => state.accountSession,
+  onChange: () => {
+    saveActiveEncounterMapEditorState();
     scheduleDesktopCampaignDirtyStateSync(60);
   },
   onCloudChanged: () => {
@@ -3065,7 +3090,12 @@ async function handleClick(event) {
 
   if (action === "choose-encounter-map") {
     const encounterId = cleanText(actionButton.dataset.encounterId);
-    combatMapController.chooseMap((map) => setEncounterMap(encounterId, map));
+    openEncounterMapEditor(encounterId, { chooseMap: true });
+    return;
+  }
+
+  if (action === "edit-encounter-map") {
+    openEncounterMapEditor(actionButton.dataset.encounterId);
     return;
   }
 
@@ -3945,7 +3975,8 @@ async function handleChange(event) {
     const encounterId = cleanText(target.dataset.encounterMapFile);
     target.value = "";
     if (file && encounterId) {
-      const map = await combatMapController.convertAndSetFile(file);
+      prepareEncounterMapEditor(encounterId);
+      const map = await encounterMapController.convertAndSetFile(file);
       if (map) setEncounterMap(encounterId, map);
     }
     return;
@@ -13041,6 +13072,7 @@ function renderEncounterMapField(encounter) {
     </div>
     <button class="toolbar-button" type="button" data-action="choose-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Elegir nube</button>
     <button class="toolbar-button" type="button" data-action="upload-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Subir imagen</button>
+    ${map ? `<button class="toolbar-button toolbar-button--accent" type="button" data-action="edit-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Editar mapa</button>` : ""}
     ${map ? `<button class="toolbar-button toolbar-button--danger" type="button" data-action="remove-encounter-map" data-encounter-id="${escapeHtml(encounter.id)}">Quitar</button>` : ""}
     <input type="file" accept="image/*" data-encounter-map-file="${escapeHtml(encounter.id)}" hidden>
   </section>`;
@@ -21979,6 +22011,7 @@ function createEncounter() {
     name: `Encuentro ${nextNumber}`,
     folderId: state.activeEncounterFolderId,
     map: null,
+    mapEditorState: null,
     rows: []
   };
 
@@ -22239,10 +22272,91 @@ function setEncounterMap(encounterId, map) {
   }
 
   state.encounters = state.encounters.map((encounter) => encounter.id === normalizedId
-    ? { ...encounter, map: normalizedMap }
+    ? { ...encounter, map: normalizedMap, mapEditorState: normalizedMap ? encounter.mapEditorState : null }
     : encounter);
   saveEncounterInventory();
   render();
+}
+
+function getEncounterMapPreviewTokenId(encounterId, rowId, unitIndex) {
+  return `encounter-map-${cleanText(encounterId)}-${cleanText(rowId)}-${unitIndex}`;
+}
+
+function getEncounterMapEditorCombatants() {
+  const encounter = state.encounters.find((item) => item.id === state.encounterMapEditorId);
+  return buildEncounterMapPreviewCombatants(encounter);
+}
+
+function buildEncounterMapPreviewCombatants(encounter) {
+  if (!encounter) return [];
+  let standNumber = 1;
+  return encounter.rows.flatMap((row) => {
+    const bestiaryEntry = getEncounterRowBestiaryEntry(row);
+    const units = Math.max(1, Math.floor(toNumber(row.units) || 1));
+    return Array.from({ length: units }, (_, unitIndex) => normalizeCombatant({
+      id: getEncounterMapPreviewTokenId(encounter.id, row.id, unitIndex),
+      side: "enemies",
+      nombre: row.name,
+      numPeana: formatStandNumber(standNumber++),
+      tokenUrl: row.tokenUrl || bestiaryEntry?.tokenUrl || "",
+      pgMax: getEncounterRowHpValue(row, bestiaryEntry) || 1,
+      pgAct: getEncounterRowHpValue(row, bestiaryEntry) || 1,
+      ca: getEncounterRowAcValue(row, bestiaryEntry) || "",
+      tamano: cleanText(bestiaryEntry?.size) || "Mediano",
+      condiciones: "",
+      iniactiva: "",
+      initiativeRoll: null
+    }));
+  });
+}
+
+function getEncounterCombatMapWorkspace(encounter) {
+  if (!encounter?.mapEditorState) return null;
+  const workspace = normalizeMapEditorState(encounter.mapEditorState);
+  const preview = buildEncounterMapPreviewCombatants(encounter);
+  const loaded = state.combatants.filter((combatant) => cleanText(combatant.sourceEncounterId) === encounter.id);
+  const idMap = new Map(preview.map((combatant, index) => [combatant.id, loaded[index]?.id]).filter((entry) => entry[1]));
+  workspace.tokenPositions = Object.fromEntries(Object.entries(workspace.tokenPositions || {}).flatMap(([id, point]) => idMap.has(id) ? [[idMap.get(id), point]] : []));
+  workspace.tokenVisibility = Object.fromEntries(Object.entries(workspace.tokenVisibility || {}).flatMap(([id, visible]) => idMap.has(id) ? [[idMap.get(id), visible]] : []));
+  return workspace;
+}
+
+function prepareEncounterMapEditor(encounterId) {
+  const encounter = state.encounters.find((item) => item.id === cleanText(encounterId));
+  if (!encounter) return null;
+  state.encounterMapEditorId = encounter.id;
+  const editorState = encounter.mapEditorState || {};
+  encounterMapController.applyMapWorkspace(encounter.map, editorState);
+  const save = encounterMapController.getSaveData();
+  let visibilityChanged = false;
+  getEncounterMapEditorCombatants().forEach((combatant) => {
+    if (!Object.prototype.hasOwnProperty.call(save.tokenVisibility, combatant.id)) {
+      save.tokenVisibility[combatant.id] = true;
+      visibilityChanged = true;
+    }
+  });
+  if (!encounter.mapEditorState || visibilityChanged) {
+    encounterMapController.applySave(save);
+  }
+  return encounter;
+}
+
+function openEncounterMapEditor(encounterId, options = {}) {
+  const encounter = prepareEncounterMapEditor(encounterId);
+  if (!encounter) return;
+  if (options.chooseMap) encounterMapController.chooseMap((map) => setEncounterMap(encounter.id, map));
+  else encounterMapController.open();
+}
+
+function saveActiveEncounterMapEditorState() {
+  const encounterId = cleanText(state.encounterMapEditorId);
+  if (!encounterId || !state.encounters.some((encounter) => encounter.id === encounterId)) return;
+  const map = normalizeMapReference(encounterMapController.getMap());
+  const mapEditorState = encounterMapController.getCloudMapEditorState();
+  state.encounters = state.encounters.map((encounter) => encounter.id === encounterId
+    ? { ...encounter, map: map || encounter.map, mapEditorState }
+    : encounter);
+  saveEncounterInventory();
 }
 
 function addCreatureToActiveEncounter(entryId) {
@@ -22680,7 +22794,8 @@ function getLoadedCombatEncounterMapChoices() {
     return map ? {
       encounterId,
       encounterName: cleanText(encounter?.name) || "Encuentro",
-      map
+      map,
+      editorState: getEncounterCombatMapWorkspace(encounter)
     } : null;
   }).filter(Boolean);
 }
@@ -22741,7 +22856,9 @@ function importEncounterToCombat(encounterId) {
   state.combatEncounterPickerOpen = false;
   state.combatAddPickerMode = "";
   if (!combatMapController.getMap() && encounter.map) {
-    combatMapController.setMap(encounter.map);
+    const workspace = getEncounterCombatMapWorkspace(encounter);
+    if (workspace) combatMapController.applyMapWorkspace(encounter.map, workspace);
+    else combatMapController.setMap(encounter.map);
   }
 }
 
@@ -33364,6 +33481,7 @@ function normalizeStoredEncounter(encounter) {
     name: cleanText(encounter.name),
     folderId: cleanText(encounter.folderId),
     map: normalizeMapReference(encounter.map),
+    mapEditorState: isPlainObject(encounter.mapEditorState) ? normalizeMapEditorState(encounter.mapEditorState) : null,
     rows
   };
 }

@@ -196,7 +196,9 @@ test("line and icon paint strokes retain their settings", () => {
   });
   assert.equal(normalized.paint.iconRotation, 45);
   assert.deepEqual(normalized.paint.strokes[0].points, [{ x: 1, y: 2 }, { x: 30, y: 40 }]);
-  assert.deepEqual(normalized.paint.strokes[1], {
+  const { id: iconId, ...iconStroke } = normalized.paint.strokes[1];
+  assert.equal(iconId, "paint-icon-1");
+  assert.deepEqual(iconStroke, {
     color: "#abcdef", size: 72, mode: "icon", points: [{ x: 8, y: 9 }], icon: "☠", rotation: 330
   });
 });

@@ -4025,20 +4025,70 @@ button.is-cloud-busy:disabled {
   position: absolute;
   top: 50%;
   z-index: 1;
-  font-size: max(1.05rem, calc(var(--token-size) * .42));
-  line-height: 1;
+  width: max(2.2rem, calc(var(--token-size) * .92));
+  height: auto;
+  object-fit: contain;
   filter: drop-shadow(0 .12rem .18rem rgba(0, 0, 0, .8));
   pointer-events: none;
 }
 
 .combat-map-token__wing--left {
-  right: 90%;
-  transform: translateY(-50%) scaleX(-1) rotate(-12deg);
+  right: 88%;
+  transform: translateY(-50%) rotate(-8deg);
 }
 
 .combat-map-token__wing--right {
-  left: 90%;
-  transform: translateY(-50%) rotate(-12deg);
+  left: 88%;
+  transform: translateY(-50%) scaleX(-1) rotate(-8deg);
+}
+
+.combat-map-paint-icon-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.combat-map-paint-icon {
+  position: absolute;
+  display: grid;
+  width: var(--paint-icon-size);
+  height: var(--paint-icon-size);
+  place-items: center;
+  color: var(--paint-icon-color);
+  font-size: calc(var(--paint-icon-size) * .72);
+  line-height: 1;
+  user-select: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .7));
+}
+
+.combat-map-paint-icon-layer.is-editing .combat-map-paint-icon {
+  cursor: move;
+  pointer-events: auto;
+}
+
+.combat-map-paint-icon.is-selected {
+  outline: 2px dashed #f9d675;
+  outline-offset: 4px;
+}
+
+.combat-map-paint-icon__rotate {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  display: none;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  transform: translateX(-50%);
+  border: 2px solid #15191f;
+  border-radius: 50%;
+  background: #f9d675;
+  cursor: grab;
+}
+
+.combat-map-paint-icon.is-selected .combat-map-paint-icon__rotate {
+  display: block;
 }
 
 .combat-map-token__flight-height {

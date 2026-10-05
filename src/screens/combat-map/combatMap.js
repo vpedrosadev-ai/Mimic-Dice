@@ -6,6 +6,8 @@ import {
   uploadCloudImage
 } from "../../cloud/cloudClient.js";
 
+const tokenWingUrl = new URL("../../assets/token-wing.png", import.meta.url).href;
+
 const DEFAULT_WIDTH = 1600;
 const DEFAULT_HEIGHT = 900;
 const MIN_GRID_SIZE = 24;
@@ -87,6 +89,7 @@ function normalizePaintStrokes(value) {
       mode,
       points,
       ...(mode === "icon" ? {
+        id: clean(stroke.id) || `paint-icon-${index}`,
         icon: MAP_ICON_OPTIONS.includes(stroke.icon) ? stroke.icon : MAP_ICON_OPTIONS[0],
         rotation: ((Number(stroke.rotation) || 0) % 360 + 360) % 360
       } : {})
@@ -519,6 +522,11 @@ export function normalizeMapEditorState(value) {
       scrollTop: Math.max(0, Number(source.viewport?.scrollTop) || 0),
       zoom: clamp(source.viewport?.zoom || 1, MIN_MAP_ZOOM, MAX_MAP_ZOOM)
     },
+    playerViewport: {
+      scrollLeft: Math.max(0, Number(source.playerViewport?.scrollLeft) || 0),
+      scrollTop: Math.max(0, Number(source.playerViewport?.scrollTop) || 0),
+      zoom: clamp(source.playerViewport?.zoom || 1, MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+    },
     opacity: {
       overall: normalizeOpacity(source.opacity?.overall),
       grid: normalizeOpacity(source.opacity?.grid),
@@ -546,7 +554,6 @@ export function normalizeMapEditorState(value) {
     tokenVisibility: Object.fromEntries(Object.entries(visibility).map(([id, enabled]) => [clean(id), enabled === true]).filter(([id]) => id)),
     fog: {
       enabled: source.fog?.enabled === true,
-      translucent: source.fog?.translucent === true,
       mode: source.fog?.mode === "polygon" ? "polygon" : "brush",
       brushShape: source.fog?.brushShape === "square" ? "square" : "circle",
       brushSize: clamp(source.fog?.brushSize || 70, 12, 300),
@@ -560,6 +567,7 @@ export function normalizeMapEditorState(value) {
       icon: MAP_ICON_OPTIONS.includes(source.paint?.icon) ? source.paint.icon : MAP_ICON_OPTIONS[0],
       iconSize: clamp(source.paint?.iconSize || 64, 16, 300),
       iconRotation: ((Number(source.paint?.iconRotation) || 0) % 360 + 360) % 360,
+      selectedIconId: clean(source.paint?.selectedIconId),
       strokes: normalizePaintStrokes(source.paint?.strokes)
     },
     shapes: {
@@ -720,6 +728,8 @@ function getSide(combatant) {
 }
 
 export function createCombatMapController(options = {}) {
+  const storageKey = clean(options.storageKey) || MAP_STORAGE_KEY;
+  const popupName = clean(options.windowName) || "mimic-dice-combat-map";
   let editorWindow = null;
   let pollInterval = 0;
   let viewportPersistTimer = 0;
@@ -747,14 +757,14 @@ export function createCombatMapController(options = {}) {
 
   function loadLocalState() {
     try {
-      return normalizeMapEditorState(JSON.parse(localStorage.getItem(MAP_STORAGE_KEY) || "{}"));
+      return normalizeMapEditorState(JSON.parse(localStorage.getItem(storageKey) || "{}"));
     } catch {
       return normalizeMapEditorState({});
     }
   }
 
   function persist() {
-    try { localStorage.setItem(MAP_STORAGE_KEY, JSON.stringify(state)); } catch { /* memory state remains */ }
+    try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* memory state remains */ }
     options.onChange?.(getSaveData());
   }
 
@@ -865,6 +875,18 @@ export function createCombatMapController(options = {}) {
 
   function applySave(value) {
     state = normalizeMapEditorState(value);
+    openPanel = state.openPanel;
+    persist();
+    sync();
+    if (state.map?.cloudEntryId && !state.map.imageUrl) resolveCloudMap(state.map.cloudEntryId);
+  }
+
+  function applyMapWorkspace(map, workspace = {}) {
+    const preserved = {
+      savedMapLayouts: state.savedMapLayouts,
+      windowBounds: state.windowBounds
+    };
+    state = normalizeMapEditorState({ ...workspace, ...preserved, map });
     openPanel = state.openPanel;
     persist();
     sync();
@@ -1014,7 +1036,7 @@ export function createCombatMapController(options = {}) {
     }
     const bounds = state.windowBounds;
     const position = bounds.left === null || bounds.top === null ? "" : `,left=${bounds.left},top=${bounds.top}`;
-    const popup = window.open("", "mimic-dice-combat-map", `popup=yes,width=${Math.round(bounds.width)},height=${Math.round(bounds.height)}${position},resizable=yes,scrollbars=no`);
+    const popup = window.open("", popupName, `popup=yes,width=${Math.round(bounds.width)},height=${Math.round(bounds.height)}${position},resizable=yes,scrollbars=no`);
     if (!popup) {
       options.onNotify?.("No se pudo abrir el mapa", "Permite ventanas emergentes y vuelve a intentarlo.", "danger");
       return;
@@ -1061,6 +1083,17 @@ export function createCombatMapController(options = {}) {
     popup.document.open();
     popup.document.write(`<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${escapeHtml(document.baseURI)}"><title>Mapa de combate · Jugador - Mimic Dice</title>${inheritedStyles}</head><body class="combat-map-popout-body"><main data-combat-map-root data-combat-map-player-root></main></body></html>`);
     popup.document.close();
+    popup.document.addEventListener("click", handleClick);
+    popup.document.addEventListener("change", handleChange);
+    popup.document.addEventListener("input", handleInput);
+    popup.document.addEventListener("keydown", handleKeydown);
+    popup.document.addEventListener("contextmenu", handleContextMenu);
+    popup.document.addEventListener("pointerdown", handlePointerDown);
+    popup.document.addEventListener("pointermove", handlePointerMove);
+    popup.document.addEventListener("pointerup", handlePointerUp);
+    popup.document.addEventListener("pointercancel", handlePointerUp);
+    popup.document.addEventListener("pointerleave", (event) => hideBrushCursor(getEventSurface(event)));
+    popup.document.addEventListener("wheel", handleWheel, { passive: false });
     popup.document.addEventListener("scroll", handleViewportScroll, true);
     popup.addEventListener("beforeunload", () => { captureWindowBounds(); close(); });
     popup.addEventListener("resize", () => {
@@ -1070,11 +1103,15 @@ export function createCombatMapController(options = {}) {
   }
 
   function getEventSurface(event) {
-    return event?.target?.closest?.("[data-combat-map-master-root]") || masterHost;
+    return event?.target?.closest?.("[data-combat-map-master-root], [data-combat-map-player-root]")
+      || activeDrag?.surface
+      || masterHost
+      || editorWindow?.document?.querySelector?.("[data-combat-map-player-root]");
   }
 
-  function renderToolbar() {
+  function renderToolbar(version = "master") {
     return `<header class="combat-map-toolbar">
+      <strong class="combat-map-toolbar__version">Versión ${version === "player" ? "jugador" : "máster"}</strong>
       <button type="button" data-map-action="open-map-menu" class="${openPanel === "map" ? "is-active" : ""}">Mapa</button>
       <button type="button" data-map-action="toggle-grid-menu" class="${state.grid.visible ? "is-active" : ""}">Rejilla</button>
       <button type="button" data-map-action="toggle-token-menu">Peanas</button>
@@ -1097,12 +1134,13 @@ export function createCombatMapController(options = {}) {
 
   function applyLayerOpacityStyles(root = masterHost || editorWindow?.document) {
     if (!root) return;
+    const isPlayer = root?.matches?.("[data-combat-map-player-root]") || root?.hasAttribute?.("data-combat-map-player-root");
     const setOpacity = (selector, value) => root.querySelectorAll(selector).forEach((element) => { element.style.opacity = String(value); });
     setOpacity("[data-map-grid-coordinates], [data-map-grid-labels]", layerOpacity("grid"));
-    setOpacity("[data-map-paint]", layerOpacity("paint"));
+    setOpacity("[data-map-paint], [data-map-paint-icon-layer]", layerOpacity("paint"));
     setOpacity("[data-map-shape-layer], .combat-map-text-layer", layerOpacity("shapes"));
     setOpacity(".combat-map-token-layer", layerOpacity("tokens"));
-    setOpacity("[data-map-fog]", layerOpacity("fog"));
+    setOpacity("[data-map-fog]", isPlayer ? 1 : layerOpacity("fog"));
     setOpacity("[data-map-initiative-order]", layerOpacity("initiative"));
     setOpacity(".combat-map-token__health", normalizeOpacity(state.opacity.health));
   }
@@ -1114,10 +1152,11 @@ export function createCombatMapController(options = {}) {
     })).filter((choice) => choice.map);
   }
 
-  function renderMapMenu() {
+  function renderMapMenu(version = "master") {
     const encounterMaps = getEncounterMapChoices();
     const currentKey = getMapLayoutKey(state.map);
     const savedMaps = state.savedMapLayouts.filter((layout) => layout.key !== currentKey);
+    const viewport = version === "player" ? state.playerViewport : state.viewport;
     return `<section class="combat-map-popover" data-map-panel="map" ${openPanel === "map" ? "" : "hidden"}>
       <h2>Mapa</h2>
       <button type="button" data-map-action="toggle-map-load-menu">Cargar imagen</button>
@@ -1128,7 +1167,7 @@ export function createCombatMapController(options = {}) {
         ${savedMaps.length ? `<div class="combat-map-priority-list"><h3>Usados recientemente</h3><div class="combat-map-cloud-grid">${savedMaps.map((layout) => `<button type="button" data-map-saved-layout="${escapeHtml(layout.key)}">${layout.map.imageUrl ? `<img src="${escapeHtml(layout.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(layout.map.name)}</span><small>Disposición guardada</small></button>`).join("")}</div></div>` : ""}
         ${encounterMaps.length ? `<div class="combat-map-priority-list"><h3>Vinculados a encuentros cargados</h3><div class="combat-map-cloud-grid">${encounterMaps.map((choice, index) => `<button type="button" data-map-encounter-choice="${index}">${choice.map.imageUrl ? `<img src="${escapeHtml(choice.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(choice.map.name)}</span><small>${escapeHtml(choice.encounterName || "Encuentro")}</small></button>`).join("")}</div></div>` : ""}
       </div>` : ""}
-      <label>Zoom <input type="range" min="25" max="300" step="5" value="${Math.round(state.viewport.zoom * 100)}" data-map-zoom><output>${Math.round(state.viewport.zoom * 100)}%</output></label>
+      <label>Zoom <input type="range" min="25" max="300" step="5" value="${Math.round(viewport.zoom * 100)}" data-map-zoom><output>${Math.round(viewport.zoom * 100)}%</output></label>
       ${renderOpacityControl("overall", "Opacidad general de elementos")}
       <div class="combat-map-tool-actions"><button type="button" data-map-action="zoom-out">Alejar</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in">Acercar</button></div>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="rotate-left">Rotar 90° izquierda</button><button type="button" data-map-action="rotate-right">Rotar 90° derecha</button></div>
@@ -1251,7 +1290,7 @@ export function createCombatMapController(options = {}) {
     return `<section class="combat-map-popover" data-map-panel="fog" ${openPanel === "fog" ? "" : "hidden"}>
       <h2>Niebla de guerra</h2>
       <label><input type="checkbox" data-fog-enabled ${state.fog.enabled ? "checked" : ""}> Mostrar niebla</label>
-      ${state.fog.enabled ? `<label><input type="checkbox" data-fog-translucent ${state.fog.translucent ? "checked" : ""}> Modo translúcido para editar</label>${renderOpacityControl("fog")}<div class="combat-map-tool-actions"><button type="button" data-map-action="fog-brush-mode" class="${state.fog.mode === "brush" ? "is-active" : ""}">Pincel</button><button type="button" data-map-action="fog-polygon-mode" class="${state.fog.mode === "polygon" ? "is-active" : ""}">Máscara por puntos</button></div>${state.fog.mode === "brush" ? `<label>Forma <select data-fog-brush-shape><option value="circle" ${state.fog.brushShape === "circle" ? "selected" : ""}>Circular</option><option value="square" ${state.fog.brushShape === "square" ? "selected" : ""}>Cuadrada</option></select></label><label>Grosor <input type="range" min="12" max="300" value="${state.fog.brushSize}" data-fog-size><output>${Math.round(state.fog.brushSize * 2)} px</output></label>` : `<p class="combat-map-help">Haz clic para añadir vértices. Pulsa el primer punto o “Cerrar máscara” para aplicar el área.</p><div class="combat-map-tool-actions"><button type="button" data-map-action="close-fog-polygon" ${state.fog.polygonDraft.length >= 3 ? "" : "disabled"}>Cerrar máscara</button><button type="button" data-map-action="cancel-fog-polygon" ${state.fog.polygonDraft.length ? "" : "disabled"}>Cancelar puntos</button></div>`}<button type="button" data-map-action="reset-fog" ${state.fog.revealed.length ? "" : "disabled"}>Reiniciar niebla</button><p class="combat-map-help">Por defecto es opaca. El modo translúcido permite ver el mapa mientras recortas la niebla.</p>` : ""}
+      ${state.fog.enabled ? `${renderOpacityControl("fog")}<div class="combat-map-tool-actions"><button type="button" data-map-action="fog-brush-mode" class="${state.fog.mode === "brush" ? "is-active" : ""}">Pincel</button><button type="button" data-map-action="fog-polygon-mode" class="${state.fog.mode === "polygon" ? "is-active" : ""}">Máscara por puntos</button></div>${state.fog.mode === "brush" ? `<label>Forma <select data-fog-brush-shape><option value="circle" ${state.fog.brushShape === "circle" ? "selected" : ""}>Circular</option><option value="square" ${state.fog.brushShape === "square" ? "selected" : ""}>Cuadrada</option></select></label><label>Grosor <input type="range" min="12" max="300" value="${state.fog.brushSize}" data-fog-size><output>${Math.round(state.fog.brushSize * 2)} px</output></label>` : `<p class="combat-map-help">Haz clic para añadir vértices. Pulsa el primer punto o “Cerrar máscara” para aplicar el área.</p><div class="combat-map-tool-actions"><button type="button" data-map-action="close-fog-polygon" ${state.fog.polygonDraft.length >= 3 ? "" : "disabled"}>Cerrar máscara</button><button type="button" data-map-action="cancel-fog-polygon" ${state.fog.polygonDraft.length ? "" : "disabled"}>Cancelar puntos</button></div>`}<button type="button" data-map-action="reset-fog" ${state.fog.revealed.length ? "" : "disabled"}>Reiniciar niebla</button><p class="combat-map-help">En Máster la niebla es translúcida; en Jugador es opaca.</p>` : ""}
     </section>`;
   }
 
@@ -1284,12 +1323,20 @@ export function createCombatMapController(options = {}) {
     return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${openPanel === "tokens" ? "" : "hidden"}><h2>Peanas</h2>${renderOpacityControl("tokens")}<label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
   }
 
+  function getSelectedPaintIcon() {
+    return state.paint.strokes.find((stroke) => stroke.mode === "icon" && stroke.id === state.paint.selectedIconId) || null;
+  }
+
   function renderPaintMenu() {
+    const selectedIcon = getSelectedPaintIcon();
+    const icon = selectedIcon?.icon || state.paint.icon;
+    const iconSize = selectedIcon?.size || state.paint.iconSize;
+    const iconRotation = selectedIcon?.rotation ?? state.paint.iconRotation;
     return `<section class="combat-map-popover" data-map-panel="paint" ${openPanel === "paint" ? "" : "hidden"}>
       <h2>Pincel para pintar</h2>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="paint-mode" class="${state.paint.mode === "paint" ? "is-active" : ""}">Pincel</button><button type="button" data-map-action="line-mode" class="${state.paint.mode === "line" ? "is-active" : ""}">Línea recta</button><button type="button" data-map-action="icon-mode" class="${state.paint.mode === "icon" ? "is-active" : ""}">Icono</button><button type="button" data-map-action="erase-mode" class="${state.paint.mode === "erase" ? "is-active" : ""}">Goma</button></div>
-      <label>Color <input type="color" value="${state.paint.color}" data-paint-color></label>
-      ${state.paint.mode === "icon" ? `<label>Icono <select data-paint-icon>${MAP_ICON_OPTIONS.map((icon) => `<option value="${icon}" ${state.paint.icon === icon ? "selected" : ""}>${icon}</option>`).join("")}</select></label><label>Tamaño <input type="range" min="16" max="300" value="${state.paint.iconSize}" data-paint-icon-size><output>${Math.round(state.paint.iconSize)} px</output></label><label>Rotación <input type="range" min="0" max="359" value="${state.paint.iconRotation}" data-paint-icon-rotation><output>${Math.round(state.paint.iconRotation)}°</output></label>` : `<label>Grosor <input type="range" min="${MIN_PAINT_SIZE}" max="${MAX_PAINT_SIZE}" value="${state.paint.size}" data-paint-size><output>${Math.round(state.paint.size)} px</output></label>`}
+      <label>Color <input type="color" value="${selectedIcon?.color || state.paint.color}" data-paint-color></label>
+      ${state.paint.mode === "icon" ? `<p class="combat-map-editor-mode"><strong>${selectedIcon ? "Editando icono seleccionado" : "Nuevo icono"}</strong><span>${selectedIcon ? "Arrástralo o usa su tirador para rotarlo." : "Haz clic en el mapa para colocarlo."}</span></p><label>Icono <select data-paint-icon>${MAP_ICON_OPTIONS.map((option) => `<option value="${option}" ${icon === option ? "selected" : ""}>${option}</option>`).join("")}</select></label><label>Tamaño <input type="range" min="16" max="300" value="${iconSize}" data-paint-icon-size><output>${Math.round(iconSize)} px</output></label><label>Rotación <input type="range" min="0" max="359" value="${iconRotation}" data-paint-icon-rotation><output>${Math.round(iconRotation)}°</output></label><div class="combat-map-tool-actions"><button type="button" data-map-action="new-paint-icon" ${selectedIcon ? "" : "disabled"}>Nuevo icono</button><button type="button" data-map-action="delete-paint-icon" ${selectedIcon ? "" : "disabled"}>Eliminar icono</button></div>` : `<label>Grosor <input type="range" min="${MIN_PAINT_SIZE}" max="${MAX_PAINT_SIZE}" value="${state.paint.size}" data-paint-size><output>${Math.round(state.paint.size)} px</output></label>`}
       ${renderOpacityControl("paint")}
       <div class="combat-map-tool-actions"><button type="button" data-map-action="undo-paint" ${state.paint.strokes.length ? "" : "disabled"}>Deshacer trazo</button><button type="button" data-map-action="clear-paint" ${state.paint.strokes.length ? "" : "disabled"}>Borrar dibujo</button></div>
       <p class="combat-map-help">El pincel añade trazos y la goma borra únicamente las partes por las que pasa. Todo se guarda con la campaña.</p>
@@ -1297,16 +1344,19 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderShapesMenu() {
-    const isText = state.shapes.type === "text";
-    const distanceLabel = state.shapes.type === "cone" ? "Longitud" : state.shapes.type === "square" ? "Lado" : "Radio";
-    const selected = state.shapes.items.some((shape) => shape.id === state.shapes.selectedId);
+    const selectedShape = getSelectedShape();
+    const values = selectedShape || state.shapes;
+    const isText = values.type === "text";
+    const distanceLabel = values.type === "cone" ? "Longitud" : values.type === "square" ? "Lado" : "Radio";
+    const selected = Boolean(selectedShape);
     return `<section class="combat-map-popover" data-map-panel="shapes" ${openPanel === "shapes" ? "" : "hidden"}>
       <h2>Formas de área</h2>
+      <p class="combat-map-editor-mode"><strong>${selected ? "Editando forma seleccionada" : "Preparando nueva forma"}</strong><span>${selected ? "Los cambios se aplican a la forma existente." : "Configura sus propiedades y pulsa Añadir forma."}</span></p>
       ${renderOpacityControl("shapes")}
-      <label>Forma <select data-shape-type><option value="circle" ${state.shapes.type === "circle" ? "selected" : ""}>Círculo</option><option value="square" ${state.shapes.type === "square" ? "selected" : ""}>Cuadrado</option><option value="cone" ${state.shapes.type === "cone" ? "selected" : ""}>Cono</option><option value="text" ${isText ? "selected" : ""}>Texto</option></select></label>
-      ${isText ? `<label>Contenido <textarea rows="3" maxlength="500" data-shape-text>${escapeHtml(state.shapes.text)}</textarea></label><label><input type="checkbox" data-shape-text-box ${state.shapes.textBoxVisible ? "checked" : ""}> Mostrar rectángulo de fondo</label><label>Color del rectángulo <input type="color" value="${state.shapes.textBoxColor}" data-shape-text-box-color ${state.shapes.textBoxVisible ? "" : "disabled"}></label><label>Color del texto <input type="color" value="${state.shapes.textColor}" data-shape-text-color></label><label>Tamaño <input type="range" min="10" max="120" step="1" value="${state.shapes.fontSize}" data-shape-font-size><output>${Math.round(state.shapes.fontSize)} px</output></label>` : `<label>Color <input type="color" value="${state.shapes.color}" data-shape-color></label><label>${distanceLabel} <input type="number" min="5" max="500" step="5" value="${state.shapes.distanceFeet}" data-shape-distance> pies</label><label>Casilla inicial <input type="text" maxlength="12" placeholder="A8" value="${escapeHtml(state.shapes.coordinate)}" data-shape-coordinate></label>`}
+      <label>Forma <select data-shape-type><option value="circle" ${values.type === "circle" ? "selected" : ""}>Círculo</option><option value="square" ${values.type === "square" ? "selected" : ""}>Cuadrado</option><option value="cone" ${values.type === "cone" ? "selected" : ""}>Cono</option><option value="text" ${isText ? "selected" : ""}>Texto</option></select></label>
+      ${isText ? `<label>Contenido <textarea rows="3" maxlength="500" data-shape-text>${escapeHtml(values.text)}</textarea></label><label><input type="checkbox" data-shape-text-box ${values.textBoxVisible ? "checked" : ""}> Mostrar rectángulo de fondo</label><label>Color del rectángulo <input type="color" value="${values.textBoxColor}" data-shape-text-box-color ${values.textBoxVisible ? "" : "disabled"}></label><label>Color del texto <input type="color" value="${values.textColor}" data-shape-text-color></label><label>Tamaño <input type="range" min="10" max="120" step="1" value="${values.fontSize}" data-shape-font-size><output>${Math.round(values.fontSize)} px</output></label>` : `<label>Color <input type="color" value="${values.color}" data-shape-color></label><label>${distanceLabel} <input type="number" min="5" max="500" step="5" value="${values.distanceFeet}" data-shape-distance> pies</label>${selected ? "" : `<label>Casilla inicial <input type="text" maxlength="12" placeholder="A8" value="${escapeHtml(state.shapes.coordinate)}" data-shape-coordinate></label>`}`}
       ${shapeCoordinateError ? `<p class="combat-map-error" role="alert">${escapeHtml(shapeCoordinateError)}</p>` : ""}
-      <button type="button" data-map-action="add-shape">Añadir forma</button>
+      ${selected ? `<button type="button" data-map-action="new-shape">Preparar nueva forma</button>` : `<button type="button" data-map-action="add-shape">Añadir forma</button>`}
       <div class="combat-map-tool-actions"><button type="button" data-map-action="rotate-shape-left" ${selected ? "" : "disabled"}>Girar −15°</button><button type="button" data-map-action="rotate-shape-right" ${selected ? "" : "disabled"}>Girar +15°</button><button type="button" data-map-action="delete-shape" ${selected ? "" : "disabled"}>Eliminar</button></div>
       <p class="combat-map-help">${isText ? "El texto puede arrastrarse fuera de la imagen, dentro del espacio del editor." : "La casilla es opcional: centra círculos y cuadrados; en conos coloca el origen."}</p>
     </section>`;
@@ -1335,7 +1385,7 @@ export function createCombatMapController(options = {}) {
     )).map(({ combatant, index }) => {
       const side = getSide(combatant);
       const hidden = combatant.hiddenFromInitiative === true;
-      if ((master || player) ? layer === "covered" : (layer === "allies" ? side !== "allies" : layer === "covered" && side === "allies")) return "";
+      if (master ? layer === "covered" : (layer === "allies" ? side !== "allies" : layer === "covered" && side === "allies")) return "";
       const position = getTokenPosition(combatant, index);
       const maxHp = Math.max(1, Number(combatant.pgMax) || 1);
       const hp = clamp(combatant.pgAct === "" ? maxHp : combatant.pgAct, 0, maxHp);
@@ -1346,7 +1396,7 @@ export function createCombatMapController(options = {}) {
       const isFlying = combatant.isFlying === true;
       const flyingHeight = Math.max(0, Math.round(Number(combatant.flyingHeight) || 0));
       return `<div class="combat-map-token combat-map-token--${side} ${isFlying ? "is-flying" : ""} ${master && hidden ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px" title="${escapeHtml(combatant.nombre || "Entidad")}">
-        ${isFlying ? `<span class="combat-map-token__wing combat-map-token__wing--left" aria-hidden="true">🪽</span><span class="combat-map-token__wing combat-map-token__wing--right" aria-hidden="true">🪽</span><span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
+        ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt=""><span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
         <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span><strong>${escapeHtml(combatant.numPeana || "—")}</strong>
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
         ${showHealth(combatant) ? `<span class="combat-map-token__health" style="opacity:${normalizeOpacity(state.opacity.health)}"><i style="width:${(hp / maxHp) * 100}%"></i></span>` : ""}
@@ -1382,6 +1432,14 @@ export function createCombatMapController(options = {}) {
     }).join("");
   }
 
+  function renderPaintIcons() {
+    return state.paint.strokes.filter((stroke) => stroke.mode === "icon").map((stroke) => {
+      const point = stroke.points[0] || { x: 0, y: 0 };
+      const selected = stroke.id === state.paint.selectedIconId;
+      return `<div class="combat-map-paint-icon ${selected ? "is-selected" : ""}" data-map-paint-icon="${escapeHtml(stroke.id)}" style="--paint-icon-color:${stroke.color};--paint-icon-size:${stroke.size}px;left:${point.x}px;top:${point.y}px;transform:translate(-50%,-50%) rotate(${stroke.rotation}deg)"><span>${escapeHtml(stroke.icon)}</span><button type="button" class="combat-map-paint-icon__rotate" data-map-paint-icon-rotate="${escapeHtml(stroke.id)}" title="Arrastrar para rotar" aria-label="Rotar icono"></button></div>`;
+    }).join("");
+  }
+
   function renderStage(behavior = {}) {
     const master = behavior.master === true;
     const player = behavior.player === true;
@@ -1404,9 +1462,10 @@ export function createCombatMapController(options = {}) {
         <div class="combat-map-grid ${state.grid.visible ? "is-visible" : ""}" data-map-grid></div>
         <canvas class="combat-map-grid-coordinates ${state.grid.visible ? "is-visible" : ""}" data-map-grid-coordinates width="${width}" height="${height}" style="opacity:${layerOpacity("grid")}"></canvas>
         <canvas class="combat-map-paint ${editable && openPanel === "paint" ? "is-editing" : ""} ${state.paint.mode === "erase" ? "is-erasing" : ""}" data-map-paint width="${width}" height="${height}" style="opacity:${layerOpacity("paint")}"></canvas>
+        <div class="combat-map-paint-icon-layer ${editable && openPanel === "paint" ? "is-editing" : ""}" data-map-paint-icon-layer style="opacity:${layerOpacity("paint")}">${renderPaintIcons()}</div>
         <div class="combat-map-shape-layer ${editable && openPanel === "shapes" ? "is-editing" : ""}" data-map-shape-layer style="opacity:${layerOpacity("shapes")}">${renderAreaShapes()}</div>
         <div class="combat-map-token-layer combat-map-token-layer--covered" style="opacity:${layerOpacity("tokens")}">${renderTokens("covered", { master, player })}</div>
-        <canvas class="combat-map-fog ${state.fog.enabled ? "is-visible" : ""} ${editable && state.fog.enabled && openPanel === "fog" ? "is-editing" : ""}" data-map-fog width="${width}" height="${height}" style="opacity:${master ? layerOpacity("fog") * .62 : layerOpacity("fog")}"></canvas>
+        <canvas class="combat-map-fog ${state.fog.enabled ? "is-visible" : ""} ${editable && state.fog.enabled && openPanel === "fog" ? "is-editing" : ""}" data-map-fog width="${width}" height="${height}" style="opacity:${player ? 1 : layerOpacity("fog")}"></canvas>
         <div class="combat-map-token-layer combat-map-token-layer--allies" style="opacity:${layerOpacity("tokens")}">${renderTokens("allies", { master, player })}</div>
         <div class="combat-map-brush-cursor" data-map-brush-cursor></div>
       </div>
@@ -1416,12 +1475,12 @@ export function createCombatMapController(options = {}) {
 
   function renderMaster(viewportWindow = window) {
     const initiativePosition = state.initiative.visible ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar()}${renderMapMenu()}${renderGridMenu()}${renderTokenMenu()}${renderFogMenu()}${renderPaintMenu()}${renderShapesMenu()}${renderHealthMenu()}${renderInitiativeMenu()}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker()}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu()}${renderTokenMenu()}${renderFogMenu()}${renderPaintMenu()}${renderShapesMenu()}${renderHealthMenu()}${renderInitiativeMenu()}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker()}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const initiativePosition = state.initiative.visible ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player"><header class="combat-map-player-header"><strong>Versión jugador</strong><span>${escapeHtml(state.map?.name || "Mapa de combate")}</span></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ player: true, editable: false })}</div></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu()}${renderTokenMenu()}${renderFogMenu()}${renderPaintMenu()}${renderShapesMenu()}${renderHealthMenu()}${renderInitiativeMenu()}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker()}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function sync() {
@@ -1456,11 +1515,13 @@ export function createCombatMapController(options = {}) {
     const availableWidth = Math.max(1, viewport.clientWidth - 24);
     const availableHeight = Math.max(1, viewport.clientHeight - 24);
     mapFitScale = Math.max(.03, Math.min(availableWidth / totalWidth, availableHeight / totalHeight));
-    const effectiveScale = mapFitScale * state.viewport.zoom;
+    const effectiveScale = mapFitScale * state.playerViewport.zoom;
     scaleLayer.style.transform = `scale(${effectiveScale})`;
     frame.style.width = `${totalWidth * effectiveScale}px`;
     frame.style.height = `${totalHeight * effectiveScale}px`;
     frame.dataset.mapScale = String(effectiveScale);
+    viewport.scrollLeft = state.playerViewport.scrollLeft;
+    viewport.scrollTop = state.playerViewport.scrollTop;
   }
 
   function fitInitiativeOrder(root = editorWindow?.document) {
@@ -1489,8 +1550,10 @@ export function createCombatMapController(options = {}) {
 
   function handleViewportScroll(event) {
     if (!event.target.matches?.(".combat-map-viewport")) return;
-    state.viewport.scrollLeft = event.target.scrollLeft;
-    state.viewport.scrollTop = event.target.scrollTop;
+    const surface = getEventSurface(event);
+    const viewportState = surface === masterHost ? state.viewport : state.playerViewport;
+    viewportState.scrollLeft = event.target.scrollLeft;
+    viewportState.scrollTop = event.target.scrollTop;
     if (viewportPersistTimer) window.clearTimeout(viewportPersistTimer);
     viewportPersistTimer = window.setTimeout(() => {
       viewportPersistTimer = 0;
@@ -1499,7 +1562,8 @@ export function createCombatMapController(options = {}) {
   }
 
   function setMapZoom(value, root = masterHost || editorWindow?.document) {
-    state.viewport.zoom = clamp(value, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
+    const viewportState = root === masterHost ? state.viewport : state.playerViewport;
+    viewportState.zoom = clamp(value, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
     if (root === masterHost) updateMasterScale(root);
     else updateMapScale();
     drawGridCoordinates(root);
@@ -1508,8 +1572,8 @@ export function createCombatMapController(options = {}) {
     drawFog(root);
     const input = root?.querySelector("[data-map-zoom]");
     if (input) {
-      input.value = String(Math.round(state.viewport.zoom * 100));
-      input.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.viewport.zoom * 100)}%`);
+      input.value = String(Math.round(viewportState.zoom * 100));
+      input.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(viewportState.zoom * 100)}%`);
     }
     persist();
   }
@@ -1517,7 +1581,9 @@ export function createCombatMapController(options = {}) {
   function handleWheel(event) {
     if (!event.target.closest?.("[data-map-board]")) return;
     event.preventDefault();
-    setMapZoom(state.viewport.zoom + (event.deltaY < 0 ? .1 : -.1), getEventSurface(event));
+    const surface = getEventSurface(event);
+    const viewportState = surface === masterHost ? state.viewport : state.playerViewport;
+    setMapZoom(viewportState.zoom + (event.deltaY < 0 ? .1 : -.1), surface);
   }
 
   function prepareCanvas(canvas, logicalWidth, logicalHeight) {
@@ -1785,7 +1851,7 @@ export function createCombatMapController(options = {}) {
     const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
     const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
     const context = prepareCanvas(canvas, width, height);
-    state.paint.strokes.forEach((stroke) => paintStroke(context, stroke));
+    state.paint.strokes.filter((stroke) => stroke.mode !== "icon").forEach((stroke) => paintStroke(context, stroke));
   }
 
   function drawFog(root = editorWindow?.document) {
@@ -1797,7 +1863,8 @@ export function createCombatMapController(options = {}) {
     const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
     const context = prepareCanvas(canvas, width, height);
     context.globalCompositeOperation = "source-over";
-    context.fillStyle = state.fog.translucent ? "rgba(42, 45, 52, .72)" : "rgb(18, 18, 20)";
+    const isMaster = root?.matches?.("[data-combat-map-master-root]") || root?.hasAttribute?.("data-combat-map-master-root");
+    context.fillStyle = isMaster ? "rgba(42, 45, 52, .68)" : "rgb(18, 18, 20)";
     context.fillRect(0, 0, width, height);
     context.globalCompositeOperation = "destination-out";
     state.fog.revealed.forEach((point) => {
@@ -1868,7 +1935,14 @@ export function createCombatMapController(options = {}) {
 
   function selectEncounterChoice(index) {
     const choice = getEncounterMapChoices()[Number(index)];
-    if (choice?.map) finishMapSelection(choice.map);
+    if (!choice?.map) return;
+    if (choice.editorState) applyMapWorkspace(choice.map, choice.editorState);
+    else finishMapSelection(choice.map);
+    if (pickerCallback) {
+      const callback = pickerCallback;
+      pickerCallback = null;
+      callback(choice.map);
+    }
   }
 
   function selectSavedLayout(key) {
@@ -1967,6 +2041,10 @@ export function createCombatMapController(options = {}) {
 
   function createShapeId() {
     return `shape-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function createPaintIconId() {
+    return `paint-icon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   function getSelectedShape() {
@@ -2087,17 +2165,21 @@ export function createCombatMapController(options = {}) {
     if (action === "line-mode") { state.paint.mode = "line"; persist(); sync(); }
     if (action === "icon-mode") { state.paint.mode = "icon"; persist(); sync(); }
     if (action === "erase-mode") { state.paint.mode = "erase"; persist(); sync(); }
-    if (action === "undo-paint") { state.paint.strokes.pop(); persist(); sync(); }
-    if (action === "clear-paint") { state.paint.strokes = []; persist(); sync(); }
+    if (action === "undo-paint") { const removed = state.paint.strokes.pop(); if (removed?.id === state.paint.selectedIconId) state.paint.selectedIconId = ""; persist(); sync(); }
+    if (action === "clear-paint") { state.paint.strokes = []; state.paint.selectedIconId = ""; persist(); sync(); }
+    if (action === "new-paint-icon") { state.paint.selectedIconId = ""; persist(); sync(); }
+    if (action === "delete-paint-icon") { state.paint.strokes = state.paint.strokes.filter((stroke) => stroke.id !== state.paint.selectedIconId); state.paint.selectedIconId = ""; persist(); sync(); }
     if (action === "add-shape") addAreaShape(null, surface);
+    if (action === "new-shape") { state.shapes.selectedId = ""; shapeCoordinateError = ""; persist(); sync(); }
     if (action === "rotate-shape-left") rotateSelectedShape(-15);
     if (action === "rotate-shape-right") rotateSelectedShape(15);
     if (action === "delete-shape") deleteSelectedShape();
     if (action === "rotate-left") { state.rotation = (state.rotation + 270) % 360; persist(); sync(); }
     if (action === "rotate-right") { state.rotation = (state.rotation + 90) % 360; persist(); sync(); }
-    if (action === "zoom-out") setMapZoom(state.viewport.zoom - .1, surface);
+    const viewportState = surface === masterHost ? state.viewport : state.playerViewport;
+    if (action === "zoom-out") setMapZoom(viewportState.zoom - .1, surface);
     if (action === "zoom-reset") setMapZoom(1, surface);
-    if (action === "zoom-in") setMapZoom(state.viewport.zoom + .1, surface);
+    if (action === "zoom-in") setMapZoom(viewportState.zoom + .1, surface);
     if (action === "all-tokens" || action === "no-tokens") {
       const enabled = action === "all-tokens";
       getCombatants().forEach((combatant) => { state.tokenVisibility[combatant.id] = enabled; });
@@ -2119,7 +2201,6 @@ export function createCombatMapController(options = {}) {
     else if (target.matches("[data-grid-color]")) state.grid.color = normalizeColor(target.value, "#ffffff");
     else if (target.matches("[data-grid-size]")) state.grid.size = clamp(target.value, MIN_GRID_SIZE, MAX_GRID_SIZE);
     else if (target.matches("[data-fog-enabled]")) state.fog.enabled = target.checked;
-    else if (target.matches("[data-fog-translucent]")) state.fog.translucent = target.checked;
     else if (target.matches("[data-fog-brush-shape]")) state.fog.brushShape = target.value === "square" ? "square" : "circle";
     else if (target.matches("[data-map-initiative-tokens]")) {
       getCombatants().filter(hasInitiativeToken).forEach((combatant) => {
@@ -2135,32 +2216,42 @@ export function createCombatMapController(options = {}) {
     else if (target.matches("[data-map-initiative]")) state.initiative.visible = target.checked;
     else if (target.matches("[data-map-initiative-position]")) state.initiative.position = target.value;
     else if (target.matches("[data-map-rotation-orientation]")) state.rotationOrientation = target.value === "with-map" ? "with-map" : "upright";
-    else if (target.matches("[data-paint-icon]")) state.paint.icon = MAP_ICON_OPTIONS.includes(target.value) ? target.value : MAP_ICON_OPTIONS[0];
+    else if (target.matches("[data-paint-icon]")) {
+      const value = MAP_ICON_OPTIONS.includes(target.value) ? target.value : MAP_ICON_OPTIONS[0];
+      const icon = getSelectedPaintIcon();
+      if (icon) icon.icon = value;
+      else state.paint.icon = value;
+    }
     else if (target.matches("[data-map-cloud-tags]")) cloudPickerSelectedTags = new Set([...target.selectedOptions].map((option) => option.value));
     else if (target.matches("[data-shape-type]")) {
-      state.shapes.type = ["circle", "square", "cone", "text"].includes(target.value) ? target.value : "circle";
+      const value = ["circle", "square", "cone", "text"].includes(target.value) ? target.value : "circle";
       const shape = getSelectedShape();
-      if (shape) shape.type = state.shapes.type;
+      if (shape) shape.type = value;
+      else state.shapes.type = value;
     } else if (target.matches("[data-shape-color]")) {
-      state.shapes.color = normalizeColor(target.value, "#f97316");
+      const value = normalizeColor(target.value, "#f97316");
       const shape = getSelectedShape();
-      if (shape) shape.color = state.shapes.color;
+      if (shape) shape.color = value;
+      else state.shapes.color = value;
     } else if (target.matches("[data-shape-distance]")) {
-      state.shapes.distanceFeet = clamp(Math.round((Number(target.value) || 5) / 5) * 5, 5, 500);
+      const value = clamp(Math.round((Number(target.value) || 5) / 5) * 5, 5, 500);
       const shape = getSelectedShape();
-      if (shape) shape.distanceFeet = state.shapes.distanceFeet;
+      if (shape) shape.distanceFeet = value;
+      else state.shapes.distanceFeet = value;
     } else if (target.matches("[data-shape-text-box]")) {
-      state.shapes.textBoxVisible = target.checked;
       const shape = getSelectedShape();
       if (shape?.type === "text") shape.textBoxVisible = target.checked;
+      else state.shapes.textBoxVisible = target.checked;
     } else if (target.matches("[data-shape-text-box-color]")) {
-      state.shapes.textBoxColor = normalizeColor(target.value, "#111827");
+      const value = normalizeColor(target.value, "#111827");
       const shape = getSelectedShape();
-      if (shape?.type === "text") shape.textBoxColor = state.shapes.textBoxColor;
+      if (shape?.type === "text") shape.textBoxColor = value;
+      else state.shapes.textBoxColor = value;
     } else if (target.matches("[data-shape-text-color]")) {
-      state.shapes.textColor = normalizeColor(target.value, "#ffffff");
+      const value = normalizeColor(target.value, "#ffffff");
       const shape = getSelectedShape();
-      if (shape?.type === "text") shape.textColor = state.shapes.textColor;
+      if (shape?.type === "text") shape.textColor = value;
+      else state.shapes.textColor = value;
     }
     else return;
     if (target.matches("[data-grid-visible], [data-grid-type], [data-grid-size]")) resnapTokensWithoutOverlap();
@@ -2210,15 +2301,27 @@ export function createCombatMapController(options = {}) {
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.paint.size)} px`);
       persist();
     } else if (event.target.matches("[data-paint-color]")) {
-      state.paint.color = normalizeColor(event.target.value);
+      const value = normalizeColor(event.target.value);
+      const icon = getSelectedPaintIcon();
+      if (icon) icon.color = value;
+      else state.paint.color = value;
+      if (icon) updatePaintIconElement(icon, surface);
       persist();
     } else if (event.target.matches("[data-paint-icon-size]")) {
-      state.paint.iconSize = clamp(event.target.value, 16, 300);
-      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.paint.iconSize)} px`);
+      const value = clamp(event.target.value, 16, 300);
+      const icon = getSelectedPaintIcon();
+      if (icon) icon.size = value;
+      else state.paint.iconSize = value;
+      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(value)} px`);
+      if (icon) updatePaintIconElement(icon, surface);
       persist();
     } else if (event.target.matches("[data-paint-icon-rotation]")) {
-      state.paint.iconRotation = clamp(event.target.value, 0, 359);
-      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.paint.iconRotation)}°`);
+      const value = clamp(event.target.value, 0, 359);
+      const icon = getSelectedPaintIcon();
+      if (icon) icon.rotation = value;
+      else state.paint.iconRotation = value;
+      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(value)}°`);
+      if (icon) updatePaintIconElement(icon, surface);
       persist();
     } else if (event.target.matches("[data-shape-coordinate]")) {
       state.shapes.coordinate = clean(event.target.value).toUpperCase().replaceAll(" ", "").slice(0, 12);
@@ -2226,18 +2329,20 @@ export function createCombatMapController(options = {}) {
       shapeCoordinateError = "";
       persist();
     } else if (event.target.matches("[data-shape-text]")) {
-      state.shapes.text = String(event.target.value || "").slice(0, 500);
+      const value = String(event.target.value || "").slice(0, 500);
       const shape = getSelectedShape();
-      if (shape?.type === "text") shape.text = state.shapes.text;
+      if (shape?.type === "text") shape.text = value;
+      else state.shapes.text = value;
       const label = shape ? surface?.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"] > span`) : null;
-      if (label) label.textContent = state.shapes.text || "Texto";
+      if (label) label.textContent = value || "Texto";
       persist();
     } else if (event.target.matches("[data-shape-font-size]")) {
-      state.shapes.fontSize = clamp(event.target.value, 10, 120);
+      const value = clamp(event.target.value, 10, 120);
       const shape = getSelectedShape();
-      if (shape?.type === "text") shape.fontSize = state.shapes.fontSize;
-      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.shapes.fontSize)} px`);
-      if (shape) surface?.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"]`)?.style.setProperty("--text-size", `${state.shapes.fontSize}px`);
+      if (shape?.type === "text") shape.fontSize = value;
+      else state.shapes.fontSize = value;
+      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(value)} px`);
+      if (shape) surface?.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"]`)?.style.setProperty("--text-size", `${value}px`);
       persist();
     }
   }
@@ -2248,6 +2353,12 @@ export function createCombatMapController(options = {}) {
     if ((event.key === "Delete" || event.key === "Backspace") && openPanel === "shapes" && !event.target.matches("input, select, textarea")) {
       event.preventDefault();
       deleteSelectedShape();
+    } else if ((event.key === "Delete" || event.key === "Backspace") && openPanel === "paint" && state.paint.selectedIconId && !event.target.matches("input, select, textarea")) {
+      event.preventDefault();
+      state.paint.strokes = state.paint.strokes.filter((stroke) => stroke.id !== state.paint.selectedIconId);
+      state.paint.selectedIconId = "";
+      persist();
+      sync();
     }
   }
 
@@ -2323,18 +2434,30 @@ export function createCombatMapController(options = {}) {
     element.style.setProperty("--shape-label-counter-rotation", `${state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0}deg`);
   }
 
+  function updatePaintIconElement(icon, root = activeDrag?.surface || masterHost) {
+    const element = root?.querySelector(`[data-map-paint-icon="${CSS.escape(icon.id)}"]`);
+    if (!element) return;
+    const point = icon.points[0] || { x: 0, y: 0 };
+    element.style.left = `${point.x}px`;
+    element.style.top = `${point.y}px`;
+    element.style.transform = `translate(-50%,-50%) rotate(${icon.rotation}deg)`;
+    element.style.setProperty("--paint-icon-size", `${icon.size}px`);
+    element.style.setProperty("--paint-icon-color", icon.color);
+    const label = element.querySelector("span");
+    if (label) label.textContent = icon.icon;
+  }
+
+  function showSelectedPaintIcon(id, root = masterHost) {
+    state.paint.selectedIconId = id;
+    root?.querySelectorAll("[data-map-paint-icon]").forEach((element) => {
+      element.classList.toggle("is-selected", element.dataset.mapPaintIcon === id);
+    });
+  }
+
   function showSelectedShape(id, root = masterHost) {
     state.shapes.selectedId = id;
     const shape = getSelectedShape();
     if (shape) {
-      state.shapes.type = shape.type;
-      state.shapes.color = shape.color;
-      state.shapes.distanceFeet = shape.distanceFeet;
-      state.shapes.text = shape.text || "";
-      state.shapes.textBoxVisible = shape.textBoxVisible !== false;
-      state.shapes.textBoxColor = shape.textBoxColor;
-      state.shapes.textColor = shape.textColor;
-      state.shapes.fontSize = shape.fontSize;
       const typeInput = root?.querySelector("[data-shape-type]");
       const colorInput = root?.querySelector("[data-shape-color]");
       const distanceInput = root?.querySelector("[data-shape-distance]");
@@ -2402,7 +2525,8 @@ export function createCombatMapController(options = {}) {
       return;
     }
     const shapeElement = event.target.closest("[data-map-shape]");
-    if (!event.target.closest("[data-map-board]") && !shapeElement) return;
+    const paintIconElement = event.target.closest("[data-map-paint-icon]");
+    if (!event.target.closest("[data-map-board]") && !shapeElement && !paintIconElement) return;
     const token = event.target.closest("[data-map-token]");
     const point = boardPoint(event);
     if (!point) return;
@@ -2433,11 +2557,33 @@ export function createCombatMapController(options = {}) {
       event.preventDefault();
       return;
     }
+    if (openPanel === "paint" && paintIconElement) {
+      const icon = state.paint.strokes.find((stroke) => stroke.mode === "icon" && stroke.id === paintIconElement.dataset.mapPaintIcon);
+      const iconPoint = layerPoint(event);
+      const position = icon?.points?.[0];
+      if (!icon || !iconPoint || !position) return;
+      showSelectedPaintIcon(icon.id, surface);
+      if (event.target.closest("[data-map-paint-icon-rotate]")) {
+        activeDrag = {
+          type: "paint-icon-rotate",
+          id: icon.id,
+          pointerId: event.pointerId,
+          startAngle: Math.atan2(iconPoint.y - position.y, iconPoint.x - position.x) * 180 / Math.PI,
+          rotation: icon.rotation,
+          surface
+        };
+      } else {
+        activeDrag = { type: "paint-icon", id: icon.id, pointerId: event.pointerId, deltaX: iconPoint.x - position.x, deltaY: iconPoint.y - position.y, surface };
+      }
+      paintIconElement.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     if (openPanel === "paint" && event.target.matches("[data-map-paint]")) {
       const paintPoint = layerPoint(event);
       if (!paintPoint) return;
       const stroke = state.paint.mode === "icon"
-        ? { color: state.paint.color, size: state.paint.iconSize, mode: "icon", icon: state.paint.icon, rotation: state.paint.iconRotation, points: [{ x: paintPoint.x, y: paintPoint.y }] }
+        ? { id: createPaintIconId(), color: state.paint.color, size: state.paint.iconSize, mode: "icon", icon: state.paint.icon, rotation: state.paint.iconRotation, points: [{ x: paintPoint.x, y: paintPoint.y }] }
         : { color: state.paint.color, size: state.paint.size, mode: state.paint.mode, points: [{ x: paintPoint.x, y: paintPoint.y }] };
       if (state.paint.mode === "line") stroke.points.push({ x: paintPoint.x, y: paintPoint.y });
       state.paint.strokes.push(stroke);
@@ -2446,9 +2592,11 @@ export function createCombatMapController(options = {}) {
         event.target.setPointerCapture?.(event.pointerId);
       } else {
         state.paint.strokes = normalizePaintStrokes(state.paint.strokes);
+        state.paint.selectedIconId = stroke.id;
         persist();
+        sync();
       }
-      drawPaint(surface);
+      if (state.paint.mode !== "icon") drawPaint(surface);
       event.preventDefault();
       return;
     }
@@ -2462,11 +2610,6 @@ export function createCombatMapController(options = {}) {
         activeDrag = { type: "fog", pointerId: event.pointerId, surface };
         revealFog(fogPoint, surface);
       }
-      event.preventDefault();
-      return;
-    }
-    if (openPanel === "shapes" && !shapeElement) {
-      addAreaShape(layerPoint(event), surface);
       event.preventDefault();
       return;
     }
@@ -2504,6 +2647,20 @@ export function createCombatMapController(options = {}) {
       state.tokenPositions[activeDrag.id] = { x: clamp(point.x, 0, point.width), y: clamp(point.y, 0, point.height) };
       const token = surface?.querySelector(`[data-map-token="${CSS.escape(activeDrag.id)}"]`);
       if (token) { token.style.left = `${state.tokenPositions[activeDrag.id].x}px`; token.style.top = `${state.tokenPositions[activeDrag.id].y}px`; }
+    } else if (activeDrag.type === "paint-icon") {
+      const icon = state.paint.strokes.find((stroke) => stroke.id === activeDrag.id);
+      if (icon?.points?.[0]) {
+        icon.points[0] = { x: clamp(point.x - activeDrag.deltaX, 0, point.width), y: clamp(point.y - activeDrag.deltaY, 0, point.height) };
+        updatePaintIconElement(icon, surface);
+      }
+    } else if (activeDrag.type === "paint-icon-rotate") {
+      const icon = state.paint.strokes.find((stroke) => stroke.id === activeDrag.id);
+      const position = icon?.points?.[0];
+      if (icon && position) {
+        const angle = Math.atan2(point.y - position.y, point.x - position.x) * 180 / Math.PI;
+        icon.rotation = (activeDrag.rotation + angle - activeDrag.startAngle + 360) % 360;
+        updatePaintIconElement(icon, surface);
+      }
     } else if (activeDrag.type === "fog") {
       revealFog(point, surface);
     } else if (activeDrag.type === "paint") {
@@ -2569,7 +2726,7 @@ export function createCombatMapController(options = {}) {
         shape.x = clamp(snapped.x, 0, width);
         shape.y = clamp(snapped.y, 0, height);
       }
-    } else if (activeDrag.type === "paint") {
+    } else if (activeDrag.type === "paint" || activeDrag.type === "paint-icon" || activeDrag.type === "paint-icon-rotate") {
       state.paint.strokes = normalizePaintStrokes(state.paint.strokes);
     } else if (activeDrag.type === "grid") {
       resnapTokensWithoutOverlap();
@@ -2630,5 +2787,5 @@ export function createCombatMapController(options = {}) {
     syncMasterSurface(masterHost);
   }
 
-  return { open, sync, syncMirror, isOpen, getSaveData, getCloudMapEditorState, applySave, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  return { open, sync, syncMirror, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }
