@@ -1,4 +1,4 @@
-import { getAuthenticatedUser, requireAuthenticatedUser } from "./auth.js";
+import { getAuthenticatedUser, isAdministrator, requireAuthenticatedUser } from "./auth.js";
 import { removeCloudAssetReferences, syncCloudAssetReferences } from "./assets.js";
 import { syncCampaignCatalog, syncStoredCampaignCatalog } from "./catalog.js";
 import {
@@ -61,8 +61,8 @@ function splitCampaign(serialized) {
   return chunks.length > 0 ? chunks : ["{}"];
 }
 
-function campaignSummary(row, currentUserId = "") {
-  const isOwner = Boolean(currentUserId && row.ownerId === currentUserId);
+function campaignSummary(row, currentUserId = "", administrator = false) {
+  const isOwner = Boolean(administrator || (currentUserId && row.ownerId === currentUserId));
 
   return {
     id: row.id,
@@ -115,15 +115,16 @@ function createChunkStatements(db, campaignId, payloadVersion, chunks) {
 }
 
 async function listOwnedCampaigns(context, user) {
+  const administrator = isAdministrator(user);
   const result = await context.env.DB.prepare(`
     SELECT c.*, u."name" AS "ownerName"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
-    WHERE c."ownerId" = ?
+    WHERE (? = 1 OR c."ownerId" = ?)
     ORDER BY c."updatedAt" DESC
     LIMIT ?
-  `).bind(user.id, MAX_CAMPAIGNS_PER_USER).all();
-  return jsonResponse({ campaigns: result.results.map((row) => campaignSummary(row, user.id)) });
+  `).bind(administrator ? 1 : 0, user.id, administrator ? 2000 : MAX_CAMPAIGNS_PER_USER).all();
+  return jsonResponse({ campaigns: result.results.map((row) => campaignSummary(row, user.id, administrator)) });
 }
 
 async function listPublicCampaigns(context, user) {
@@ -135,7 +136,7 @@ async function listPublicCampaigns(context, user) {
     ORDER BY c."updatedAt" DESC
     LIMIT 50
   `).all();
-  return jsonResponse({ campaigns: result.results.map((row) => campaignSummary(row, user?.id || "")) });
+  return jsonResponse({ campaigns: result.results.map((row) => campaignSummary(row, user?.id || "", isAdministrator(user))) });
 }
 
 async function createCampaign(context, user, sourceBody = null) {
@@ -189,18 +190,19 @@ async function createCampaign(context, user, sourceBody = null) {
 async function getCampaign(context, campaignId, user) {
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
 
-  if (!campaign || (campaign.ownerId !== user?.id && campaign.isPublic !== 1)) {
+  if (!campaign || (campaign.ownerId !== user?.id && campaign.isPublic !== 1 && !isAdministrator(user))) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
 
   const payload = await readCampaignPayload(context.env.DB, campaign);
-  return jsonResponse({ campaign: campaignSummary(campaign, user?.id || ""), payload });
+  return jsonResponse({ campaign: campaignSummary(campaign, user?.id || "", isAdministrator(user)), payload });
 }
 
 async function updateCampaign(context, campaignId, user) {
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
 
-  if (!campaign || campaign.ownerId !== user.id) {
+  const administrator = isAdministrator(user);
+  if (!campaign || (campaign.ownerId !== user.id && !administrator)) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
 
@@ -216,7 +218,7 @@ async function updateCampaign(context, campaignId, user) {
   const { serialized, payloadBytes } = serializeCampaign(body.payload);
   const storage = await context.env.DB.prepare(
     'SELECT COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "campaigns" WHERE "ownerId" = ?'
-  ).bind(user.id).first();
+  ).bind(campaign.ownerId).first();
 
   if (Number(storage?.bytes || 0) - Number(campaign.payloadBytes || 0) + payloadBytes > MAX_CAMPAIGN_STORAGE_BYTES_PER_USER) {
     throw new HttpError(413, "storage_quota", "Campaign cloud storage quota exceeded.");
@@ -239,7 +241,7 @@ async function updateCampaign(context, campaignId, user) {
     chunks.length,
     now,
     campaignId,
-    user.id,
+    campaign.ownerId,
     baseRevision
   ).run();
 
@@ -253,26 +255,27 @@ async function updateCampaign(context, campaignId, user) {
   await context.env.DB.prepare(
     'DELETE FROM "campaign_chunks" WHERE "campaignId" = ? AND "payloadVersion" <> ?'
   ).bind(campaignId, payloadVersion).run();
-  await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
+  await syncCloudAssetReferences(context.env.DB, campaign.ownerId, "campaign", campaignId, body.payload);
   const wasPublic = campaign.isPublic === 1;
   const willBePublic = isPublic === 1;
 
   await syncCampaignCatalog(context.env.DB, {
     campaignId,
-    ownerId: user.id,
+    ownerId: campaign.ownerId,
     payload: body.payload,
     isPublic: willBePublic,
     forceVisibility: wasPublic === willBePublic ? null : willBePublic
   });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
-  return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id) });
+  return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id, administrator) });
 }
 
 async function updateCampaignVisibility(context, campaignId, user) {
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
 
-  if (!campaign || campaign.ownerId !== user.id) {
+  const administrator = isAdministrator(user);
+  if (!campaign || (campaign.ownerId !== user.id && !administrator)) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
 
@@ -288,7 +291,7 @@ async function updateCampaignVisibility(context, campaignId, user) {
     UPDATE "campaigns"
     SET "isPublic" = ?, "revision" = "revision" + 1, "updatedAt" = ?
     WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
-  `).bind(body.isPublic === true ? 1 : 0, now, campaignId, user.id, baseRevision).run();
+  `).bind(body.isPublic === true ? 1 : 0, now, campaignId, campaign.ownerId, baseRevision).run();
 
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "revision_conflict", "Campaign changed in another session. Reload before saving.");
@@ -296,23 +299,27 @@ async function updateCampaignVisibility(context, campaignId, user) {
 
   await syncStoredCampaignCatalog(context.env.DB, {
     campaignId,
-    ownerId: user.id,
+    ownerId: campaign.ownerId,
     isPublic: body.isPublic === true,
     forceVisibility: body.isPublic === true
   });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
-  return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id) });
+  return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id, administrator) });
 }
 
 async function deleteCampaign(context, campaignId, user) {
+  const campaign = await getCampaignRecord(context.env.DB, campaignId);
+  if (!campaign || (campaign.ownerId !== user.id && !isAdministrator(user))) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
   const results = await context.env.DB.batch([
     context.env.DB.prepare(
       'DELETE FROM "cloud_catalog_entries" WHERE "sourceCampaignId" = ? AND "ownerId" = ?'
-    ).bind(campaignId, user.id),
+    ).bind(campaignId, campaign.ownerId),
     context.env.DB.prepare(
       'DELETE FROM "campaigns" WHERE "id" = ? AND "ownerId" = ?'
-    ).bind(campaignId, user.id)
+    ).bind(campaignId, campaign.ownerId)
   ]);
   const result = results[1];
 

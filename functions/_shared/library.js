@@ -1,4 +1,4 @@
-import { getAuthenticatedUser, requireAuthenticatedUser } from "./auth.js";
+import { getAuthenticatedUser, isAdministrator, requireAuthenticatedUser } from "./auth.js";
 import { removeCloudAssetReferences, syncCloudAssetReferences } from "./assets.js";
 import { CATALOG_TYPES, readCatalogEntryPayload } from "./catalog.js";
 import {
@@ -13,6 +13,7 @@ import {
 
 const ALLOWED_TYPES = new Set(["character", "encounter", "spell", "item", "monster", "map"]);
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
+const MAX_LIBRARY_REQUEST_BYTES = 100 * 1024 * 1024;
 const MAX_ENTRIES_PER_USER = 200;
 const MAX_LIBRARY_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;
 const CHUNK_CHARACTER_COUNT = 300_000;
@@ -40,7 +41,7 @@ function parseTags(value) {
   }
 }
 
-function serializePayload(payload) {
+function serializePayload(payload, type = "") {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new HttpError(400, "invalid_library_payload", "Library payload must be an object.");
   }
@@ -48,7 +49,7 @@ function serializePayload(payload) {
   const serialized = JSON.stringify(payload);
   const payloadBytes = new TextEncoder().encode(serialized).byteLength;
 
-  if (payloadBytes > MAX_ENTRY_BYTES) {
+  if (type !== "map" && payloadBytes > MAX_ENTRY_BYTES) {
     throw new HttpError(413, "library_entry_too_large", "Library entry exceeds 16 MiB cloud limit.");
   }
 
@@ -81,8 +82,8 @@ function splitPayload(serialized) {
   return chunks.length > 0 ? chunks : ["{}"];
 }
 
-function entrySummary(row, currentUserId = "") {
-  const isOwner = Boolean(currentUserId && row.ownerId === currentUserId);
+function entrySummary(row, currentUserId = "", administrator = false) {
+  const isOwner = Boolean(administrator || (currentUserId && row.ownerId === currentUserId));
 
   return {
     id: row.id,
@@ -159,33 +160,34 @@ function chunkStatements(db, entryId, payloadVersion, chunks) {
 }
 
 async function listOwnedEntries(context, user) {
+  const administrator = isAdministrator(user);
   const [manualResult, catalogResult] = await Promise.all([
     context.env.DB.prepare(`
     SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
            NULL AS "sourceCampaignId"
     FROM "cloud_library_entries" e
     INNER JOIN "users" u ON u."id" = e."ownerId"
-    WHERE e."ownerId" = ?
+    WHERE (? = 1 OR e."ownerId" = ?)
     ORDER BY e."updatedAt" DESC
     LIMIT ?
-  `).bind(user.id, 2000).all(),
+  `).bind(administrator ? 1 : 0, user.id, 2000).all(),
     context.env.DB.prepare(`
       SELECT e.*, u."name" AS "ownerName", c."name" AS "sourceCampaignName",
              'campaign' AS "entryKind"
       FROM "cloud_catalog_entries" e
       INNER JOIN "users" u ON u."id" = e."ownerId"
       INNER JOIN "campaigns" c ON c."id" = e."sourceCampaignId"
-      WHERE e."ownerId" = ?
+      WHERE (? = 1 OR e."ownerId" = ?)
       ORDER BY e."updatedAt" DESC
       LIMIT 2000
-    `).bind(user.id).all()
+    `).bind(administrator ? 1 : 0, user.id).all()
   ]);
   const entries = [
     ...(Array.isArray(manualResult.results) ? manualResult.results : []),
     ...(Array.isArray(catalogResult.results) ? catalogResult.results : [])
   ]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
-    .map((row) => entrySummary(row, user.id));
+    .map((row) => entrySummary(row, user.id, administrator));
   return jsonResponse({ entries });
 }
 
@@ -231,12 +233,12 @@ async function listPublicEntries(context, user, url) {
   ]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
     .slice(0, 2000)
-    .map((row) => entrySummary(row, user?.id || ""));
+    .map((row) => entrySummary(row, user?.id || "", isAdministrator(user)));
   return jsonResponse({ entries });
 }
 
 async function createEntry(context, user) {
-  const body = await readJsonBody(context.request, MAX_ENTRY_BYTES + 8192);
+  const body = await readJsonBody(context.request, MAX_LIBRARY_REQUEST_BYTES);
   const type = normalizeType(body.type);
   const name = cleanText(body.name, 160);
 
@@ -252,7 +254,7 @@ async function createEntry(context, user) {
     throw new HttpError(409, "library_entry_limit", `Maximum ${MAX_ENTRIES_PER_USER} library entries per user.`);
   }
 
-  const { serialized, payloadBytes } = serializePayload(body.payload);
+  const { serialized, payloadBytes } = serializePayload(body.payload, type);
 
   if (type !== "map" && Number(quota?.bytes || 0) + payloadBytes > MAX_LIBRARY_STORAGE_BYTES_PER_USER) {
     throw new HttpError(413, "storage_quota", "Cloud library storage quota exceeded.");
@@ -312,12 +314,12 @@ async function getEntry(context, entryId, user) {
   const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
   const entry = catalogEntry || await getEntryRecord(context.env.DB, entryId);
 
-  if (!entry || (entry.ownerId !== user?.id && entry.isPublic !== 1)) {
+  if (!entry || (entry.ownerId !== user?.id && entry.isPublic !== 1 && !isAdministrator(user))) {
     throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
   }
 
   return jsonResponse({
-    entry: entrySummary(entry, user?.id || ""),
+    entry: entrySummary(entry, user?.id || "", isAdministrator(user)),
     payload: catalogEntry
       ? await readCatalogEntryPayload(context.env.DB, catalogEntry)
       : await readEntryPayload(context.env.DB, entry)
@@ -328,7 +330,8 @@ async function updateEntry(context, entryId, user) {
   const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
   const entry = catalogEntry || await getEntryRecord(context.env.DB, entryId);
 
-  if (!entry || entry.ownerId !== user.id) {
+  const administrator = isAdministrator(user);
+  if (!entry || (entry.ownerId !== user.id && !administrator)) {
     throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
   }
 
@@ -359,7 +362,7 @@ async function updateEntry(context, entryId, user) {
     UPDATE "${tableName}"
     SET "name" = ?, "isPublic" = ?, "tags" = ?, "revision" = "revision" + 1, "updatedAt" = ?
     WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
-  `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, user.id, baseRevision).run();
+  `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, entry.ownerId, baseRevision).run();
 
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");
@@ -368,16 +371,20 @@ async function updateEntry(context, entryId, user) {
   const updatedEntry = catalogEntry
     ? await getCatalogEntryRecord(context.env.DB, entryId)
     : await getEntryRecord(context.env.DB, entryId);
-  return jsonResponse({ entry: entrySummary(updatedEntry, user.id) });
+  return jsonResponse({ entry: entrySummary(updatedEntry, user.id, administrator) });
 }
 
 async function deleteEntry(context, entryId, user) {
   const catalogEntry = await getCatalogEntryRecord(context.env.DB, entryId);
+  const administrator = isAdministrator(user);
 
   if (catalogEntry) {
+    if (catalogEntry.ownerId !== user.id && !administrator) {
+      throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
+    }
     const result = await context.env.DB.prepare(
       'DELETE FROM "cloud_catalog_entries" WHERE "id" = ? AND "ownerId" = ?'
-    ).bind(entryId, user.id).run();
+    ).bind(entryId, catalogEntry.ownerId).run();
 
     if (Number(result.meta?.changes || 0) < 1) {
       throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
@@ -386,9 +393,13 @@ async function deleteEntry(context, entryId, user) {
     return new Response(null, { status: 204 });
   }
 
+  const libraryEntry = await getEntryRecord(context.env.DB, entryId);
+  if (!libraryEntry || (libraryEntry.ownerId !== user.id && !administrator)) {
+    throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
+  }
   const result = await context.env.DB.prepare(
     'DELETE FROM "cloud_library_entries" WHERE "id" = ? AND "ownerId" = ?'
-  ).bind(entryId, user.id).run();
+  ).bind(entryId, libraryEntry.ownerId).run();
 
   if (Number(result.meta?.changes || 0) < 1) {
     throw new HttpError(404, "library_entry_not_found", "Library entry not found.");

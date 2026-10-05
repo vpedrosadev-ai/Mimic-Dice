@@ -1,6 +1,12 @@
 import { getToken } from "@auth/core/jwt";
 import { HttpError } from "./http.js";
 
+const ADMIN_EMAILS = new Set(["vpedrosadev@gmail.com"]);
+
+export function isAdministrator(user) {
+  return ADMIN_EMAILS.has(String(user?.email || "").trim().toLowerCase());
+}
+
 export function assertServerBindings(env, requiredKeys = []) {
   const missingKeys = ["DB", "AUTH_SECRET", ...requiredKeys].filter((key) => !env?.[key]);
 

@@ -3224,6 +3224,38 @@ button.is-cloud-busy:disabled {
     linear-gradient(165deg, #26180e, #0f0a07 68%);
 }
 
+.combat-map-editor--master {
+  position: relative;
+  width: 100%;
+  height: min(78vh, 52rem);
+  min-height: 38rem;
+  border-radius: .65rem;
+}
+
+.combat-map-editor--master .combat-map-popover {
+  position: absolute;
+  width: min(25rem, calc(100% - 1.5rem));
+  max-height: calc(100% - 5rem);
+}
+
+.combat-map-player-header {
+  z-index: 20;
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  min-height: 3.7rem;
+  padding: .85rem 1rem;
+  border-bottom: 1px solid rgba(212, 168, 98, .38);
+  background: rgba(29, 18, 11, .97);
+}
+
+.combat-map-player-header span {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .combat-map-toolbar {
   z-index: 20;
   display: flex;
@@ -3576,7 +3608,7 @@ button.is-cloud-busy:disabled {
 .combat-map-clip {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(221, 179, 109, .42);
   border-radius: .55rem;
   background: #080b0e;
@@ -3846,6 +3878,12 @@ button.is-cloud-busy:disabled {
   border-radius: .12rem;
 }
 
+.combat-map-brush-cursor.is-polygon {
+  border-color: #fff2b8;
+  background: #f1bd4d;
+  box-shadow: 0 0 0 2px rgba(25, 16, 8, .9), 0 0 .75rem rgba(241, 189, 77, .9);
+}
+
 .combat-map-token-layer {
   pointer-events: none;
 }
@@ -3994,12 +4032,12 @@ button.is-cloud-busy:disabled {
 }
 
 .combat-map-token__wing--left {
-  right: 78%;
+  right: 90%;
   transform: translateY(-50%) scaleX(-1) rotate(-12deg);
 }
 
 .combat-map-token__wing--right {
-  left: 78%;
+  left: 90%;
   transform: translateY(-50%) rotate(-12deg);
 }
 
@@ -4028,7 +4066,7 @@ button.is-cloud-busy:disabled {
 
 .combat-map-token__statuses {
   position: absolute;
-  z-index: 8;
+  z-index: 30;
   bottom: calc(100% + .35rem);
   left: 50%;
   display: none;
@@ -4131,7 +4169,16 @@ button.is-cloud-busy:disabled {
   align-content: center;
   justify-content: center;
   gap: .5rem;
+  padding: .5rem;
   overflow: hidden;
+}
+
+.combat-map-initiative .combat-turn-token-wrap {
+  align-self: center;
+}
+
+.combat-map-initiative .combat-turn-token-wrap.is-active {
+  transform: none;
 }
 
 .combat-map-initiative .combat-turn-token-wrap,
@@ -5399,21 +5446,16 @@ button.is-cloud-busy:disabled {
 }
 
 .combat-map-mirror-host {
+  position: relative;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   border-radius: .65rem;
   background: #07090c;
 }
 
 .combat-map-mirror-host .combat-map-viewport {
   padding: .75rem;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.combat-map-mirror-host .combat-map-token,
-.combat-map-mirror-host .combat-map-area-shape__rotate {
-  pointer-events: none;
+  overflow: auto;
 }
 
 .section-heading__side {

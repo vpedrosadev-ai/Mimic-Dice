@@ -1085,7 +1085,6 @@ const combatMapController = createCombatMapController({
   },
   onChange: () => {
     scheduleDesktopCampaignDirtyStateSync(60);
-    combatMapController.syncMirror(app);
   },
   onCloudChanged: () => {
     if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
@@ -1285,6 +1284,7 @@ app.addEventListener("focusin", handleFocusIn);
 app.addEventListener("focusout", handleFocusOut);
 app.addEventListener("pointerdown", handlePointerDown);
 app.addEventListener("contextmenu", handleContextMenu);
+app.addEventListener("wheel", handleWheel, { passive: false });
 document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("pointermove", handlePointerMove);
 document.addEventListener("pointerup", handlePointerUp);
@@ -1315,6 +1315,11 @@ function handleAppImageError(event) {
 }
 
 async function handleClick(event) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleClick(event);
+    return;
+  }
+
   const screenButton = event.target.closest("[data-screen]");
 
   if (screenButton) {
@@ -2045,11 +2050,6 @@ async function handleClick(event) {
 
   if (action === "toggle-cloud-library-public") {
     await toggleCloudLibraryEntryPublic(actionButton.dataset.cloudEntryId);
-    return;
-  }
-
-  if (action === "rename-cloud-map") {
-    await renameOwnedCloudMap(actionButton.dataset.cloudEntryId);
     return;
   }
 
@@ -3053,6 +3053,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-cloud-map-properties") {
+    await openCloudMapProperties(actionButton.dataset.cloudEntryId);
+    return;
+  }
+
   if (action === "cancel-cloud-map-upload") {
     discardPendingCommunityMapUpload();
     return;
@@ -3923,6 +3928,11 @@ function cancelPendingCombatantBestiaryTokenClick() {
 async function handleChange(event) {
   const target = event.target;
 
+  if (target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleChange(event);
+    return;
+  }
+
   if (target.matches("[data-cloud-map-upload-file]")) {
     const file = target.files?.[0] ?? null;
     target.value = "";
@@ -4439,7 +4449,7 @@ async function handleChange(event) {
     const value = CHARACTER_SIZE_OPTIONS.includes(target.value) ? target.value : "";
     updateCombatantField(target.dataset.combatTurnQuickTokenSize, "mapTokenSize", value);
     saveCombatTrackerState();
-    combatMapController.sync();
+    combatMapController.resnapToken(target.dataset.combatTurnQuickTokenSize);
     render();
     return;
   }
@@ -4572,6 +4582,11 @@ async function handleChange(event) {
 
 function handleInput(event) {
   const target = event.target;
+
+  if (target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleInput(event);
+    return;
+  }
 
   if (target.matches("[data-dice-roller-input]")) {
     state.diceRollerDraft = target.value;
@@ -5082,6 +5097,11 @@ function handleGlobalKeydown(event) {
 function handleKeydown(event) {
   const target = event.target;
 
+  if (target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleKeydown(event);
+    return;
+  }
+
   if (target.matches("[data-combat-dice-input]") && event.key === "Enter") {
     event.preventDefault();
     target.blur();
@@ -5237,6 +5257,11 @@ async function handlePaste(event) {
 
 function handleScroll(event) {
   const target = event.target;
+
+  if (target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleViewportScroll(event);
+    return;
+  }
 
   if (activeCharacterOverviewHeaderTooltipElement) {
     syncCharacterOverviewHeaderTooltipPosition();
@@ -5582,6 +5607,11 @@ function handleDragEnd() {
 }
 
 function handlePointerDown(event) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handlePointerDown(event);
+    return;
+  }
+
   const diceResizeHandle = event.target.closest("[data-dice-roller-resize]");
 
   if (diceResizeHandle) {
@@ -5643,6 +5673,11 @@ function handlePointerDown(event) {
 }
 
 function handleContextMenu(event) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleContextMenu(event);
+    return;
+  }
+
   const diaryTag = event.target.closest("[data-diary-tag-filter]");
 
   if (diaryTag) {
@@ -5689,6 +5724,11 @@ function handleContextMenu(event) {
 }
 
 function handlePointerMove(event) {
+  if (event.target.closest?.("[data-combat-map-master-root]") || combatMapController.isMasterInteractionActive()) {
+    combatMapController.handlePointerMove(event);
+    return;
+  }
+
   if (activeDiceRollerResize && event.pointerId === activeDiceRollerResize.pointerId) {
     updateDiceRollerResize(event);
     return;
@@ -5705,6 +5745,11 @@ function handlePointerMove(event) {
 }
 
 function handlePointerUp(event) {
+  if (event.target.closest?.("[data-combat-map-master-root]") || combatMapController.isMasterInteractionActive()) {
+    combatMapController.handlePointerUp(event);
+    return;
+  }
+
   if (activeDiceRollerResize && (event.pointerId === undefined || event.pointerId === activeDiceRollerResize.pointerId)) {
     finishDiceRollerResize(event);
     return;
@@ -5718,6 +5763,12 @@ function handlePointerUp(event) {
   document.body.classList.remove("is-table-resizing");
   saveTablesState();
   render();
+}
+
+function handleWheel(event) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
+    combatMapController.handleWheel(event);
+  }
 }
 
 function getDropPlacement(event, element) {
@@ -8851,10 +8902,9 @@ function renderOwnedCloudCatalogCard(item) {
   const actionLabel = item.loadedOrigin === "imported" && !item.isPublic
     ? "Publicar alternativa"
     : !item.isPublic ? "Hacer público" : "Hacer privado";
-  const isOwnedMap = cleanText(item.type).toLowerCase() === "map"
+  const isManagedMap = cleanText(item.type).toLowerCase() === "map"
     && item.catalogKind === "entry"
     && item.isOwner === true;
-  const renameTarget = `library-rename:${item.id}`;
   const body = `
     <div class="cloud-catalog-card__body">
       <div class="cloud-catalog-card__badges">
@@ -8872,12 +8922,12 @@ function renderOwnedCloudCatalogCard(item) {
     <article class="cloud-catalog-card cloud-catalog-card--owned ${checked ? "is-selected" : ""}">
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
-        ${isOwnedMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
-        ${state.accountSession?.user?.id ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>` : ""}
-        ${isOwnedMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", renameTarget)}" type="button" data-action="rename-cloud-map" data-cloud-entry-id="${escapeHtml(item.id)}" ${renderCloudButtonBusyAttributes("saving", renameTarget)}>${renderCloudButtonLabel("Renombrar", "Guardando...", "saving", renameTarget)}</button>` : ""}
+        ${isManagedMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
+        ${state.accountSession?.user?.id && !isManagedMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>` : ""}
+        ${isManagedMap ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="open-cloud-map-properties" data-cloud-entry-id="${escapeHtml(item.id)}">Propiedades</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
-        <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
-        ${isOwnedMap ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
+        ${!isManagedMap ? `<button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>` : ""}
+        ${isManagedMap ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
       </div>
     </article>
   `;
@@ -8885,6 +8935,7 @@ function renderOwnedCloudCatalogCard(item) {
 
 function renderPublicCloudCatalogCard(item) {
   const isMap = cleanText(item.type).toLowerCase() === "map";
+  const canManageMap = isMap && item.catalogKind === "entry" && item.isOwner === true;
   const selectionKey = getCloudCatalogSelectionKey(item);
   const checked = isCloudCatalogSelectionKeySelected(selectionKey);
   const selection = isMap ? "" : `
@@ -8907,8 +8958,10 @@ function renderPublicCloudCatalogCard(item) {
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
         ${isMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
+        ${canManageMap ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="open-cloud-map-properties" data-cloud-entry-id="${escapeHtml(item.id)}">Propiedades</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
-        <button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>
+        ${!isMap ? `<button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>` : ""}
+        ${canManageMap ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
       </div>
     </article>
   `;
@@ -9193,8 +9246,10 @@ async function uploadCommunityMapFile(file) {
     }
     const name = cleanText(file.name).replace(/\.[^.]+$/, "").slice(0, 120) || "Mapa";
     state.cloudMapUploadDraft = {
+      mode: "upload",
       blob: converted.blob,
       previewUrl: converted.dataUrl,
+      byteSize: converted.blob.size,
       width: converted.width,
       height: converted.height,
       isAnimated: converted.isAnimated === true,
@@ -9229,11 +9284,29 @@ async function savePendingCommunityMapUpload() {
 
   draft.name = name;
   draft.isPublic = isPublic;
+  draft.tags = tags;
   draft.error = "";
-  const operationTarget = "map:upload";
+  const editingProperties = draft.mode === "properties";
+  const operationTarget = editingProperties ? `map:properties:${draft.entryId}` : "map:upload";
   beginCloudOperation("saving", operationTarget);
 
   try {
+    if (editingProperties) {
+      await updateCloudLibraryEntry(draft.entryId, {
+        name,
+        isPublic,
+        tags,
+        baseRevision: draft.baseRevision
+      });
+      state.cloudMapUploadDraft = null;
+      state.accountError = "";
+      await refreshCommunityCatalog();
+      pushNotification({ title: "Propiedades guardadas", message: `${name} se ha actualizado.` });
+      syncNotificationUi();
+      endCloudOperation("saving", operationTarget);
+      render();
+      return;
+    }
     const uploadResult = await uploadCloudImage(draft.blob, {
       width: draft.width,
       height: draft.height
@@ -9276,30 +9349,83 @@ async function savePendingCommunityMapUpload() {
 }
 
 function discardPendingCommunityMapUpload() {
-  if (isCloudOperationActive("saving", "map:upload")) return;
+  const draft = state.cloudMapUploadDraft;
+  const operationTarget = draft?.mode === "properties" ? `map:properties:${draft.entryId}` : "map:upload";
+  if (isCloudOperationActive("saving", operationTarget)) return;
   state.cloudMapUploadDraft = null;
   render();
+}
+
+async function getCloudMapAssetByteSize(imageUrl) {
+  if (!cleanText(imageUrl)) return 0;
+  try {
+    const response = await fetch(imageUrl, { method: "HEAD", credentials: "same-origin" });
+    return response.ok ? Math.max(0, Number(response.headers.get("content-length")) || 0) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function openCloudMapProperties(entryId) {
+  const id = cleanText(entryId);
+  const summary = [...state.cloudLibraryEntries, ...state.publicCloudLibraryEntries]
+    .find((item) => item.id === id && item.isOwner === true && cleanText(item.type).toLowerCase() === "map");
+  if (!summary) {
+    state.accountError = "No tienes permisos para editar este mapa.";
+    render();
+    return;
+  }
+  const operationTarget = `map:properties:${id}`;
+  beginCloudOperation("loading", operationTarget);
+  try {
+    const result = await getCloudLibraryEntry(id);
+    const entry = result?.entry || summary;
+    const map = result?.payload?.map || {};
+    const imageUrl = cleanText(map.imageUrl || entry.imageUrl);
+    const byteSize = await getCloudMapAssetByteSize(imageUrl);
+    state.cloudMapUploadDraft = {
+      mode: "properties",
+      entryId: id,
+      baseRevision: Number(entry.revision) || 1,
+      previewUrl: imageUrl,
+      byteSize,
+      width: Math.max(0, Number(map.width) || 0),
+      height: Math.max(0, Number(map.height) || 0),
+      isAnimated: map.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl),
+      name: cleanText(entry.name || map.name) || "Mapa",
+      tags: normalizeMapTags(entry.tags),
+      isPublic: entry.isPublic === true,
+      error: ""
+    };
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  endCloudOperation("loading", operationTarget);
+  render({ focusSelector: "[data-cloud-map-upload-name]" });
 }
 
 function renderCloudMapUploadDialog() {
   const draft = state.cloudMapUploadDraft;
   if (!draft) return "";
-  const operationTarget = "map:upload";
+  const editingProperties = draft.mode === "properties";
+  const operationTarget = editingProperties ? `map:properties:${draft.entryId}` : "map:upload";
   const busy = isCloudOperationActive("saving", operationTarget);
   const knownTags = getKnownCloudMapTags();
   return `
     <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
       <section class="cloud-map-upload-dialog__panel">
         <header>
-        <div><p class="account-dialog__eyebrow">Mapa preparado en WebP ${draft.isAnimated ? "animado" : ""}</p><h2 id="cloud-map-upload-title">Guardar mapa en la nube</h2></div>
+        <div><p class="account-dialog__eyebrow">${editingProperties ? "Propiedades del mapa" : `Mapa preparado en WebP ${draft.isAnimated ? "animado" : ""}`}</p><h2 id="cloud-map-upload-title">${editingProperties ? "Editar propiedades" : "Guardar mapa en la nube"}</h2></div>
           <button class="account-dialog__close" type="button" data-action="cancel-cloud-map-upload" aria-label="Cerrar" ${busy ? "disabled" : ""}>×</button>
         </header>
         <img src="${escapeHtml(draft.previewUrl)}" alt="Previsualización del mapa">
+        <p class="combat-map-help"><strong>Tamaño convertido:</strong> ${escapeHtml(draft.byteSize ? formatCloudCampaignSize(draft.byteSize) : "No disponible")} · <strong>Resolución:</strong> ${draft.width && draft.height ? `${draft.width} × ${draft.height} px` : "No disponible"}</p>
         <label><span>Nombre</span><input type="text" maxlength="120" value="${escapeHtml(draft.name)}" data-cloud-map-upload-name></label>
         <label><span>Visibilidad</span><select data-cloud-map-upload-visibility><option value="public" ${draft.isPublic ? "selected" : ""}>Público</option><option value="private" ${draft.isPublic ? "" : "selected"}>Privado</option></select></label>
         <label><span>Etiquetas existentes</span><select multiple size="${Math.min(6, Math.max(2, knownTags.length))}" data-cloud-map-upload-tags>${knownTags.map((tag) => `<option value="${escapeHtml(tag)}" ${draft.tags?.includes(tag) ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}</select></label>
         <label><span>Etiquetas nuevas</span><input type="text" maxlength="240" placeholder="mazmorra, bosque, nocturno" data-cloud-map-upload-new-tags></label>
-        <p class="combat-map-help">La imagen ya está convertida. No se enviará hasta que pulses Guardar.</p>
+        <p class="combat-map-help">${editingProperties ? "La imagen no se volverá a subir; solo se guardarán estas propiedades." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
         ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
         <footer>
           <button class="account-action-button account-action-button--ghost" type="button" data-action="cancel-cloud-map-upload" ${busy ? "disabled" : ""}>Cancelar</button>
@@ -10714,8 +10840,8 @@ function renderCombatMapMirrorSection() {
     <section class="combat-map-mirror-section ${collapsed ? "is-collapsed" : ""}">
       <header class="combat-map-mirror-section__header">
         <div>
-          <strong>${escapeHtml(map?.name || "Mapa de combate")}</strong>
-          <small>Vista espejo del editor · la niebla se muestra translúcida</small>
+          <strong>Versión máster · ${escapeHtml(map?.name || "Mapa de combate")}</strong>
+          <small>Editor completo · la niebla se muestra translúcida</small>
         </div>
         <button
           class="toolbar-button toolbar-button--ghost"
@@ -11632,8 +11758,7 @@ function handleCombatTurnPopoutChange(event) {
     const value = CHARACTER_SIZE_OPTIONS.includes(event.target.value) ? event.target.value : "";
     updateCombatantField(event.target.dataset.combatTurnQuickTokenSize, "mapTokenSize", value);
     saveCombatTrackerState();
-    combatMapController.sync();
-    combatMapController.syncMirror(app);
+    combatMapController.resnapToken(event.target.dataset.combatTurnQuickTokenSize);
     syncCombatTurnPopout();
     return;
   }
@@ -28635,45 +28760,6 @@ async function toggleCloudLibraryEntryPublic(entryId) {
     state.accountError = getCloudErrorMessage(error);
   }
 
-  endCloudOperation("saving", operationTarget);
-  render();
-}
-
-async function renameOwnedCloudMap(entryId) {
-  const entry = state.cloudLibraryEntries.find((item) => (
-    item.id === cleanText(entryId)
-    && item.isOwner === true
-    && cleanText(item.type).toLowerCase() === "map"
-  ));
-  if (!entry) {
-    state.accountError = "Solo puedes renombrar mapas subidos con tu cuenta.";
-    render();
-    return;
-  }
-
-  const requestedName = window.prompt("Nuevo nombre del mapa:", entry.name || "Mapa");
-  if (requestedName === null) return;
-  const name = cleanText(requestedName).slice(0, 120);
-  if (!name) {
-    state.accountError = "El nombre del mapa no puede estar vacío.";
-    render();
-    return;
-  }
-  if (name === entry.name) return;
-
-  const operationTarget = `library-rename:${entry.id}`;
-  beginCloudOperation("saving", operationTarget);
-  try {
-    await updateCloudLibraryEntry(entry.id, {
-      name,
-      baseRevision: entry.revision
-    });
-    await refreshCommunityCatalog();
-    pushNotification({ title: "Mapa renombrado", message: `Ahora se llama ${name}.` });
-    syncNotificationUi();
-  } catch (error) {
-    state.accountError = getCloudErrorMessage(error);
-  }
   endCloudOperation("saving", operationTarget);
   render();
 }

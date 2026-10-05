@@ -1,4 +1,4 @@
-import { getAuthenticatedUser, requireAuthenticatedUser } from "./auth.js";
+import { getAuthenticatedUser, isAdministrator, requireAuthenticatedUser } from "./auth.js";
 import {
   assertSameOrigin,
   cleanText,
@@ -247,7 +247,7 @@ async function getAsset(context, assetId, user) {
     LIMIT 1
   `).bind(userId, userId, userId, userId, userId, assetId).first();
 
-  if (!asset || (asset.canAccess !== 1 && asset.isPublic !== 1)) {
+  if (!asset || (asset.canAccess !== 1 && asset.isPublic !== 1 && !isAdministrator(user))) {
     throw new HttpError(404, "asset_not_found", "Cloud image not found.");
   }
 
@@ -272,7 +272,7 @@ async function getAsset(context, assetId, user) {
     headers.set("Content-Disposition", 'inline; filename="character-sheet.pdf"');
     headers.set("Content-Security-Policy", "sandbox");
   }
-  return new Response(object.body, { headers });
+  return new Response(context.request.method.toUpperCase() === "HEAD" ? null : object.body, { headers });
 }
 
 export async function handleAssetRequest(context) {
@@ -289,12 +289,12 @@ export async function handleAssetRequest(context) {
       return await uploadAsset(context, await requireAuthenticatedUser(context));
     }
 
-    if (method === "GET" && pathParts.length === 1) {
+    if ((method === "GET" || method === "HEAD") && pathParts.length === 1) {
       const assetId = cleanText(pathParts[0], 80).toLowerCase();
       return await getAsset(context, assetId, await getAuthenticatedUser(context));
     }
 
-    return methodNotAllowed(pathParts.length === 0 ? ["POST"] : ["GET"]);
+    return methodNotAllowed(pathParts.length === 0 ? ["POST"] : ["GET", "HEAD"]);
   } catch (error) {
     return errorResponse(error);
   }

@@ -1,7 +1,7 @@
 import { Auth } from "@auth/core";
 import Google from "@auth/core/providers/google";
 import { D1Adapter } from "@auth/d1-adapter";
-import { assertServerBindings } from "../../_shared/auth.js";
+import { assertServerBindings, isAdministrator } from "../../_shared/auth.js";
 import { errorResponse } from "../../_shared/http.js";
 import {
   getClearedRegistrationCookie,
@@ -97,6 +97,7 @@ export async function onRequest(context) {
               session.user.name = storedUser.name;
               session.user.email = storedUser.email;
               session.user.image = storedUser.image;
+              session.user.isAdmin = isAdministrator(storedUser);
             }
           }
           return session;
