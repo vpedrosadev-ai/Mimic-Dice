@@ -804,6 +804,8 @@ state = {
   cloudCatalogSort: "updated-desc",
   cloudCatalogAnimated: "all",
   cloudCatalogSelectedTags: new Set(),
+  cloudCatalogTagMenuOpen: false,
+  cloudCatalogTagSearch: "",
   cloudCatalogGroupBy: "owner-campaign",
   cloudCatalogSelectedIds: new Set(),
   cloudCatalogCollapsedGroups: new Set(),
@@ -1374,6 +1376,8 @@ async function handleClick(event) {
   const clickedCharacterSpellMenu = event.target.closest("[data-character-spell-menu]");
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
+  const clickedCloudCatalogTagMenu = event.target.closest("[data-cloud-catalog-tag-menu]");
+  const clickedCloudMapTagMenu = event.target.closest("[data-cloud-map-tag-menu]");
   const clickedEncounterSearch = event.target.closest("[data-encounter-search-menu]");
   const clickedDiarySearch = event.target.closest("[data-diary-search-menu]");
   const clickedDiaryMentionRoot = event.target.closest("[data-diary-mention-root]");
@@ -1599,6 +1603,32 @@ async function handleClick(event) {
     actionButton?.dataset.action !== "toggle-arcanum-filter"
   ) {
     state.activeArcanumFilterKey = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.cloudCatalogTagMenuOpen &&
+    !clickedCloudCatalogTagMenu &&
+    actionButton?.dataset.action !== "toggle-cloud-catalog-tag-menu"
+  ) {
+    state.cloudCatalogTagMenuOpen = false;
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (
+    state.cloudMapUploadDraft?.tagMenuOpen &&
+    !clickedCloudMapTagMenu &&
+    actionButton?.dataset.action !== "toggle-cloud-map-tag-menu"
+  ) {
+    state.cloudMapUploadDraft.tagMenuOpen = false;
 
     if (!actionButton) {
       render();
@@ -1848,9 +1878,31 @@ async function handleClick(event) {
       state.cloudCatalogTab = nextTab;
       state.cloudCatalogOwner = "";
       state.cloudCatalogCampaign = "";
+      state.cloudCatalogTagMenuOpen = false;
+      state.cloudCatalogTagSearch = "";
       state.cloudCatalogPreview = null;
       render();
     }
+    return;
+  }
+
+  if (action === "toggle-cloud-catalog-tag-menu") {
+    state.cloudCatalogTagMenuOpen = !state.cloudCatalogTagMenuOpen;
+    render({
+      focusSelector: state.cloudCatalogTagMenuOpen ? "[data-cloud-catalog-tag-search]" : null
+    });
+    return;
+  }
+
+  if (action === "clear-cloud-catalog-tags") {
+    state.cloudCatalogSelectedTags = new Set();
+    render({ focusSelector: "[data-cloud-catalog-tag-search]" });
+    return;
+  }
+
+  if (action === "select-visible-cloud-catalog-tags") {
+    state.cloudCatalogSelectedTags = new Set(getVisibleCloudCatalogTagOptions());
+    render({ focusSelector: "[data-cloud-catalog-tag-search]" });
     return;
   }
 
@@ -3073,6 +3125,34 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-cloud-map-tag-menu") {
+    if (state.cloudMapUploadDraft) {
+      state.cloudMapUploadDraft.tagMenuOpen = !state.cloudMapUploadDraft.tagMenuOpen;
+      render({
+        focusSelector: state.cloudMapUploadDraft.tagMenuOpen ? "[data-cloud-map-upload-new-tag]" : null
+      });
+    }
+    return;
+  }
+
+  if (action === "remove-cloud-map-tag") {
+    if (state.cloudMapUploadDraft) {
+      const removedTag = cleanText(actionButton.dataset.cloudMapTag);
+      state.cloudMapUploadDraft.tags = normalizeMapTags(state.cloudMapUploadDraft.tags)
+        .filter((tag) => tag !== removedTag);
+      render({ focusSelector: "[data-action=\"toggle-cloud-map-tag-menu\"]" });
+    }
+    return;
+  }
+
+  if (action === "clear-cloud-map-tags") {
+    if (state.cloudMapUploadDraft) {
+      state.cloudMapUploadDraft.tags = [];
+      render({ focusSelector: "[data-cloud-map-upload-new-tag]" });
+    }
+    return;
+  }
+
   if (action === "confirm-cloud-map-upload") {
     await savePendingCommunityMapUpload();
     return;
@@ -3930,6 +4010,12 @@ function handleDoubleClick(event) {
 }
 
 function handleSubmit(event) {
+  if (event.target.matches?.("[data-cloud-map-new-tag-form]")) {
+    event.preventDefault();
+    addCloudMapDraftTags();
+    return;
+  }
+
   if (!event.target.matches?.("[data-dice-roller-form]")) return;
   event.preventDefault();
   const input = event.target.querySelector("[data-dice-roller-input]");
@@ -4055,9 +4141,30 @@ async function handleChange(event) {
     return;
   }
 
-  if (target.matches("[data-cloud-catalog-tags]")) {
-    state.cloudCatalogSelectedTags = new Set([...target.selectedOptions].map((option) => option.value));
-    render();
+  if (target.matches("[data-cloud-catalog-tag-option]")) {
+    const nextTags = new Set(state.cloudCatalogSelectedTags);
+    if (target.checked) nextTags.add(target.value);
+    else nextTags.delete(target.value);
+    state.cloudCatalogSelectedTags = nextTags;
+    render({ focusSelector: "[data-cloud-catalog-tag-search]" });
+    return;
+  }
+
+  if (target.matches("[data-cloud-map-upload-tag-option]")) {
+    const draft = state.cloudMapUploadDraft;
+    if (!draft) return;
+    const nextTags = new Set(normalizeMapTags(draft.tags));
+    if (target.checked) nextTags.add(target.value);
+    else nextTags.delete(target.value);
+    draft.tags = normalizeMapTags([...nextTags]);
+    render({ focusSelector: "[data-cloud-map-upload-new-tag]" });
+    return;
+  }
+
+  if (target.matches("[data-cloud-map-upload-visibility]")) {
+    if (state.cloudMapUploadDraft) {
+      state.cloudMapUploadDraft.isPublic = target.value !== "private";
+    }
     return;
   }
 
@@ -4638,6 +4745,26 @@ function handleInput(event) {
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
+    return;
+  }
+
+  if (target.matches("[data-cloud-catalog-tag-search]")) {
+    state.cloudCatalogTagSearch = target.value;
+    scheduleRender({
+      focusSelector: "[data-cloud-catalog-tag-search]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
+  if (target.matches("[data-cloud-map-upload-name]")) {
+    if (state.cloudMapUploadDraft) state.cloudMapUploadDraft.name = target.value;
+    return;
+  }
+
+  if (target.matches("[data-cloud-map-upload-new-tag]")) {
+    if (state.cloudMapUploadDraft) state.cloudMapUploadDraft.newTag = target.value;
     return;
   }
 
@@ -8530,8 +8657,25 @@ function normalizeMapTags(value) {
 }
 
 function getKnownCloudMapTags(items = [...state.cloudLibraryEntries, ...state.publicCloudLibraryEntries]) {
-  return [...new Set(items.flatMap((item) => normalizeMapTags(item?.tags)))]
+  return [...new Set(items
+    .filter((item) => cleanText(item?.type).toLowerCase() === "map")
+    .flatMap((item) => normalizeMapTags(item?.tags)))]
     .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+}
+
+function getVisibleCloudCatalogTagOptions(items) {
+  const query = normalizeSearchText(state.cloudCatalogTagSearch);
+  return getKnownCloudMapTags(items).filter((tag) => !query || normalizeSearchText(tag).includes(query));
+}
+
+function addCloudMapDraftTags() {
+  const draft = state.cloudMapUploadDraft;
+  if (!draft) return;
+  const additions = String(draft.newTag || "").split(",");
+  draft.tags = normalizeMapTags([...normalizeMapTags(draft.tags), ...additions]);
+  draft.newTag = "";
+  draft.tagMenuOpen = true;
+  render({ focusSelector: "[data-cloud-map-upload-new-tag]" });
 }
 
 function normalizeCloudCatalogItem(item, kind) {
@@ -8760,7 +8904,7 @@ function filterAndSortCloudCatalogItems(items) {
   const filtered = items.filter((item) => {
     if (animated === "animated" && item.isAnimated !== true) return false;
     if (animated === "static" && item.isAnimated === true) return false;
-    if (selectedTags.length && !selectedTags.every((tag) => normalizeMapTags(item.tags).includes(tag))) return false;
+    if (selectedTags.length && !selectedTags.some((tag) => normalizeMapTags(item.tags).includes(tag))) return false;
     if (owner && item.ownerName !== owner && item.importedFromOwnerName !== owner) {
       return false;
     }
@@ -8855,6 +8999,7 @@ function renderCloudCatalogRefreshButton(item) {
 
 function renderCloudCatalogMeta(item) {
   const isImported = item.loadedOrigin === "imported";
+  const isMap = cleanText(item.type).toLowerCase() === "map";
   const ownerName = isImported
     ? cleanText(item.importedFromOwnerName) || item.ownerName
     : item.ownerName;
@@ -8864,7 +9009,7 @@ function renderCloudCatalogMeta(item) {
   return `
     <small class="cloud-catalog-card__meta">
       <span>Usuario: ${escapeHtml(ownerName)}</span>
-      <span>Campaña: ${escapeHtml(campaignLabel)}</span>
+      ${isMap ? "" : `<span>Campaña: ${escapeHtml(campaignLabel)}</span>`}
       <span>Guardado ${escapeHtml(formatCampaignSavedAt(item.updatedAt) || "sin fecha")}</span>
       ${item.groupName ? `<span>Carpeta: ${escapeHtml(item.groupName)}</span>` : ""}
       ${normalizeMapTags(item.tags).length ? `<span class="cloud-catalog-card__tags">${normalizeMapTags(item.tags).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span>` : ""}
@@ -9296,6 +9441,8 @@ async function uploadCommunityMapFile(file) {
       isAnimated: converted.isAnimated === true,
       name,
       tags: [],
+      newTag: "",
+      tagMenuOpen: false,
       isPublic: true,
       error: ""
     };
@@ -9314,9 +9461,8 @@ async function savePendingCommunityMapUpload() {
   const dialog = app.querySelector("[data-cloud-map-upload-dialog]");
   const name = cleanText(dialog?.querySelector("[data-cloud-map-upload-name]")?.value).slice(0, 120);
   const isPublic = dialog?.querySelector("[data-cloud-map-upload-visibility]")?.value !== "private";
-  const selectedTags = [...(dialog?.querySelector("[data-cloud-map-upload-tags]")?.selectedOptions || [])].map((option) => option.value);
-  const customTags = String(dialog?.querySelector("[data-cloud-map-upload-new-tags]")?.value || "").split(",");
-  const tags = normalizeMapTags([...selectedTags, ...customTags]);
+  const pendingTags = String(draft.newTag || "").split(",");
+  const tags = normalizeMapTags([...normalizeMapTags(draft.tags), ...pendingTags]);
   if (!name) {
     draft.error = "Escribe un nombre para el mapa.";
     render({ focusSelector: "[data-cloud-map-upload-name]" });
@@ -9435,6 +9581,8 @@ async function openCloudMapProperties(entryId) {
       isAnimated: map.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl),
       name: cleanText(entry.name || map.name) || "Mapa",
       tags: normalizeMapTags(entry.tags),
+      newTag: "",
+      tagMenuOpen: false,
       isPublic: entry.isPublic === true,
       error: ""
     };
@@ -9446,13 +9594,68 @@ async function openCloudMapProperties(entryId) {
   render({ focusSelector: "[data-cloud-map-upload-name]" });
 }
 
+function renderCloudMapTagEditor(draft) {
+  const selectedTags = normalizeMapTags(draft.tags);
+  const availableTags = [...new Set([...getKnownCloudMapTags(), ...selectedTags])]
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+  const isOpen = draft.tagMenuOpen === true;
+
+  return `
+    <div class="cloud-map-tag-editor" data-cloud-map-tag-menu>
+      <span class="cloud-map-tag-editor__label">Etiquetas</span>
+      <div class="cloud-map-tag-editor__chips" aria-label="Etiquetas aplicadas">
+        ${selectedTags.length
+          ? selectedTags.map((tag) => `
+            <button class="cloud-map-tag-chip" type="button" data-action="remove-cloud-map-tag" data-cloud-map-tag="${escapeHtml(tag)}" title="Quitar ${escapeHtml(tag)}">
+              <span>${escapeHtml(tag)}</span><span aria-hidden="true">×</span>
+            </button>
+          `).join("")
+          : `<span class="cloud-map-tag-editor__empty">Sin etiquetas aplicadas</span>`}
+      </div>
+      <button
+        class="bestiary-filter__trigger ${selectedTags.length ? "is-active" : ""}"
+        type="button"
+        data-action="toggle-cloud-map-tag-menu"
+        aria-expanded="${isOpen}"
+        aria-haspopup="dialog"
+      >
+        <span>${selectedTags.length ? `${selectedTags.length} seleccionada${selectedTags.length === 1 ? "" : "s"}` : "Seleccionar etiquetas"}</span>
+        <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
+      </button>
+      ${isOpen ? `
+        <div class="bestiary-filter__popover cloud-map-tag-editor__popover" data-cloud-map-tag-menu>
+          <form class="cloud-map-tag-editor__create" data-cloud-map-new-tag-form>
+            <label>
+              <span>Crear etiqueta</span>
+              <input type="text" maxlength="240" value="${escapeHtml(draft.newTag || "")}" placeholder="Ej.: mazmorra" data-cloud-map-upload-new-tag>
+            </label>
+            <button class="account-action-button" type="submit">Añadir</button>
+          </form>
+          <div class="bestiary-filter__actions">
+            <button class="filter-clear" type="button" data-action="clear-cloud-map-tags" ${selectedTags.length ? "" : "disabled"}>Limpiar</button>
+          </div>
+          <div class="bestiary-filter__list" role="group" aria-label="Etiquetas disponibles">
+            ${availableTags.length
+              ? availableTags.map((tag) => `
+                <label class="bestiary-filter__option">
+                  <input type="checkbox" value="${escapeHtml(tag)}" data-cloud-map-upload-tag-option ${selectedTags.includes(tag) ? "checked" : ""}>
+                  <span>${escapeHtml(tag)}</span>
+                </label>
+              `).join("")
+              : `<p class="bestiary-filter__empty">Todavía no hay etiquetas disponibles. Crea la primera arriba.</p>`}
+          </div>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
 function renderCloudMapUploadDialog() {
   const draft = state.cloudMapUploadDraft;
   if (!draft) return "";
   const editingProperties = draft.mode === "properties";
   const operationTarget = editingProperties ? `map:properties:${draft.entryId}` : "map:upload";
   const busy = isCloudOperationActive("saving", operationTarget);
-  const knownTags = getKnownCloudMapTags();
   return `
     <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
       <section class="cloud-map-upload-dialog__panel">
@@ -9464,8 +9667,7 @@ function renderCloudMapUploadDialog() {
         <p class="combat-map-help"><strong>Tamaño convertido:</strong> ${escapeHtml(draft.byteSize ? formatCloudCampaignSize(draft.byteSize) : "No disponible")} · <strong>Resolución:</strong> ${draft.width && draft.height ? `${draft.width} × ${draft.height} px` : "No disponible"}</p>
         <label><span>Nombre</span><input type="text" maxlength="120" value="${escapeHtml(draft.name)}" data-cloud-map-upload-name></label>
         <label><span>Visibilidad</span><select data-cloud-map-upload-visibility><option value="public" ${draft.isPublic ? "selected" : ""}>Público</option><option value="private" ${draft.isPublic ? "" : "selected"}>Privado</option></select></label>
-        <label><span>Etiquetas existentes</span><select multiple size="${Math.min(6, Math.max(2, knownTags.length))}" data-cloud-map-upload-tags>${knownTags.map((tag) => `<option value="${escapeHtml(tag)}" ${draft.tags?.includes(tag) ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}</select></label>
-        <label><span>Etiquetas nuevas</span><input type="text" maxlength="240" placeholder="mazmorra, bosque, nocturno" data-cloud-map-upload-new-tags></label>
+        ${renderCloudMapTagEditor(draft)}
         <p class="combat-map-help">${editingProperties ? "La imagen no se volverá a subir; solo se guardarán estas propiedades." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
         ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
         <footer>
@@ -9477,13 +9679,67 @@ function renderCloudMapUploadDialog() {
   `;
 }
 
+function renderCloudCatalogTagFilter() {
+  const isOpen = state.cloudCatalogTagMenuOpen;
+  const selectedTags = [...state.cloudCatalogSelectedTags]
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+  const visibleTags = isOpen ? getVisibleCloudCatalogTagOptions() : [];
+  const summary = selectedTags.length === 0
+    ? "Todas"
+    : selectedTags.length === 1
+      ? selectedTags[0]
+      : `${selectedTags.length} etiquetas`;
+
+  return `
+    <div class="cloud-catalog-tag-filter bestiary-filter" data-cloud-catalog-tag-menu>
+      <span class="cloud-catalog-tag-filter__label">Etiquetas</span>
+      <button
+        class="bestiary-filter__trigger ${selectedTags.length ? "is-active" : ""}"
+        type="button"
+        data-action="toggle-cloud-catalog-tag-menu"
+        aria-expanded="${isOpen}"
+        aria-haspopup="dialog"
+      >
+        <span>${escapeHtml(summary)}</span>
+        <span aria-hidden="true">${isOpen ? "^" : "v"}</span>
+      </button>
+      ${isOpen ? `
+        <div class="bestiary-filter__popover cloud-catalog-tag-filter__popover" data-cloud-catalog-tag-menu>
+          <label class="bestiary-filter__search">
+            <span>Buscar etiquetas</span>
+            <input class="filter-input" type="search" value="${escapeHtml(state.cloudCatalogTagSearch)}" placeholder="Buscar opción..." data-cloud-catalog-tag-search>
+          </label>
+          <div class="bestiary-filter__actions">
+            <button class="filter-clear" type="button" data-action="select-visible-cloud-catalog-tags" ${visibleTags.length ? "" : "disabled"}>Seleccionar visibles</button>
+            <button class="filter-clear" type="button" data-action="clear-cloud-catalog-tags" ${selectedTags.length ? "" : "disabled"}>Limpiar</button>
+          </div>
+          ${selectedTags.length ? `
+            <div class="bestiary-filter__chips" aria-label="Etiquetas filtradas">
+              ${selectedTags.map((tag) => `<span class="bestiary-filter__chip">${escapeHtml(tag)}</span>`).join("")}
+            </div>
+          ` : ""}
+          <div class="bestiary-filter__list" role="group" aria-label="Etiquetas">
+            ${visibleTags.length
+              ? visibleTags.map((tag) => `
+                <label class="bestiary-filter__option">
+                  <input type="checkbox" value="${escapeHtml(tag)}" data-cloud-catalog-tag-option ${state.cloudCatalogSelectedTags.has(tag) ? "checked" : ""}>
+                  <span>${escapeHtml(tag)}</span>
+                </label>
+              `).join("")
+              : `<p class="bestiary-filter__empty">No hay opciones que coincidan con la búsqueda.</p>`}
+          </div>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
 function renderCloudMapCatalog(ownedItems, publicItems) {
   const communityItems = publicItems.filter((item) => item.isOwner !== true);
   const uploadTarget = "map:convert";
   const uploadAttributes = state.accountSession?.user?.id
     ? renderCloudButtonBusyAttributes("saving", uploadTarget)
     : "disabled";
-  const tagOptions = getKnownCloudMapTags([...ownedItems, ...publicItems]);
   return `
     <button class="account-dialog__back" type="button" data-action="set-account-dialog-view" data-account-dialog-view="account">← Volver</button>
     <nav class="cloud-catalog-tabs" aria-label="Categorías del catálogo">
@@ -9493,7 +9749,7 @@ function renderCloudMapCatalog(ownedItems, publicItems) {
       <label><span>Buscar</span><input type="search" value="${escapeHtml(state.cloudCatalogQuery)}" placeholder="Nombre, usuario o etiqueta" data-cloud-catalog-query></label>
       <label><span>Orden</span><select data-cloud-catalog-sort><option value="updated-desc" ${state.cloudCatalogSort === "updated-desc" ? "selected" : ""}>Más recientes</option><option value="updated-asc" ${state.cloudCatalogSort === "updated-asc" ? "selected" : ""}>Más antiguos</option><option value="name-asc" ${state.cloudCatalogSort === "name-asc" ? "selected" : ""}>Nombre A–Z</option><option value="name-desc" ${state.cloudCatalogSort === "name-desc" ? "selected" : ""}>Nombre Z–A</option></select></label>
       <label><span>Animación</span><select data-cloud-catalog-animated><option value="all" ${state.cloudCatalogAnimated === "all" ? "selected" : ""}>Todos</option><option value="animated" ${state.cloudCatalogAnimated === "animated" ? "selected" : ""}>Animados</option><option value="static" ${state.cloudCatalogAnimated === "static" ? "selected" : ""}>Estáticos</option></select></label>
-      <label><span>Etiquetas</span><select multiple size="${Math.min(6, Math.max(2, tagOptions.length))}" data-cloud-catalog-tags>${tagOptions.map((tag) => `<option value="${escapeHtml(tag)}" ${state.cloudCatalogSelectedTags.has(tag) ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}</select></label>
+      ${renderCloudCatalogTagFilter()}
       <button class="account-action-button${getCloudButtonBusyClass("saving", uploadTarget)}" type="button" data-action="select-cloud-map-upload" ${uploadAttributes}>${renderCloudButtonLabel("Subir mapa nuevo", "Convirtiendo…", "saving", uploadTarget)}</button>
       <input type="file" accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.avif" data-cloud-map-upload-file hidden>
       <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", "catalog:refresh")}" type="button" data-action="refresh-community-catalog" ${renderCloudButtonBusyAttributes("loading", "catalog:refresh")}>${renderCloudButtonLabel("Actualizar", "Actualizando...", "loading", "catalog:refresh")}</button>
