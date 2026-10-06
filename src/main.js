@@ -3160,6 +3160,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "download-cloud-map-image") {
+    await downloadCloudMapImage();
+    return;
+  }
+
   if (action === "open-cloud-map-properties") {
     await openCloudMapProperties(actionButton.dataset.cloudEntryId);
     return;
@@ -9596,6 +9601,57 @@ async function openCloudMapProperties(entryId) {
   render({ focusSelector: "[data-cloud-map-upload-name]" });
 }
 
+function getCloudMapDownloadFileName(name, blob, imageUrl) {
+  const extensionByMimeType = {
+    "image/avif": "avif",
+    "image/bmp": "bmp",
+    "image/gif": "gif",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/webp": "webp"
+  };
+  const mimeType = cleanText(blob?.type).toLowerCase().split(";")[0];
+  const urlExtension = cleanText(imageUrl).split(/[?#]/)[0].match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || "";
+  const extension = extensionByMimeType[mimeType] || (Object.values(extensionByMimeType).includes(urlExtension) ? urlExtension : "webp");
+  const safeName = cleanText(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
+    .replace(/[.\s-]+$/g, "")
+    .slice(0, 120)
+    || "mapa";
+  return `${safeName}.${extension}`;
+}
+
+async function downloadCloudMapImage() {
+  const draft = state.cloudMapUploadDraft;
+  if (!draft || draft.mode !== "properties" || !cleanText(draft.previewUrl)) return;
+  const operationTarget = `map:download:${draft.entryId}`;
+  if (isCloudOperationActive("loading", operationTarget)) return;
+
+  beginCloudOperation("loading", operationTarget);
+  draft.error = "";
+  render();
+
+  try {
+    const response = await fetch(draft.previewUrl, { credentials: "include" });
+    if (!response.ok) throw new Error(`No se pudo descargar la imagen (${response.status}).`);
+    const blob = await response.blob();
+    if (cleanText(blob.type) && !cleanText(blob.type).toLowerCase().startsWith("image/")) {
+      throw new Error("El archivo recibido no es una imagen válida.");
+    }
+    downloadBlobFile(blob, getCloudMapDownloadFileName(draft.name, blob, draft.previewUrl));
+    pushNotification({ title: "Mapa descargado", message: `${draft.name || "Mapa"} se ha descargado.` });
+    syncNotificationUi();
+  } catch (error) {
+    draft.error = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("loading", operationTarget);
+  render();
+}
+
 function renderCloudMapTagEditor(draft) {
   const selectedTags = normalizeMapTags(draft.tags);
   const availableTags = [...new Set([...getKnownCloudMapTags(), ...selectedTags])]
@@ -9657,7 +9713,9 @@ function renderCloudMapUploadDialog() {
   if (!draft) return "";
   const editingProperties = draft.mode === "properties";
   const operationTarget = editingProperties ? `map:properties:${draft.entryId}` : "map:upload";
-  const busy = isCloudOperationActive("saving", operationTarget);
+  const downloadTarget = `map:download:${draft.entryId}`;
+  const downloadBusy = editingProperties && isCloudOperationActive("loading", downloadTarget);
+  const busy = isCloudOperationActive("saving", operationTarget) || downloadBusy;
   return `
     <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
       <section class="cloud-map-upload-dialog__panel" data-render-scroll-key="cloud-map-properties">
@@ -9673,8 +9731,9 @@ function renderCloudMapUploadDialog() {
         <p class="combat-map-help">${editingProperties ? "La imagen no se volverá a subir; solo se guardarán estas propiedades." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
         ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
         <footer>
+          ${editingProperties ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", downloadTarget)}" type="button" data-action="download-cloud-map-image" ${renderCloudButtonBusyAttributes("loading", downloadTarget)}>${renderCloudButtonLabel("Descargar imagen", "Descargando…", "loading", downloadTarget)}</button>` : ""}
           <button class="account-action-button account-action-button--ghost" type="button" data-action="cancel-cloud-map-upload" ${busy ? "disabled" : ""}>Cancelar</button>
-          <button class="account-action-button${getCloudButtonBusyClass("saving", operationTarget)}" type="button" data-action="confirm-cloud-map-upload" ${renderCloudButtonBusyAttributes("saving", operationTarget)}>${renderCloudButtonLabel("Guardar", "Guardando…", "saving", operationTarget)}</button>
+          <button class="account-action-button${getCloudButtonBusyClass("saving", operationTarget)}" type="button" data-action="confirm-cloud-map-upload" ${downloadBusy ? "disabled" : renderCloudButtonBusyAttributes("saving", operationTarget)}>${renderCloudButtonLabel("Guardar", "Guardando…", "saving", operationTarget)}</button>
         </footer>
       </section>
     </div>
