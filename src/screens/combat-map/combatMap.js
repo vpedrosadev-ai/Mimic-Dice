@@ -507,6 +507,7 @@ export function normalizeMapEditorState(value) {
     ? [...new Set(source.tokenStackOrder.map(clean).filter(Boolean))]
     : [];
   const windowBounds = isObject(source.windowBounds) ? source.windowBounds : {};
+  const legacyInitiativeVisible = source.initiative?.visible === true;
   return {
     map: normalizeMapReference(source.map),
     openPanel: ["map", "grid", "tokens", "paint", "shapes", "fog", "health", "initiative"].includes(source.openPanel) ? source.openPanel : "",
@@ -590,7 +591,8 @@ export function normalizeMapEditorState(value) {
     savedMapLayouts: normalizeSavedMapLayouts(source.savedMapLayouts),
     healthMode: ["all", "none", "allies", "neutral", "enemies"].includes(source.healthMode) ? source.healthMode : "all",
     initiative: {
-      visible: source.initiative?.visible === true,
+      masterVisible: typeof source.initiative?.masterVisible === "boolean" ? source.initiative.masterVisible : legacyInitiativeVisible,
+      playerVisible: typeof source.initiative?.playerVisible === "boolean" ? source.initiative.playerVisible : legacyInitiativeVisible,
       position: ["top", "bottom", "left", "right"].includes(source.initiative?.position) ? source.initiative.position : "top",
       size: clamp(source.initiative?.size || 290, 160, 650)
     }
@@ -1091,7 +1093,11 @@ export function createCombatMapController(options = {}) {
       mapLoadSection = "";
     }
     if (cloudPickerSurface === "player") cloudPickerSurface = "";
-    if (pendingConfirmation?.surfaceKind === "player") pendingConfirmation = null;
+    if (pendingConfirmation?.surfaceKind === "player") {
+      pendingConfirmation = null;
+      detachedConfirmationElement?.remove();
+      detachedConfirmationElement = null;
+    }
   }
 
   function captureWindowBounds() {
@@ -1154,6 +1160,10 @@ export function createCombatMapController(options = {}) {
     return version === "player" ? playerOpenPanel : openPanel;
   }
 
+  function isInitiativeVisible(version = "master") {
+    return version === "player" ? state.initiative.playerVisible : state.initiative.masterVisible;
+  }
+
   function renderToolbar(version = "master") {
     const panel = getVersionPanel(version);
     return `<header class="combat-map-toolbar">
@@ -1165,7 +1175,7 @@ export function createCombatMapController(options = {}) {
       <button type="button" data-map-action="toggle-paint-menu" class="${panel === "paint" ? "is-active" : ""}">Pintar</button>
       <button type="button" data-map-action="toggle-shapes-menu" class="${panel === "shapes" ? "is-active" : ""}">Formas</button>
       <button type="button" data-map-action="toggle-health-menu" class="${panel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>
-      <button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${state.initiative.visible || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>
+      <button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${isInitiativeVisible(version) || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>
     </header>`;
   }
 
@@ -1360,11 +1370,12 @@ export function createCombatMapController(options = {}) {
     </section>`;
   }
 
-  function renderInitiativeMenu(panel) {
+  function renderInitiativeMenu(panel, version = "master") {
+    const visible = isInitiativeVisible(version);
     return `<section class="combat-map-popover" data-map-panel="initiative" ${panel === "initiative" ? "" : "hidden"}>
       <h2>Orden de iniciativa</h2>
-      <label><input type="checkbox" data-map-initiative ${state.initiative.visible ? "checked" : ""}> Mostrar junto al mapa</label>
-      <label>Posición <select data-map-initiative-position ${state.initiative.visible ? "" : "disabled"}><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select></label>
+      <label><input type="checkbox" data-map-initiative ${visible ? "checked" : ""}> Mostrar junto al mapa</label>
+      <label>Posición <select data-map-initiative-position ${visible ? "" : "disabled"}><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select></label>
       <label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size><output>${Math.round(state.initiative.size)} px</output></label>
       ${renderOpacityControl("initiative")}
       <p class="combat-map-help">También puedes arrastrar el separador entre el mapa y la iniciativa.</p>
@@ -1428,8 +1439,8 @@ export function createCombatMapController(options = {}) {
     </section>`;
   }
 
-  function renderInitiative(viewportWindow = window) {
-    if (!state.initiative.visible) return "";
+  function renderInitiative(viewportWindow = window, version = "master") {
+    if (!isInitiativeVisible(version)) return "";
     const content = options.renderInitiativeOrder?.(viewportWindow, initiativeLayout) || "<p>Sin iniciativa.</p>";
     return `<aside class="combat-map-initiative combat-tracker-panel" data-map-initiative-order style="opacity:${layerOpacity("initiative")}">${content}</aside><div class="combat-map-initiative-resizer" data-map-initiative-resizer title="Arrastrar para cambiar el tamaño"></div>`;
   }
@@ -1542,9 +1553,8 @@ export function createCombatMapController(options = {}) {
   }
 
   function showConfirmation({ surface = masterHost, title, message, confirmLabel, cancelLabel, onConfirm, onCancel }) {
-    const attachedSurface = surface?.isConnected ? surface : null;
     pendingConfirmation = {
-      surfaceKind: attachedSurface ? getSurfaceKind(attachedSurface) : "detached",
+      surfaceKind: getSurfaceKind(surface),
       title: clean(title) || "Confirmar acción",
       message: clean(message),
       confirmLabel: clean(confirmLabel) || "Confirmar",
@@ -1552,7 +1562,7 @@ export function createCombatMapController(options = {}) {
       onConfirm,
       onCancel
     };
-    if (!attachedSurface) renderDetachedConfirmation();
+    renderDetachedConfirmation(surface?.ownerDocument || document);
     sync();
   }
 
@@ -1565,11 +1575,6 @@ export function createCombatMapController(options = {}) {
     if (confirmed) confirmation.onConfirm?.();
     else confirmation.onCancel?.();
     if (pendingConfirmation === null) sync();
-  }
-
-  function renderConfirmation(version) {
-    if (!pendingConfirmation || pendingConfirmation.surfaceKind !== version) return "";
-    return getConfirmationMarkup();
   }
 
   function getConfirmationMarkup() {
@@ -1585,26 +1590,26 @@ export function createCombatMapController(options = {}) {
     </div>`;
   }
 
-  function renderDetachedConfirmation() {
+  function renderDetachedConfirmation(targetDocument = document) {
     detachedConfirmationElement?.remove();
-    const container = document.createElement("div");
+    const container = targetDocument.createElement("div");
     container.innerHTML = getConfirmationMarkup();
     detachedConfirmationElement = container.firstElementChild;
     detachedConfirmationElement?.querySelector('[data-map-action="confirm-confirmation"]')?.addEventListener("click", () => resolveConfirmation(true));
     detachedConfirmationElement?.querySelector('[data-map-action="cancel-confirmation"]')?.addEventListener("click", () => resolveConfirmation(false));
-    if (detachedConfirmationElement) document.body.append(detachedConfirmationElement);
+    if (detachedConfirmationElement) targetDocument.body.append(detachedConfirmationElement);
   }
 
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
-    const initiativePosition = state.initiative.visible ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel)}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("master")}${renderConfirmation("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
-    const initiativePosition = state.initiative.visible ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel)}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}${renderConfirmation("player")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function sync() {
@@ -1649,7 +1654,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function fitInitiativeOrder(root = editorWindow?.document) {
-    if (!root || !state.initiative.visible) return;
+    if (!root || !isInitiativeVisible(getSurfaceKind(root))) return;
     const panel = root.querySelector("[data-map-initiative-order]");
     const strip = panel?.querySelector(".combat-turn-strip");
     const count = strip?.querySelectorAll(".combat-turn-token-wrap").length || 0;
@@ -2383,7 +2388,10 @@ export function createCombatMapController(options = {}) {
       }
     }
     else if (target.matches("[data-map-health]")) state.healthMode = target.value;
-    else if (target.matches("[data-map-initiative]")) state.initiative.visible = target.checked;
+    else if (target.matches("[data-map-initiative]")) {
+      const version = getSurfaceKind(getEventSurface(event));
+      state.initiative[version === "player" ? "playerVisible" : "masterVisible"] = target.checked;
+    }
     else if (target.matches("[data-map-initiative-position]")) state.initiative.position = target.value;
     else if (target.matches("[data-map-rotation-orientation]")) state.rotationOrientation = target.value === "with-map" ? "with-map" : "upright";
     else if (target.matches("[data-paint-icon]")) {

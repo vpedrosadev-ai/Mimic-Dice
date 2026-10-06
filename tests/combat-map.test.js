@@ -225,6 +225,18 @@ test("map editor keeps automatic popup positioning when bounds have no coordinat
   });
 });
 
+test("map editor keeps initiative visibility separate for master and player windows", () => {
+  const migrated = normalizeMapEditorState({ initiative: { visible: true } });
+  assert.equal(migrated.initiative.masterVisible, true);
+  assert.equal(migrated.initiative.playerVisible, true);
+
+  const normalized = normalizeMapEditorState({
+    initiative: { visible: true, masterVisible: false, playerVisible: true }
+  });
+  assert.equal(normalized.initiative.masterVisible, false);
+  assert.equal(normalized.initiative.playerVisible, true);
+});
+
 test("map references retain only portable metadata", () => {
   assert.deepEqual(normalizeMapReference({
     name: "Dungeon",

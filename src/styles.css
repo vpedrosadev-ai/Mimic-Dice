@@ -3339,8 +3339,24 @@ button.is-cloud-busy:disabled {
 }
 
 .combat-map-editor--master .combat-map-popover[data-map-panel="map"]:not(.combat-map-popover--map-loader) {
+  box-sizing: border-box;
+  width: min(31rem, calc(100% - 1.5rem));
   max-height: none;
   overflow: visible;
+}
+
+.combat-map-editor--master .combat-map-popover[data-map-panel="map"]:not(.combat-map-popover--map-loader) > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.combat-map-editor--master .combat-map-popover[data-map-panel="map"]:not(.combat-map-popover--map-loader) label {
+  flex-wrap: wrap;
+}
+
+.combat-map-editor--master .combat-map-popover[data-map-panel="map"]:not(.combat-map-popover--map-loader) select {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .combat-map-editor--master .combat-map-popover--map-loader {
@@ -3449,7 +3465,7 @@ button.is-cloud-busy:disabled {
 .combat-map-confirmation {
   position: fixed;
   inset: 0;
-  z-index: 1400;
+  z-index: 2147483647;
   display: grid;
   padding: 1.25rem;
   place-items: center;
