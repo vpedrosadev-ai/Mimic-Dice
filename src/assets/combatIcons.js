@@ -13,6 +13,7 @@ import apresadoIconUrl from "./conditions-icons/Apresado.png";
 import asustadoIconUrl from "./conditions-icons/Asustado.png";
 import aturdidoIconUrl from "./conditions-icons/Aturdido.png";
 import cegadoIconUrl from "./conditions-icons/Cegado.png";
+import concentradoIconUrl from "./conditions-icons/Concentrado.svg";
 import derribadoIconUrl from "./conditions-icons/Derribado.png";
 import dormidoIconUrl from "./conditions-icons/Dormido.png";
 import ensordecidoIconUrl from "./conditions-icons/Ensordecido.png";
@@ -44,6 +45,7 @@ const STATUS_ICON_URLS = Object.freeze({
   asustado: asustadoIconUrl,
   aturdido: aturdidoIconUrl,
   cegado: cegadoIconUrl,
+  concentrado: concentradoIconUrl,
   derribado: derribadoIconUrl,
   dormido: dormidoIconUrl,
   ensordecido: ensordecidoIconUrl,
@@ -58,6 +60,7 @@ const STATUS_ICON_URLS = Object.freeze({
 
 const STATUS_ICON_ALIASES = Object.freeze({
   ciego: "cegado",
+  concentrating: "concentrado",
   dormir: "dormido",
   restringido: "apresado",
   restrenido: "apresado",

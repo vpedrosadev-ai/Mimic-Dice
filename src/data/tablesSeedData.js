@@ -18,7 +18,8 @@ const STATUS_ROWS_ES = [
   ["Inconsciente", "Esta incapacitada, no puede moverse ni hablar y no es consciente de su entorno. Suelta lo que lleva, cae derribada, falla las salvaciones de Fuerza y Destreza y los ataques contra ella tienen ventaja; los impactos a 5 pies o menos son criticos."],
   ["Invisible", "No puede verse sin magia o sentidos especiales. Los ataques contra ella tienen desventaja y sus ataques tienen ventaja."],
   ["Paralizado", "Esta incapacitada y no puede moverse ni hablar. Falla las salvaciones de Fuerza y Destreza y los ataques contra ella tienen ventaja; los impactos a 5 pies o menos son criticos."],
-  ["Petrificado", "Se transforma en materia solida e inerte. Esta incapacitada, no puede moverse ni hablar, falla las salvaciones de Fuerza y Destreza, los ataques contra ella tienen ventaja y tiene resistencia a todo el dano; es inmune al veneno y a la enfermedad."]
+  ["Petrificado", "Se transforma en materia solida e inerte. Esta incapacitada, no puede moverse ni hablar, falla las salvaciones de Fuerza y Destreza, los ataques contra ella tienen ventaja y tiene resistencia a todo el dano; es inmune al veneno y a la enfermedad."],
+  ["Concentrado", "La criatura mantiene la concentracion en un conjuro o efecto. Recibir dano puede exigir una salvacion de Constitucion para conservarla."]
 ];
 
 const STATUS_ROWS_EN = [
@@ -36,7 +37,8 @@ const STATUS_ROWS_EN = [
   ["Unconscious", "The creature is incapacitated, can't move or speak, and is unaware of its surroundings. It drops what it holds, falls prone, automatically fails Strength and Dexterity saves, attacks against it have advantage, and hits from 5 feet away or less are critical."],
   ["Invisible", "The creature can't be seen without magic or special senses. Attack rolls against it have disadvantage, and its attack rolls have advantage."],
   ["Paralyzed", "The creature is incapacitated and can't move or speak. It automatically fails Strength and Dexterity saves, attacks against it have advantage, and hits from 5 feet away or less are critical."],
-  ["Petrified", "The creature is transformed into solid inert substance. It is incapacitated, can't move or speak, automatically fails Strength and Dexterity saves, attack rolls against it have advantage, and it has resistance to all damage; it is immune to poison and disease."]
+  ["Petrified", "The creature is transformed into solid inert substance. It is incapacitated, can't move or speak, automatically fails Strength and Dexterity saves, attack rolls against it have advantage, and it has resistance to all damage; it is immune to poison and disease."],
+  ["Concentrating", "The creature is concentrating on a spell or effect. Taking damage can require a Constitution saving throw to maintain it."]
 ];
 
 const WILD_MAGIC_ROWS_EN = [

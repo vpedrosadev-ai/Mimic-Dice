@@ -216,6 +216,19 @@ test("line and icon paint strokes retain their settings", () => {
   });
 });
 
+test("expanded monochrome paint icons survive state normalization", () => {
+  const normalized = normalizeMapEditorState({
+    paint: {
+      mode: "icon",
+      icon: "⚡",
+      strokes: [{ mode: "icon", icon: "♨", points: [{ x: 12, y: 18 }] }]
+    }
+  });
+
+  assert.equal(normalized.paint.icon, "⚡");
+  assert.equal(normalized.paint.strokes[0].icon, "♨");
+});
+
 test("map editor keeps automatic popup positioning when bounds have no coordinates", () => {
   assert.deepEqual(normalizeMapEditorState({ windowBounds: { left: null, top: null } }).windowBounds, {
     width: 1500,

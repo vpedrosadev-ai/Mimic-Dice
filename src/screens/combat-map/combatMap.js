@@ -23,7 +23,38 @@ const MAX_MAP_ZOOM = 3;
 const GRID_LABEL_GUTTER = 34;
 const TEXT_SHAPE_GUTTER = 180;
 const MAP_STORAGE_KEY = "mimic-dice:combat-map:v1";
-const MAP_ICON_OPTIONS = Object.freeze(["⚔", "✚", "☠", "★", "🔥", "⚑", "⬟", "✦"]);
+const MAP_ICON_CATALOG = Object.freeze([
+  { icon: "⚔", label: "Espadas" }, { icon: "✚", label: "Curación" },
+  { icon: "☠", label: "Peligro" }, { icon: "★", label: "Estrella" },
+  { icon: "⚑", label: "Bandera" }, { icon: "⬟", label: "Marcador" },
+  { icon: "✦", label: "Destello" }, { icon: "⚡", label: "Rayo" },
+  { icon: "☼", label: "Sol" }, { icon: "☾", label: "Luna" },
+  { icon: "♜", label: "Torre" }, { icon: "♞", label: "Caballo" },
+  { icon: "♟", label: "Peón" }, { icon: "♛", label: "Corona" },
+  { icon: "♠", label: "Picas" }, { icon: "♣", label: "Trébol" },
+  { icon: "♥", label: "Corazón" }, { icon: "♦", label: "Diamante" },
+  { icon: "⚓", label: "Ancla" }, { icon: "⚙", label: "Engranaje" },
+  { icon: "⚗", label: "Alquimia" }, { icon: "⚕", label: "Medicina" },
+  { icon: "⚖", label: "Balanza" }, { icon: "⚒", label: "Herramientas" },
+  { icon: "⌂", label: "Refugio" }, { icon: "⌘", label: "Encrucijada" },
+  { icon: "⌛", label: "Tiempo" }, { icon: "☂", label: "Cobertura" },
+  { icon: "☄", label: "Cometa" }, { icon: "☯", label: "Equilibrio" },
+  { icon: "☸", label: "Rueda" }, { icon: "☢", label: "Veneno" },
+  { icon: "☣", label: "Plaga" }, { icon: "♨", label: "Fuego" },
+  { icon: "♆", label: "Agua" }, { icon: "♁", label: "Tierra" },
+  { icon: "△", label: "Triángulo" }, { icon: "◇", label: "Rombo" },
+  { icon: "○", label: "Círculo" }, { icon: "□", label: "Cuadrado" },
+  { icon: "◎", label: "Objetivo" }, { icon: "◉", label: "Punto de interés" },
+  { icon: "✕", label: "Cruz" }, { icon: "✣", label: "Sello" },
+  { icon: "✤", label: "Flor" }, { icon: "✹", label: "Explosión" },
+  { icon: "➳", label: "Flecha" }, { icon: "⬢", label: "Hexágono" }
+]);
+const MAP_ICON_OPTIONS = Object.freeze(MAP_ICON_CATALOG.map((entry) => entry.icon));
+const LEGACY_MAP_ICON_OPTIONS = Object.freeze(["🔥"]);
+
+function normalizeMapIcon(value) {
+  return [...MAP_ICON_OPTIONS, ...LEGACY_MAP_ICON_OPTIONS].includes(value) ? value : MAP_ICON_OPTIONS[0];
+}
 
 function getTextShapeGutter(width, height) {
   return Math.max(TEXT_SHAPE_GUTTER, Math.round(Math.min(Number(width) || DEFAULT_WIDTH, Number(height) || DEFAULT_HEIGHT) * .2));
@@ -90,7 +121,7 @@ function normalizePaintStrokes(value) {
       points,
       ...(mode === "icon" ? {
         id: clean(stroke.id) || `paint-icon-${index}`,
-        icon: MAP_ICON_OPTIONS.includes(stroke.icon) ? stroke.icon : MAP_ICON_OPTIONS[0],
+        icon: normalizeMapIcon(stroke.icon),
         rotation: ((Number(stroke.rotation) || 0) % 360 + 360) % 360
       } : {})
     });
@@ -569,7 +600,7 @@ export function normalizeMapEditorState(value) {
       color: normalizeColor(source.paint?.color),
       size: clamp(source.paint?.size || 12, MIN_PAINT_SIZE, MAX_PAINT_SIZE),
       mode: ["paint", "erase", "line", "icon"].includes(source.paint?.mode) ? source.paint.mode : "paint",
-      icon: MAP_ICON_OPTIONS.includes(source.paint?.icon) ? source.paint.icon : MAP_ICON_OPTIONS[0],
+      icon: normalizeMapIcon(source.paint?.icon),
       iconSize: clamp(source.paint?.iconSize || 64, 16, 300),
       iconRotation: ((Number(source.paint?.iconRotation) || 0) % 360 + 360) % 360,
       selectedIconId: clean(source.paint?.selectedIconId),
@@ -760,6 +791,7 @@ export function createCombatMapController(options = {}) {
   let cloudPickerQuery = "";
   let cloudPickerItems = [];
   let cloudPickerSelectedTags = new Set();
+  let iconPickerSurface = "";
   let fogPolygonCursor = null;
   let masterHost = null;
   let pendingConfirmation = null;
@@ -1413,11 +1445,29 @@ export function createCombatMapController(options = {}) {
       <h2>Pincel para pintar</h2>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="paint-mode" class="${state.paint.mode === "paint" ? "is-active" : ""}">Pincel</button><button type="button" data-map-action="line-mode" class="${state.paint.mode === "line" ? "is-active" : ""}">Línea recta</button><button type="button" data-map-action="icon-mode" class="${state.paint.mode === "icon" ? "is-active" : ""}">Icono</button><button type="button" data-map-action="erase-mode" class="${state.paint.mode === "erase" ? "is-active" : ""}">Goma</button></div>
       <label>Color <input type="color" value="${selectedIcon?.color || state.paint.color}" data-paint-color></label>
-      ${state.paint.mode === "icon" ? `<p class="combat-map-editor-mode"><strong>${selectedIcon ? "Editando icono seleccionado" : "Nuevo icono"}</strong><span>${selectedIcon ? "Arrástralo o usa su tirador para rotarlo." : "Haz clic en el mapa para colocarlo."}</span></p><label>Icono <select data-paint-icon>${MAP_ICON_OPTIONS.map((option) => `<option value="${option}" ${icon === option ? "selected" : ""}>${option}</option>`).join("")}</select></label><label>Tamaño <input type="range" min="16" max="300" value="${iconSize}" data-paint-icon-size><output>${Math.round(iconSize)} px</output></label><label>Rotación <input type="range" min="0" max="359" value="${iconRotation}" data-paint-icon-rotation><output>${Math.round(iconRotation)}°</output></label><div class="combat-map-tool-actions"><button type="button" data-map-action="new-paint-icon" ${selectedIcon ? "" : "disabled"}>Nuevo icono</button><button type="button" data-map-action="delete-paint-icon" ${selectedIcon ? "" : "disabled"}>Eliminar icono</button></div>` : `<label>Grosor <input type="range" min="${MIN_PAINT_SIZE}" max="${MAX_PAINT_SIZE}" value="${state.paint.size}" data-paint-size><output>${Math.round(state.paint.size)} px</output></label>`}
+      ${state.paint.mode === "icon" ? `<p class="combat-map-editor-mode"><strong>${selectedIcon ? "Editando icono seleccionado" : "Nuevo icono"}</strong><span>${selectedIcon ? "Arrástralo o usa su tirador para rotarlo." : "Haz clic en el mapa para colocarlo."}</span></p><label>Icono <button class="combat-map-icon-picker-trigger" type="button" data-map-action="open-paint-icon-picker"><span aria-hidden="true">${escapeHtml(icon)}</span> Elegir icono…</button></label><label>Tamaño <input type="range" min="16" max="300" value="${iconSize}" data-paint-icon-size><output>${Math.round(iconSize)} px</output></label><label>Rotación <input type="range" min="0" max="359" value="${iconRotation}" data-paint-icon-rotation><output>${Math.round(iconRotation)}°</output></label><div class="combat-map-tool-actions"><button type="button" data-map-action="new-paint-icon" ${selectedIcon ? "" : "disabled"}>Nuevo icono</button><button type="button" data-map-action="delete-paint-icon" ${selectedIcon ? "" : "disabled"}>Eliminar icono</button></div>` : `<label>Grosor <input type="range" min="${MIN_PAINT_SIZE}" max="${MAX_PAINT_SIZE}" value="${state.paint.size}" data-paint-size><output>${Math.round(state.paint.size)} px</output></label>`}
       ${renderOpacityControl("paint")}
       <div class="combat-map-tool-actions"><button type="button" data-map-action="undo-paint" ${state.paint.strokes.length ? "" : "disabled"}>Deshacer trazo</button><button type="button" data-map-action="clear-paint" ${state.paint.strokes.length ? "" : "disabled"}>Borrar dibujo</button></div>
       <p class="combat-map-help">El pincel añade trazos y la goma borra únicamente las partes por las que pasa. Todo se guarda con la campaña.</p>
-    </section>`;
+    </section>${renderPaintIconPicker()}`;
+  }
+
+  function renderPaintIconPicker() {
+    if (!iconPickerSurface) return "";
+    const selectedIcon = getSelectedPaintIcon();
+    const currentIcon = selectedIcon?.icon || state.paint.icon;
+    return `<div class="combat-map-icon-picker" role="presentation">
+      <button class="combat-map-icon-picker__backdrop" type="button" data-map-action="close-paint-icon-picker" aria-label="Cerrar catálogo de iconos"></button>
+      <section class="combat-map-icon-picker__panel" role="dialog" aria-modal="true" aria-labelledby="combat-map-icon-picker-title">
+        <header class="combat-map-icon-picker__header">
+          <div><h2 id="combat-map-icon-picker-title">Catálogo de iconos</h2><p>Elige un símbolo monocolor. Después podrás cambiar color, tamaño y rotación.</p></div>
+          <button class="combat-map-icon-picker__close" type="button" data-map-action="close-paint-icon-picker" aria-label="Cerrar">×</button>
+        </header>
+        <div class="combat-map-icon-picker__grid">
+          ${MAP_ICON_CATALOG.map((entry) => `<button class="combat-map-icon-picker__choice ${currentIcon === entry.icon ? "is-selected" : ""}" type="button" data-map-action="select-paint-icon" data-paint-icon-choice="${escapeHtml(entry.icon)}" title="${escapeHtml(entry.label)}" aria-label="${escapeHtml(entry.label)}" aria-pressed="${currentIcon === entry.icon}">${escapeHtml(entry.icon)}</button>`).join("")}
+        </div>
+      </section>
+    </div>`;
   }
 
   function renderShapesMenu(panel) {
@@ -1946,10 +1996,10 @@ export function createCombatMapController(options = {}) {
       context.translate(point.x, point.y);
       context.rotate((Number(stroke.rotation) || 0) * Math.PI / 180);
       context.fillStyle = stroke.color;
-      context.font = `700 ${Math.max(16, Number(stroke.size) || 64)}px system-ui, sans-serif`;
+      context.font = `700 ${Math.max(16, Number(stroke.size) || 64)}px "Segoe UI Symbol", "Arial Unicode MS", sans-serif`;
       context.textAlign = "center";
       context.textBaseline = "middle";
-      context.fillText(MAP_ICON_OPTIONS.includes(stroke.icon) ? stroke.icon : MAP_ICON_OPTIONS[0], 0, 0);
+      context.fillText(normalizeMapIcon(stroke.icon), 0, 0);
       context.restore();
       return;
     }
@@ -2282,7 +2332,8 @@ export function createCombatMapController(options = {}) {
       options.handleContextClick?.(event);
       return;
     }
-    const action = event.target.closest("[data-map-action]")?.dataset.mapAction;
+    const actionButton = event.target.closest("[data-map-action]");
+    const action = actionButton?.dataset.mapAction;
     const cloudChoice = event.target.closest("[data-map-cloud-choice]")?.dataset.mapCloudChoice;
     const encounterChoice = event.target.closest("[data-map-encounter-choice]")?.dataset.mapEncounterChoice;
     const savedLayout = event.target.closest("[data-map-saved-layout]")?.dataset.mapSavedLayout;
@@ -2324,6 +2375,17 @@ export function createCombatMapController(options = {}) {
     if (action === "toggle-token-menu") togglePanel("tokens", surface);
     if (action === "toggle-fog-menu") togglePanel("fog", surface);
     if (action === "toggle-paint-menu") togglePanel("paint", surface);
+    if (action === "open-paint-icon-picker") { iconPickerSurface = surfaceKind; sync(); }
+    if (action === "close-paint-icon-picker") { iconPickerSurface = ""; sync(); }
+    if (action === "select-paint-icon") {
+      const value = normalizeMapIcon(actionButton.dataset.paintIconChoice);
+      const icon = getSelectedPaintIcon();
+      if (icon) icon.icon = value;
+      else state.paint.icon = value;
+      iconPickerSurface = "";
+      persist();
+      sync();
+    }
     if (action === "toggle-shapes-menu") togglePanel("shapes", surface);
     if (action === "toggle-health-menu") togglePanel("health", surface);
     if (action === "toggle-initiative-menu") togglePanel("initiative", surface);
@@ -2395,7 +2457,7 @@ export function createCombatMapController(options = {}) {
     else if (target.matches("[data-map-initiative-position]")) state.initiative.position = target.value;
     else if (target.matches("[data-map-rotation-orientation]")) state.rotationOrientation = target.value === "with-map" ? "with-map" : "upright";
     else if (target.matches("[data-paint-icon]")) {
-      const value = MAP_ICON_OPTIONS.includes(target.value) ? target.value : MAP_ICON_OPTIONS[0];
+      const value = normalizeMapIcon(target.value);
       const icon = getSelectedPaintIcon();
       if (icon) icon.icon = value;
       else state.paint.icon = value;

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Concentrado">
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="128" cy="128" r="30" stroke-width="18"/>
+    <circle cx="128" cy="128" r="72" stroke-width="14" stroke-dasharray="34 18"/>
+    <path stroke-width="16" d="M128 14v24M128 218v24M14 128h24M218 128h24M47 47l17 17M192 192l17 17M209 47l-17 17M64 192l-17 17"/>
+    <path stroke-width="12" d="M111 128l12 12 25-29"/>
+  </g>
+</svg>

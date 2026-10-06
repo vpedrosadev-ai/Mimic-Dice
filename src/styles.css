@@ -2068,6 +2068,7 @@ button.is-cloud-busy:disabled {
 
 .account-dialog__panel--catalog {
   width: min(76rem, calc(100vw - 2rem));
+  height: calc(100vh - 2rem);
   max-height: calc(100vh - 2rem);
 }
 
@@ -3518,6 +3519,104 @@ button.is-cloud-busy:disabled {
   background: #845527;
 }
 
+.combat-map-icon-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: grid;
+  padding: 1.25rem;
+  place-items: center;
+}
+
+.combat-map-icon-picker__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(8, 6, 5, .8);
+  backdrop-filter: blur(4px);
+}
+
+.combat-map-icon-picker__panel {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+  width: min(48rem, 100%);
+  max-height: min(42rem, calc(100vh - 2.5rem));
+  padding: 1.2rem;
+  overflow: hidden;
+  border: 1px solid rgba(224, 173, 96, .58);
+  border-radius: .95rem;
+  background: radial-gradient(circle at 15% 0, rgba(217, 171, 93, .14), transparent 40%), #21150e;
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .68);
+}
+
+.combat-map-icon-picker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.combat-map-icon-picker__header h2,
+.combat-map-icon-picker__header p {
+  margin: 0;
+}
+
+.combat-map-icon-picker__header p {
+  margin-top: .25rem;
+  color: #bea98a;
+  font-size: .82rem;
+}
+
+.combat-map-icon-picker__close {
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  border: 1px solid rgba(220, 179, 110, .45);
+  border-radius: .55rem;
+  background: rgba(56, 36, 22, .94);
+  color: #f8efe1;
+  font: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.combat-map-icon-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: .6rem;
+  padding: .2rem;
+  overflow: auto;
+}
+
+.combat-map-icon-picker__choice {
+  display: grid;
+  min-height: 4.5rem;
+  padding: .5rem;
+  place-items: center;
+  border: 1px solid rgba(220, 179, 110, .3);
+  border-radius: .7rem;
+  background: rgba(56, 36, 22, .72);
+  color: #f8efe1;
+  font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.combat-map-icon-picker__choice:hover,
+.combat-map-icon-picker__choice:focus-visible,
+.combat-map-icon-picker__choice.is-selected {
+  border-color: #f0bd6d;
+  background: rgba(120, 78, 38, .9);
+  box-shadow: inset 0 0 0 1px rgba(249, 214, 117, .35);
+}
+
+.combat-map-icon-picker-trigger span {
+  font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
 .combat-map-popover h2 {
   margin: 0;
   font-size: 1rem;
@@ -4269,6 +4368,7 @@ button.is-cloud-busy:disabled {
   height: var(--paint-icon-size);
   place-items: center;
   color: var(--paint-icon-color);
+  font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif;
   font-size: calc(var(--paint-icon-size) * .72);
   line-height: 1;
   user-select: none;
@@ -10940,6 +11040,13 @@ input[type="number"]::-webkit-inner-spin-button {
   --combat-status-bg: rgba(113, 132, 158, 0.18);
   --combat-status-hover-border: rgba(145, 168, 198, 0.56);
   --combat-status-hover-bg: rgba(145, 168, 198, 0.28);
+}
+
+.combat-status-chip--concentrating {
+  --combat-status-border: rgba(67, 190, 188, 0.42);
+  --combat-status-bg: rgba(67, 190, 188, 0.2);
+  --combat-status-hover-border: rgba(92, 229, 226, 0.62);
+  --combat-status-hover-bg: rgba(92, 229, 226, 0.3);
 }
 
 .combat-status-chip--restrained {

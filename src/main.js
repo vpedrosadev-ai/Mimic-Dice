@@ -9146,7 +9146,7 @@ function renderPublicCloudCatalogCard(item) {
       <div class="cloud-catalog-card__actions">
         ${isMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
         ${canManageMap ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="open-cloud-map-properties" data-cloud-entry-id="${escapeHtml(item.id)}">Propiedades</button>` : ""}
-        ${canManage ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="${visibilityAction}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>${renderCloudButtonLabel("Hacer privado", "Guardando...", "saving", visibilityTarget)}</button>` : ""}
+        ${canManage && !canManageMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="${visibilityAction}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>${renderCloudButtonLabel("Hacer privado", "Guardando...", "saving", visibilityTarget)}</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
         ${!isMap ? `<button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>` : ""}
         ${canManage ? `<button class="account-action-button account-action-button--danger" type="button" data-action="${deleteAction}" ${idAttribute}>Eliminar</button>` : ""}
@@ -9660,7 +9660,7 @@ function renderCloudMapUploadDialog() {
   const busy = isCloudOperationActive("saving", operationTarget);
   return `
     <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
-      <section class="cloud-map-upload-dialog__panel">
+      <section class="cloud-map-upload-dialog__panel" data-render-scroll-key="cloud-map-properties">
         <header>
         <div><p class="account-dialog__eyebrow">${editingProperties ? "Propiedades del mapa" : `Mapa preparado en WebP ${draft.isAnimated ? "animado" : ""}`}</p><h2 id="cloud-map-upload-title">${editingProperties ? "Editar propiedades" : "Guardar mapa en la nube"}</h2></div>
           <button class="account-dialog__close" type="button" data-action="cancel-cloud-map-upload" aria-label="Cerrar" ${busy ? "disabled" : ""}>×</button>
@@ -9909,7 +9909,7 @@ function renderAccountDialog() {
   return `
     <div class="account-dialog" data-account-dialog-root role="presentation">
       <button class="account-dialog__backdrop" type="button" data-action="dismiss-account-dialog" aria-label="Cerrar cuenta"></button>
-      <section class="account-dialog__panel ${catalogView ? "account-dialog__panel--catalog" : ""}" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
+      <section class="account-dialog__panel ${catalogView ? "account-dialog__panel--catalog" : ""}" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" data-render-scroll-key="account-dialog">
         <div class="account-dialog__header">
           <div>
             <p class="account-dialog__eyebrow">Mimic Dice Cloud</p>
@@ -15771,6 +15771,7 @@ function getCombatStatusToneClass(statusName) {
     aturdido: "combat-status-chip--stunned",
     cegado: "combat-status-chip--blinded",
     ciego: "combat-status-chip--blinded",
+    concentrado: "combat-status-chip--concentrating",
     derribado: "combat-status-chip--prone",
     dormido: "combat-status-chip--sleeping",
     ensordecido: "combat-status-chip--deafened",
