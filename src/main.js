@@ -1053,7 +1053,9 @@ const combatMapController = createCombatMapController({
     state.cloudCatalogTab = "map";
     state.cloudCatalogOwner = "";
     state.cloudCatalogCampaign = "";
+    state.cloudCatalogTagMenuOpen = false;
     state.cloudCatalogPreview = null;
+    state.accountError = "";
     render();
     refreshCommunityCatalog();
     window.focus();
@@ -23121,11 +23123,6 @@ function importEncounterToCombat(encounterId) {
   ];
   state.combatEncounterPickerOpen = false;
   state.combatAddPickerMode = "";
-  if (!combatMapController.getMap() && encounter.map) {
-    const workspace = getEncounterCombatMapWorkspace(encounter);
-    if (workspace) combatMapController.applyMapWorkspace(encounter.map, workspace);
-    else combatMapController.setMap(encounter.map);
-  }
 }
 
 function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "", encounterId = "") {

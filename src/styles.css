@@ -3338,6 +3338,15 @@ button.is-cloud-busy:disabled {
   max-height: calc(100% - 5rem);
 }
 
+.combat-map-editor--master .combat-map-popover[data-map-panel="map"]:not(.combat-map-popover--map-loader) {
+  max-height: none;
+  overflow: visible;
+}
+
+.combat-map-editor--master .combat-map-popover--map-loader {
+  width: min(31rem, calc(100% - 1.5rem));
+}
+
 .combat-map-player-header {
   z-index: 20;
   display: flex;
@@ -3570,6 +3579,38 @@ button.is-cloud-busy:disabled {
   border: 1px solid rgba(224, 173, 96, .28);
   border-radius: .6rem;
   background: rgba(10, 8, 6, .35);
+}
+
+.combat-map-load-menu__back {
+  justify-self: start;
+}
+
+.combat-map-load-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+}
+
+.combat-map-popover .combat-map-load-option,
+.combat-map-popover .combat-map-file-button.combat-map-load-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  min-height: 3rem;
+  text-align: center;
+}
+
+.combat-map-load-option small {
+  display: inline-grid;
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  padding: 0 .25rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(240, 200, 121, .15);
+  color: #efc681;
+  font-size: .72rem;
 }
 
 .combat-map-blank-map {

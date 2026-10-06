@@ -746,6 +746,7 @@ export function createCombatMapController(options = {}) {
   let localImageError = "";
   let shapeCoordinateError = "";
   let mapLoadMenuSurface = "";
+  let mapLoadSection = "";
   let mapFitScale = 1;
   let tokenSearch = "";
   let initiativeLayout = { scale: 1, columns: 1, count: 0 };
@@ -928,6 +929,8 @@ export function createCombatMapController(options = {}) {
   }
 
   function applyMapSelection(next, behavior = {}, saveCurrent = false) {
+    mapLoadMenuSurface = "";
+    mapLoadSection = "";
     if (saveCurrent) saveCurrentMapLayout();
     const currentKey = getMapLayoutKey(state.map);
     const nextKey = getMapLayoutKey(next);
@@ -1083,7 +1086,10 @@ export function createCombatMapController(options = {}) {
     activeDrag = null;
     pickerCallback = null;
     playerOpenPanel = "";
-    if (mapLoadMenuSurface === "player") mapLoadMenuSurface = "";
+    if (mapLoadMenuSurface === "player") {
+      mapLoadMenuSurface = "";
+      mapLoadSection = "";
+    }
     if (cloudPickerSurface === "player") cloudPickerSurface = "";
     if (pendingConfirmation?.surfaceKind === "player") pendingConfirmation = null;
   }
@@ -1192,22 +1198,41 @@ export function createCombatMapController(options = {}) {
     })).filter((choice) => choice.map);
   }
 
+  function renderMapLoadMenu(encounterMaps, savedMaps) {
+    return `<section class="combat-map-popover combat-map-popover--map-loader" data-map-panel="map">
+      <h2>Cargar imagen</h2>
+      <button class="combat-map-load-menu__back" type="button" data-map-action="close-map-load-menu">← Volver a Mapa</button>
+      <div class="combat-map-load-menu">
+        <div class="combat-map-load-options">
+          <label class="combat-map-file-button combat-map-load-option"><span>Desde equipo</span><input type="file" accept="image/*" data-map-file></label>
+          <button class="combat-map-load-option" type="button" data-map-action="open-cloud-map-catalog">Desde la nube</button>
+          <button class="combat-map-load-option ${mapLoadSection === "blank" ? "is-active" : ""}" type="button" data-map-action="toggle-blank-map-options">Hoja en blanco</button>
+          <button class="combat-map-load-option ${mapLoadSection === "encounters" ? "is-active" : ""}" type="button" data-map-action="toggle-encounter-map-options" ${encounterMaps.length ? "" : "disabled"}>Mapas de encuentros <small>${encounterMaps.length}</small></button>
+          <button class="combat-map-load-option ${mapLoadSection === "recent" ? "is-active" : ""}" type="button" data-map-action="toggle-recent-map-options" ${savedMaps.length ? "" : "disabled"}>Mapas recientes <small>${savedMaps.length}</small></button>
+        </div>
+        ${mapLoadSection === "blank" ? `<div class="combat-map-blank-map"><strong>Hoja en blanco</strong><label>Proporción <select data-blank-map-ratio><option value="1:1" ${blankMapRatio === "1:1" ? "selected" : ""}>Cuadrado 1:1</option><option value="4:3" ${blankMapRatio === "4:3" ? "selected" : ""}>Rectángulo 4:3</option><option value="16:9" ${blankMapRatio === "16:9" ? "selected" : ""}>Panorámico 16:9</option><option value="3:2" ${blankMapRatio === "3:2" ? "selected" : ""}>Rectángulo 3:2</option><option value="3:4" ${blankMapRatio === "3:4" ? "selected" : ""}>Vertical 3:4</option><option value="9:16" ${blankMapRatio === "9:16" ? "selected" : ""}>Vertical 9:16</option></select></label><button type="button" data-map-action="create-blank-map">Crear hoja blanca</button></div>` : ""}
+        ${mapLoadSection === "encounters" ? `<div class="combat-map-priority-list"><h3>Mapas asociados a encuentros cargados</h3><div class="combat-map-cloud-grid">${encounterMaps.map((choice, index) => `<button type="button" data-map-encounter-choice="${index}">${choice.map.imageUrl ? `<img src="${escapeHtml(choice.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(choice.map.name)}</span><small>${escapeHtml(choice.encounterName || "Encuentro")}</small></button>`).join("")}</div></div>` : ""}
+        ${mapLoadSection === "recent" ? `<div class="combat-map-priority-list"><h3>Los 2 mapas más recientes</h3><div class="combat-map-cloud-grid">${savedMaps.map((layout) => `<button type="button" data-map-saved-layout="${escapeHtml(layout.key)}">${layout.map.imageUrl ? `<img src="${escapeHtml(layout.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(layout.map.name)}</span><small>Disposición guardada</small></button>`).join("")}</div></div>` : ""}
+      </div>
+      ${localImageBusy ? `<p class="combat-map-converting" role="status">Convirtiendo imagen a WebP…</p>` : ""}
+      ${localImageError ? `<p class="combat-map-error" role="alert">${escapeHtml(localImageError)}</p>` : ""}
+      <p class="combat-map-help">WebP se conserva sin recomprimir. Otros formatos se convierten a WebP.</p>
+    </section>`;
+  }
+
   function renderMapMenu(version = "master") {
     const panel = getVersionPanel(version);
     const encounterMaps = getEncounterMapChoices();
     const currentKey = getMapLayoutKey(state.map);
-    const savedMaps = state.savedMapLayouts.filter((layout) => layout.key !== currentKey);
+    const savedMaps = state.savedMapLayouts
+      .filter((layout) => layout.key !== currentKey)
+      .slice(-2)
+      .reverse();
     const viewport = version === "player" ? state.playerViewport : state.viewport;
+    if (mapLoadMenuSurface === version && panel === "map") return renderMapLoadMenu(encounterMaps, savedMaps);
     return `<section class="combat-map-popover" data-map-panel="map" ${panel === "map" ? "" : "hidden"}>
       <h2>Mapa</h2>
       <button type="button" data-map-action="toggle-map-load-menu">Cargar imagen</button>
-      ${mapLoadMenuSurface === version ? `<div class="combat-map-load-menu">
-        <label class="combat-map-file-button">Desde equipo<input type="file" accept="image/*" data-map-file></label>
-        <button type="button" data-map-action="open-cloud-map-catalog">Desde la nube</button>
-        <div class="combat-map-blank-map"><strong>Hoja en blanco</strong><label>ProporciÃ³n <select data-blank-map-ratio><option value="1:1" ${blankMapRatio === "1:1" ? "selected" : ""}>Cuadrado 1:1</option><option value="4:3" ${blankMapRatio === "4:3" ? "selected" : ""}>RectÃ¡ngulo 4:3</option><option value="16:9" ${blankMapRatio === "16:9" ? "selected" : ""}>PanorÃ¡mico 16:9</option><option value="3:2" ${blankMapRatio === "3:2" ? "selected" : ""}>RectÃ¡ngulo 3:2</option><option value="3:4" ${blankMapRatio === "3:4" ? "selected" : ""}>Vertical 3:4</option><option value="9:16" ${blankMapRatio === "9:16" ? "selected" : ""}>Vertical 9:16</option></select></label><button type="button" data-map-action="create-blank-map">Crear hoja blanca</button></div>
-        ${savedMaps.length ? `<div class="combat-map-priority-list"><h3>Usados recientemente</h3><div class="combat-map-cloud-grid">${savedMaps.map((layout) => `<button type="button" data-map-saved-layout="${escapeHtml(layout.key)}">${layout.map.imageUrl ? `<img src="${escapeHtml(layout.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(layout.map.name)}</span><small>Disposición guardada</small></button>`).join("")}</div></div>` : ""}
-        ${encounterMaps.length ? `<div class="combat-map-priority-list"><h3>Vinculados a encuentros cargados</h3><div class="combat-map-cloud-grid">${encounterMaps.map((choice, index) => `<button type="button" data-map-encounter-choice="${index}">${choice.map.imageUrl ? `<img src="${escapeHtml(choice.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(choice.map.name)}</span><small>${escapeHtml(choice.encounterName || "Encuentro")}</small></button>`).join("")}</div></div>` : ""}
-      </div>` : ""}
       <label>Zoom <input type="range" min="25" max="300" step="5" value="${Math.round(viewport.zoom * 100)}" data-map-zoom><output>${Math.round(viewport.zoom * 100)}%</output></label>
       ${renderOpacityControl("overall", "Opacidad general de elementos")}
       <div class="combat-map-tool-actions"><button type="button" data-map-action="zoom-out">Alejar</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in">Acercar</button></div>
@@ -2043,6 +2068,8 @@ export function createCombatMapController(options = {}) {
   function selectEncounterChoice(index, surface = masterHost) {
     const choice = getEncounterMapChoices()[Number(index)];
     if (!choice?.map) return;
+    mapLoadMenuSurface = "";
+    mapLoadSection = "";
     if (choice.editorState) applyMapWorkspace(choice.map, choice.editorState);
     else finishMapSelection(choice.map, surface);
     if (pickerCallback) {
@@ -2232,6 +2259,7 @@ export function createCombatMapController(options = {}) {
         if (getSurfaceKind(root) === "player") playerOpenPanel = "map";
         else openPanel = "map";
         mapLoadMenuSurface = "";
+        mapLoadSection = "";
         persist();
         sync();
       }
@@ -2260,9 +2288,31 @@ export function createCombatMapController(options = {}) {
     if (action === "confirm-confirmation") { resolveConfirmation(true); return; }
     if (action === "cancel-confirmation") { resolveConfirmation(false); return; }
     if (action === "open-map-menu") togglePanel("map", surface);
-    if (action === "toggle-map-load-menu") { mapLoadMenuSurface = mapLoadMenuSurface === surfaceKind ? "" : surfaceKind; sync(); }
+    if (action === "toggle-map-load-menu") {
+      mapLoadMenuSurface = mapLoadMenuSurface === surfaceKind ? "" : surfaceKind;
+      mapLoadSection = "";
+      sync();
+    }
+    if (action === "close-map-load-menu") {
+      mapLoadMenuSurface = "";
+      mapLoadSection = "";
+      sync();
+    }
+    if (action === "toggle-blank-map-options") { mapLoadSection = mapLoadSection === "blank" ? "" : "blank"; sync(); }
+    if (action === "toggle-encounter-map-options") { mapLoadSection = mapLoadSection === "encounters" ? "" : "encounters"; sync(); }
+    if (action === "toggle-recent-map-options") { mapLoadSection = mapLoadSection === "recent" ? "" : "recent"; sync(); }
     if (action === "create-blank-map") createBlankMap(surface);
-    if (action === "open-cloud-map-catalog" || action === "refresh-cloud-map-picker") openCloudMapPicker(surface);
+    if (action === "open-cloud-map-catalog") {
+      mapLoadMenuSurface = "";
+      mapLoadSection = "";
+      if (typeof options.openCloudMapCatalog === "function") {
+        sync();
+        options.openCloudMapCatalog();
+      } else {
+        openCloudMapPicker(surface);
+      }
+    }
+    if (action === "refresh-cloud-map-picker") openCloudMapPicker(surface);
     if (action === "close-cloud-map-picker") { cloudPickerSurface = ""; cloudPickerError = ""; sync(); }
     if (action === "reset-map-canvas") resetMapCanvas(surface);
     if (action === "toggle-grid-menu") togglePanel("grid", surface);
