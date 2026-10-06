@@ -8966,7 +8966,16 @@ function renderOwnedCloudCatalogCard(item) {
 
 function renderPublicCloudCatalogCard(item) {
   const isMap = cleanText(item.type).toLowerCase() === "map";
-  const canManageMap = isMap && item.catalogKind === "entry" && item.isOwner === true;
+  const canManage = item.canManage === true;
+  const canManageMap = isMap && item.catalogKind === "entry" && canManage;
+  const visibilityAction = item.catalogKind === "campaign" ? "toggle-cloud-campaign-public" : "toggle-cloud-library-public";
+  const deleteAction = item.catalogKind === "campaign" ? "delete-cloud-campaign" : "delete-cloud-library-entry";
+  const idAttribute = item.catalogKind === "campaign"
+    ? `data-cloud-campaign-id="${escapeHtml(item.id)}"`
+    : `data-cloud-entry-id="${escapeHtml(item.id)}"`;
+  const visibilityTarget = item.catalogKind === "campaign"
+    ? `campaign-visibility:${item.id}`
+    : `library-visibility:${item.id}`;
   const selectionKey = getCloudCatalogSelectionKey(item);
   const checked = isCloudCatalogSelectionKeySelected(selectionKey);
   const selection = isMap ? "" : `
@@ -8990,9 +8999,10 @@ function renderPublicCloudCatalogCard(item) {
       <div class="cloud-catalog-card__actions">
         ${isMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
         ${canManageMap ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="open-cloud-map-properties" data-cloud-entry-id="${escapeHtml(item.id)}">Propiedades</button>` : ""}
+        ${canManage ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="${visibilityAction}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>${renderCloudButtonLabel("Hacer privado", "Guardando...", "saving", visibilityTarget)}</button>` : ""}
         ${renderCloudCatalogRefreshButton(item)}
         ${!isMap ? `<button class="account-action-button account-action-button--ghost cloud-catalog-card__detail" type="button" data-action="preview-cloud-catalog-item" data-cloud-catalog-kind="${escapeHtml(item.catalogKind)}" data-cloud-catalog-id="${escapeHtml(item.id)}">Ver detalle</button>` : ""}
-        ${canManageMap ? `<button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Eliminar</button>` : ""}
+        ${canManage ? `<button class="account-action-button account-action-button--danger" type="button" data-action="${deleteAction}" ${idAttribute}>Eliminar</button>` : ""}
       </div>
     </article>
   `;
@@ -9400,7 +9410,7 @@ async function getCloudMapAssetByteSize(imageUrl) {
 async function openCloudMapProperties(entryId) {
   const id = cleanText(entryId);
   const summary = [...state.cloudLibraryEntries, ...state.publicCloudLibraryEntries]
-    .find((item) => item.id === id && item.isOwner === true && cleanText(item.type).toLowerCase() === "map");
+    .find((item) => item.id === id && item.canManage === true && cleanText(item.type).toLowerCase() === "map");
   if (!summary) {
     state.accountError = "No tienes permisos para editar este mapa.";
     render();
@@ -27143,6 +27153,7 @@ function getCloudErrorMessage(error) {
     library_entry_too_large: "El contenido supera el límite cloud de 16 MB.",
     library_entry_limit: "Has alcanzado el límite de publicaciones cloud.",
     library_revision_conflict: "La publicación cambió en otra sesión. Actualiza antes de modificarla.",
+    map_tags_migration_required: "Las etiquetas de mapas necesitan la migración de base de datos pendiente.",
     storage_quota: "Has alcanzado tu cuota de almacenamiento cloud.",
     global_asset_storage_quota: "El almacenamiento de la aplicación está cerca del límite de 10 GB. No se ha subido el archivo para evitar superar 9 GB. Contacta con los administradores de Mimic Dice.",
     asset_too_large: "Una imagen supera el límite cloud de 75 MiB después de convertirla.",

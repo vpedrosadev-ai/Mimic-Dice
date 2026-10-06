@@ -41,6 +41,14 @@ function parseTags(value) {
   }
 }
 
+function isMissingTagsColumnError(error) {
+  return /no such column[^\n]*tags|has no column named tags/i.test(String(error?.message || error));
+}
+
+function throwMapTagsMigrationRequired() {
+  throw new HttpError(503, "map_tags_migration_required", "Map tags are being updated. Apply the pending database migration and retry.");
+}
+
 function serializePayload(payload, type = "") {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new HttpError(400, "invalid_library_payload", "Library payload must be an object.");
@@ -82,8 +90,8 @@ function splitPayload(serialized) {
   return chunks.length > 0 ? chunks : ["{}"];
 }
 
-function entrySummary(row, currentUserId = "", administrator = false) {
-  const isOwner = Boolean(administrator || (currentUserId && row.ownerId === currentUserId));
+export function getLibraryEntrySummary(row, currentUserId = "", administrator = false) {
+  const isOwner = Boolean(currentUserId && row.ownerId === currentUserId);
 
   return {
     id: row.id,
@@ -98,6 +106,7 @@ function entrySummary(row, currentUserId = "", administrator = false) {
     ownerId: row.ownerId || "",
     ownerName: row.ownerName || "Usuario de Mimic Dice",
     isOwner,
+    canManage: Boolean(isOwner || administrator),
     entryKind: row.entryKind || "manual",
     sourceCampaignId: row.sourceCampaignId || "",
     sourceCampaignName: row.sourceCampaignName || "",
@@ -187,7 +196,7 @@ async function listOwnedEntries(context, user) {
     ...(Array.isArray(catalogResult.results) ? catalogResult.results : [])
   ]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
-    .map((row) => entrySummary(row, user.id, administrator));
+    .map((row) => getLibraryEntrySummary(row, user.id, administrator));
   return jsonResponse({ entries });
 }
 
@@ -233,7 +242,7 @@ async function listPublicEntries(context, user, url) {
   ]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
     .slice(0, 2000)
-    .map((row) => entrySummary(row, user?.id || "", isAdministrator(user)));
+    .map((row) => getLibraryEntrySummary(row, user?.id || "", isAdministrator(user)));
   return jsonResponse({ entries });
 }
 
@@ -300,6 +309,9 @@ async function createEntry(context, user) {
     await context.env.DB.batch(statements);
   } catch (error) {
     const detail = String(error?.message || error);
+    if (isMissingTagsColumnError(error)) {
+      throwMapTagsMigrationRequired();
+    }
     if (type === "map" && /check constraint failed|cloud_library_entries\.type/i.test(detail)) {
       throw new HttpError(503, "map_storage_migration_required", "Map storage is being updated. Apply the pending database migration and retry.");
     }
@@ -307,7 +319,7 @@ async function createEntry(context, user) {
   }
   await syncCloudAssetReferences(context.env.DB, user.id, "library", entryId, body.payload);
   const entry = await getEntryRecord(context.env.DB, entryId);
-  return jsonResponse({ entry: entrySummary(entry, user.id) }, 201);
+  return jsonResponse({ entry: getLibraryEntrySummary(entry, user.id) }, 201);
 }
 
 async function getEntry(context, entryId, user) {
@@ -319,7 +331,7 @@ async function getEntry(context, entryId, user) {
   }
 
   return jsonResponse({
-    entry: entrySummary(entry, user?.id || "", isAdministrator(user)),
+    entry: getLibraryEntrySummary(entry, user?.id || "", isAdministrator(user)),
     payload: catalogEntry
       ? await readCatalogEntryPayload(context.env.DB, catalogEntry)
       : await readEntryPayload(context.env.DB, entry)
@@ -358,11 +370,19 @@ async function updateEntry(context, entryId, user) {
 
   const now = new Date().toISOString();
   const tableName = catalogEntry ? "cloud_catalog_entries" : "cloud_library_entries";
-  const result = await context.env.DB.prepare(`
-    UPDATE "${tableName}"
-    SET "name" = ?, "isPublic" = ?, "tags" = ?, "revision" = "revision" + 1, "updatedAt" = ?
-    WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
-  `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, entry.ownerId, baseRevision).run();
+  let result;
+  try {
+    result = await context.env.DB.prepare(`
+      UPDATE "${tableName}"
+      SET "name" = ?, "isPublic" = ?, "tags" = ?, "revision" = "revision" + 1, "updatedAt" = ?
+      WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
+    `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, entry.ownerId, baseRevision).run();
+  } catch (error) {
+    if (isMissingTagsColumnError(error)) {
+      throwMapTagsMigrationRequired();
+    }
+    throw error;
+  }
 
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");
@@ -371,7 +391,7 @@ async function updateEntry(context, entryId, user) {
   const updatedEntry = catalogEntry
     ? await getCatalogEntryRecord(context.env.DB, entryId)
     : await getEntryRecord(context.env.DB, entryId);
-  return jsonResponse({ entry: entrySummary(updatedEntry, user.id, administrator) });
+  return jsonResponse({ entry: getLibraryEntrySummary(updatedEntry, user.id, administrator) });
 }
 
 async function deleteEntry(context, entryId, user) {

@@ -503,6 +503,9 @@ export function normalizeMapEditorState(value) {
   const source = isObject(value) ? value : {};
   const positions = isObject(source.tokenPositions) ? source.tokenPositions : {};
   const visibility = isObject(source.tokenVisibility) ? source.tokenVisibility : {};
+  const tokenStackOrder = Array.isArray(source.tokenStackOrder)
+    ? [...new Set(source.tokenStackOrder.map(clean).filter(Boolean))]
+    : [];
   const windowBounds = isObject(source.windowBounds) ? source.windowBounds : {};
   return {
     map: normalizeMapReference(source.map),
@@ -552,6 +555,7 @@ export function normalizeMapEditorState(value) {
       y: Number(point?.y) || 0
     }]).filter(([id]) => id)),
     tokenVisibility: Object.fromEntries(Object.entries(visibility).map(([id, enabled]) => [clean(id), enabled === true]).filter(([id]) => id)),
+    tokenStackOrder,
     fog: {
       enabled: source.fog?.enabled === true,
       mode: source.fog?.mode === "polygon" ? "polygon" : "brush",
@@ -737,16 +741,17 @@ export function createCombatMapController(options = {}) {
   let activeDrag = null;
   let pickerCallback = null;
   let openPanel = state.openPanel;
+  let playerOpenPanel = "";
   let localImageBusy = false;
   let localImageError = "";
   let shapeCoordinateError = "";
-  let mapLoadMenuOpen = false;
+  let mapLoadMenuSurface = "";
   let mapFitScale = 1;
   let tokenSearch = "";
   let initiativeLayout = { scale: 1, columns: 1, count: 0 };
   let blankMapRatio = "1:1";
   let lastCombatantFingerprint = "";
-  let cloudPickerOpen = false;
+  let cloudPickerSurface = "";
   let cloudPickerBusy = false;
   let cloudPickerError = "";
   let cloudPickerQuery = "";
@@ -754,6 +759,8 @@ export function createCombatMapController(options = {}) {
   let cloudPickerSelectedTags = new Set();
   let fogPolygonCursor = null;
   let masterHost = null;
+  let pendingConfirmation = null;
+  let detachedConfirmationElement = null;
 
   function loadLocalState() {
     try {
@@ -818,30 +825,25 @@ export function createCombatMapController(options = {}) {
     return state.tokenPositions[combatant.id] || getDefaultPosition(combatant, index);
   }
 
-  function tokenCellKey(point) {
-    return `${Math.round((Number(point?.x) || 0) * 100) / 100}:${Math.round((Number(point?.y) || 0) * 100) / 100}`;
+  function bringTokenToFront(combatantId) {
+    const id = clean(combatantId);
+    if (!id) return;
+    state.tokenStackOrder = [...state.tokenStackOrder.filter((entry) => entry !== id), id];
   }
 
-  function findFreeTokenPosition(combatant, desired, occupied = new Set()) {
-    const snapped = snapCreaturePosition(desired, state.grid, getCreatureSizeMultiplier(combatant));
-    if (!state.grid.visible || !occupied.has(tokenCellKey(snapped))) return snapped;
-    const width = state.map?.width || DEFAULT_WIDTH;
-    const height = state.map?.height || DEFAULT_HEIGHT;
-    const candidates = [...new Map(getGridLabelData(width, height).cells
-      .map((cell) => snapCreaturePosition(cell, state.grid, getCreatureSizeMultiplier(combatant)))
-      .map((point) => [tokenCellKey(point), point])).values()]
-      .filter((point) => !occupied.has(tokenCellKey(point)))
-      .sort((left, right) => Math.hypot(left.x - desired.x, left.y - desired.y) - Math.hypot(right.x - desired.x, right.y - desired.y));
-    return candidates[0] || snapped;
+  function getTokenStackIndex(combatantId, fallbackIndex = 0) {
+    const index = state.tokenStackOrder.indexOf(combatantId);
+    return index >= 0 ? index : state.tokenStackOrder.length + fallbackIndex;
   }
 
   function resnapTokensWithoutOverlap() {
-    const occupied = new Set();
     getCombatants().forEach((combatant, index) => {
       if (!getTokenEnabled(combatant)) return;
-      const position = findFreeTokenPosition(combatant, getTokenPosition(combatant, index), occupied);
-      state.tokenPositions[combatant.id] = position;
-      occupied.add(tokenCellKey(position));
+      state.tokenPositions[combatant.id] = snapCreaturePosition(
+        getTokenPosition(combatant, index),
+        state.grid,
+        getCreatureSizeMultiplier(combatant)
+      );
     });
   }
 
@@ -850,11 +852,12 @@ export function createCombatMapController(options = {}) {
     const index = combatants.findIndex((combatant) => combatant.id === combatantId);
     const combatant = combatants[index];
     if (!combatant || !getTokenEnabled(combatant)) return false;
-    const occupied = new Set(combatants
-      .map((entry, entryIndex) => ({ entry, entryIndex }))
-      .filter(({ entry }) => entry.id !== combatantId && getTokenEnabled(entry))
-      .map(({ entry, entryIndex }) => tokenCellKey(getTokenPosition(entry, entryIndex))));
-    state.tokenPositions[combatantId] = findFreeTokenPosition(combatant, getTokenPosition(combatant, index), occupied);
+    state.tokenPositions[combatantId] = snapCreaturePosition(
+      getTokenPosition(combatant, index),
+      state.grid,
+      getCreatureSizeMultiplier(combatant)
+    );
+    bringTokenToFront(combatantId);
     persist();
     sync();
     notifyTokenCoordinates();
@@ -924,9 +927,8 @@ export function createCombatMapController(options = {}) {
     return true;
   }
 
-  function setMap(map, behavior = {}) {
-    const next = normalizeMapReference(map);
-    if (!next) return;
+  function applyMapSelection(next, behavior = {}, saveCurrent = false) {
+    if (saveCurrent) saveCurrentMapLayout();
     const currentKey = getMapLayoutKey(state.map);
     const nextKey = getMapLayoutKey(next);
     if (currentKey && currentKey === nextKey) {
@@ -934,19 +936,15 @@ export function createCombatMapController(options = {}) {
       persist();
       sync();
       if (!next.imageUrl && next.cloudEntryId) resolveCloudMap(next.cloudEntryId);
+      behavior.onApplied?.(next);
       return;
     }
     if (behavior.retainWorkspace === true) {
       state.map = next;
       persist();
       sync();
+      behavior.onApplied?.(next);
       return;
-    }
-    if (state.map && behavior.promptToSave !== false) {
-      const confirmSave = editorWindow?.confirm?.bind(editorWindow) || window.confirm.bind(window);
-      if (confirmSave(`¿Quieres guardar en esta campaña el estado actual de “${state.map.name}” antes de cargar “${next.name}”?`)) {
-        saveCurrentMapLayout();
-      }
     }
     if (!restoreMapLayout(next)) {
       state = normalizeMapEditorState({
@@ -962,6 +960,27 @@ export function createCombatMapController(options = {}) {
     persist();
     sync();
     if (!next.imageUrl && next.cloudEntryId) resolveCloudMap(next.cloudEntryId);
+    behavior.onApplied?.(next);
+  }
+
+  function setMap(map, behavior = {}) {
+    const next = normalizeMapReference(map);
+    if (!next) return;
+    const currentKey = getMapLayoutKey(state.map);
+    const nextKey = getMapLayoutKey(next);
+    if (state.map && currentKey !== nextKey && behavior.promptToSave !== false) {
+      showConfirmation({
+        surface: behavior.surface,
+        title: "Guardar estado del mapa",
+        message: `¿Quieres guardar en esta campaña el estado actual de “${state.map.name}” antes de cargar “${next.name}”?`,
+        confirmLabel: "Guardar y continuar",
+        cancelLabel: "Continuar sin guardar",
+        onConfirm: () => applyMapSelection(next, behavior, true),
+        onCancel: () => applyMapSelection(next, behavior, false)
+      });
+      return;
+    }
+    applyMapSelection(next, behavior, false);
   }
 
   async function resolveCloudMap(entryId) {
@@ -1010,8 +1029,8 @@ export function createCombatMapController(options = {}) {
     const id = clean(combatantId);
     const combatants = getCombatants();
     const combatant = combatants.find((entry) => entry.id === id);
-    const occupied = new Set(combatants.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry.id !== id && getTokenEnabled(entry)).map(({ entry, index }) => tokenCellKey(getTokenPosition(entry, index))));
-    state.tokenPositions[id] = findFreeTokenPosition(combatant, position, occupied);
+    state.tokenPositions[id] = snapCreaturePosition(position, state.grid, getCreatureSizeMultiplier(combatant));
+    bringTokenToFront(id);
     persist();
     sync();
     return true;
@@ -1063,6 +1082,10 @@ export function createCombatMapController(options = {}) {
     editorWindow = null;
     activeDrag = null;
     pickerCallback = null;
+    playerOpenPanel = "";
+    if (mapLoadMenuSurface === "player") mapLoadMenuSurface = "";
+    if (cloudPickerSurface === "player") cloudPickerSurface = "";
+    if (pendingConfirmation?.surfaceKind === "player") pendingConfirmation = null;
   }
 
   function captureWindowBounds() {
@@ -1109,17 +1132,34 @@ export function createCombatMapController(options = {}) {
       || editorWindow?.document?.querySelector?.("[data-combat-map-player-root]");
   }
 
+  function getSurfaceKind(surface) {
+    return surface?.matches?.("[data-combat-map-player-root]")
+      || surface?.hasAttribute?.("data-combat-map-player-root")
+      || surface?.querySelector?.("[data-combat-map-player-root]")
+      ? "player"
+      : "master";
+  }
+
+  function getSurfacePanel(surface) {
+    return getSurfaceKind(surface) === "player" ? playerOpenPanel : openPanel;
+  }
+
+  function getVersionPanel(version) {
+    return version === "player" ? playerOpenPanel : openPanel;
+  }
+
   function renderToolbar(version = "master") {
+    const panel = getVersionPanel(version);
     return `<header class="combat-map-toolbar">
       <strong class="combat-map-toolbar__version">Versión ${version === "player" ? "jugador" : "máster"}</strong>
-      <button type="button" data-map-action="open-map-menu" class="${openPanel === "map" ? "is-active" : ""}">Mapa</button>
+      <button type="button" data-map-action="open-map-menu" class="${panel === "map" ? "is-active" : ""}">Mapa</button>
       <button type="button" data-map-action="toggle-grid-menu" class="${state.grid.visible ? "is-active" : ""}">Rejilla</button>
       <button type="button" data-map-action="toggle-token-menu">Peanas</button>
-      <button type="button" data-map-action="toggle-fog-menu" class="${state.fog.enabled || openPanel === "fog" ? "is-active" : ""}">Niebla</button>
-      <button type="button" data-map-action="toggle-paint-menu" class="${openPanel === "paint" ? "is-active" : ""}">Pintar</button>
-      <button type="button" data-map-action="toggle-shapes-menu" class="${openPanel === "shapes" ? "is-active" : ""}">Formas</button>
-      <button type="button" data-map-action="toggle-health-menu" class="${openPanel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>
-      <button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${state.initiative.visible || openPanel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>
+      <button type="button" data-map-action="toggle-fog-menu" class="${state.fog.enabled || panel === "fog" ? "is-active" : ""}">Niebla</button>
+      <button type="button" data-map-action="toggle-paint-menu" class="${panel === "paint" ? "is-active" : ""}">Pintar</button>
+      <button type="button" data-map-action="toggle-shapes-menu" class="${panel === "shapes" ? "is-active" : ""}">Formas</button>
+      <button type="button" data-map-action="toggle-health-menu" class="${panel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>
+      <button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${state.initiative.visible || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>
     </header>`;
   }
 
@@ -1153,14 +1193,15 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderMapMenu(version = "master") {
+    const panel = getVersionPanel(version);
     const encounterMaps = getEncounterMapChoices();
     const currentKey = getMapLayoutKey(state.map);
     const savedMaps = state.savedMapLayouts.filter((layout) => layout.key !== currentKey);
     const viewport = version === "player" ? state.playerViewport : state.viewport;
-    return `<section class="combat-map-popover" data-map-panel="map" ${openPanel === "map" ? "" : "hidden"}>
+    return `<section class="combat-map-popover" data-map-panel="map" ${panel === "map" ? "" : "hidden"}>
       <h2>Mapa</h2>
       <button type="button" data-map-action="toggle-map-load-menu">Cargar imagen</button>
-      ${mapLoadMenuOpen ? `<div class="combat-map-load-menu">
+      ${mapLoadMenuSurface === version ? `<div class="combat-map-load-menu">
         <label class="combat-map-file-button">Desde equipo<input type="file" accept="image/*" data-map-file></label>
         <button type="button" data-map-action="open-cloud-map-catalog">Desde la nube</button>
         <div class="combat-map-blank-map"><strong>Hoja en blanco</strong><label>ProporciÃ³n <select data-blank-map-ratio><option value="1:1" ${blankMapRatio === "1:1" ? "selected" : ""}>Cuadrado 1:1</option><option value="4:3" ${blankMapRatio === "4:3" ? "selected" : ""}>RectÃ¡ngulo 4:3</option><option value="16:9" ${blankMapRatio === "16:9" ? "selected" : ""}>PanorÃ¡mico 16:9</option><option value="3:2" ${blankMapRatio === "3:2" ? "selected" : ""}>RectÃ¡ngulo 3:2</option><option value="3:4" ${blankMapRatio === "3:4" ? "selected" : ""}>Vertical 3:4</option><option value="9:16" ${blankMapRatio === "9:16" ? "selected" : ""}>Vertical 9:16</option></select></label><button type="button" data-map-action="create-blank-map">Crear hoja blanca</button></div>
@@ -1192,8 +1233,8 @@ export function createCombatMapController(options = {}) {
     return cloudPickerItems;
   }
 
-  async function openCloudMapPicker() {
-    cloudPickerOpen = true;
+  async function openCloudMapPicker(surface = masterHost) {
+    cloudPickerSurface = getSurfaceKind(surface);
     cloudPickerBusy = true;
     cloudPickerError = "";
     sync();
@@ -1206,7 +1247,7 @@ export function createCombatMapController(options = {}) {
     sync();
   }
 
-  async function selectCloudMap(entryId) {
+  async function selectCloudMap(entryId, surface = masterHost) {
     cloudPickerBusy = true;
     cloudPickerError = "";
     sync();
@@ -1220,16 +1261,16 @@ export function createCombatMapController(options = {}) {
         isPrivate: result.entry?.isPublic !== true
       });
       if (!map) throw new Error("Este mapa no contiene una imagen válida.");
-      cloudPickerOpen = false;
+      cloudPickerSurface = "";
       cloudPickerBusy = false;
-      finishMapSelection(map);
-      if (result.payload?.editorState && typeof result.payload.editorState === "object") {
+      const applyEditorState = result.payload?.editorState && typeof result.payload.editorState === "object" ? () => {
         const savedMapLayouts = state.savedMapLayouts;
         const windowBounds = state.windowBounds;
         state = normalizeMapEditorState({ ...result.payload.editorState, map, savedMapLayouts, windowBounds, openPanel });
         persist();
         sync();
-      }
+      } : null;
+      finishMapSelection(map, surface, applyEditorState);
     } catch (error) {
       cloudPickerBusy = false;
       cloudPickerError = error?.message || "No se pudo abrir el mapa.";
@@ -1247,19 +1288,19 @@ export function createCombatMapController(options = {}) {
       isPrivate: result?.entry?.isPublic !== true
     });
     if (!map) throw new Error("El mapa cloud no contiene una imagen valida.");
-    finishMapSelection(map);
-    if (result?.payload?.editorState && typeof result.payload.editorState === "object") {
+    const applyEditorState = result?.payload?.editorState && typeof result.payload.editorState === "object" ? () => {
       const savedMapLayouts = state.savedMapLayouts;
       const windowBounds = state.windowBounds;
       state = normalizeMapEditorState({ ...result.payload.editorState, map, savedMapLayouts, windowBounds, openPanel });
       persist();
       sync();
-    }
+    } : null;
+    finishMapSelection(map, masterHost, applyEditorState);
     return map;
   }
 
-  function renderCloudMapPicker() {
-    if (!cloudPickerOpen) return "";
+  function renderCloudMapPicker(version = "master") {
+    if (cloudPickerSurface !== version) return "";
     const query = cloudPickerQuery.toLocaleLowerCase("es");
     const tags = [...new Set(cloudPickerItems.flatMap((item) => normalizeTags(item.tags)))].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
     const items = cloudPickerItems.filter((item) => {
@@ -1270,12 +1311,12 @@ export function createCombatMapController(options = {}) {
     return `<div class="combat-map-cloud-picker" role="dialog" aria-modal="true" aria-label="Mapas de la comunidad"><button type="button" class="combat-map-cloud-picker__backdrop" data-map-action="close-cloud-map-picker" aria-label="Cerrar"></button><section class="combat-map-cloud-picker__panel"><header><div><small>Catálogo de la comunidad</small><h2>Mapas de la nube</h2></div><button type="button" data-map-action="close-cloud-map-picker" aria-label="Cerrar">×</button></header><div class="combat-map-cloud-picker__filters"><input type="search" value="${escapeHtml(cloudPickerQuery)}" placeholder="Buscar por nombre, usuario o etiqueta" data-map-cloud-search><label>Etiquetas<select multiple size="${Math.min(5, Math.max(2, tags.length))}" data-map-cloud-tags>${tags.map((tag) => `<option value="${escapeHtml(tag)}" ${cloudPickerSelectedTags.has(tag) ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}</select></label><button type="button" data-map-action="refresh-cloud-map-picker" ${cloudPickerBusy ? "disabled" : ""}>Actualizar</button></div>${cloudPickerError ? `<p class="combat-map-error" role="alert">${escapeHtml(cloudPickerError)}</p>` : ""}${cloudPickerBusy ? `<p class="combat-map-converting">Cargando mapas…</p>` : `<div class="combat-map-cloud-picker__grid">${items.map((item) => `<button type="button" class="combat-map-cloud-picker__card" data-map-cloud-choice="${escapeHtml(item.id)}">${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="">` : `<span>Mapa</span>`}<strong>${escapeHtml(item.name || "Mapa")}</strong><small>${escapeHtml(item.ownerName || "Comunidad")}</small><span class="combat-map-cloud-picker__badges"><i>${item.isPublic ? "Público" : "Privado"}</i>${/[?&]animated=1(?:&|$)/.test(clean(item.imageUrl)) ? "<i>Animado</i>" : ""}${normalizeTags(item.tags).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span></button>`).join("") || "<p>No hay mapas disponibles.</p>"}</div>`}</section></div>`;
   }
 
-  function renderHealthMenu() {
-    return `<section class="combat-map-popover" data-map-panel="health" ${openPanel === "health" ? "" : "hidden"}><h2>Barra de vida</h2><label>Mostrar en <select data-map-health><option value="all" ${state.healthMode === "all" ? "selected" : ""}>Todas las peanas</option><option value="none" ${state.healthMode === "none" ? "selected" : ""}>Ninguna</option><option value="allies" ${state.healthMode === "allies" ? "selected" : ""}>Solo aliadas</option><option value="neutral" ${state.healthMode === "neutral" ? "selected" : ""}>Solo neutrales</option><option value="enemies" ${state.healthMode === "enemies" ? "selected" : ""}>Solo enemigas</option></select></label>${renderOpacityControl("health")}</section>`;
+  function renderHealthMenu(panel) {
+    return `<section class="combat-map-popover" data-map-panel="health" ${panel === "health" ? "" : "hidden"}><h2>Barra de vida</h2><label>Mostrar en <select data-map-health><option value="all" ${state.healthMode === "all" ? "selected" : ""}>Todas las peanas</option><option value="none" ${state.healthMode === "none" ? "selected" : ""}>Ninguna</option><option value="allies" ${state.healthMode === "allies" ? "selected" : ""}>Solo aliadas</option><option value="neutral" ${state.healthMode === "neutral" ? "selected" : ""}>Solo neutrales</option><option value="enemies" ${state.healthMode === "enemies" ? "selected" : ""}>Solo enemigas</option></select></label>${renderOpacityControl("health")}</section>`;
   }
 
-  function renderGridMenu() {
-    return `<section class="combat-map-popover" data-map-panel="grid" ${openPanel === "grid" ? "" : "hidden"}>
+  function renderGridMenu(panel) {
+    return `<section class="combat-map-popover" data-map-panel="grid" ${panel === "grid" ? "" : "hidden"}>
       <h2>Rejilla</h2>
       <label><input type="checkbox" data-grid-visible ${state.grid.visible ? "checked" : ""}> Mostrar rejilla</label>
       <label>Tipo <select data-grid-type><option value="square" ${state.grid.type === "square" ? "selected" : ""}>Cuadrada</option><option value="hex" ${state.grid.type === "hex" ? "selected" : ""}>Hexagonal</option></select></label>
@@ -1286,16 +1327,16 @@ export function createCombatMapController(options = {}) {
     </section>`;
   }
 
-  function renderFogMenu() {
-    return `<section class="combat-map-popover" data-map-panel="fog" ${openPanel === "fog" ? "" : "hidden"}>
+  function renderFogMenu(panel) {
+    return `<section class="combat-map-popover" data-map-panel="fog" ${panel === "fog" ? "" : "hidden"}>
       <h2>Niebla de guerra</h2>
       <label><input type="checkbox" data-fog-enabled ${state.fog.enabled ? "checked" : ""}> Mostrar niebla</label>
       ${state.fog.enabled ? `${renderOpacityControl("fog")}<div class="combat-map-tool-actions"><button type="button" data-map-action="fog-brush-mode" class="${state.fog.mode === "brush" ? "is-active" : ""}">Pincel</button><button type="button" data-map-action="fog-polygon-mode" class="${state.fog.mode === "polygon" ? "is-active" : ""}">Máscara por puntos</button></div>${state.fog.mode === "brush" ? `<label>Forma <select data-fog-brush-shape><option value="circle" ${state.fog.brushShape === "circle" ? "selected" : ""}>Circular</option><option value="square" ${state.fog.brushShape === "square" ? "selected" : ""}>Cuadrada</option></select></label><label>Grosor <input type="range" min="12" max="300" value="${state.fog.brushSize}" data-fog-size><output>${Math.round(state.fog.brushSize * 2)} px</output></label>` : `<p class="combat-map-help">Haz clic para añadir vértices. Pulsa el primer punto o “Cerrar máscara” para aplicar el área.</p><div class="combat-map-tool-actions"><button type="button" data-map-action="close-fog-polygon" ${state.fog.polygonDraft.length >= 3 ? "" : "disabled"}>Cerrar máscara</button><button type="button" data-map-action="cancel-fog-polygon" ${state.fog.polygonDraft.length ? "" : "disabled"}>Cancelar puntos</button></div>`}<button type="button" data-map-action="reset-fog" ${state.fog.revealed.length ? "" : "disabled"}>Reiniciar niebla</button><p class="combat-map-help">En Máster la niebla es translúcida; en Jugador es opaca.</p>` : ""}
     </section>`;
   }
 
-  function renderInitiativeMenu() {
-    return `<section class="combat-map-popover" data-map-panel="initiative" ${openPanel === "initiative" ? "" : "hidden"}>
+  function renderInitiativeMenu(panel) {
+    return `<section class="combat-map-popover" data-map-panel="initiative" ${panel === "initiative" ? "" : "hidden"}>
       <h2>Orden de iniciativa</h2>
       <label><input type="checkbox" data-map-initiative ${state.initiative.visible ? "checked" : ""}> Mostrar junto al mapa</label>
       <label>Posición <select data-map-initiative-position ${state.initiative.visible ? "" : "disabled"}><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select></label>
@@ -1305,7 +1346,7 @@ export function createCombatMapController(options = {}) {
     </section>`;
   }
 
-  function renderTokenMenu() {
+  function renderTokenMenu(panel) {
     const query = tokenSearch.toLocaleLowerCase("es");
     const initiativeCombatants = getCombatants().filter(hasInitiativeToken);
     const initiativeTokensLoaded = initiativeCombatants.length > 0 && initiativeCombatants.every(getTokenEnabled);
@@ -1320,19 +1361,19 @@ export function createCombatMapController(options = {}) {
         <strong class="combat-map-token-checklist__number">${escapeHtml(stand)}</strong>
       </label>`;
     }).join("");
-    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${openPanel === "tokens" ? "" : "hidden"}><h2>Peanas</h2>${renderOpacityControl("tokens")}<label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
+    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${panel === "tokens" ? "" : "hidden"}><h2>Peanas</h2>${renderOpacityControl("tokens")}<label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
   }
 
   function getSelectedPaintIcon() {
     return state.paint.strokes.find((stroke) => stroke.mode === "icon" && stroke.id === state.paint.selectedIconId) || null;
   }
 
-  function renderPaintMenu() {
+  function renderPaintMenu(panel) {
     const selectedIcon = getSelectedPaintIcon();
     const icon = selectedIcon?.icon || state.paint.icon;
     const iconSize = selectedIcon?.size || state.paint.iconSize;
     const iconRotation = selectedIcon?.rotation ?? state.paint.iconRotation;
-    return `<section class="combat-map-popover" data-map-panel="paint" ${openPanel === "paint" ? "" : "hidden"}>
+    return `<section class="combat-map-popover" data-map-panel="paint" ${panel === "paint" ? "" : "hidden"}>
       <h2>Pincel para pintar</h2>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="paint-mode" class="${state.paint.mode === "paint" ? "is-active" : ""}">Pincel</button><button type="button" data-map-action="line-mode" class="${state.paint.mode === "line" ? "is-active" : ""}">Línea recta</button><button type="button" data-map-action="icon-mode" class="${state.paint.mode === "icon" ? "is-active" : ""}">Icono</button><button type="button" data-map-action="erase-mode" class="${state.paint.mode === "erase" ? "is-active" : ""}">Goma</button></div>
       <label>Color <input type="color" value="${selectedIcon?.color || state.paint.color}" data-paint-color></label>
@@ -1343,13 +1384,13 @@ export function createCombatMapController(options = {}) {
     </section>`;
   }
 
-  function renderShapesMenu() {
+  function renderShapesMenu(panel) {
     const selectedShape = getSelectedShape();
     const values = selectedShape || state.shapes;
     const isText = values.type === "text";
     const distanceLabel = values.type === "cone" ? "Longitud" : values.type === "square" ? "Lado" : "Radio";
     const selected = Boolean(selectedShape);
-    return `<section class="combat-map-popover" data-map-panel="shapes" ${openPanel === "shapes" ? "" : "hidden"}>
+    return `<section class="combat-map-popover" data-map-panel="shapes" ${panel === "shapes" ? "" : "hidden"}>
       <h2>Formas de área</h2>
       <p class="combat-map-editor-mode"><strong>${selected ? "Editando forma seleccionada" : "Preparando nueva forma"}</strong><span>${selected ? "Los cambios se aplican a la forma existente." : "Configura sus propiedades y pulsa Añadir forma."}</span></p>
       ${renderOpacityControl("shapes")}
@@ -1395,7 +1436,8 @@ export function createCombatMapController(options = {}) {
       const counterRotation = state.rotationOrientation === "upright" ? -state.rotation : 0;
       const isFlying = combatant.isFlying === true;
       const flyingHeight = Math.max(0, Math.round(Number(combatant.flyingHeight) || 0));
-      return `<div class="combat-map-token combat-map-token--${side} ${isFlying ? "is-flying" : ""} ${master && hidden ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px" title="${escapeHtml(combatant.nombre || "Entidad")}">
+      const stackIndex = getTokenStackIndex(combatant.id, index);
+      return `<div class="combat-map-token combat-map-token--${side} ${isFlying ? "is-flying" : ""} ${master && hidden ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
         ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt=""><span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
         <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span><strong>${escapeHtml(combatant.numPeana || "—")}</strong>
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
@@ -1444,6 +1486,7 @@ export function createCombatMapController(options = {}) {
     const master = behavior.master === true;
     const player = behavior.player === true;
     const editable = behavior.editable === true;
+    const panel = player ? playerOpenPanel : openPanel;
     const map = state.map;
     const width = map?.width || DEFAULT_WIDTH;
     const height = map?.height || DEFAULT_HEIGHT;
@@ -1461,26 +1504,82 @@ export function createCombatMapController(options = {}) {
         ${map?.imageUrl ? `<img class="combat-map-image" src="${escapeHtml(map.imageUrl)}" alt="${escapeHtml(map.name)}" draggable="false">` : `<div class="combat-map-empty"><strong>${map ? "Mapa privado" : "Sin mapa"}</strong><span>${map ? "Inicia sesión con la cuenta propietaria para cargarlo." : "Carga una imagen desde equipo o nube."}</span></div>`}
         <div class="combat-map-grid ${state.grid.visible ? "is-visible" : ""}" data-map-grid></div>
         <canvas class="combat-map-grid-coordinates ${state.grid.visible ? "is-visible" : ""}" data-map-grid-coordinates width="${width}" height="${height}" style="opacity:${layerOpacity("grid")}"></canvas>
-        <canvas class="combat-map-paint ${editable && openPanel === "paint" ? "is-editing" : ""} ${state.paint.mode === "erase" ? "is-erasing" : ""}" data-map-paint width="${width}" height="${height}" style="opacity:${layerOpacity("paint")}"></canvas>
-        <div class="combat-map-paint-icon-layer ${editable && openPanel === "paint" ? "is-editing" : ""}" data-map-paint-icon-layer style="opacity:${layerOpacity("paint")}">${renderPaintIcons()}</div>
-        <div class="combat-map-shape-layer ${editable && openPanel === "shapes" ? "is-editing" : ""}" data-map-shape-layer style="opacity:${layerOpacity("shapes")}">${renderAreaShapes()}</div>
+        <canvas class="combat-map-paint ${editable && panel === "paint" ? "is-editing" : ""} ${state.paint.mode === "erase" ? "is-erasing" : ""}" data-map-paint width="${width}" height="${height}" style="opacity:${layerOpacity("paint")}"></canvas>
+        <div class="combat-map-paint-icon-layer ${editable && panel === "paint" ? "is-editing" : ""}" data-map-paint-icon-layer style="opacity:${layerOpacity("paint")}">${renderPaintIcons()}</div>
+        <div class="combat-map-shape-layer ${editable && panel === "shapes" ? "is-editing" : ""}" data-map-shape-layer style="opacity:${layerOpacity("shapes")}">${renderAreaShapes()}</div>
         <div class="combat-map-token-layer combat-map-token-layer--covered" style="opacity:${layerOpacity("tokens")}">${renderTokens("covered", { master, player })}</div>
-        <canvas class="combat-map-fog ${state.fog.enabled ? "is-visible" : ""} ${editable && state.fog.enabled && openPanel === "fog" ? "is-editing" : ""}" data-map-fog width="${width}" height="${height}" style="opacity:${player ? 1 : layerOpacity("fog")}"></canvas>
+        <canvas class="combat-map-fog ${state.fog.enabled ? "is-visible" : ""} ${editable && state.fog.enabled && panel === "fog" ? "is-editing" : ""}" data-map-fog width="${width}" height="${height}" style="opacity:${player ? 1 : layerOpacity("fog")}"></canvas>
         <div class="combat-map-token-layer combat-map-token-layer--allies" style="opacity:${layerOpacity("tokens")}">${renderTokens("allies", { master, player })}</div>
         <div class="combat-map-brush-cursor" data-map-brush-cursor></div>
       </div>
       </div>
-    </div><canvas class="combat-map-grid-labels ${state.grid.visible ? "is-visible" : ""}" data-map-grid-labels width="${displayWidth + gridGutter * 2}" height="${displayHeight + gridGutter * 2}" style="left:${textGutter}px;top:${textGutter}px;width:${displayWidth + gridGutter * 2}px;height:${displayHeight + gridGutter * 2}px;opacity:${layerOpacity("grid")}"></canvas><div class="combat-map-text-layer ${editable && openPanel === "shapes" ? "is-editing" : ""}" style="opacity:${layerOpacity("shapes")}">${renderTextShapes(gutter, width, height)}</div></div></div></div>`;
+    </div><canvas class="combat-map-grid-labels ${state.grid.visible ? "is-visible" : ""}" data-map-grid-labels width="${displayWidth + gridGutter * 2}" height="${displayHeight + gridGutter * 2}" style="left:${textGutter}px;top:${textGutter}px;width:${displayWidth + gridGutter * 2}px;height:${displayHeight + gridGutter * 2}px;opacity:${layerOpacity("grid")}"></canvas><div class="combat-map-text-layer ${editable && panel === "shapes" ? "is-editing" : ""}" style="opacity:${layerOpacity("shapes")}">${renderTextShapes(gutter, width, height)}</div></div></div></div>`;
+  }
+
+  function showConfirmation({ surface = masterHost, title, message, confirmLabel, cancelLabel, onConfirm, onCancel }) {
+    const attachedSurface = surface?.isConnected ? surface : null;
+    pendingConfirmation = {
+      surfaceKind: attachedSurface ? getSurfaceKind(attachedSurface) : "detached",
+      title: clean(title) || "Confirmar acción",
+      message: clean(message),
+      confirmLabel: clean(confirmLabel) || "Confirmar",
+      cancelLabel: clean(cancelLabel) || "Cancelar",
+      onConfirm,
+      onCancel
+    };
+    if (!attachedSurface) renderDetachedConfirmation();
+    sync();
+  }
+
+  function resolveConfirmation(confirmed) {
+    const confirmation = pendingConfirmation;
+    pendingConfirmation = null;
+    detachedConfirmationElement?.remove();
+    detachedConfirmationElement = null;
+    if (!confirmation) return;
+    if (confirmed) confirmation.onConfirm?.();
+    else confirmation.onCancel?.();
+    if (pendingConfirmation === null) sync();
+  }
+
+  function renderConfirmation(version) {
+    if (!pendingConfirmation || pendingConfirmation.surfaceKind !== version) return "";
+    return getConfirmationMarkup();
+  }
+
+  function getConfirmationMarkup() {
+    return `<div class="combat-map-confirmation" role="presentation">
+      <section class="combat-map-confirmation__panel" role="dialog" aria-modal="true" aria-labelledby="combat-map-confirmation-title">
+        <h2 id="combat-map-confirmation-title">${escapeHtml(pendingConfirmation.title)}</h2>
+        <p>${escapeHtml(pendingConfirmation.message)}</p>
+        <footer>
+          <button type="button" data-map-action="cancel-confirmation">${escapeHtml(pendingConfirmation.cancelLabel)}</button>
+          <button type="button" class="is-primary" data-map-action="confirm-confirmation">${escapeHtml(pendingConfirmation.confirmLabel)}</button>
+        </footer>
+      </section>
+    </div>`;
+  }
+
+  function renderDetachedConfirmation() {
+    detachedConfirmationElement?.remove();
+    const container = document.createElement("div");
+    container.innerHTML = getConfirmationMarkup();
+    detachedConfirmationElement = container.firstElementChild;
+    detachedConfirmationElement?.querySelector('[data-map-action="confirm-confirmation"]')?.addEventListener("click", () => resolveConfirmation(true));
+    detachedConfirmationElement?.querySelector('[data-map-action="cancel-confirmation"]')?.addEventListener("click", () => resolveConfirmation(false));
+    if (detachedConfirmationElement) document.body.append(detachedConfirmationElement);
   }
 
   function renderMaster(viewportWindow = window) {
+    const panel = openPanel;
     const initiativePosition = state.initiative.visible ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu()}${renderTokenMenu()}${renderFogMenu()}${renderPaintMenu()}${renderShapesMenu()}${renderHealthMenu()}${renderInitiativeMenu()}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker()}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel)}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("master")}${renderConfirmation("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
+    const panel = playerOpenPanel;
     const initiativePosition = state.initiative.visible ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu()}${renderTokenMenu()}${renderFogMenu()}${renderPaintMenu()}${renderShapesMenu()}${renderHealthMenu()}${renderInitiativeMenu()}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker()}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel)}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow)}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}${renderConfirmation("player")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function sync() {
@@ -1889,7 +1988,7 @@ export function createCombatMapController(options = {}) {
       context.arc(point.x, point.y, point.r, 0, Math.PI * 2);
       context.fill();
     });
-    if (state.fog.enabled && openPanel === "fog" && state.fog.mode === "polygon" && state.fog.polygonDraft.length) {
+    if (state.fog.enabled && getSurfacePanel(root) === "fog" && state.fog.mode === "polygon" && state.fog.polygonDraft.length) {
       const points = [...state.fog.polygonDraft, ...(fogPolygonCursor ? [fogPolygonCursor] : [])];
       context.globalCompositeOperation = "source-over";
       context.strokeStyle = "#f6c768";
@@ -1918,26 +2017,34 @@ export function createCombatMapController(options = {}) {
     sync();
   }
 
-  function togglePanel(name) {
-    openPanel = openPanel === name ? "" : name;
-    state.openPanel = openPanel;
+  function togglePanel(name, surface = masterHost) {
+    if (getSurfaceKind(surface) === "player") {
+      playerOpenPanel = playerOpenPanel === name ? "" : name;
+    } else {
+      openPanel = openPanel === name ? "" : name;
+      state.openPanel = openPanel;
+    }
     persist();
     sync();
   }
 
-  function finishMapSelection(map) {
-    setMap(map);
-    if (!pickerCallback) return;
+  function finishMapSelection(map, surface = masterHost, onApplied = null) {
     const callback = pickerCallback;
     pickerCallback = null;
-    callback(map);
+    setMap(map, {
+      surface,
+      onApplied: (appliedMap) => {
+        callback?.(appliedMap);
+        onApplied?.(appliedMap);
+      }
+    });
   }
 
-  function selectEncounterChoice(index) {
+  function selectEncounterChoice(index, surface = masterHost) {
     const choice = getEncounterMapChoices()[Number(index)];
     if (!choice?.map) return;
     if (choice.editorState) applyMapWorkspace(choice.map, choice.editorState);
-    else finishMapSelection(choice.map);
+    else finishMapSelection(choice.map, surface);
     if (pickerCallback) {
       const callback = pickerCallback;
       pickerCallback = null;
@@ -1945,12 +2052,12 @@ export function createCombatMapController(options = {}) {
     }
   }
 
-  function selectSavedLayout(key) {
+  function selectSavedLayout(key, surface = masterHost) {
     const layout = state.savedMapLayouts.find((item) => item.key === clean(key));
-    if (layout?.map) finishMapSelection(layout.map);
+    if (layout?.map) finishMapSelection(layout.map, surface);
   }
 
-  async function handleImageFile(file) {
+  async function handleImageFile(file, surface = masterHost) {
     localImageBusy = true;
     localImageError = "";
     sync();
@@ -1958,8 +2065,7 @@ export function createCombatMapController(options = {}) {
       const converted = await convertImageFileToWebp(file);
       const map = { name: clean(file.name).replace(/\.[^.]+$/, "") || "Mapa", imageUrl: converted.dataUrl, width: converted.width, height: converted.height, cloudEntryId: "", isPrivate: false, isAnimated: converted.isAnimated === true };
       localImageBusy = false;
-      setMap(map);
-      showUploadPrompt(map, converted.blob);
+      setMap(map, { surface, onApplied: () => showUploadPrompt(map, converted.blob, surface) });
       return map;
     } catch (error) {
       localImageBusy = false;
@@ -1970,7 +2076,7 @@ export function createCombatMapController(options = {}) {
     }
   }
 
-  async function createBlankMap() {
+  async function createBlankMap(surface = masterHost) {
     const [ratioWidth, ratioHeight] = blankMapRatio.split(":").map(Number);
     const landscape = ratioWidth >= ratioHeight;
     const width = landscape ? 1600 : Math.round(1600 * ratioWidth / ratioHeight);
@@ -1993,24 +2099,24 @@ export function createCombatMapController(options = {}) {
       reader.readAsDataURL(blob);
     });
     const map = { name: `Hoja blanca ${blankMapRatio}`, imageUrl: dataUrl, width, height, cloudEntryId: "", isPrivate: false, isAnimated: false };
-    setMap(map);
-    showUploadPrompt(map, blob);
+    setMap(map, { surface, onApplied: () => showUploadPrompt(map, blob, surface) });
   }
 
-  async function showUploadPrompt(map, blob) {
-    if (!masterHost?.isConnected) return;
+  async function showUploadPrompt(map, blob, surface = masterHost) {
+    const targetSurface = surface?.isConnected ? surface : masterHost;
+    if (!targetSurface?.isConnected) return;
     try {
       if (!cloudPickerItems.length) await loadCloudMapItems();
     } catch {
       // New tags remain available even when the catalog cannot be listed.
     }
-    if (!masterHost?.isConnected) return;
-    const panel = masterHost.querySelector('[data-map-panel="map"]');
+    if (!targetSurface?.isConnected) return;
+    const panel = targetSurface.querySelector('[data-map-panel="map"]');
     if (!panel) return;
     panel.hidden = false;
     const authenticated = Boolean(options.getAccountSession?.()?.user?.id);
     const knownTags = [...new Set(cloudPickerItems.flatMap((item) => normalizeTags(item.tags)))].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
-    const prompt = masterHost.ownerDocument.createElement("div");
+    const prompt = targetSurface.ownerDocument.createElement("div");
     prompt.className = "combat-map-upload-prompt";
     prompt.innerHTML = `<strong>Mapa listo en WebP</strong><small>${map.width} × ${map.height} px · ${(blob.size / (1024 * 1024)).toFixed(1)} MB</small><label>Nombre <input data-map-upload-name value="${escapeHtml(map.name)}"></label><label><input type="checkbox" data-map-upload-private> Guardar privado</label><label>Etiquetas existentes <select multiple size="${Math.min(5, Math.max(2, knownTags.length))}" data-map-upload-tags>${knownTags.map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join("")}</select></label><label>Etiquetas nuevas <input data-map-upload-new-tags maxlength="240" placeholder="mazmorra, bosque, nocturno"></label><button type="button" data-map-upload-confirm ${authenticated ? "" : "disabled"}>Guardar en nube</button>${authenticated ? "" : "<small>Inicia sesión para guardar en nube.</small>"}`;
     panel.append(prompt);
@@ -2027,7 +2133,7 @@ export function createCombatMapController(options = {}) {
         const tags = normalizeTags([...selectedTags, ...customTags]);
         const imageUrl = `${uploaded.asset.url}${map.isAnimated ? "?animated=1" : ""}`;
         const created = await createCloudLibraryEntry({ type: "map", name, imageUrl, tags, isPublic, payload: { map: { name, imageUrl, width: map.width, height: map.height, isAnimated: map.isAnimated === true }, editorState: createCurrentMapWorkspace() } });
-        setMap({ name, imageUrl, width: map.width, height: map.height, cloudEntryId: created.entry.id, isPrivate: !isPublic, isAnimated: map.isAnimated === true }, { retainWorkspace: true });
+        setMap({ name, imageUrl, width: map.width, height: map.height, cloudEntryId: created.entry.id, isPrivate: !isPublic, isAnimated: map.isAnimated === true }, { retainWorkspace: true, surface: targetSurface });
         prompt.remove();
         options.onCloudChanged?.();
         options.onNotify?.("Mapa guardado", `${name} está ${isPublic ? "público" : "privado"} en la nube.`);
@@ -2107,26 +2213,34 @@ export function createCombatMapController(options = {}) {
 
   function resetMapCanvas(root = masterHost) {
     if (!state.map) return;
-    const targetWindow = root?.ownerDocument?.defaultView || window;
-    const confirmReset = targetWindow.confirm.bind(targetWindow);
-    if (!confirmReset("¿Restablecer el canvas? Se borrarán rejilla, niebla, dibujos, formas, posiciones, zoom y rotación de este mapa.")) return;
-    const currentKey = getMapLayoutKey(state.map);
-    state = normalizeMapEditorState({
-      map: state.map,
-      savedMapLayouts: state.savedMapLayouts.filter((layout) => layout.key !== currentKey),
-      windowBounds: state.windowBounds,
-      openPanel: "map",
-      healthMode: state.healthMode,
-      initiative: state.initiative
+    showConfirmation({
+      surface: root,
+      title: "Restablecer imagen",
+      message: "Se borrarán rejilla, niebla, dibujos, formas, posiciones, zoom y rotación de este mapa.",
+      confirmLabel: "Restablecer",
+      cancelLabel: "Cancelar",
+      onConfirm: () => {
+        const currentKey = getMapLayoutKey(state.map);
+        state = normalizeMapEditorState({
+          map: state.map,
+          savedMapLayouts: state.savedMapLayouts.filter((layout) => layout.key !== currentKey),
+          windowBounds: state.windowBounds,
+          openPanel: getSurfaceKind(root) === "master" ? "map" : openPanel,
+          healthMode: state.healthMode,
+          initiative: state.initiative
+        });
+        if (getSurfaceKind(root) === "player") playerOpenPanel = "map";
+        else openPanel = "map";
+        mapLoadMenuSurface = "";
+        persist();
+        sync();
+      }
     });
-    openPanel = "map";
-    mapLoadMenuOpen = false;
-    persist();
-    sync();
   }
 
   function handleClick(event) {
     const surface = getEventSurface(event);
+    const surfaceKind = getSurfaceKind(surface);
     if (event.target.closest("[data-map-initiative-order]")) {
       options.handleInitiativeClick?.(event);
       return;
@@ -2139,23 +2253,25 @@ export function createCombatMapController(options = {}) {
     const cloudChoice = event.target.closest("[data-map-cloud-choice]")?.dataset.mapCloudChoice;
     const encounterChoice = event.target.closest("[data-map-encounter-choice]")?.dataset.mapEncounterChoice;
     const savedLayout = event.target.closest("[data-map-saved-layout]")?.dataset.mapSavedLayout;
-    if (encounterChoice !== undefined) { selectEncounterChoice(encounterChoice); return; }
-    if (savedLayout) { selectSavedLayout(savedLayout); return; }
-    if (cloudChoice) { selectCloudMap(cloudChoice); return; }
+    if (encounterChoice !== undefined) { selectEncounterChoice(encounterChoice, surface); return; }
+    if (savedLayout) { selectSavedLayout(savedLayout, surface); return; }
+    if (cloudChoice) { selectCloudMap(cloudChoice, surface); return; }
     if (!action) return;
-    if (action === "open-map-menu") togglePanel("map");
-    if (action === "toggle-map-load-menu") { mapLoadMenuOpen = !mapLoadMenuOpen; sync(); }
-    if (action === "create-blank-map") createBlankMap();
-    if (action === "open-cloud-map-catalog" || action === "refresh-cloud-map-picker") openCloudMapPicker();
-    if (action === "close-cloud-map-picker") { cloudPickerOpen = false; cloudPickerError = ""; sync(); }
+    if (action === "confirm-confirmation") { resolveConfirmation(true); return; }
+    if (action === "cancel-confirmation") { resolveConfirmation(false); return; }
+    if (action === "open-map-menu") togglePanel("map", surface);
+    if (action === "toggle-map-load-menu") { mapLoadMenuSurface = mapLoadMenuSurface === surfaceKind ? "" : surfaceKind; sync(); }
+    if (action === "create-blank-map") createBlankMap(surface);
+    if (action === "open-cloud-map-catalog" || action === "refresh-cloud-map-picker") openCloudMapPicker(surface);
+    if (action === "close-cloud-map-picker") { cloudPickerSurface = ""; cloudPickerError = ""; sync(); }
     if (action === "reset-map-canvas") resetMapCanvas(surface);
-    if (action === "toggle-grid-menu") togglePanel("grid");
-    if (action === "toggle-token-menu") togglePanel("tokens");
-    if (action === "toggle-fog-menu") togglePanel("fog");
-    if (action === "toggle-paint-menu") togglePanel("paint");
-    if (action === "toggle-shapes-menu") togglePanel("shapes");
-    if (action === "toggle-health-menu") togglePanel("health");
-    if (action === "toggle-initiative-menu") togglePanel("initiative");
+    if (action === "toggle-grid-menu") togglePanel("grid", surface);
+    if (action === "toggle-token-menu") togglePanel("tokens", surface);
+    if (action === "toggle-fog-menu") togglePanel("fog", surface);
+    if (action === "toggle-paint-menu") togglePanel("paint", surface);
+    if (action === "toggle-shapes-menu") togglePanel("shapes", surface);
+    if (action === "toggle-health-menu") togglePanel("health", surface);
+    if (action === "toggle-initiative-menu") togglePanel("initiative", surface);
     if (action === "reset-fog") { state.fog.revealed = []; state.fog.polygonDraft = []; persist(); sync(); }
     if (action === "fog-brush-mode") { state.fog.mode = "brush"; state.fog.polygonDraft = []; persist(); sync(); }
     if (action === "fog-polygon-mode") { state.fog.mode = "polygon"; persist(); sync(); }
@@ -2191,7 +2307,7 @@ export function createCombatMapController(options = {}) {
     const target = event.target;
     if (target.closest("[data-map-initiative-order]")) { options.handleInitiativeChange?.(event); return; }
     if (target.closest("[data-combat-turn-quick-menu]")) { options.handleContextChange?.(event); return; }
-    if (target.matches("[data-map-file], [data-map-file-hidden]")) { const file = target.files?.[0]; if (file) handleImageFile(file); return; }
+    if (target.matches("[data-map-file], [data-map-file-hidden]")) { const file = target.files?.[0]; if (file) handleImageFile(file, getEventSurface(event)); return; }
     if (target.matches("[data-blank-map-ratio]")) { blankMapRatio = target.value; return; }
     if (target.matches("[data-grid-visible]")) {
       state.grid.visible = target.checked;
@@ -2205,12 +2321,16 @@ export function createCombatMapController(options = {}) {
     else if (target.matches("[data-map-initiative-tokens]")) {
       getCombatants().filter(hasInitiativeToken).forEach((combatant) => {
         state.tokenVisibility[combatant.id] = target.checked;
+        if (target.checked) bringTokenToFront(combatant.id);
       });
       if (target.checked) resnapTokensWithoutOverlap();
     }
     else if (target.matches("[data-map-token-toggle]")) {
       state.tokenVisibility[target.dataset.mapTokenToggle] = target.checked;
-      if (target.checked) resnapTokensWithoutOverlap();
+      if (target.checked) {
+        bringTokenToFront(target.dataset.mapTokenToggle);
+        resnapTokensWithoutOverlap();
+      }
     }
     else if (target.matches("[data-map-health]")) state.healthMode = target.value;
     else if (target.matches("[data-map-initiative]")) state.initiative.visible = target.checked;
@@ -2272,7 +2392,10 @@ export function createCombatMapController(options = {}) {
     } else if (event.target.matches("[data-map-cloud-search]")) {
       cloudPickerQuery = event.target.value;
       sync();
-      masterHost?.querySelector("[data-map-cloud-search]")?.focus();
+      const nextSurface = getSurfaceKind(surface) === "player"
+        ? editorWindow?.document?.querySelector("[data-combat-map-player-root]")
+        : masterHost;
+      nextSurface?.querySelector("[data-map-cloud-search]")?.focus();
     } else if (event.target.matches("[data-grid-size]")) {
       state.grid.size = clamp(event.target.value, MIN_GRID_SIZE, MAX_GRID_SIZE);
       updateGridScaleVisuals(event.target, surface);
@@ -2350,10 +2473,11 @@ export function createCombatMapController(options = {}) {
   function handleKeydown(event) {
     if (event.target.closest("[data-map-initiative-order]")) { options.handleInitiativeKeydown?.(event); return; }
     if (event.target.closest("[data-combat-turn-quick-menu]")) { options.handleContextKeydown?.(event); return; }
-    if ((event.key === "Delete" || event.key === "Backspace") && openPanel === "shapes" && !event.target.matches("input, select, textarea")) {
+    const panel = getSurfacePanel(getEventSurface(event));
+    if ((event.key === "Delete" || event.key === "Backspace") && panel === "shapes" && !event.target.matches("input, select, textarea")) {
       event.preventDefault();
       deleteSelectedShape();
-    } else if ((event.key === "Delete" || event.key === "Backspace") && openPanel === "paint" && state.paint.selectedIconId && !event.target.matches("input, select, textarea")) {
+    } else if ((event.key === "Delete" || event.key === "Backspace") && panel === "paint" && state.paint.selectedIconId && !event.target.matches("input, select, textarea")) {
       event.preventDefault();
       state.paint.strokes = state.paint.strokes.filter((stroke) => stroke.id !== state.paint.selectedIconId);
       state.paint.selectedIconId = "";
@@ -2490,8 +2614,9 @@ export function createCombatMapController(options = {}) {
 
   function updateBrushCursor(event) {
     const surface = getEventSurface(event) || activeDrag?.surface;
-    const isPaint = openPanel === "paint";
-    const isFog = openPanel === "fog" && state.fog.enabled;
+    const panel = getSurfacePanel(surface);
+    const isPaint = panel === "paint";
+    const isFog = panel === "fog" && state.fog.enabled;
     const isPolygon = isFog && state.fog.mode === "polygon";
     const cursor = surface?.querySelector("[data-map-brush-cursor]");
     if (!cursor || (!isPaint && !isFog) || !event.target.closest?.("[data-map-board]")) {
@@ -2513,6 +2638,7 @@ export function createCombatMapController(options = {}) {
   function handlePointerDown(event) {
     const surface = getEventSurface(event);
     if (!surface) return;
+    const panel = getSurfacePanel(surface);
     if (event.target.closest("[data-combat-turn-quick-menu]")) return;
     options.closeContextMenu?.();
     surface.querySelector("[data-combat-turn-quick-menu]")?.remove();
@@ -2531,12 +2657,14 @@ export function createCombatMapController(options = {}) {
     const point = boardPoint(event);
     if (!point) return;
     if (token) {
+      bringTokenToFront(token.dataset.mapToken);
+      token.style.zIndex = String(5 + getTokenStackIndex(token.dataset.mapToken));
       activeDrag = { type: "token", id: token.dataset.mapToken, pointerId: event.pointerId, surface };
       token.setPointerCapture?.(event.pointerId);
       event.preventDefault();
       return;
     }
-    if (openPanel === "shapes" && shapeElement) {
+    if (panel === "shapes" && shapeElement) {
       const shape = state.shapes.items.find((item) => item.id === shapeElement.dataset.mapShape);
       const shapePoint = layerPoint(event);
       if (!shape || !shapePoint) return;
@@ -2557,7 +2685,7 @@ export function createCombatMapController(options = {}) {
       event.preventDefault();
       return;
     }
-    if (openPanel === "paint" && paintIconElement) {
+    if (panel === "paint" && paintIconElement) {
       const icon = state.paint.strokes.find((stroke) => stroke.mode === "icon" && stroke.id === paintIconElement.dataset.mapPaintIcon);
       const iconPoint = layerPoint(event);
       const position = icon?.points?.[0];
@@ -2579,7 +2707,7 @@ export function createCombatMapController(options = {}) {
       event.preventDefault();
       return;
     }
-    if (openPanel === "paint" && event.target.matches("[data-map-paint]")) {
+    if (panel === "paint" && event.target.matches("[data-map-paint]")) {
       const paintPoint = layerPoint(event);
       if (!paintPoint) return;
       const stroke = state.paint.mode === "icon"
@@ -2600,7 +2728,7 @@ export function createCombatMapController(options = {}) {
       event.preventDefault();
       return;
     }
-    if (state.fog.enabled && openPanel === "fog" && event.target.matches("[data-map-fog]")) {
+    if (state.fog.enabled && panel === "fog" && event.target.matches("[data-map-fog]")) {
       const fogPoint = layerPoint(event);
       if (state.fog.mode === "polygon") {
         const first = state.fog.polygonDraft[0];
@@ -2624,7 +2752,7 @@ export function createCombatMapController(options = {}) {
   function handlePointerMove(event) {
     const surface = activeDrag?.surface || getEventSurface(event);
     updateBrushCursor(event);
-    if (!activeDrag && state.fog.enabled && openPanel === "fog" && state.fog.mode === "polygon" && event.target.closest?.("[data-map-board]")) {
+    if (!activeDrag && state.fog.enabled && getSurfacePanel(surface) === "fog" && state.fog.mode === "polygon" && event.target.closest?.("[data-map-board]")) {
       fogPolygonCursor = layerPoint(event);
       drawFog(surface);
     }
@@ -2713,9 +2841,12 @@ export function createCombatMapController(options = {}) {
     const surface = activeDrag.surface;
     if (activeDrag.type === "token") {
       const combatant = getCombatants().find((entry) => entry.id === activeDrag.id);
-      const combatants = getCombatants();
-      const occupied = new Set(combatants.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry.id !== activeDrag.id && getTokenEnabled(entry)).map(({ entry, index }) => tokenCellKey(getTokenPosition(entry, index))));
-      state.tokenPositions[activeDrag.id] = findFreeTokenPosition(combatant, state.tokenPositions[activeDrag.id], occupied);
+      state.tokenPositions[activeDrag.id] = snapCreaturePosition(
+        state.tokenPositions[activeDrag.id],
+        state.grid,
+        getCreatureSizeMultiplier(combatant)
+      );
+      bringTokenToFront(activeDrag.id);
     } else if (activeDrag.type === "shape") {
       const shape = state.shapes.items.find((item) => item.id === activeDrag.id);
       if (shape && shape.type !== "text") {
@@ -2741,9 +2872,7 @@ export function createCombatMapController(options = {}) {
     open();
     window.setTimeout(() => {
       if (!isOpen()) return;
-      openPanel = "map";
-      state.openPanel = openPanel;
-      persist();
+      playerOpenPanel = "map";
       sync();
     }, 0);
   }

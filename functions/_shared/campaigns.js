@@ -61,8 +61,8 @@ function splitCampaign(serialized) {
   return chunks.length > 0 ? chunks : ["{}"];
 }
 
-function campaignSummary(row, currentUserId = "", administrator = false) {
-  const isOwner = Boolean(administrator || (currentUserId && row.ownerId === currentUserId));
+export function getCampaignSummary(row, currentUserId = "", administrator = false) {
+  const isOwner = Boolean(currentUserId && row.ownerId === currentUserId);
 
   return {
     id: row.id,
@@ -73,7 +73,8 @@ function campaignSummary(row, currentUserId = "", administrator = false) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ownerName: row.ownerName || "Usuario de Mimic Dice",
-    isOwner
+    isOwner,
+    canManage: Boolean(isOwner || administrator)
   };
 }
 
@@ -124,7 +125,7 @@ async function listOwnedCampaigns(context, user) {
     ORDER BY c."updatedAt" DESC
     LIMIT ?
   `).bind(administrator ? 1 : 0, user.id, administrator ? 2000 : MAX_CAMPAIGNS_PER_USER).all();
-  return jsonResponse({ campaigns: result.results.map((row) => campaignSummary(row, user.id, administrator)) });
+  return jsonResponse({ campaigns: result.results.map((row) => getCampaignSummary(row, user.id, administrator)) });
 }
 
 async function listPublicCampaigns(context, user) {
@@ -136,7 +137,7 @@ async function listPublicCampaigns(context, user) {
     ORDER BY c."updatedAt" DESC
     LIMIT 50
   `).all();
-  return jsonResponse({ campaigns: result.results.map((row) => campaignSummary(row, user?.id || "", isAdministrator(user))) });
+  return jsonResponse({ campaigns: result.results.map((row) => getCampaignSummary(row, user?.id || "", isAdministrator(user))) });
 }
 
 async function createCampaign(context, user, sourceBody = null) {
@@ -184,7 +185,7 @@ async function createCampaign(context, user, sourceBody = null) {
   });
 
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
-  return jsonResponse({ campaign: campaignSummary(campaign, user.id) }, 201);
+  return jsonResponse({ campaign: getCampaignSummary(campaign, user.id) }, 201);
 }
 
 async function getCampaign(context, campaignId, user) {
@@ -195,7 +196,7 @@ async function getCampaign(context, campaignId, user) {
   }
 
   const payload = await readCampaignPayload(context.env.DB, campaign);
-  return jsonResponse({ campaign: campaignSummary(campaign, user?.id || "", isAdministrator(user)), payload });
+  return jsonResponse({ campaign: getCampaignSummary(campaign, user?.id || "", isAdministrator(user)), payload });
 }
 
 async function updateCampaign(context, campaignId, user) {
@@ -268,7 +269,7 @@ async function updateCampaign(context, campaignId, user) {
   });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
-  return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id, administrator) });
+  return jsonResponse({ campaign: getCampaignSummary(updatedCampaign, user.id, administrator) });
 }
 
 async function updateCampaignVisibility(context, campaignId, user) {
@@ -305,7 +306,7 @@ async function updateCampaignVisibility(context, campaignId, user) {
   });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
-  return jsonResponse({ campaign: campaignSummary(updatedCampaign, user.id, administrator) });
+  return jsonResponse({ campaign: getCampaignSummary(updatedCampaign, user.id, administrator) });
 }
 
 async function deleteCampaign(context, campaignId, user) {

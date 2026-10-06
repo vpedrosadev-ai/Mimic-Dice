@@ -79,6 +79,19 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
   assert.deepEqual(normalized.shapes.items[0], { id: "area-1", type: "cone", color: "#112233", distanceFeet: 20, x: 120, y: 80, rotation: 345 });
 });
 
+test("map editor preserves token stacking order for shared cells", () => {
+  const normalized = normalizeMapEditorState({
+    tokenPositions: {
+      first: { x: 120, y: 120 },
+      last: { x: 120, y: 120 }
+    },
+    tokenStackOrder: ["first", "last", "first", ""]
+  });
+
+  assert.deepEqual(normalized.tokenPositions.first, normalized.tokenPositions.last);
+  assert.deepEqual(normalized.tokenStackOrder, ["first", "last"]);
+});
+
 test("area shapes use one grid cell for every five feet", () => {
   assert.deepEqual(getAreaShapeMetrics({ type: "circle", distanceFeet: 15 }, { size: 80 }), {
     type: "circle",

@@ -3337,6 +3337,62 @@ button.is-cloud-busy:disabled {
   display: none;
 }
 
+.combat-map-confirmation {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  padding: 1.25rem;
+  place-items: center;
+  background: rgba(8, 6, 5, .72);
+  backdrop-filter: blur(3px);
+}
+
+.combat-map-confirmation__panel {
+  display: grid;
+  gap: .9rem;
+  width: min(34rem, 100%);
+  padding: 1.25rem;
+  border: 1px solid rgba(224, 173, 96, .58);
+  border-radius: .9rem;
+  background:
+    radial-gradient(circle at 15% 0, rgba(217, 171, 93, .12), transparent 40%),
+    #21150e;
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .62);
+}
+
+.combat-map-confirmation__panel h2,
+.combat-map-confirmation__panel p {
+  margin: 0;
+}
+
+.combat-map-confirmation__panel p {
+  color: #dcc7a8;
+  line-height: 1.5;
+}
+
+.combat-map-confirmation__panel footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .6rem;
+}
+
+.combat-map-confirmation__panel button {
+  padding: .62rem .85rem;
+  border: 1px solid rgba(220, 179, 110, .45);
+  border-radius: .55rem;
+  background: rgba(56, 36, 22, .94);
+  color: #f8efe1;
+  font: inherit;
+  cursor: pointer;
+}
+
+.combat-map-confirmation__panel button.is-primary {
+  border-color: #e0ad60;
+  background: #845527;
+}
+
 .combat-map-popover h2 {
   margin: 0;
   font-size: 1rem;
@@ -4025,7 +4081,7 @@ button.is-cloud-busy:disabled {
   position: absolute;
   top: 50%;
   z-index: 1;
-  width: max(2.2rem, calc(var(--token-size) * .92));
+  width: max(1.1rem, calc(var(--token-size) * .46));
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 .12rem .18rem rgba(0, 0, 0, .8));
@@ -4977,13 +5033,13 @@ button.is-cloud-busy:disabled {
   align-items: center;
   justify-content: center;
   gap: 0.18rem;
-  min-width: 3.5rem;
-  min-height: 2.4rem;
-  padding: 0.18rem 0.58rem;
+  min-width: calc(3.5rem * var(--turn-token-scale, 1));
+  min-height: calc(2.4rem * var(--turn-token-scale, 1));
+  padding: calc(0.18rem * var(--turn-token-scale, 1)) calc(0.58rem * var(--turn-token-scale, 1));
   border-radius: 999px;
   background: rgba(13, 10, 17, 0.84);
   color: #fff8e7;
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--turn-token-scale, 1));
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
@@ -5025,13 +5081,13 @@ button.is-cloud-busy:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2.5rem;
-  min-height: 1.95rem;
-  padding: 0.14rem 0.5rem;
+  min-width: calc(2.5rem * var(--turn-token-scale, 1));
+  min-height: calc(1.95rem * var(--turn-token-scale, 1));
+  padding: calc(0.14rem * var(--turn-token-scale, 1)) calc(0.5rem * var(--turn-token-scale, 1));
   border-radius: 999px;
   background: rgba(13, 10, 17, 0.84);
   color: #fff8e7;
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--turn-token-scale, 1));
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
@@ -5039,7 +5095,7 @@ button.is-cloud-busy:disabled {
 
 .combat-turn-token__stand {
   left: 50%;
-  bottom: 0.35rem;
+  bottom: calc(0.35rem * var(--turn-token-scale, 1));
   transform: translateX(-50%);
 }
 
