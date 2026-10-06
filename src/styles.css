@@ -2737,6 +2737,13 @@ button.is-cloud-busy:disabled {
   background: #0d1014;
 }
 
+.cloud-map-upload-dialog__image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
 .cloud-map-upload-dialog__panel > label {
   display: grid;
   gap: .35rem;

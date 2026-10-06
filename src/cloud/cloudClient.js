@@ -274,13 +274,15 @@ export async function setCloudLibraryEntryVisibility(entryId, { isPublic, baseRe
   });
 }
 
-export async function updateCloudLibraryEntry(entryId, { name, isPublic, tags, baseRevision }) {
+export async function updateCloudLibraryEntry(entryId, { name, isPublic, tags, imageUrl, payload, baseRevision }) {
   return requestJson(`/api/library/${encodeURIComponent(entryId)}`, {
     method: "PATCH",
     body: JSON.stringify({
       ...(name !== undefined ? { name } : {}),
       ...(isPublic !== undefined ? { isPublic } : {}),
       ...(tags !== undefined ? { tags } : {}),
+      ...(imageUrl !== undefined ? { imageUrl } : {}),
+      ...(payload !== undefined ? { payload } : {}),
       baseRevision
     })
   });

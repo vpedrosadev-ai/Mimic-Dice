@@ -347,7 +347,7 @@ async function updateEntry(context, entryId, user) {
     throw new HttpError(404, "library_entry_not_found", "Library entry not found.");
   }
 
-  const body = await readJsonBody(context.request, 4096);
+  const body = await readJsonBody(context.request, MAX_LIBRARY_REQUEST_BYTES);
   const baseRevision = Number(body.baseRevision);
 
   if (!Number.isInteger(baseRevision) || baseRevision !== entry.revision) {
@@ -357,8 +357,17 @@ async function updateEntry(context, entryId, user) {
   const changesName = Object.prototype.hasOwnProperty.call(body, "name");
   const changesVisibility = Object.prototype.hasOwnProperty.call(body, "isPublic");
   const changesTags = Object.prototype.hasOwnProperty.call(body, "tags");
-  if (!changesName && !changesVisibility && !changesTags) {
-    throw new HttpError(400, "invalid_library_update", "Library update must change its name, visibility, or tags.");
+  const changesImageUrl = Object.prototype.hasOwnProperty.call(body, "imageUrl");
+  const changesPayload = Object.prototype.hasOwnProperty.call(body, "payload");
+  const replacesMapImage = changesImageUrl || changesPayload;
+  if (!changesName && !changesVisibility && !changesTags && !replacesMapImage) {
+    throw new HttpError(400, "invalid_library_update", "Library update must change its name, visibility, tags, or map image.");
+  }
+  if (changesImageUrl !== changesPayload) {
+    throw new HttpError(400, "invalid_library_update", "Map image URL and payload must be updated together.");
+  }
+  if (replacesMapImage && (catalogEntry || entry.type !== "map" || entry.ownerId !== user.id)) {
+    throw new HttpError(403, "library_image_update_forbidden", "Only owners can replace images on manual map entries.");
   }
 
   const nextName = changesName ? cleanText(body.name, 160) : entry.name;
@@ -367,16 +376,70 @@ async function updateEntry(context, entryId, user) {
   }
   const nextVisibility = changesVisibility ? body.isPublic === true : entry.isPublic === 1;
   const nextTags = changesTags ? normalizeTags(body.tags) : parseTags(entry.tags);
+  const nextImageUrl = changesImageUrl ? cleanText(body.imageUrl, 600) : entry.imageUrl;
+
+  let replacementPayload = null;
+  if (replacesMapImage) {
+    if (!nextImageUrl) {
+      throw new HttpError(400, "invalid_library_update", "Map image URL is required.");
+    }
+    if (cleanText(body.payload?.map?.imageUrl, 600) !== nextImageUrl) {
+      throw new HttpError(400, "invalid_library_update", "Map payload image URL must match the entry image URL.");
+    }
+    replacementPayload = serializePayload(body.payload, entry.type);
+  }
 
   const now = new Date().toISOString();
   const tableName = catalogEntry ? "cloud_catalog_entries" : "cloud_library_entries";
   let result;
   try {
-    result = await context.env.DB.prepare(`
-      UPDATE "${tableName}"
-      SET "name" = ?, "isPublic" = ?, "tags" = ?, "revision" = "revision" + 1, "updatedAt" = ?
-      WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
-    `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, entry.ownerId, baseRevision).run();
+    if (replacementPayload) {
+      const payloadVersion = crypto.randomUUID();
+      const chunks = splitPayload(replacementPayload.serialized);
+      const statements = [
+        context.env.DB.prepare(`
+          UPDATE "cloud_library_entries"
+          SET "name" = ?, "isPublic" = ?, "tags" = ?, "imageUrl" = ?,
+              "payloadVersion" = ?, "payloadBytes" = ?, "chunkCount" = ?,
+              "revision" = "revision" + 1, "updatedAt" = ?
+          WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
+        `).bind(
+          nextName,
+          nextVisibility ? 1 : 0,
+          JSON.stringify(nextTags),
+          nextImageUrl,
+          payloadVersion,
+          replacementPayload.payloadBytes,
+          chunks.length,
+          now,
+          entryId,
+          entry.ownerId,
+          baseRevision
+        ),
+        ...chunkStatements(context.env.DB, entryId, payloadVersion, chunks),
+        context.env.DB.prepare(`
+          DELETE FROM "cloud_library_chunks"
+          WHERE "entryId" = ? AND "payloadVersion" = ?
+            AND EXISTS (
+              SELECT 1 FROM "cloud_library_entries"
+              WHERE "id" = ? AND "ownerId" = ? AND "payloadVersion" = ?
+            )
+        `).bind(entryId, entry.payloadVersion, entryId, entry.ownerId, payloadVersion)
+      ];
+      const results = await context.env.DB.batch(statements);
+      result = results[0];
+      if (Number(result?.meta?.changes || 0) !== 1) {
+        await context.env.DB.prepare(
+          'DELETE FROM "cloud_library_chunks" WHERE "entryId" = ? AND "payloadVersion" = ?'
+        ).bind(entryId, payloadVersion).run();
+      }
+    } else {
+      result = await context.env.DB.prepare(`
+        UPDATE "${tableName}"
+        SET "name" = ?, "isPublic" = ?, "tags" = ?, "revision" = "revision" + 1, "updatedAt" = ?
+        WHERE "id" = ? AND "ownerId" = ? AND "revision" = ?
+      `).bind(nextName, nextVisibility ? 1 : 0, JSON.stringify(nextTags), now, entryId, entry.ownerId, baseRevision).run();
+    }
   } catch (error) {
     if (isMissingTagsColumnError(error)) {
       throwMapTagsMigrationRequired();
@@ -386,6 +449,10 @@ async function updateEntry(context, entryId, user) {
 
   if (Number(result.meta?.changes || 0) !== 1) {
     throw new HttpError(409, "library_revision_conflict", "Library entry changed in another session. Refresh before updating.");
+  }
+
+  if (replacementPayload) {
+    await syncCloudAssetReferences(context.env.DB, entry.ownerId, "library", entryId, body.payload);
   }
 
   const updatedEntry = catalogEntry

@@ -3165,6 +3165,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "select-cloud-map-replacement") {
+    app.querySelector("[data-cloud-map-replacement-file]")?.click();
+    return;
+  }
+
+  if (action === "discard-cloud-map-replacement") {
+    discardCloudMapReplacement();
+    return;
+  }
+
   if (action === "open-cloud-map-properties") {
     await openCloudMapProperties(actionButton.dataset.cloudEntryId);
     return;
@@ -4060,6 +4070,13 @@ async function handleChange(event) {
     const file = target.files?.[0] ?? null;
     target.value = "";
     if (file) await uploadCommunityMapFile(file);
+    return;
+  }
+
+  if (target.matches("[data-cloud-map-replacement-file]")) {
+    const file = target.files?.[0] ?? null;
+    target.value = "";
+    if (file) await prepareCloudMapReplacement(file);
     return;
   }
 
@@ -9420,6 +9437,16 @@ function renderCloudCatalogPreview() {
   `;
 }
 
+async function convertCommunityMapImage(file) {
+  let converted = await convertImageFileToWebp(file, 0.95);
+  if (converted.blob.size > MAX_CLOUD_MAP_IMAGE_BYTES && converted.blob !== file) converted = await convertImageFileToWebp(file, 0.86);
+  if (converted.blob.size > MAX_CLOUD_MAP_IMAGE_BYTES && converted.blob !== file) converted = await convertImageFileToWebp(file, 0.74);
+  if (converted.blob.size > MAX_CLOUD_MAP_IMAGE_BYTES) {
+    throw new Error("El mapa convertido supera el límite cloud de 75 MiB.");
+  }
+  return converted;
+}
+
 async function uploadCommunityMapFile(file) {
   if (!state.accountSession?.user?.id) {
     state.accountError = "Inicia sesión para subir mapas a la nube.";
@@ -9431,12 +9458,7 @@ async function uploadCommunityMapFile(file) {
   beginCloudOperation("saving", operationTarget);
 
   try {
-    let converted = await convertImageFileToWebp(file, 0.95);
-    if (converted.blob.size > MAX_CLOUD_MAP_IMAGE_BYTES && converted.blob !== file) converted = await convertImageFileToWebp(file, 0.86);
-    if (converted.blob.size > MAX_CLOUD_MAP_IMAGE_BYTES && converted.blob !== file) converted = await convertImageFileToWebp(file, 0.74);
-    if (converted.blob.size > MAX_CLOUD_MAP_IMAGE_BYTES) {
-      throw new Error("El mapa convertido supera el límite cloud de 75 MiB.");
-    }
+    const converted = await convertCommunityMapImage(file);
     const name = cleanText(file.name).replace(/\.[^.]+$/, "").slice(0, 120) || "Mapa";
     state.cloudMapUploadDraft = {
       mode: "upload",
@@ -9459,6 +9481,45 @@ async function uploadCommunityMapFile(file) {
   }
 
   endCloudOperation("saving", operationTarget);
+  render();
+}
+
+async function prepareCloudMapReplacement(file) {
+  const draft = state.cloudMapUploadDraft;
+  if (!draft || draft.mode !== "properties" || draft.canReplaceImage !== true) return;
+  const operationTarget = `map:replacement:${draft.entryId}`;
+  if (isCloudOperationActive("saving", operationTarget)) return;
+
+  beginCloudOperation("saving", operationTarget);
+  draft.error = "";
+  render();
+
+  try {
+    const converted = await convertCommunityMapImage(file);
+    draft.replacementBlob = converted.blob;
+    draft.previewUrl = converted.dataUrl;
+    draft.byteSize = converted.blob.size;
+    draft.width = converted.width;
+    draft.height = converted.height;
+    draft.isAnimated = converted.isAnimated === true;
+  } catch (error) {
+    draft.error = getCloudErrorMessage(error);
+  }
+
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+function discardCloudMapReplacement() {
+  const draft = state.cloudMapUploadDraft;
+  if (!draft || draft.mode !== "properties" || !draft.replacementBlob) return;
+  draft.replacementBlob = null;
+  draft.previewUrl = draft.originalPreviewUrl;
+  draft.byteSize = draft.originalByteSize;
+  draft.width = draft.originalWidth;
+  draft.height = draft.originalHeight;
+  draft.isAnimated = draft.originalIsAnimated;
+  draft.error = "";
   render();
 }
 
@@ -9486,10 +9547,33 @@ async function savePendingCommunityMapUpload() {
 
   try {
     if (editingProperties) {
+      let replacementImageUrl;
+      let replacementPayload;
+      if (draft.replacementBlob) {
+        const uploadResult = await uploadCloudImage(draft.replacementBlob, {
+          width: draft.width,
+          height: draft.height
+        });
+        const assetUrl = cleanText(uploadResult?.asset?.url);
+        replacementImageUrl = assetUrl ? `${assetUrl}${draft.isAnimated ? "?animated=1" : ""}` : "";
+        if (!replacementImageUrl) throw new Error("La imagen no pudo guardarse en la nube.");
+        replacementPayload = {
+          ...(isPlainObject(draft.payload) ? draft.payload : {}),
+          map: {
+            ...(isPlainObject(draft.payload?.map) ? draft.payload.map : {}),
+            name,
+            imageUrl: replacementImageUrl,
+            width: draft.width,
+            height: draft.height,
+            isAnimated: draft.isAnimated === true
+          }
+        };
+      }
       await updateCloudLibraryEntry(draft.entryId, {
         name,
         isPublic,
         tags,
+        ...(replacementImageUrl ? { imageUrl: replacementImageUrl, payload: replacementPayload } : {}),
         baseRevision: draft.baseRevision
       });
       state.cloudMapUploadDraft = null;
@@ -9577,15 +9661,24 @@ async function openCloudMapProperties(entryId) {
     const map = result?.payload?.map || {};
     const imageUrl = cleanText(map.imageUrl || entry.imageUrl);
     const byteSize = await getCloudMapAssetByteSize(imageUrl);
+    const isAnimated = map.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl);
     state.cloudMapUploadDraft = {
       mode: "properties",
       entryId: id,
       baseRevision: Number(entry.revision) || 1,
       previewUrl: imageUrl,
+      originalPreviewUrl: imageUrl,
       byteSize,
+      originalByteSize: byteSize,
       width: Math.max(0, Number(map.width) || 0),
+      originalWidth: Math.max(0, Number(map.width) || 0),
       height: Math.max(0, Number(map.height) || 0),
-      isAnimated: map.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl),
+      originalHeight: Math.max(0, Number(map.height) || 0),
+      isAnimated,
+      originalIsAnimated: isAnimated,
+      replacementBlob: null,
+      payload: result?.payload,
+      canReplaceImage: entry.isOwner === true && entry.entryKind === "manual",
       name: cleanText(entry.name || map.name) || "Mapa",
       tags: normalizeMapTags(entry.tags),
       newTag: "",
@@ -9714,8 +9807,10 @@ function renderCloudMapUploadDialog() {
   const editingProperties = draft.mode === "properties";
   const operationTarget = editingProperties ? `map:properties:${draft.entryId}` : "map:upload";
   const downloadTarget = `map:download:${draft.entryId}`;
+  const replacementTarget = `map:replacement:${draft.entryId}`;
   const downloadBusy = editingProperties && isCloudOperationActive("loading", downloadTarget);
-  const busy = isCloudOperationActive("saving", operationTarget) || downloadBusy;
+  const replacementBusy = editingProperties && isCloudOperationActive("saving", replacementTarget);
+  const busy = isCloudOperationActive("saving", operationTarget) || downloadBusy || replacementBusy;
   return `
     <div class="cloud-map-upload-dialog" data-cloud-map-upload-dialog role="dialog" aria-modal="true" aria-labelledby="cloud-map-upload-title">
       <section class="cloud-map-upload-dialog__panel" data-render-scroll-key="cloud-map-properties">
@@ -9724,16 +9819,23 @@ function renderCloudMapUploadDialog() {
           <button class="account-dialog__close" type="button" data-action="cancel-cloud-map-upload" aria-label="Cerrar" ${busy ? "disabled" : ""}>×</button>
         </header>
         <img src="${escapeHtml(draft.previewUrl)}" alt="Previsualización del mapa">
+        ${editingProperties && draft.canReplaceImage ? `
+          <div class="cloud-map-upload-dialog__image-actions">
+            <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", replacementTarget)}" type="button" data-action="select-cloud-map-replacement" ${renderCloudButtonBusyAttributes("saving", replacementTarget)}>${renderCloudButtonLabel(draft.replacementBlob ? "Elegir otra imagen" : "Reemplazar imagen", "Procesando…", "saving", replacementTarget)}</button>
+            ${draft.replacementBlob ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="discard-cloud-map-replacement">Descartar reemplazo</button>` : ""}
+            <input type="file" accept="image/*" data-cloud-map-replacement-file hidden>
+          </div>
+        ` : ""}
         <p class="combat-map-help"><strong>Tamaño convertido:</strong> ${escapeHtml(draft.byteSize ? formatCloudCampaignSize(draft.byteSize) : "No disponible")} · <strong>Resolución:</strong> ${draft.width && draft.height ? `${draft.width} × ${draft.height} px` : "No disponible"}</p>
         <label><span>Nombre</span><input type="text" maxlength="120" value="${escapeHtml(draft.name)}" data-cloud-map-upload-name></label>
         <label><span>Visibilidad</span><select data-cloud-map-upload-visibility><option value="public" ${draft.isPublic ? "selected" : ""}>Público</option><option value="private" ${draft.isPublic ? "" : "selected"}>Privado</option></select></label>
         ${renderCloudMapTagEditor(draft)}
-        <p class="combat-map-help">${editingProperties ? "La imagen no se volverá a subir; solo se guardarán estas propiedades." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
+        <p class="combat-map-help">${editingProperties ? draft.replacementBlob ? "La nueva imagen está preparada y se subirá cuando pulses Guardar." : "Puedes cambiar las propiedades o reemplazar la imagen desde un archivo local." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
         ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
         <footer>
-          ${editingProperties ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", downloadTarget)}" type="button" data-action="download-cloud-map-image" ${renderCloudButtonBusyAttributes("loading", downloadTarget)}>${renderCloudButtonLabel("Descargar imagen", "Descargando…", "loading", downloadTarget)}</button>` : ""}
+          ${editingProperties ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("loading", downloadTarget)}" type="button" data-action="download-cloud-map-image" ${replacementBusy ? "disabled" : renderCloudButtonBusyAttributes("loading", downloadTarget)}>${renderCloudButtonLabel("Descargar imagen", "Descargando…", "loading", downloadTarget)}</button>` : ""}
           <button class="account-action-button account-action-button--ghost" type="button" data-action="cancel-cloud-map-upload" ${busy ? "disabled" : ""}>Cancelar</button>
-          <button class="account-action-button${getCloudButtonBusyClass("saving", operationTarget)}" type="button" data-action="confirm-cloud-map-upload" ${downloadBusy ? "disabled" : renderCloudButtonBusyAttributes("saving", operationTarget)}>${renderCloudButtonLabel("Guardar", "Guardando…", "saving", operationTarget)}</button>
+          <button class="account-action-button${getCloudButtonBusyClass("saving", operationTarget)}" type="button" data-action="confirm-cloud-map-upload" ${downloadBusy || replacementBusy ? "disabled" : renderCloudButtonBusyAttributes("saving", operationTarget)}>${renderCloudButtonLabel("Guardar", "Guardando…", "saving", operationTarget)}</button>
         </footer>
       </section>
     </div>
@@ -27466,6 +27568,7 @@ function getCloudErrorMessage(error) {
     library_entry_too_large: "El contenido supera el límite cloud de 16 MB.",
     library_entry_limit: "Has alcanzado el límite de publicaciones cloud.",
     library_revision_conflict: "La publicación cambió en otra sesión. Actualiza antes de modificarla.",
+    library_image_update_forbidden: "Solo el propietario puede reemplazar la imagen de un mapa subido directamente.",
     map_tags_migration_required: "Las etiquetas de mapas necesitan la migración de base de datos pendiente.",
     storage_quota: "Has alcanzado tu cuota de almacenamiento cloud.",
     global_asset_storage_quota: "El almacenamiento de la aplicación está cerca del límite de 10 GB. No se ha subido el archivo para evitar superar 9 GB. Contacta con los administradores de Mimic Dice.",
