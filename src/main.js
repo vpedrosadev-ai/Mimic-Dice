@@ -87,6 +87,8 @@ import { convertImageFileToWebp, createCombatMapController, getPortableMapRefere
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
+import { renderMultiplayerScreen } from "./screens/multiplayer/multiplayerRender.js";
+import { startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
 import { renderDiceRollerDock } from "./screens/dice-roller/diceRollerRender.js";
 import {
   extractCrBaseLabel,
@@ -1325,6 +1327,14 @@ app.addEventListener("dragover", handleDragOver);
 app.addEventListener("drop", handleDrop);
 app.addEventListener("dragend", handleDragEnd);
 app.addEventListener("error", handleAppImageError, true);
+window.addEventListener("message", handleMonstersLeagueWindowMessage);
+
+let monstersLeagueBroadcastChannel = null;
+
+if (typeof BroadcastChannel !== "undefined") {
+  monstersLeagueBroadcastChannel = new BroadcastChannel("mimic-dice:monsters-league");
+  monstersLeagueBroadcastChannel.addEventListener("message", handleMonstersLeagueBroadcastMessage);
+}
 
 startCampaignAutosave();
 registerCampaignCloseAutosave();
@@ -1332,6 +1342,7 @@ render();
 queueCompendiumLoad("arcanum");
 queueInitialDataLoad();
 initializeCloudAccount();
+startMonstersLeagueCombatSync(() => state.combatants);
 
 function handleAppImageError(event) {
   const image = event.target?.closest?.("[data-cloud-catalog-image]");
@@ -1370,6 +1381,16 @@ async function handleClick(event) {
   }
 
   const actionButton = event.target.closest("[data-action]");
+
+  if (actionButton?.dataset.action === "open-monsters-league") {
+    openMonstersLeagueWindow({ testMode: false });
+    return;
+  }
+
+  if (actionButton?.dataset.action === "open-monsters-league-test") {
+    openMonstersLeagueWindow({ testMode: true });
+    return;
+  }
   const clickedBestiaryFilter = event.target.closest("[data-bestiary-filter-menu]");
   const clickedBestiaryQuery = event.target.closest("[data-bestiary-query-menu]");
   const clickedItemFilter = event.target.closest("[data-item-filter-menu]");
@@ -8474,6 +8495,97 @@ function getAccountDisplayName() {
     || "Invitado";
 }
 
+function openMonstersLeagueWindow({ testMode = false } = {}) {
+  if (!testMode && !state.accountSession?.user?.id) {
+    state.accountDialogOpen = true;
+    state.accountDialogView = "account";
+    state.accountError = "Inicia sesión para crear un lobby online de Monsters League.";
+    render();
+    return;
+  }
+
+  const fileMode = window.location.protocol === "file:";
+  const url = fileMode
+    ? new URL(window.location.href)
+    : new URL("/multiplayer/monsters-league", window.location.origin);
+  if (fileMode) {
+    url.search = "";
+    url.hash = "";
+    url.searchParams.set("view", "monsters-league");
+  }
+  url.searchParams.set("language", normalizeStoredContentLanguage(state.contentLanguage));
+  url.searchParams.set("mode", testMode ? "local" : "online");
+  url.searchParams.set("host", getAccountDisplayName());
+  url.searchParams.set("fresh", "1");
+  const leagueWindow = window.open(url.href, "_blank");
+
+  if (!leagueWindow) {
+    window.location.assign(url.href);
+  }
+}
+
+function handleMonstersLeagueWindowMessage(event) {
+  if (event.origin !== window.location.origin || event.data?.type !== "mimic-dice:monsters-league-result") {
+    return;
+  }
+
+  importMonstersLeagueResult(event.data.payload);
+}
+
+function handleMonstersLeagueBroadcastMessage(event) {
+  if (event.data?.type === "mimic-dice:monsters-league-result") {
+    importMonstersLeagueResult(event.data.payload);
+  }
+}
+
+function importMonstersLeagueResult(payload) {
+  if (!isPlainObject(payload) || payload.schema !== "mimic-dice:monsters-league-result" || !Array.isArray(payload.encounters)) {
+    return;
+  }
+
+  const roomId = cleanText(payload.roomId);
+  const incomingEncounters = payload.encounters
+    .map((encounter) => normalizeStoredEncounter(encounter))
+    .filter(Boolean);
+
+  if (!roomId || incomingEncounters.length === 0) {
+    return;
+  }
+
+  const folderId = `monsters-league-folder-${roomId}`;
+  const folderName = `Monsters League · ${cleanText(payload.name) || roomId}`;
+  const existingFolder = state.encounterFolders.find((folder) => folder.id === folderId);
+
+  if (existingFolder) {
+    state.encounterFolders = state.encounterFolders.map((folder) => folder.id === folderId
+      ? { ...folder, name: folderName, isExpanded: true }
+      : folder);
+  } else {
+    state.encounterFolders = [
+      { id: folderId, name: folderName, isExpanded: true },
+      ...state.encounterFolders
+    ];
+  }
+
+  const incomingTeamIds = new Set(incomingEncounters.map((encounter) => cleanText(encounter.multiplayer?.teamId)).filter(Boolean));
+  state.encounters = [
+    ...incomingEncounters.map((encounter) => ({ ...encounter, folderId })),
+    ...state.encounters.filter((encounter) => (
+      cleanText(encounter.multiplayer?.roomId) !== roomId
+      || !incomingTeamIds.has(cleanText(encounter.multiplayer?.teamId))
+    ))
+  ];
+  state.activeEncounterFolderId = folderId;
+  state.activeEncounterId = incomingEncounters[0]?.id || "";
+  saveEncounterInventory();
+  pushNotification({
+    title: "Monsters League",
+    message: `${incomingEncounters.length} equipos guardados como encuentros.`,
+    tone: "success"
+  });
+  render();
+}
+
 function getCloudAutosaveLabel() {
   if (!state.cloudCampaignId) {
     return "Sin campaña activa en la nube";
@@ -10256,6 +10368,7 @@ function renderTopbarNavigation() {
     "bestiary",
     "arcanum",
     "items",
+    "multiplayer",
     "diary",
     "tables"
   ];
@@ -10984,6 +11097,15 @@ function renderScreen() {
 
   if (state.activeScreen === "tables") {
     return renderTablesScreen();
+  }
+
+  if (state.activeScreen === "multiplayer") {
+    return renderMultiplayerScreen({
+      authenticated: Boolean(state.accountSession?.user?.id),
+      accountLoading: state.accountStatus === "loading",
+      userName: getAccountDisplayName(),
+      language: state.appLanguage
+    });
   }
 
   if (state.activeScreen === "release-notes") {
@@ -12790,11 +12912,12 @@ function renderCombatTurnToken(combatant, isActive) {
   const hpFill = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
   const hpVisualFill = getCombatHealthVisualFill(hpFill);
   const hpToneColor = getCombatHealthToneColor(hpFill);
+  const teamColor = normalizeTeamColor(combatant.teamColor);
 
   return `
     <div
-      class="combat-turn-token-wrap ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""}"
-      style="--turn-hp-fill:${hpVisualFill}%;--turn-hp-color:${hpToneColor}"
+      class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""}"
+      style="--turn-hp-fill:${hpVisualFill}%;--turn-hp-color:${hpToneColor}${teamColor ? `;--team-color:${teamColor}` : ""}"
       role="button"
       tabindex="0"
       data-action="focus-combatant-row"
@@ -14453,10 +14576,12 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
   const isDead = isCombatantDead(combatant);
   const isActiveTurn = combatant.id === activeTurnCombatantId;
   const rowContext = getCombatRowContext(combatant);
+  const teamColor = normalizeTeamColor(combatant.teamColor);
 
   return `
     <tr
-      class="row--${combatant.side} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""} ${isActiveTurn ? "row--active-turn" : ""}"
+      class="row--${combatant.side} ${teamColor ? "row--team" : ""} ${state.selectedIds.has(combatant.id) ? "row--selected" : ""} ${isDead ? "row--dead" : ""} ${isActiveTurn ? "row--active-turn" : ""}"
+      ${teamColor ? `style="--team-color:${teamColor}"` : ""}
       data-combat-row-id="${escapeHtml(combatant.id)}"
       tabindex="-1"
     >
@@ -23263,7 +23388,7 @@ function importEncounterToCombat(encounterId) {
 
     for (let index = 0; index < units; index += 1) {
       const id = `entity-${state.nextId + combatants.length}`;
-      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber, encounter.name, encounter.id);
+      const combatant = createCombatantFromEncounterRow(row, id, nextEnemyNumber, encounter.name, encounter.id, encounter.multiplayer);
       combatants.push(combatant);
       state.inlineAdjustments[id] = { ...blankInlineAdjustments };
       nextEnemyNumber += 1;
@@ -23287,8 +23412,9 @@ function importEncounterToCombat(encounterId) {
   state.combatAddPickerMode = "";
 }
 
-function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "", encounterId = "") {
+function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "", encounterId = "", multiplayer = null) {
   const bestiaryEntry = getEncounterRowBestiaryEntry(row);
+  const teamMeta = isPlainObject(multiplayer) ? multiplayer : {};
 
   if (bestiaryEntry) {
     return createCombatantFromBestiaryEntry({
@@ -23298,6 +23424,12 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
       id,
       ubicacion: encounterName,
       sourceEncounterId: encounterId,
+      multiplayerRoomId: cleanText(teamMeta.roomId),
+      teamId: cleanText(teamMeta.teamId || row.teamId),
+      teamOwnerUserId: cleanText(teamMeta.ownerUserId),
+      teamOwnerName: cleanText(teamMeta.ownerName),
+      teamColor: normalizeTeamColor(teamMeta.color || row.teamColor),
+      multiplayerOnline: teamMeta.online === true,
       numPeana: formatStandNumber(standNumber)
     }, {
       rollInitiative: true
@@ -23321,6 +23453,12 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
     id,
     ubicacion: encounterName,
     sourceEncounterId: encounterId,
+    multiplayerRoomId: cleanText(teamMeta.roomId),
+    teamId: cleanText(teamMeta.teamId || row.teamId),
+    teamOwnerUserId: cleanText(teamMeta.ownerUserId),
+    teamOwnerName: cleanText(teamMeta.ownerName),
+    teamColor: normalizeTeamColor(teamMeta.color || row.teamColor),
+    multiplayerOnline: teamMeta.online === true,
     numPeana: formatStandNumber(standNumber)
   }, {
     rollInitiative: true
@@ -23375,6 +23513,11 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     canonicalSource: entry.canonicalSource || entry.source || cleanText(existingCombatant.canonicalSource),
     ubicacion: existingCombatant.ubicacion ?? "",
     sourceEncounterId: cleanText(existingCombatant.sourceEncounterId),
+    multiplayerRoomId: cleanText(existingCombatant.multiplayerRoomId),
+    teamId: cleanText(existingCombatant.teamId),
+    teamOwnerUserId: cleanText(existingCombatant.teamOwnerUserId),
+    teamOwnerName: cleanText(existingCombatant.teamOwnerName),
+    teamColor: normalizeTeamColor(existingCombatant.teamColor),
     iniactiva: existingCombatant.iniactiva ?? "",
     nombre: entry.name,
     source: entry.source ?? "",
@@ -24460,6 +24603,7 @@ function distributeExperienceForNewlyDefeatedEnemies(previousCombatants = []) {
 
     return Boolean(previousCombatant)
       && isEnemyCombatant(combatant)
+      && !cleanText(combatant.multiplayerRoomId)
       && combatant.experienceGranted !== true
       && !isCombatantDead(previousCombatant)
       && isCombatantDead(combatant);
@@ -24664,10 +24808,21 @@ function normalizeCombatant(combatant, changedKey = "") {
     pgTemp,
     hitDice,
     necrotic,
+    multiplayerRoomId: cleanText(combatant.multiplayerRoomId),
+    teamId: cleanText(combatant.teamId),
+    teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
+    teamOwnerName: cleanText(combatant.teamOwnerName),
+    teamColor: normalizeTeamColor(combatant.teamColor),
+    multiplayerOnline: combatant.multiplayerOnline === true,
     hiddenFromInitiative: combatant.hiddenFromInitiative === true,
     stats: changedKey === "stats" ? formatStatsWithModifiers(combatant.stats) : combatant.stats,
     side: changedKey === "tag" ? mapTagToSide(combatant.tag) : combatant.side
   };
+}
+
+function normalizeTeamColor(value) {
+  const color = cleanText(value);
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : "";
 }
 
 function isCombatantDead(combatant) {
@@ -33909,7 +34064,24 @@ function normalizeStoredEncounter(encounter) {
     folderId: cleanText(encounter.folderId),
     map: normalizeMapReference(encounter.map),
     mapEditorState: isPlainObject(encounter.mapEditorState) ? normalizeMapEditorState(encounter.mapEditorState) : null,
+    multiplayer: normalizeStoredEncounterMultiplayer(encounter.multiplayer),
     rows
+  };
+}
+
+function normalizeStoredEncounterMultiplayer(value) {
+  if (!isPlainObject(value) || cleanText(value.mode) !== "monsters-league") {
+    return null;
+  }
+
+  return {
+    mode: "monsters-league",
+    roomId: cleanText(value.roomId),
+    teamId: cleanText(value.teamId),
+    ownerUserId: cleanText(value.ownerUserId),
+    ownerName: cleanText(value.ownerName),
+    color: normalizeTeamColor(value.color),
+    online: value.online === true
   };
 }
 
@@ -33940,6 +34112,9 @@ function normalizeStoredEncounterRow(row) {
     acValue: toNumber(row.acValue),
     crLabel: cleanText(row.crLabel),
     crValue: toNumber(row.crValue),
+    draftPrice: Math.max(0, Math.floor(toNumber(row.draftPrice))),
+    teamId: cleanText(row.teamId),
+    teamColor: normalizeTeamColor(row.teamColor),
     units: Math.max(1, Math.floor(toNumber(row.units) || 1))
   };
 }

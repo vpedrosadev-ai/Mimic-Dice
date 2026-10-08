@@ -1,0 +1,12 @@
+name = "mimicdice-monsters-league"
+main = "index.js"
+compatibility_date = "2026-05-18"
+workers_dev = false
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MonstersLeagueRoom"]
+
+[[durable_objects.bindings]]
+name = "MONSTERS_LEAGUE_ROOMS"
+class_name = "MonstersLeagueRoom"

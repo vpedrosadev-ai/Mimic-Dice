@@ -11,3 +11,8 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "CLOUD_ASSETS"
 bucket_name = "mimic-dice-assets"
+
+[[durable_objects.bindings]]
+name = "MONSTERS_LEAGUE_ROOMS"
+class_name = "MonstersLeagueRoom"
+script_name = "mimicdice-monsters-league"

@@ -21,6 +21,37 @@
   --shadow: 0 26px 70px rgba(0, 0, 0, 0.42);
 }
 
+/* Monsters League team identity */
+.combat-tracker-panel .combat-table tbody tr.row--team td {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--team-color) 13%, transparent), color-mix(in srgb, var(--team-color) 4%, transparent)),
+    var(--panel-strong);
+}
+
+.combat-tracker-panel .combat-table tbody tr.row--team td:first-child {
+  box-shadow: inset 4px 0 var(--team-color);
+}
+
+.combat-tracker-panel .combat-table tbody tr.row--team.row--selected td {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--team-color) 22%, transparent), color-mix(in srgb, var(--team-color) 8%, transparent)),
+    var(--panel-strong);
+}
+
+.combat-turn-token-wrap.has-team-color .combat-turn-token {
+  border-color: var(--team-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-color) 22%, transparent), 0 12px 28px rgba(0, 0, 0, 0.36);
+}
+
+.combat-turn-token-wrap.has-team-color .combat-turn-token__initiative {
+  border-color: var(--team-color);
+}
+
+.combat-map-token.has-team-color .combat-map-token__portrait {
+  border-color: var(--team-color);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--team-color) 28%, transparent), 0 8px 18px rgba(0, 0, 0, 0.48);
+}
+
 /* Floating dice roller */
 .sr-only {
   position: absolute;

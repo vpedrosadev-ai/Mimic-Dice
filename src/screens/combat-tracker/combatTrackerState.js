@@ -201,6 +201,12 @@ function normalizeStoredCombatant(combatant) {
     source: cleanText(combatant.source),
     tokenUrl: cleanText(combatant.tokenUrl),
     sourceEncounterId: cleanText(combatant.sourceEncounterId),
+    multiplayerRoomId: cleanText(combatant.multiplayerRoomId),
+    teamId: cleanText(combatant.teamId),
+    teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
+    teamOwnerName: cleanText(combatant.teamOwnerName),
+    teamColor: normalizeStoredTeamColor(combatant.teamColor),
+    multiplayerOnline: combatant.multiplayerOnline === true,
     ubicacion: cleanText(combatant.ubicacion),
     iniactiva: normalizeStoredNumber(combatant.iniactiva),
     nombre: cleanText(combatant.nombre),
@@ -230,6 +236,11 @@ function normalizeStoredCombatant(combatant) {
       : normalizeStoredNumber(combatant.initiativeRoll),
     initiativeNat20: combatant.initiativeNat20 === true
   };
+}
+
+function normalizeStoredTeamColor(value) {
+  const color = cleanText(value);
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : "";
 }
 
 function normalizeStoredCombatFilters(filters) {

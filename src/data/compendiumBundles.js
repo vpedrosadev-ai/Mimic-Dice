@@ -1,4 +1,5 @@
-const COMPENDIUM_MANIFEST_PATH = "data/compendium-manifest.json";
+const usesRelativeAssetPaths = typeof window !== "undefined" && /^file:$/i.test(window.location?.protocol || "");
+const COMPENDIUM_MANIFEST_PATH = usesRelativeAssetPaths ? "data/compendium-manifest.json" : "/data/compendium-manifest.json";
 const COMPENDIUM_CACHE_DB_NAME = "mimic-dice:compendium-cache";
 const COMPENDIUM_CACHE_STORE_NAME = "bundles";
 const COMPENDIUM_CACHE_DB_VERSION = 1;
@@ -77,7 +78,7 @@ async function loadBundleEntry(bundleEntry, { cacheKey, kind, language }) {
     return cachedPayload;
   }
 
-  const response = await fetch(bundleEntry.path, {
+  const response = await fetch(toRootRelativeAssetPath(bundleEntry.path), {
     cache: "force-cache"
   });
 
@@ -93,6 +94,16 @@ async function loadBundleEntry(bundleEntry, { cacheKey, kind, language }) {
 
   saveCachedBundle(cacheKey, payload).catch(() => {});
   return payload;
+}
+
+function toRootRelativeAssetPath(value) {
+  const path = String(value || "");
+
+  if (usesRelativeAssetPaths || !path || /^(?:https?:|data:|blob:|mimic-assets:)/i.test(path)) {
+    return path;
+  }
+
+  return `/${path.replace(/^\/+/, "")}`;
 }
 
 function isValidManifest(manifest) {

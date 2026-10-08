@@ -129,6 +129,27 @@ Aplicar migraciones de produccion con:
 npx wrangler d1 migrations apply mimic-dice-production --remote
 ```
 
+## Monsters League
+
+El modo online usa un Durable Object independiente para conservar una única
+versión autoritativa del lobby, la subasta, los bots y el estado en vivo del
+combate. Antes de desplegar Pages por primera vez con esta función:
+
+```powershell
+npx wrangler deploy --config workers/monsters-league/wrangler.toml
+npx wrangler d1 migrations apply mimic-dice-production --remote
+```
+
+Después se despliega Pages normalmente. El binding
+`MONSTERS_LEAGUE_ROOMS` de `wrangler.toml` apunta al Worker
+`mimicdice-monsters-league`, por lo que el Worker debe existir primero. La
+migración `0010_multiplayer_rooms.sql` crea el índice de salas y su caducidad;
+el estado efímero de cada partida permanece en el Durable Object.
+
+Para probar todo el draft sin infraestructura ni otras cuentas, abre
+Multijugador y usa **Probar con bots**. Ese flujo permanece local y nunca
+intenta conectarse al Worker.
+
 ## Almacenamiento cloud
 
 - D1 guarda usuarios, metadatos, campañas y publicaciones individuales por fragmentos.
