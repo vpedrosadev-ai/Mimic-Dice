@@ -2033,6 +2033,66 @@ button.is-cloud-busy:disabled {
   border-top: 1px solid rgba(202, 152, 81, 0.18);
 }
 
+.account-multiplayer-card {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid rgba(202, 152, 81, 0.28);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 90% 0, rgba(94, 183, 166, 0.12), transparent 12rem),
+    linear-gradient(145deg, rgba(50, 31, 18, 0.82), rgba(28, 19, 14, 0.9));
+}
+
+.account-multiplayer-card__mark {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  border: 1px solid rgba(217, 171, 93, 0.55);
+  border-radius: 12px;
+  color: var(--accent);
+  font-family: Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 900;
+  background: rgba(217, 171, 93, 0.08);
+}
+
+.account-multiplayer-card__copy h3,
+.account-multiplayer-card__copy p,
+.account-multiplayer-card__copy small {
+  margin: 0;
+}
+
+.account-multiplayer-card__copy small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.account-multiplayer-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+@media (max-width: 720px) {
+  .account-multiplayer-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .account-multiplayer-card__actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .account-multiplayer-card__actions > * {
+    flex: 1 1 auto;
+  }
+}
+
 .account-library-card__type {
   display: block;
   margin-bottom: 0.2rem;

@@ -121,10 +121,10 @@ async function listOwnedCampaigns(context, user) {
     SELECT c.*, u."name" AS "ownerName"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
-    WHERE (? = 1 OR c."ownerId" = ?)
+    WHERE c."ownerId" = ?
     ORDER BY c."updatedAt" DESC
     LIMIT ?
-  `).bind(administrator ? 1 : 0, user.id, administrator ? 2000 : MAX_CAMPAIGNS_PER_USER).all();
+  `).bind(user.id, MAX_CAMPAIGNS_PER_USER).all();
   return jsonResponse({ campaigns: result.results.map((row) => getCampaignSummary(row, user.id, administrator)) });
 }
 
@@ -142,6 +142,11 @@ async function listPublicCampaigns(context, user) {
 
 async function createCampaign(context, user, sourceBody = null) {
   const body = sourceBody || await readJsonBody(context.request, MAX_CAMPAIGN_BYTES + 4096);
+  const campaign = await createOwnedCloudCampaign(context, user, body);
+  return jsonResponse({ campaign: getCampaignSummary(campaign, user.id) }, 201);
+}
+
+export async function createOwnedCloudCampaign(context, user, body) {
   const currentCount = await context.env.DB.prepare(
     'SELECT COUNT(*) AS "count" FROM "campaigns" WHERE "ownerId" = ?'
   ).bind(user.id).first();
@@ -185,7 +190,49 @@ async function createCampaign(context, user, sourceBody = null) {
   });
 
   const campaign = await getCampaignRecord(context.env.DB, campaignId);
-  return jsonResponse({ campaign: getCampaignSummary(campaign, user.id) }, 201);
+  return campaign;
+}
+
+export async function replaceOwnedCloudCampaignPayload(context, user, campaignId, body) {
+  const campaign = await getCampaignRecord(context.env.DB, campaignId);
+
+  if (!campaign || campaign.ownerId !== user.id) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
+
+  const name = cleanText(body.name || body.payload?.campaign?.name || campaign.name, 120) || campaign.name;
+  const { serialized, payloadBytes } = serializeCampaign(body.payload);
+  const storage = await context.env.DB.prepare(
+    'SELECT COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "campaigns" WHERE "ownerId" = ?'
+  ).bind(user.id).first();
+
+  if (Number(storage?.bytes || 0) - Number(campaign.payloadBytes || 0) + payloadBytes > MAX_CAMPAIGN_STORAGE_BYTES_PER_USER) {
+    throw new HttpError(413, "storage_quota", "Campaign cloud storage quota exceeded.");
+  }
+
+  const chunks = splitCampaign(serialized);
+  const payloadVersion = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await context.env.DB.batch(createChunkStatements(context.env.DB, campaignId, payloadVersion, chunks));
+  await context.env.DB.prepare(`
+    UPDATE "campaigns"
+    SET "name" = ?, "revision" = "revision" + 1, "payloadVersion" = ?,
+        "payloadBytes" = ?, "chunkCount" = ?, "updatedAt" = ?
+    WHERE "id" = ? AND "ownerId" = ?
+  `).bind(name, payloadVersion, payloadBytes, chunks.length, now, campaignId, user.id).run();
+  await context.env.DB.prepare(
+    'DELETE FROM "campaign_chunks" WHERE "campaignId" = ? AND "payloadVersion" <> ?'
+  ).bind(campaignId, payloadVersion).run();
+  await syncCloudAssetReferences(context.env.DB, user.id, "campaign", campaignId, body.payload);
+  await syncCampaignCatalog(context.env.DB, {
+    campaignId,
+    ownerId: user.id,
+    payload: body.payload,
+    isPublic: campaign.isPublic === 1,
+    forceVisibility: campaign.isPublic === 1
+  });
+
+  return await getCampaignRecord(context.env.DB, campaignId);
 }
 
 async function getCampaign(context, campaignId, user) {

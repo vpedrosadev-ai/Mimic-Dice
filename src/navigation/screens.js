@@ -70,16 +70,6 @@ export const screens = [
     `
   },
   {
-    id: "multiplayer",
-    label: "Multiplayer",
-    shortLabel: "Multijugador",
-    icon: `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M8.2 11.2a4.1 4.1 0 1 1 0-8.2 4.1 4.1 0 0 1 0 8.2Zm7.8-.8a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4ZM1.8 20.8v-2.1c0-3.5 2.9-6.3 6.4-6.3s6.4 2.8 6.4 6.3v2.1H1.8Zm13.9 0v-2.1c0-1.8-.6-3.5-1.7-4.8.7-.4 1.5-.6 2.3-.6 3 0 5.4 2.4 5.4 5.4v2.1h-6Z" />
-      </svg>
-    `
-  },
-  {
     id: "release-notes",
     label: "Release Notes",
     shortLabel: "Notas de version",

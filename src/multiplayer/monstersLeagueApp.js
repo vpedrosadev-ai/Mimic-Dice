@@ -8,17 +8,19 @@ import { parseBestiarySpellcasting } from "../shared/bestiarySpellcasting.js";
 import { createSpellReferenceMatcher } from "../shared/spellReferences.js";
 import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
 import { fetchAuthSession } from "../cloud/cloudClient.js";
-import { connectMonstersLeagueRoom, createMonstersLeagueOnlineRoom } from "./monstersLeagueClient.js";
+import {
+  connectMonstersLeagueRoom,
+  createMonstersLeagueOnlineRoom,
+  finalizeMonstersLeagueOnlineRoom
+} from "./monstersLeagueClient.js";
 import {
   addMonstersLeaguePlayer,
   chooseBotBid,
-  chooseBotNomination,
   createMonstersLeagueEncounters,
   createMonstersLeagueRoom,
-  getCurrentNominator,
   getEligibleMonsters,
   getMonstersLeagueMaxBid,
-  nominateMonstersLeagueCreature,
+  openRandomMonstersLeagueLot,
   placeMonstersLeagueBid,
   publishMonstersLeagueRoom,
   removeMonstersLeaguePlayer,
@@ -165,8 +167,14 @@ const state = {
   nextBotDecisionAt: 0,
   botNominationPending: false,
   encountersSent: false,
+  cloudCampaignSaveStatus: "idle",
   connection: null,
-  connectionStatus: localTestMode ? "local" : "connecting"
+  connectionStatus: localTestMode ? "local" : "connecting",
+  draftFlash: null,
+  draftFlashTimer: 0,
+  draftObservation: null,
+  lastCountdownBeep: "",
+  audioContext: null
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -265,12 +273,19 @@ async function initializeOnlineRoom(hostName) {
 
   state.connection = connectMonstersLeagueRoom(roomId, {
     onStatus(status) {
+      const wasReconnecting = state.connectionStatus === "reconnecting";
       state.connectionStatus = status;
+      if (status === "connected" && wasReconnecting && state.room) {
+        state.notice = language === "en" ? "Session recovered." : "Sesión recuperada.";
+      }
       if (!state.loading) render();
     },
     onSnapshot(room) {
       const previousStatus = state.room?.status;
+      observeDraftEvents(room);
       state.room = room;
+      state.loading = false;
+      state.loadError = "";
       if (!state.selectedTeamPlayerId || !room.players.some((player) => player.id === state.selectedTeamPlayerId)) {
         state.selectedTeamPlayerId = state.hostPlayerId;
       }
@@ -279,6 +294,7 @@ async function initializeOnlineRoom(hostName) {
         state.selectedMonsterId = "";
       }
       ensureTestCombatState();
+      ensureCloudCampaignSaved();
       if (!state.loading) render();
     },
     onError(error) {
@@ -299,7 +315,9 @@ function prepareMonsterAssetUrls(entry) {
     ...entry,
     imageUrl: toRootAssetUrl(entry.imageUrl),
     tokenUrl: toRootAssetUrl(entry.tokenUrl),
-    dedupeKey: normalizeSearchText(entry.canonicalName || entry.name)
+    dedupeKey: normalizeSearchText(entry.canonicalName || entry.name),
+    sizeFilterKey: toFilterKey(entry.size),
+    typeFilterKey: toTypeFilterKey(entry.type)
   };
 }
 
@@ -369,6 +387,7 @@ function render() {
       ${stage}
     </div>
     ${renderSpellDialog()}
+    ${renderDraftFlash()}
   `;
   persistTestRoom();
 }
@@ -384,6 +403,8 @@ function renderStagePill(status, label) {
 function renderConfiguration() {
   const config = state.room.config;
   const eligibleCount = getEligibleMonsters(state.catalog, config).length;
+  const sizeOptions = getCreatureFilterOptions("size");
+  const typeOptions = getCreatureFilterOptions("type");
 
   return `
     <main class="ml-page ml-config-page">
@@ -404,8 +425,11 @@ function renderConfiguration() {
             <label class="ml-field"><span>Criaturas por equipo</span><input name="teamSize" type="number" min="1" max="8" value="${config.teamSize}" /></label>
             <label class="ml-field"><span>CR mínimo</span><input name="crMin" type="number" min="0" max="30" step="0.125" value="${config.crMin}" /></label>
             <label class="ml-field"><span>CR máximo</span><input name="crMax" type="number" min="0" max="30" step="0.125" value="${config.crMax}" /></label>
-            <label class="ml-field"><span>Tiempo de nominación</span><select name="nominationSeconds">${renderTimeOptions(config.nominationSeconds)}</select></label>
             <label class="ml-field"><span>Tiempo de puja</span><select name="bidSeconds">${renderTimeOptions(config.bidSeconds)}</select></label>
+          </div>
+          <div class="ml-exclusion-grid">
+            ${renderExclusionGroup("excludedSizes", language === "en" ? "Exclude creature sizes" : "Excluir tamaños", sizeOptions, config.excludedSizes)}
+            ${renderExclusionGroup("excludedTypes", language === "en" ? "Exclude creature types" : "Excluir tipos de criatura", typeOptions, config.excludedTypes)}
           </div>
           <div class="ml-config-summary">
             <article><span>Catálogo elegible</span><strong>${eligibleCount.toLocaleString(language)}</strong><small>criaturas únicas</small></article>
@@ -420,7 +444,7 @@ function renderConfiguration() {
           <div class="ml-panel-heading"><div><p class="ml-eyebrow">02 · PARTICIPANTES</p><h2>Asientos</h2></div><strong>${state.room.players.length}/${config.maxPlayers}</strong></div>
           <div class="ml-player-list">${state.room.players.map(renderLobbyPlayer).join("")}</div>
           <button class="ml-button ml-button--bot" type="button" data-ml-action="add-bot" ${state.room.players.length >= config.maxPlayers ? "disabled" : ""}><span>＋</span>Añadir bot de prueba</button>
-          <p class="ml-helper">Los bots nominan, pujan y completan su equipo automáticamente. Puedes probar el flujo sin abrir otra sesión.</p>
+          <p class="ml-helper">Los bots pujan y completan su equipo automáticamente. Las criaturas se eligen al azar. Puedes probar el flujo sin abrir otra sesión.</p>
         </aside>
       </div>
     </main>
@@ -431,12 +455,49 @@ function renderTimeOptions(selected) {
   return [5, 10, 15, 20, 30, 45, 60].map((seconds) => `<option value="${seconds}" ${seconds === selected ? "selected" : ""}>${seconds} ${t("seconds")}</option>`).join("");
 }
 
+function renderExclusionGroup(name, label, options, selectedValues = []) {
+  const selected = new Set(Array.isArray(selectedValues) ? selectedValues : []);
+  return `
+    <fieldset class="ml-exclusion-group">
+      <legend>${escapeHtml(label)}</legend>
+      <div>${options.map((option) => `
+        <label><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(option.key)}" ${selected.has(option.key) ? "checked" : ""} /><span>${escapeHtml(option.label)}</span></label>
+      `).join("")}</div>
+    </fieldset>
+  `;
+}
+
+function getCreatureFilterOptions(kind) {
+  const options = new Map();
+  for (const monster of state.catalog) {
+    const rawLabel = cleanText(kind === "size" ? monster.size : monster.type).split(/[,(\[]/, 1)[0];
+    const key = kind === "size" ? toFilterKey(monster.size) : toTypeFilterKey(monster.type);
+    if (key && rawLabel && !options.has(key)) options.set(key, rawLabel);
+  }
+  return [...options.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((left, right) => left.label.localeCompare(right.label, language));
+}
+
+function formatExcludedCreatureFilters(config) {
+  const labels = [
+    ...getSelectedFilterLabels("size", config.excludedSizes),
+    ...getSelectedFilterLabels("type", config.excludedTypes)
+  ];
+  return labels.length ? labels.join(", ") : (language === "en" ? "None" : "Ninguna");
+}
+
+function getSelectedFilterLabels(kind, selectedValues) {
+  const labels = new Map(getCreatureFilterOptions(kind).map((option) => [option.key, option.label]));
+  return (Array.isArray(selectedValues) ? selectedValues : []).map((key) => labels.get(key) || key.replace(/-/g, " "));
+}
+
 function renderLobby() {
   const room = state.room;
   const allReady = room.players.length >= 2 && room.players.every((player) => player.ready);
   const currentPlayer = room.players.find((player) => player.id === state.hostPlayerId);
   const isHost = room.hostPlayerId === state.hostPlayerId;
-  const inviteUrl = localTestMode ? "" : `${window.location.origin}/multiplayer/monsters-league?room=${encodeURIComponent(room.id)}&mode=online&language=${room.language}`;
+  const inviteUrl = localTestMode ? "" : createMonstersLeagueUrl({ roomId: room.id, mode: "online", roomLanguage: room.language });
 
   return `
     <main class="ml-page ml-lobby-page">
@@ -455,7 +516,7 @@ function renderLobby() {
         <aside class="ml-panel ml-lobby-rules">
           <p class="ml-eyebrow">REGLAS DE PARTIDA</p>
           <h2>Todo listo</h2>
-          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div></dl>
+          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Exclusiones</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
           ${isHost
             ? `<button class="ml-button ml-button--primary ml-button--large" type="button" data-ml-action="start-draft" ${allReady ? "" : "disabled"}>Comenzar subasta</button>`
             : `<button class="ml-button ${currentPlayer?.ready ? "" : "ml-button--primary"} ml-button--large" type="button" data-ml-action="toggle-ready">${currentPlayer?.ready ? "Dejar de estar listo" : "Estoy listo"}</button>`}
@@ -482,10 +543,8 @@ function renderLobbyPlayer(player) {
 function renderDraft() {
   const room = state.room;
   const player = room.players.find((entry) => entry.id === state.hostPlayerId) || room.players[0];
-  const nominator = getCurrentNominator(room);
   const lot = room.currentLot;
   const highBidder = lot ? room.players.find((entry) => entry.id === lot.highBidPlayerId) : null;
-  const available = getVisibleNominationCatalog();
 
   return `
     <main class="ml-draft-page">
@@ -495,10 +554,10 @@ function renderDraft() {
       </aside>
       <section class="ml-auction-stage">
         <div class="ml-auction-stage__heading">
-          <div><p class="ml-eyebrow">LOTE ${room.history.length + 1}</p><h1>${lot ? "Subasta en curso" : `${nominator?.name || ""} nomina`}</h1></div>
-          <div class="ml-countdown"><span data-ml-countdown>${formatCountdown(getActiveDeadline())}</span><small>${lot ? "PUJA" : "NOMINACIÓN"}</small></div>
+          <div><p class="ml-eyebrow">LOTE ${room.history.length + 1}</p><h1>${lot ? "Subasta en curso" : "Preparando lote aleatorio"}</h1></div>
+          <div class="ml-countdown"><span data-ml-countdown>${formatCountdown(getActiveDeadline())}</span><small>PUJA</small></div>
         </div>
-        ${lot ? renderActiveLot(lot, player, highBidder) : renderNomination(available, nominator)}
+        ${lot ? renderActiveLot(lot, player, highBidder) : renderRandomLotWaiting()}
       </section>
       <aside class="ml-own-team ml-panel">
         <div class="ml-panel-heading"><div><p class="ml-eyebrow">TU EQUIPO</p><h2>${escapeHtml(player.name)}</h2></div><strong>${player.gold} <small>oro</small></strong></div>
@@ -529,7 +588,7 @@ function renderActiveLot(lot, player, highBidder) {
   return `
     <div class="ml-active-lot">
       <figure class="ml-active-lot__portrait">${renderMonsterImage(monster, "eager")}</figure>
-      <div class="ml-active-lot__name"><span>CRIATURA NOMINADA</span><h2>${escapeHtml(monster.name)}</h2></div>
+      <div class="ml-active-lot__name"><span>CRIATURA ALEATORIA</span><h2>${escapeHtml(monster.name)}</h2></div>
       <div class="ml-bid-board">
         <div><span>${t("currentBid")}</span><strong>${lot.currentBid}</strong><small>ORO</small></div>
         <p>Lidera <b style="--team-color:${escapeHtml(highBidder?.color || "#d9ab5d")}">${escapeHtml(highBidder?.name || "—")}</b></p>
@@ -544,33 +603,8 @@ function renderActiveLot(lot, player, highBidder) {
   `;
 }
 
-function renderNomination(available, nominator) {
-  const isHumanTurn = nominator?.id === state.hostPlayerId;
-
-  if (!isHumanTurn) {
-    return `<div class="ml-waiting-nomination"><i></i><h2>${escapeHtml(nominator?.name || "Bot")} está eligiendo criatura</h2><p>La subasta comenzará automáticamente.</p></div>`;
-  }
-
-  return `
-    <div class="ml-nomination-panel">
-      <label class="ml-monster-search"><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar criatura por nombre…" value="${escapeHtml(state.search)}" data-ml-monster-search /></label>
-      <div class="ml-monster-grid">
-        ${available.map((monster) => `
-          <button class="ml-monster-choice" type="button" data-ml-action="nominate" data-monster-id="${escapeHtml(monster.id)}">
-            <span>${renderMonsterImage(monster)}</span><strong>${escapeHtml(monster.name)}</strong>
-          </button>
-        `).join("") || `<p class="ml-empty-copy">No se encontraron criaturas.</p>`}
-      </div>
-    </div>
-  `;
-}
-
-function getVisibleNominationCatalog() {
-  const query = normalizeSearchText(state.search);
-  return state.catalog
-    .filter((monster) => state.room.availableMonsterIds.includes(monster.id))
-    .filter((monster) => !query || normalizeSearchText(monster.name).includes(query))
-    .slice(0, 120);
+function renderRandomLotWaiting() {
+  return `<div class="ml-waiting-nomination"><i></i><h2>Eligiendo criatura al azar</h2><p>El siguiente lote aparecerá automáticamente.</p></div>`;
 }
 
 function renderMiniMonster(monster, price) {
@@ -594,7 +628,7 @@ function renderTeamScreen() {
         <div><p class="ml-eyebrow">DRAFT COMPLETADO</p><h1>${t("teamOf")} ${escapeHtml(viewedPlayer.name)}</h1><p>${viewedPlayer.roster.length} criaturas · ${viewedPlayer.gold} oro restante</p></div>
         <div class="ml-team-header__actions">
           ${localTestMode ? `<label>Ver equipo<select data-ml-team-select>${room.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === viewedPlayer.id ? "selected" : ""}>${escapeHtml(player.name)}</option>`).join("")}</select></label>` : ""}
-          ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button" type="button" data-ml-action="send-encounters">${state.encountersSent ? "Equipos enviados ✓" : "Guardar encuentros"}</button>` : ""}
+          ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button" type="button" data-ml-action="send-encounters">${getEncounterSaveButtonLabel()}</button>` : ""}
           ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button ml-button--primary" type="button" data-ml-action="enter-combat">${room.status === "combat" ? "Combate en vivo" : "Iniciar combate"}</button>` : `<span class="ml-live-dot">${room.status === "combat" ? "LIVE" : "ESPERANDO AL HOST"}</span>`}
         </div>
       </section>
@@ -706,6 +740,115 @@ function renderSpellDialog() {
   `;
 }
 
+function renderDraftFlash() {
+  const flash = state.draftFlash;
+  if (!flash) return "";
+  return `
+    <div class="ml-draft-flash ml-draft-flash--${escapeHtml(flash.type)}" style="--team-color:${escapeHtml(flash.color || "#d9ab5d")}" role="status" aria-live="assertive">
+      <span>${escapeHtml(flash.eyebrow)}</span>
+      <strong>${escapeHtml(flash.title)}</strong>
+      <small>${escapeHtml(flash.detail)}</small>
+    </div>
+  `;
+}
+
+function observeDraftEvents(room) {
+  if (!room) return;
+  const lot = room.currentLot;
+  const observation = {
+    lotId: cleanText(lot?.monster?.id),
+    bid: Number(lot?.currentBid) || 0,
+    bidderId: cleanText(lot?.highBidPlayerId),
+    historyCount: room.history?.length || 0
+  };
+  const previous = state.draftObservation;
+  state.draftObservation = observation;
+
+  if (!previous) return;
+
+  if (observation.historyCount > previous.historyCount) {
+    const result = room.history[room.history.length - 1];
+    const winner = room.players.find((player) => player.id === result?.winnerPlayerId);
+    showDraftFlash({
+      type: "win",
+      eyebrow: language === "en" ? "AUCTION WON" : "PUJA GANADA",
+      title: winner?.name || "—",
+      detail: `${result?.price || 0} ${language === "en" ? "gold" : "de oro"}`,
+      color: winner?.color
+    });
+    playDraftSound("win");
+    return;
+  }
+
+  if (observation.lotId && observation.lotId === previous.lotId
+    && (observation.bid > previous.bid || observation.bidderId !== previous.bidderId)) {
+    const bidder = room.players.find((player) => player.id === observation.bidderId);
+    showDraftFlash({
+      type: "bid",
+      eyebrow: language === "en" ? "NEW BID" : "NUEVA PUJA",
+      title: bidder?.name || "—",
+      detail: `${observation.bid} ${language === "en" ? "gold" : "de oro"}`,
+      color: bidder?.color
+    });
+    playDraftSound("bid");
+  }
+}
+
+function showDraftFlash(flash) {
+  window.clearTimeout(state.draftFlashTimer);
+  state.draftFlash = flash;
+  state.draftFlashTimer = window.setTimeout(() => {
+    state.draftFlash = null;
+    render();
+  }, flash.type === "win" ? 2200 : 1400);
+}
+
+function ensureAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!state.audioContext) state.audioContext = new AudioContextClass();
+  if (state.audioContext.state === "suspended") state.audioContext.resume().catch(() => {});
+  return state.audioContext;
+}
+
+function playDraftSound(kind) {
+  const context = ensureAudioContext();
+  if (!context || context.state !== "running") return;
+  const now = context.currentTime;
+  const notes = kind === "win"
+    ? [[523.25, 0], [659.25, 0.09], [783.99, 0.18]]
+    : kind === "countdown"
+      ? [[880, 0]]
+      : [[520, 0], [690, 0.055]];
+
+  for (const [frequency, delay] of notes) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = kind === "countdown" ? "sine" : "triangle";
+    oscillator.frequency.setValueAtTime(frequency, now + delay);
+    gain.gain.setValueAtTime(0.0001, now + delay);
+    gain.gain.exponentialRampToValueAtTime(kind === "win" ? 0.11 : 0.075, now + delay + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + (kind === "win" ? 0.24 : 0.12));
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(now + delay);
+    oscillator.stop(now + delay + (kind === "win" ? 0.26 : 0.14));
+  }
+}
+
+function updateCountdownSound(room, now) {
+  const lot = room?.currentLot;
+  if (!lot) {
+    state.lastCountdownBeep = "";
+    return;
+  }
+  const seconds = Math.ceil(Math.max(0, lot.deadlineAt - now) / 1000);
+  if (seconds < 1 || seconds > 3) return;
+  const key = `${lot.monster.id}:${seconds}`;
+  if (key === state.lastCountdownBeep) return;
+  state.lastCountdownBeep = key;
+  playDraftSound("countdown");
+}
+
 function renderMonsterImage(monster, loading = "lazy") {
   const url = cleanText(monster?.imageUrl || monster?.tokenUrl);
   return url
@@ -726,6 +869,7 @@ function handleClick(event) {
   }
 
   clearMessages();
+  ensureAudioContext();
   const action = target.dataset.mlAction;
 
   try {
@@ -734,7 +878,6 @@ function handleClick(event) {
     else if (action === "copy-link") copyInviteLink();
     else if (action === "toggle-ready") toggleReady();
     else if (action === "start-draft") startDraft();
-    else if (action === "nominate") nominate(target.dataset.monsterId);
     else if (action === "quick-bid") bid(Number(target.dataset.bidAmount));
     else if (action === "select-monster") state.selectedMonsterId = target.dataset.monsterId;
     else if (action === "open-spell") state.selectedSpellId = target.dataset.spellId;
@@ -770,6 +913,7 @@ function handleInput(event) {
 }
 
 function handleSubmit(event) {
+  ensureAudioContext();
   if (event.target.matches("[data-ml-config-form]")) {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -779,8 +923,9 @@ function handleSubmit(event) {
       teamSize: form.get("teamSize"),
       crMin: form.get("crMin"),
       crMax: form.get("crMax"),
-      nominationSeconds: form.get("nominationSeconds"),
-      bidSeconds: form.get("bidSeconds")
+      bidSeconds: form.get("bidSeconds"),
+      excludedSizes: form.getAll("excludedSizes"),
+      excludedTypes: form.getAll("excludedTypes")
     };
     if (localTestMode) {
       updateMonstersLeagueConfig(state.room, config, state.hostPlayerId);
@@ -856,6 +1001,8 @@ function toggleReady() {
 function startDraft() {
   if (localTestMode) {
     startMonstersLeagueDraft(state.room, state.hostPlayerId, state.catalog);
+    openRandomMonstersLeagueLot(state.room, state.catalog);
+    observeDraftEvents(state.room);
   } else {
     const catalog = getEligibleMonsters(state.catalog, state.room.config).map(toOnlineCatalogEntry);
     sendOnlineCommand("start", { catalog });
@@ -865,20 +1012,10 @@ function startDraft() {
   render();
 }
 
-function nominate(monsterId) {
-  const monster = state.catalogById.get(cleanText(monsterId));
-  if (localTestMode) {
-    nominateMonstersLeagueCreature(state.room, state.hostPlayerId, monster);
-  } else {
-    sendOnlineCommand("nominate", { monsterId: monster?.id });
-  }
-  state.nextBotDecisionAt = Date.now() + 650;
-  render();
-}
-
 function bid(amount) {
   if (localTestMode) {
     placeMonstersLeagueBid(state.room, state.hostPlayerId, amount);
+    observeDraftEvents(state.room);
   } else {
     sendOnlineCommand("bid", { amount });
   }
@@ -895,6 +1032,7 @@ function tick() {
   const now = Date.now();
   const countdown = app.querySelector("[data-ml-countdown]");
   if (countdown) countdown.textContent = formatCountdown(getActiveDeadline(), now);
+  updateCountdownSound(room, now);
 
   if (!localTestMode) {
     return;
@@ -903,6 +1041,8 @@ function tick() {
   try {
     if (room.currentLot && now >= room.currentLot.deadlineAt) {
       resolveMonstersLeagueLot(room, now);
+      if (room.status === "drafting") openRandomMonstersLeagueLot(room, state.catalog, now);
+      observeDraftEvents(room);
       state.nextBotDecisionAt = now + 650;
       state.botNominationPending = false;
       ensureTestCombatState();
@@ -910,26 +1050,10 @@ function tick() {
       return;
     }
 
-    if (!room.currentLot && now >= room.nominationDeadlineAt) {
-      const nominator = getCurrentNominator(room);
-      const available = state.catalog.filter((monster) => room.availableMonsterIds.includes(monster.id));
-      const fallback = nominator?.isBot
-        ? chooseBotNomination(room, state.catalog, nominator.id)
-        : available[Math.floor(Math.random() * available.length)];
-      if (nominator && fallback) nominateMonstersLeagueCreature(room, nominator.id, fallback, now);
-      state.nextBotDecisionAt = now + 550;
-      render();
-      return;
-    }
-
     if (!room.currentLot) {
-      const nominator = getCurrentNominator(room);
-      if (nominator?.isBot && now >= state.nextBotDecisionAt) {
-        const monster = chooseBotNomination(room, state.catalog, nominator.id);
-        if (monster) nominateMonstersLeagueCreature(room, nominator.id, monster, now);
-        state.nextBotDecisionAt = now + 550;
-        render();
-      }
+      openRandomMonstersLeagueLot(room, state.catalog, now);
+      observeDraftEvents(room);
+      render();
       return;
     }
 
@@ -940,6 +1064,7 @@ function tick() {
         const amount = chooseBotBid(room, bot.id);
         if (amount > 0) {
           placeMonstersLeagueBid(room, bot.id, amount, Date.now());
+          observeDraftEvents(room);
           changed = true;
           break;
         }
@@ -1034,14 +1159,60 @@ function sendEncountersToMainApp() {
     channel.close();
   } catch {}
   state.encountersSent = true;
-  state.notice = "Equipos enviados a Mimic Dice como encuentros.";
+  ensureCloudCampaignSaved();
+  state.notice = localTestMode
+    ? "Equipos enviados a Mimic Dice como encuentros."
+    : "Equipos enviados a Mimic Dice y guardados en la campaña del lobby.";
+}
+
+function getEncounterSaveButtonLabel() {
+  if (state.cloudCampaignSaveStatus === "saving") return "Guardando campaña…";
+  if (state.cloudCampaignSaveStatus === "saved" && state.encountersSent) return "Equipos guardados ✓";
+  if (state.cloudCampaignSaveStatus === "saved") return "Campaña cloud guardada ✓";
+  return state.encountersSent ? "Equipos enviados ✓" : "Guardar encuentros";
+}
+
+function ensureCloudCampaignSaved() {
+  if (
+    localTestMode
+    || !state.room
+    || state.room.hostPlayerId !== state.hostPlayerId
+    || !["complete", "combat"].includes(state.room.status)
+    || ["saving", "saved"].includes(state.cloudCampaignSaveStatus)
+  ) {
+    return;
+  }
+
+  state.cloudCampaignSaveStatus = "saving";
+  finalizeMonstersLeagueOnlineRoom(state.room.id)
+    .then((result) => {
+      state.cloudCampaignSaveStatus = "saved";
+      state.notice = language === "en"
+        ? `${result.encounterCount} teams saved in ${result.campaignName}.`
+        : `${result.encounterCount} equipos guardados en ${result.campaignName}.`;
+      render();
+    })
+    .catch((error) => {
+      state.cloudCampaignSaveStatus = "error";
+      state.error = error instanceof Error ? error.message : String(error);
+      render();
+    });
 }
 
 function copyInviteLink() {
-  const url = `${window.location.origin}/multiplayer/monsters-league?room=${encodeURIComponent(state.room.id)}&mode=online&language=${state.room.language}`;
+  const url = createMonstersLeagueUrl({ roomId: state.room.id, mode: "online", roomLanguage: state.room.language });
   navigator.clipboard?.writeText(url);
   state.notice = "Enlace copiado.";
   render();
+}
+
+function createMonstersLeagueUrl({ roomId, mode, roomLanguage }) {
+  const url = new URL("/", window.location.origin);
+  url.searchParams.set("view", "monsters-league");
+  url.searchParams.set("room", cleanText(roomId));
+  url.searchParams.set("mode", mode === "online" ? "online" : "local");
+  url.searchParams.set("language", roomLanguage === "en" ? "en" : "es");
+  return url.href;
 }
 
 function sendOnlineCommand(type, payload = {}) {
@@ -1060,6 +1231,10 @@ function toOnlineCatalogEntry(entry) {
     canonicalSource: entry.canonicalSource || entry.source || "",
     imageUrl: entry.imageUrl || "",
     tokenUrl: entry.tokenUrl || "",
+    size: entry.size || "",
+    type: entry.type || "",
+    sizeFilterKey: entry.sizeFilterKey || toFilterKey(entry.size),
+    typeFilterKey: entry.typeFilterKey || toTypeFilterKey(entry.type),
     hp: entry.hp || "",
     hpValue: Number(entry.hpValue) || 0,
     ac: entry.ac || "",
@@ -1120,4 +1295,12 @@ function getInitials(value) {
 
 function shuffleLocal(values) {
   return [...values].sort(() => Math.random() - 0.5);
+}
+
+function toTypeFilterKey(value) {
+  return toFilterKey(cleanText(value).split(/[,(\[]/, 1)[0]);
+}
+
+function toFilterKey(value) {
+  return normalizeSearchText(value).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 }

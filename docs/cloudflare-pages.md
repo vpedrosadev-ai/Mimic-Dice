@@ -5,7 +5,7 @@ Esta rama prepara Mimic Dice para funcionar como una app web normal en Cloudflar
 ## Configuracion recomendada
 
 - Project name: `mimicdice`
-- Production branch: `feature/cloudflare-pages` para esta primera prueba
+- Production branch: `main`
 - Build command: `npm run build:cloudflare`
 - Build output directory: `dist`
 - Root directory: dejar vacio
@@ -40,6 +40,32 @@ mimic-dice-vicky
 6. Selecciona la rama a desplegar.
 7. Usa la configuracion de build indicada arriba.
 8. Lanza el deploy.
+
+## Despliegue automatico completo desde GitHub
+
+El workflow `.github/workflows/deploy-cloudflare.yml` convierte cada `push` a
+`main` en un despliegue de produccion completo y ordenado:
+
+1. Instala dependencias con `npm ci`.
+2. Ejecuta todos los tests.
+3. Genera la build web.
+4. Aplica las migraciones D1 pendientes.
+5. Despliega el Worker con Durable Objects de Monsters League.
+6. Despliega la aplicacion y Pages Functions en `mimicdice`.
+
+Configuracion unica requerida en GitHub:
+
+1. Crear un API token de Cloudflare con permisos de edicion para `D1`,
+   `Workers Scripts` y `Cloudflare Pages` en la cuenta de Mimic Dice.
+2. En el repositorio, abrir `Settings > Secrets and variables > Actions`.
+3. Crear el secreto `CLOUDFLARE_API_TOKEN` con ese token. El Account ID no es
+   secreto y ya esta declarado en el workflow.
+
+Para evitar dos despliegues Pages por cada push, desactivar una sola vez
+`Enable automatic production branch deployments` en
+`Cloudflare > Workers & Pages > mimicdice > Settings > Builds > Branch control`.
+GitHub Actions pasa a ser la unica canalizacion de produccion. El workflow
+tambien puede ejecutarse manualmente mediante `Run workflow`.
 
 ## Dominio propio y alias www
 

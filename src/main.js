@@ -87,7 +87,6 @@ import { convertImageFileToWebp, createCombatMapController, getPortableMapRefere
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
-import { renderMultiplayerScreen } from "./screens/multiplayer/multiplayerRender.js";
 import { startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
 import { renderDiceRollerDock } from "./screens/dice-roller/diceRollerRender.js";
 import {
@@ -8507,12 +8506,12 @@ function openMonstersLeagueWindow({ testMode = false } = {}) {
   const fileMode = window.location.protocol === "file:";
   const url = fileMode
     ? new URL(window.location.href)
-    : new URL("/multiplayer/monsters-league", window.location.origin);
+    : new URL("/", window.location.origin);
   if (fileMode) {
     url.search = "";
     url.hash = "";
-    url.searchParams.set("view", "monsters-league");
   }
+  url.searchParams.set("view", "monsters-league");
   url.searchParams.set("language", normalizeStoredContentLanguage(state.contentLanguage));
   url.searchParams.set("mode", testMode ? "local" : "online");
   url.searchParams.set("host", getAccountDisplayName());
@@ -10253,6 +10252,18 @@ function renderAccountDialog() {
                     <button class="account-action-button account-action-button--ghost" type="button" data-action="account-sign-out">Cerrar sesión</button>
                   </div>
                 </div>
+                <section class="account-dialog__section account-multiplayer-card">
+                  <div class="account-multiplayer-card__mark" aria-hidden="true">ML</div>
+                  <div class="account-multiplayer-card__copy">
+                    <p class="account-dialog__eyebrow">MULTIJUGADOR</p>
+                    <h3>Monsters League</h3>
+                    <small>Crea una sala por enlace, subasta criaturas y lleva los equipos directamente al combate.</small>
+                  </div>
+                  <div class="account-multiplayer-card__actions">
+                    <button class="account-action-button" type="button" data-action="open-monsters-league">Crear lobby</button>
+                    <button class="account-action-button account-action-button--ghost" type="button" data-action="open-monsters-league-test">Probar con bots</button>
+                  </div>
+                </section>
                 <section class="account-dialog__section">
                   <h3>Nombre de la campaña en la nube</h3>
                   <div class="account-create-row account-create-row--campaign-name">
@@ -10368,7 +10379,6 @@ function renderTopbarNavigation() {
     "bestiary",
     "arcanum",
     "items",
-    "multiplayer",
     "diary",
     "tables"
   ];
@@ -11097,15 +11107,6 @@ function renderScreen() {
 
   if (state.activeScreen === "tables") {
     return renderTablesScreen();
-  }
-
-  if (state.activeScreen === "multiplayer") {
-    return renderMultiplayerScreen({
-      authenticated: Boolean(state.accountSession?.user?.id),
-      accountLoading: state.accountStatus === "loading",
-      userName: getAccountDisplayName(),
-      language: state.appLanguage
-    });
   }
 
   if (state.activeScreen === "release-notes") {

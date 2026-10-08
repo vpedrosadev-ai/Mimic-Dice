@@ -23,6 +23,8 @@ const DEFAULT_CONFIG = Object.freeze({
   nominationSeconds: 30,
   bidSeconds: 20,
   antiSnipeSeconds: 8,
+  excludedSizes: [],
+  excludedTypes: [],
   uniqueCreatures: true
 });
 
@@ -36,6 +38,7 @@ export class MonstersLeagueRuleError extends Error {
 
 export function createMonstersLeagueRoom({
   id = createRoomId(),
+  campaignId = "",
   host,
   language = "es",
   config = {},
@@ -50,6 +53,7 @@ export function createMonstersLeagueRoom({
   return {
     schemaVersion: MONSTERS_LEAGUE_SCHEMA_VERSION,
     id: cleanText(id) || createRoomId(),
+    campaignId: cleanText(campaignId),
     status: "configuring",
     revision: 1,
     language: language === "en" ? "en" : "es",
@@ -83,6 +87,8 @@ export function normalizeMonstersLeagueConfig(value = {}) {
     nominationSeconds: clampInteger(source.nominationSeconds, 5, 120, DEFAULT_CONFIG.nominationSeconds),
     bidSeconds: clampInteger(source.bidSeconds, 5, 90, DEFAULT_CONFIG.bidSeconds),
     antiSnipeSeconds: clampInteger(source.antiSnipeSeconds, 3, 15, DEFAULT_CONFIG.antiSnipeSeconds),
+    excludedSizes: normalizeFilterList(source.excludedSizes),
+    excludedTypes: normalizeFilterList(source.excludedTypes),
     uniqueCreatures: source.uniqueCreatures !== false
   };
 }
@@ -198,13 +204,21 @@ export function startMonstersLeagueDraft(room, actorPlayerId, catalog, now = Dat
 
 export function getEligibleMonsters(catalog, config) {
   const normalizedConfig = normalizeMonstersLeagueConfig(config);
+  const excludedSizes = new Set(normalizedConfig.excludedSizes);
+  const excludedTypes = new Set(normalizedConfig.excludedTypes);
   const seen = new Set();
 
   return (Array.isArray(catalog) ? catalog : []).filter((monster) => {
     const id = cleanText(monster?.id);
     const crValue = Number(monster?.crValue);
+    const sizeKey = getMonsterFilterKey(monster?.sizeFilterKey || monster?.size);
+    const typeKey = getMonsterTypeFilterKey(monster?.typeFilterKey || monster?.type);
 
     if (!id || !Number.isFinite(crValue) || crValue < normalizedConfig.crMin || crValue > normalizedConfig.crMax) {
+      return false;
+    }
+
+    if ((sizeKey && excludedSizes.has(sizeKey)) || (typeKey && excludedTypes.has(typeKey))) {
       return false;
     }
 
@@ -223,6 +237,24 @@ export function getEligibleMonsters(catalog, config) {
     seen.add(dedupeKey);
     return true;
   });
+}
+
+export function openRandomMonstersLeagueLot(room, catalog, now = Date.now(), random = Math.random) {
+  assertStatus(room, "drafting");
+
+  if (room.currentLot) {
+    throw new MonstersLeagueRuleError("lot_active", "Current auction must finish first.");
+  }
+
+  const available = (Array.isArray(catalog) ? catalog : []).filter((monster) => room.availableMonsterIds.includes(monster.id));
+  const nominator = getCurrentNominator(room);
+
+  if (!nominator || available.length === 0) {
+    throw new MonstersLeagueRuleError("monster_unavailable", "No creature is available for the next auction.");
+  }
+
+  const monster = available[Math.min(available.length - 1, Math.floor(random() * available.length))];
+  return nominateMonstersLeagueCreature(room, nominator.id, monster, now);
 }
 
 export function getCurrentNominator(room) {
@@ -364,6 +396,7 @@ export function getMonstersLeagueMaxBid(room, playerId) {
 export function getMonstersLeagueRoomSummary(room) {
   return {
     id: room.id,
+    campaignId: cleanText(room.campaignId),
     status: room.status,
     revision: room.revision,
     language: room.language,
@@ -583,6 +616,18 @@ function clampInteger(value, min, max, fallback) {
 function clampNumber(value, min, max, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+}
+
+function normalizeFilterList(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map(getMonsterFilterKey).filter(Boolean))].slice(0, 40);
+}
+
+function getMonsterTypeFilterKey(value) {
+  return getMonsterFilterKey(cleanText(value).split(/[,(\[]/, 1)[0]);
+}
+
+function getMonsterFilterKey(value) {
+  return normalizeSearchText(value).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 }
 
 function createRoomId(length = 12) {

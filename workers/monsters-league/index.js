@@ -3,11 +3,9 @@ import { DurableObject } from "cloudflare:workers";
 import {
   addMonstersLeaguePlayer,
   chooseBotBid,
-  chooseBotNomination,
   createMonstersLeagueRoom,
-  getCurrentNominator,
   getMonstersLeagueRoomSummary,
-  nominateMonstersLeagueCreature,
+  openRandomMonstersLeagueLot,
   placeMonstersLeagueBid,
   publishMonstersLeagueRoom,
   removeMonstersLeaguePlayer,
@@ -47,12 +45,18 @@ export class MonstersLeagueRoom extends DurableObject {
       const user = getTrustedUser(request);
       this.room = createMonstersLeagueRoom({
         id: body.roomId,
+        campaignId: body.campaignId,
         host: { id: user.id, userId: user.id, name: user.name },
         language: body.language,
         config: { name: body.name }
       });
       await this.persist();
       return Response.json({ room: getMonstersLeagueRoomSummary(this.room) }, { status: 201 });
+    }
+
+    if (url.pathname === "/snapshot" && request.method === "GET") {
+      if (!this.room) return new Response("Room not found", { status: 404 });
+      return Response.json({ room: getMonstersLeagueRoomSummary(this.room) });
     }
 
     if (url.pathname.startsWith("/socket/") && request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
@@ -149,9 +153,7 @@ export class MonstersLeagueRoom extends DurableObject {
     } else if (type === "start") {
       this.catalog = sanitizeCatalog(command.catalog);
       startMonstersLeagueDraft(this.room, playerId, this.catalog, now);
-    } else if (type === "nominate") {
-      const monster = this.catalog.find((entry) => entry.id === safeText(command.monsterId));
-      nominateMonstersLeagueCreature(this.room, playerId, monster, now);
+      openRandomMonstersLeagueLot(this.room, this.catalog, now);
     } else if (type === "bid") {
       placeMonstersLeagueBid(this.room, playerId, command.amount, now);
     } else if (type === "enter-combat") {
@@ -178,22 +180,15 @@ export class MonstersLeagueRoom extends DurableObject {
 
   runAutomaticDraftStep(now) {
     if (!this.room.currentLot) {
-      const nominator = getCurrentNominator(this.room);
-
-      if (nominator?.isBot || now >= this.room.nominationDeadlineAt) {
-        const monster = nominator?.isBot
-          ? chooseBotNomination(this.room, this.catalog, nominator.id)
-          : this.catalog.find((entry) => this.room.availableMonsterIds.includes(entry.id));
-        if (nominator && monster) {
-          nominateMonstersLeagueCreature(this.room, nominator.id, monster, now);
-          return true;
-        }
-      }
-      return false;
+      openRandomMonstersLeagueLot(this.room, this.catalog, now);
+      return true;
     }
 
     if (now >= this.room.currentLot.deadlineAt) {
       resolveMonstersLeagueLot(this.room, now);
+      if (this.room.status === "drafting") {
+        openRandomMonstersLeagueLot(this.room, this.catalog, now);
+      }
       return true;
     }
 
@@ -265,6 +260,10 @@ function sanitizeCatalog(value) {
     canonicalSource: safeText(entry?.canonicalSource || entry?.source),
     imageUrl: safeText(entry?.imageUrl),
     tokenUrl: safeText(entry?.tokenUrl),
+    size: safeText(entry?.size),
+    type: safeText(entry?.type),
+    sizeFilterKey: safeText(entry?.sizeFilterKey),
+    typeFilterKey: safeText(entry?.typeFilterKey),
     hp: safeText(entry?.hp),
     hpValue: Number(entry?.hpValue) || 0,
     ac: safeText(entry?.ac),

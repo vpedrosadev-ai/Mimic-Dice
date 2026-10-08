@@ -14,6 +14,12 @@ const SECURITY_HEADERS = Object.freeze({
 });
 
 function withSecurityHeaders(response, secure) {
+  // A WebSocket upgrade response carries an internal webSocket handle and
+  // cannot be reconstructed with `new Response({ status: 101 })`.
+  if (response.status === 101) {
+    return response;
+  }
+
   const headers = new Headers(response.headers);
 
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {

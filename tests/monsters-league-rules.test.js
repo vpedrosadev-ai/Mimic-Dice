@@ -5,8 +5,10 @@ import {
   addMonstersLeaguePlayer,
   createMonstersLeagueEncounters,
   createMonstersLeagueRoom,
+  getEligibleMonsters,
   getMonstersLeagueMaxBid,
   nominateMonstersLeagueCreature,
+  openRandomMonstersLeagueLot,
   placeMonstersLeagueBid,
   publishMonstersLeagueRoom,
   resolveMonstersLeagueLot,
@@ -84,4 +86,29 @@ test("anti-snipe bid extends deadline", () => {
 
   placeMonstersLeagueBid(room, otherPlayer, 2, originalDeadline - 1000);
   assert.equal(room.currentLot.deadlineAt, originalDeadline - 1000 + room.config.antiSnipeSeconds * 1000);
+});
+
+test("filters excluded creature sizes and base types", () => {
+  const filteredCatalog = [
+    { id: "wolf", name: "Wolf", crValue: 1, size: "Medium", type: "Beast" },
+    { id: "guard", name: "Guard", crValue: 1, size: "Medium", type: "Humanoid (Human)" },
+    { id: "dragon", name: "Dragon", crValue: 1, size: "Large", type: "Dragon" }
+  ];
+  const eligible = getEligibleMonsters(filteredCatalog, {
+    crMin: 0,
+    crMax: 30,
+    excludedSizes: ["large"],
+    excludedTypes: ["humanoid"]
+  });
+
+  assert.deepEqual(eligible.map((monster) => monster.id), ["wolf"]);
+});
+
+test("opens the next auction from a random available creature", () => {
+  const room = readyRoom(2);
+  openRandomMonstersLeagueLot(room, catalog, 1100, () => 0.5);
+
+  assert.equal(room.currentLot.monster.id, catalog[6].id);
+  assert.equal(room.currentLot.currentBid, 1);
+  assert.equal(room.currentLot.highBidPlayerId, room.nominationOrder[0]);
 });
