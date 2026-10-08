@@ -9,6 +9,7 @@
     "dev": "npm run compendium:generate && vite",
     "build": "npm run release-notes:generate && npm run compendium:generate && npm run classes:generate && vite build",
     "build:cloudflare": "npm run build",
+    "deploy:cloudflare:backend": "wrangler d1 migrations apply mimic-dice-production --remote && wrangler deploy --config workers/monsters-league/wrangler.toml",
     "test:domain": "node tests/cloudflare-domain.test.js",
     "preview": "vite preview",
     "compendium:generate": "node scripts/generate-compendium-bundles.mjs",
@@ -43,7 +44,8 @@
     "electron": "^37.1.0",
     "electron-builder": "^26.0.12",
     "vite": "^7.0.0",
-    "wait-on": "^8.0.3"
+    "wait-on": "^8.0.3",
+    "wrangler": "^4.148.0"
   },
   "build": {
     "appId": "com.mimicdice.app",

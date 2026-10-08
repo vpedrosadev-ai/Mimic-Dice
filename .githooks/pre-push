@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+deploy_main=false
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    deploy_main=true
+  fi
+done
+
+if [ "$deploy_main" != "true" ]; then
+  exit 0
+fi
+
+if ! command -v npm >/dev/null 2>&1 && [ -d "/d/tools/node-v22.22.2-win-x64" ]; then
+  PATH="/d/tools/node-v22.22.2-win-x64:$PATH"
+  export PATH
+fi
+
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+NO_PROXY="*"
+case " ${NODE_OPTIONS-} " in
+  *" --use-system-ca "*) ;;
+  *) NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-system-ca" ;;
+esac
+export NO_PROXY NODE_OPTIONS
+
+echo "Deploying Mimic Dice backend to Cloudflare before pushing main..."
+npm run deploy:cloudflare:backend

@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Production
+name: Validate Cloudflare Production
 
 on:
   push:
@@ -7,20 +7,17 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cloudflare-production
-  cancel-in-progress: false
+  group: cloudflare-validation
+  cancel-in-progress: true
 
 permissions:
   contents: read
-  deployments: write
 
 jobs:
-  deploy:
-    name: Validate and deploy
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      CLOUDFLARE_ACCOUNT_ID: 467b2092c3e0ae03fa136669c4ebcae9
 
     steps:
       - name: Checkout
@@ -40,15 +37,3 @@ jobs:
 
       - name: Build production app
         run: npm run build
-
-      - name: Deploy D1, Monsters League, and Pages
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.148.0"
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          command: |
-            d1 migrations apply mimic-dice-production --remote
-            deploy --config workers/monsters-league/wrangler.toml
-            pages deploy dist --project-name=mimicdice --branch=main

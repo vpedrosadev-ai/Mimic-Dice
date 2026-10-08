@@ -41,31 +41,30 @@ mimic-dice-vicky
 7. Usa la configuracion de build indicada arriba.
 8. Lanza el deploy.
 
-## Despliegue automatico completo desde GitHub
+## Despliegue automatico al hacer push
 
-El workflow `.github/workflows/deploy-cloudflare.yml` convierte cada `push` a
-`main` en un despliegue de produccion completo y ordenado:
+El proyecto usa dos mecanismos coordinados sin guardar tokens de Cloudflare en
+GitHub:
 
-1. Instala dependencias con `npm ci`.
-2. Ejecuta todos los tests.
-3. Genera la build web.
-4. Aplica las migraciones D1 pendientes.
-5. Despliega el Worker con Durable Objects de Monsters League.
-6. Despliega la aplicacion y Pages Functions en `mimicdice`.
+1. El hook local `.githooks/pre-push` detecta los pushes a `main`, aplica las
+   migraciones D1 y despliega el Worker de Monsters League usando la sesion local
+   de Wrangler.
+2. Tras completarse el push, la integracion Git nativa del proyecto Pages
+   `mimicdice` construye y publica la web y sus Pages Functions.
+3. GitHub Actions ejecuta tests y build como validacion independiente, sin
+   credenciales de Cloudflare.
 
-Configuracion unica requerida en GitHub:
+Configuracion unica por clon de trabajo:
 
-1. Crear un API token de Cloudflare con permisos de edicion para `D1`,
-   `Workers Scripts` y `Cloudflare Pages` en la cuenta de Mimic Dice.
-2. En el repositorio, abrir `Settings > Secrets and variables > Actions`.
-3. Crear el secreto `CLOUDFLARE_API_TOKEN` con ese token. El Account ID no es
-   secreto y ya esta declarado en el workflow.
+```powershell
+npm ci
+npx wrangler login
+git config core.hooksPath .githooks
+```
 
-Para evitar dos despliegues Pages por cada push, desactivar una sola vez
-`Enable automatic production branch deployments` en
-`Cloudflare > Workers & Pages > mimicdice > Settings > Builds > Branch control`.
-GitHub Actions pasa a ser la unica canalizacion de produccion. El workflow
-tambien puede ejecutarse manualmente mediante `Run workflow`.
+En este equipo el hook ya esta activado. Un `git push origin main` detiene el
+push si falla D1 o el Worker; si ambos despliegues terminan correctamente,
+continua el push y Pages se despliega automaticamente desde GitHub.
 
 ## Dominio propio y alias www
 
