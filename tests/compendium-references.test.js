@@ -53,6 +53,9 @@ const items = [
   { id: "item-old", name: "Objeto compartido", source: "Fuente antigua" },
   { id: "item-new", name: "Objeto compartido", source: "Fuente nueva" }
 ];
+const bestiary = [
+  { id: "bestiary-wolf--mm", name: "Lobo", source: "MM" }
+];
 assert.equal(findCompendiumEntryByReference(items, { name: "Objeto compartido" }), items[1]);
 assert.equal(
   findCompendiumEntryByReference(items, { name: "Objeto compartido", source: "Fuente antigua" }),
@@ -77,16 +80,22 @@ const unresolved = getUnresolvedCharacterCompendiumReferences([{
     { name: "Objeto compartido" },
     { name: "Objeto perdido" },
     { name: "ORO" }
+  ],
+  summons: [
+    { name: "Lobo" },
+    { name: "Bulette inventado" }
   ]
 }], {
   spellEntries: spells,
   itemEntries: items,
+  bestiaryEntries: bestiary,
   isCurrencyName: (name) => name === "ORO"
 });
 
 assert.deepEqual(unresolved, {
   spells: ["Hechizo inventado"],
-  items: ["Objeto perdido"]
+  items: ["Objeto perdido"],
+  summons: ["Bulette inventado"]
 });
 
 const fireball = {

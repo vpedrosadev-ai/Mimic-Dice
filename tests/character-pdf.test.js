@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   fillCharacterPdfTemplate,
+  getCharacterPdfSummons,
   getCharacterSpellCardEffectFontSize,
   getCharacterSpellCardEffectRuns,
   getCharacterSpellCardEffectText,
@@ -153,5 +154,46 @@ Object.entries(spellCardHeaderValues).forEach(([name, value]) => {
   assert.equal(field.getText(), value);
   assert.ok(field.acroField.getWidgets().every((widget) => widget.getAppearances()?.normal));
 });
+
+const summonEntries = getCharacterPdfSummons({
+  summons: [
+    { bestiaryEntry: { name: "Wolf", source: "MM", typeLine: "Medium beast", hp: "11", actions: "Bite." } },
+    { bestiaryEntry: { name: "Bear", source: "MM", typeLine: "Large beast", hp: "34", actions: "Claws." } }
+  ]
+});
+assert.deepEqual(summonEntries.map((entry) => entry.name), ["Bear", "Wolf"]);
+
+const summonResultBytes = await fillCharacterPdfTemplate(templateBytes, {
+  name: "Druida de prueba",
+  className: "Druida",
+  level: 2,
+  abilities: { str: 10, dex: 12, con: 14, int: 10, wis: 16, cha: 8 },
+  proficiencies: [],
+  expertise: [],
+  inventory: [],
+  spells: [],
+  summons: [{
+    bestiaryEntry: {
+      name: "Lobo",
+      source: "MM",
+      sourceFullName: "Monster Manual",
+      typeLine: "Bestia mediana, sin alineamiento",
+      ac: "13",
+      hp: "11 (2d8 + 2)",
+      speed: "40 ft",
+      crLabel: "1/4",
+      abilities: { STR: 12, DEX: 15, CON: 12, INT: 3, WIS: 12, CHA: 6 },
+      skills: "Percepcion +3, Sigilo +4",
+      senses: "Percepcion pasiva 13",
+      languages: "-",
+      traits: "Olfato y oido agudos.",
+      actions: "Mordisco. Ataque cuerpo a cuerpo con arma."
+    }
+  }],
+  spellSlots: [],
+  classEntries: [{ name: "Druida", level: 2 }]
+});
+const summonResultDocument = await PDFDocument.load(summonResultBytes);
+assert.ok(summonResultDocument.getPageCount() > resultDocument.getPageCount());
 
 console.log("Character PDF tests passed.");

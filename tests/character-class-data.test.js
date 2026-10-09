@@ -66,6 +66,14 @@ assert.equal(classicWizard?.source, "PHB");
 const modernWizard = findCharacterClassRecord(catalog, { name: "Mago (XPHB)", source: "PHB" });
 assert.equal(modernWizard?.source, "XPHB");
 
+const wizardSelectedAfterFighter = findCharacterClassRecord(catalog, {
+  name: "Mago (PHB)",
+  classKey: "fighter",
+  source: "XPHB"
+});
+assert.equal(wizardSelectedAfterFighter?.name, "Wizard");
+assert.equal(wizardSelectedAfterFighter?.source, "PHB");
+
 const evocation = findCharacterSubclassRecord(classicWizard, { subclassName: "Evocation (PHB)" });
 assert.equal(evocation?.shortName, "Evocation");
 assert.equal(evocation?.source, "PHB");

@@ -1247,6 +1247,244 @@ function wrapPdfLines(value, font, size, maxWidth) {
   return lines;
 }
 
+export function getCharacterPdfSummons(character) {
+  return (Array.isArray(character?.summons) ? character.summons : [])
+    .map((summon) => summon?.bestiaryEntry || summon)
+    .filter((summon) => cleanPdfText(summon?.name) && (
+      cleanPdfText(summon?.typeLine)
+      || cleanPdfText(summon?.hp)
+      || cleanPdfText(summon?.actions)
+      || cleanPdfText(summon?.traits)
+    ))
+    .sort((left, right) => cleanPdfText(left.name).localeCompare(cleanPdfText(right.name), "es", { sensitivity: "base" })
+      || cleanPdfText(left.source).localeCompare(cleanPdfText(right.source), "es", { sensitivity: "base" }));
+}
+
+function getSummonPdfParagraphLines(value, font, size, maxWidth) {
+  const paragraphs = cleanPdfText(value).split(/\n+/).map((entry) => entry.trim()).filter(Boolean);
+  return paragraphs.flatMap((paragraph, index) => [
+    ...(index > 0 ? [""] : []),
+    ...wrapPdfLines(paragraph, font, size, maxWidth)
+  ]);
+}
+
+async function appendCharacterSummonSheets(document, character, pdfLibrary, options = {}) {
+  const summons = getCharacterPdfSummons(character);
+
+  if (summons.length === 0) {
+    return;
+  }
+
+  const { StandardFonts, rgb } = pdfLibrary;
+  const regularFont = await document.embedFont(StandardFonts.Helvetica);
+  const boldFont = await document.embedFont(StandardFonts.HelveticaBold);
+  const italicFont = await document.embedFont(StandardFonts.HelveticaOblique);
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 42;
+  const contentWidth = pageWidth - margin * 2;
+  const bottom = 42;
+  const textSize = 8.5;
+  const lineHeight = 11;
+  const accent = rgb(0.44, 0.12, 0.08);
+  const accentSoft = rgb(0.76, 0.58, 0.28);
+  const ink = rgb(0.14, 0.11, 0.09);
+  const muted = rgb(0.38, 0.34, 0.3);
+  const paper = rgb(0.98, 0.965, 0.91);
+  const useEnglish = options.contentLanguage === "en";
+
+  for (const summon of summons) {
+    let page;
+    let y;
+
+    const addPage = (continuation = false) => {
+      page = document.addPage([pageWidth, pageHeight]);
+      page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: paper });
+      page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: accent });
+      page.drawText(toPdfText(useEnglish ? "KNOWN SUMMON" : "INVOCACION CONOCIDA"), {
+        x: margin,
+        y: pageHeight - 15,
+        size: 7,
+        font: boldFont,
+        color: rgb(1, 0.96, 0.84)
+      });
+      page.drawText(toPdfText(character?.name), {
+        x: pageWidth - margin - Math.min(190, regularFont.widthOfTextAtSize(toPdfText(character?.name), 7)),
+        y: pageHeight - 15,
+        size: 7,
+        font: regularFont,
+        color: rgb(1, 0.96, 0.84)
+      });
+      y = pageHeight - 54;
+
+      if (continuation) {
+        page.drawText(fitPdfLine(`${summon.name} (${useEnglish ? "continued" : "continuacion"})`, boldFont, 15, contentWidth), {
+          x: margin,
+          y,
+          size: 15,
+          font: boldFont,
+          color: accent
+        });
+        y -= 18;
+        page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1.4, color: accentSoft });
+        y -= 16;
+      }
+    };
+
+    const ensureSpace = (height, continuation = true) => {
+      if (y - height < bottom) {
+        addPage(continuation);
+      }
+    };
+
+    const drawLabelValue = (label, value) => {
+      if (!cleanPdfText(value)) return;
+      const prefix = `${label}: `;
+      const prefixWidth = boldFont.widthOfTextAtSize(toPdfText(prefix), textSize);
+      const lines = getSummonPdfParagraphLines(value, regularFont, textSize, contentWidth - prefixWidth);
+      ensureSpace(Math.max(lineHeight, lines.length * lineHeight) + 2);
+      page.drawText(toPdfText(prefix), { x: margin, y, size: textSize, font: boldFont, color: accent });
+      lines.forEach((line, index) => {
+        if (index > 0) ensureSpace(lineHeight);
+        page.drawText(line, {
+          x: index === 0 ? margin + prefixWidth : margin + prefixWidth,
+          y,
+          size: textSize,
+          font: regularFont,
+          color: ink
+        });
+        y -= lineHeight;
+      });
+      y -= 2;
+    };
+
+    const drawSection = (title, value) => {
+      if (!cleanPdfText(value)) return;
+      let lines = getSummonPdfParagraphLines(value, regularFont, textSize, contentWidth);
+      let continuation = false;
+
+      while (lines.length > 0) {
+        ensureSpace(29);
+        page.drawText(toPdfText(continuation ? `${title} (${useEnglish ? "continued" : "cont."})` : title), {
+          x: margin,
+          y,
+          size: 11,
+          font: boldFont,
+          color: accent
+        });
+        y -= 5;
+        page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.8, color: accentSoft });
+        y -= 13;
+
+        while (lines.length > 0 && y - lineHeight >= bottom) {
+          if (lines[0] === "") {
+            const nextParagraphLineCount = lines.slice(1).findIndex((line) => line === "");
+            const paragraphLineCount = nextParagraphLineCount < 0 ? lines.length - 1 : nextParagraphLineCount;
+            const fullPageLineCapacity = Math.floor((pageHeight - 100 - bottom) / lineHeight);
+
+            if (
+              paragraphLineCount > 0
+              && paragraphLineCount <= fullPageLineCapacity
+              && y - (paragraphLineCount + 1) * lineHeight < bottom
+            ) {
+              break;
+            }
+          }
+
+          const line = lines.shift();
+          if (line) {
+            page.drawText(line, { x: margin, y, size: textSize, font: regularFont, color: ink });
+          }
+          y -= lineHeight;
+        }
+
+        y -= 5;
+        if (lines.length > 0) {
+          while (lines[0] === "") lines.shift();
+          addPage(true);
+          continuation = true;
+        }
+      }
+    };
+
+    addPage(false);
+    page.drawText(fitPdfLine(summon.name, boldFont, 22, contentWidth), {
+      x: margin,
+      y,
+      size: 22,
+      font: boldFont,
+      color: accent
+    });
+    y -= 16;
+    page.drawText(fitPdfLine(summon.sourceFullName || summon.sourceLabel || summon.source, regularFont, 7.5, contentWidth), {
+      x: margin,
+      y,
+      size: 7.5,
+      font: regularFont,
+      color: muted
+    });
+    y -= 16;
+    page.drawText(fitPdfLine(summon.typeLine, italicFont, 9.5, contentWidth), {
+      x: margin,
+      y,
+      size: 9.5,
+      font: italicFont,
+      color: ink
+    });
+    y -= 11;
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1.5, color: accentSoft });
+    y -= 25;
+
+    const metrics = [
+      [useEnglish ? "ARMOR CLASS" : "CLASE DE ARMADURA", summon.ac || "-"],
+      [useEnglish ? "HIT POINTS" : "PUNTOS DE GOLPE", summon.hp || "-"],
+      [useEnglish ? "SPEED" : "VELOCIDAD", summon.speed || "-"],
+      ["CR", summon.crLabel || summon.cr || "-"]
+    ];
+    const metricGap = 8;
+    const metricWidth = (contentWidth - metricGap * 3) / 4;
+    metrics.forEach(([label, value], index) => {
+      const x = margin + index * (metricWidth + metricGap);
+      page.drawRectangle({ x, y: y - 34, width: metricWidth, height: 42, borderWidth: 0.7, borderColor: accentSoft });
+      page.drawText(toPdfText(label), { x: x + 5, y: y - 4, size: 5.7, font: boldFont, color: accent });
+      page.drawText(fitPdfLine(value, boldFont, 8.2, metricWidth - 10), { x: x + 5, y: y - 20, size: 8.2, font: boldFont, color: ink });
+    });
+    y -= 54;
+
+    const abilityKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+    const abilityWidth = contentWidth / abilityKeys.length;
+    abilityKeys.forEach((key, index) => {
+      const score = Number(summon.abilities?.[key]) || 10;
+      const modifier = getAbilityModifier(score);
+      const x = margin + index * abilityWidth;
+      page.drawText(key, { x: x + 12, y, size: 7, font: boldFont, color: accent });
+      page.drawText(`${score} (${formatSigned(modifier)})`, { x: x + 12, y: y - 13, size: 8.5, font: regularFont, color: ink });
+    });
+    y -= 33;
+
+    drawLabelValue(useEnglish ? "Saving Throws" : "Salvaciones", summon.savingThrows);
+    drawLabelValue(useEnglish ? "Skills" : "Habilidades", summon.skills);
+    drawLabelValue(useEnglish ? "Damage Vulnerabilities" : "Vulnerabilidades al dano", summon.damageVulnerabilities);
+    drawLabelValue(useEnglish ? "Damage Resistances" : "Resistencias al dano", summon.damageResistances);
+    drawLabelValue(useEnglish ? "Damage Immunities" : "Inmunidades al dano", summon.damageImmunities);
+    drawLabelValue(useEnglish ? "Condition Immunities" : "Inmunidades a estados", summon.conditionImmunities);
+    drawLabelValue(useEnglish ? "Senses" : "Sentidos", summon.senses);
+    drawLabelValue(useEnglish ? "Languages" : "Idiomas", summon.languages);
+    drawLabelValue(useEnglish ? "Environment" : "Entorno", summon.environment);
+
+    [
+      [useEnglish ? "Traits" : "Rasgos", summon.traits],
+      [useEnglish ? "Actions" : "Acciones", summon.actions],
+      [useEnglish ? "Bonus Actions" : "Acciones adicionales", summon.bonusActions],
+      [useEnglish ? "Reactions" : "Reacciones", summon.reactions],
+      [useEnglish ? "Legendary Actions" : "Acciones legendarias", summon.legendaryActions],
+      [useEnglish ? "Mythic Actions" : "Acciones miticas", summon.mythicActions],
+      [useEnglish ? "Lair Actions" : "Acciones de guarida", summon.lairActions],
+      [useEnglish ? "Regional Effects" : "Efectos regionales", summon.regionalEffects]
+    ].forEach(([title, value]) => drawSection(title, value));
+  }
+}
+
 function normalizePdfRuleText(value) {
   return cleanPdfText(value)
     .normalize("NFD")
@@ -1565,6 +1803,7 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
   form.updateFieldAppearances(font);
   await appendCharacterSpellSheet(document, spellTemplateBytes, exportCharacter, pdfLibrary, remainingSpells);
   await appendCharacterSpellCardSheets(document, options.spellCardTemplateBytes, exportCharacter, pdfLibrary, options);
+  await appendCharacterSummonSheets(document, exportCharacter, pdfLibrary, options);
   await appendCharacterBackSheet(document, options.backTemplateBytes, exportCharacter, pdfLibrary);
   document.setTitle(toPdfText(exportCharacter?.name) || "Ficha de personaje");
   document.setAuthor("Mimic Dice");

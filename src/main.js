@@ -603,6 +603,9 @@ const {
   formatCompactSpellLevelLabel,
   formatCharacterSignedFieldValue,
   createBlankCharacterSpellRow,
+  normalizeStoredCharacterSummons,
+  normalizeStoredCharacterSummonRow,
+  createBlankCharacterSummonRow,
   normalizeStoredCharacterSpellbookAbilities,
   normalizeStoredCharacterSpellbookAbilityRow,
   normalizeStoredCharacterSpellbookAbilitySpent,
@@ -935,6 +938,8 @@ state = {
   showCharacterInventorySuggestions: false,
   activeCharacterSpellRowId: "",
   showCharacterSpellSuggestions: false,
+  activeCharacterSummonRowId: "",
+  showCharacterSummonSuggestions: false,
   activeCombatSpellbookCombatantId: "",
   activeCombatPreviewKind: "",
   activeCombatPreviewKey: "",
@@ -1396,6 +1401,7 @@ async function handleClick(event) {
   const clickedItemQuery = event.target.closest("[data-item-query-menu]");
   const clickedCharacterInventoryMenu = event.target.closest("[data-character-inventory-menu]");
   const clickedCharacterSpellMenu = event.target.closest("[data-character-spell-menu]");
+  const clickedCharacterSummonMenu = event.target.closest("[data-character-summon-menu]");
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedCloudCatalogTagMenu = event.target.closest("[data-cloud-catalog-tag-menu]");
@@ -1612,6 +1618,16 @@ async function handleClick(event) {
   if (state.showCharacterSpellSuggestions && !clickedCharacterSpellMenu) {
     state.showCharacterSpellSuggestions = false;
     state.activeCharacterSpellRowId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.showCharacterSummonSuggestions && !clickedCharacterSummonMenu) {
+    state.showCharacterSummonSuggestions = false;
+    state.activeCharacterSummonRowId = "";
 
     if (!actionButton) {
       render();
@@ -3619,8 +3635,24 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "add-character-summon-row") {
+    const rowId = addCharacterSummonRow();
+    saveCharacters();
+    render({
+      focusSelector: rowId ? `[data-character-summon-name="${rowId}"]` : null
+    });
+    return;
+  }
+
   if (action === "remove-character-spell-row") {
     removeCharacterSpellRow(actionButton.dataset.characterSpellRowId);
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "remove-character-summon-row") {
+    removeCharacterSummonRow(actionButton.dataset.characterSummonRowId);
     saveCharacters();
     render();
     return;
@@ -3673,6 +3705,22 @@ async function handleClick(event) {
     render({
       focusSelector: `[data-character-spell-name="${actionButton.dataset.characterSpellRowId}"]`
     });
+    return;
+  }
+
+  if (action === "select-character-summon-suggestion") {
+    selectCharacterSummonSuggestion(
+      actionButton.dataset.characterSummonRowId,
+      actionButton.dataset.bestiaryEntryId
+    );
+    saveCharacters();
+    render();
+    return;
+  }
+
+  if (action === "open-character-summon-bestiary") {
+    openCharacterSummonBestiary(actionButton.dataset.characterSummonRowId);
+    render({ focusSelector: "[data-bestiary-query]" });
     return;
   }
 
@@ -5007,6 +5055,19 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-character-summon-name]")) {
+    updateCharacterSummonRow(target.dataset.characterSummonName, target.value);
+    state.activeCharacterSummonRowId = target.dataset.characterSummonName;
+    state.showCharacterSummonSuggestions = cleanText(target.value).length > 0;
+    saveCharacters();
+    scheduleRender({
+      focusSelector: `[data-character-summon-name="${target.dataset.characterSummonName}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
   if (target.matches("[data-character-spell-field][data-character-spell-row]")) {
     updateCharacterSpellRow(
       target.dataset.characterSpellRow,
@@ -6071,7 +6132,7 @@ function getRequiredCompendiumsForScreen(screenId) {
   }
 
   if (screenId === "characters") {
-    return ["arcanum", "items"];
+    return ["arcanum", "items", "bestiary"];
   }
 
   if (screenId === "tables") {
@@ -6840,7 +6901,8 @@ async function importSelectionData(expectedCategory) {
     if (expectedCategory === DATA_EXCHANGE_CATEGORY_CHARACTERS) {
       await Promise.all([
         ensureCompendiumLoaded("arcanum"),
-        ensureCompendiumLoaded("items")
+        ensureCompendiumLoaded("items"),
+        ensureCompendiumLoaded("bestiary")
       ]);
       importCharactersFromPayload(payload);
     } else if (expectedCategory === DATA_EXCHANGE_CATEGORY_DIARY) {
@@ -6869,6 +6931,10 @@ function rekeyImportedCharacter(character, skillDefinitions) {
       ...entry,
       id: createStableId("character-spell")
     })),
+    summons: normalizeStoredCharacterSummons(character.summons).map((entry) => ({
+      ...entry,
+      id: createStableId("character-summon")
+    })),
     spellbookAbilities: normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities).map((entry) => ({
       ...entry,
       id: createStableId("character-spellbook-ability")
@@ -6884,12 +6950,13 @@ function getCharacterImportUnresolvedReferences(characters) {
   return getUnresolvedCharacterCompendiumReferences(characters, {
     spellEntries: state.arcanum,
     itemEntries: state.items,
+    bestiaryEntries: state.bestiary,
     isCurrencyName: isCharacterCurrencyRow
   });
 }
 
 function getUnresolvedReferenceCount(unresolvedReferences) {
-  return unresolvedReferences.spells.length + unresolvedReferences.items.length;
+  return unresolvedReferences.spells.length + unresolvedReferences.items.length + unresolvedReferences.summons.length;
 }
 
 function getUnresolvedReferenceDetail(unresolvedReferences, useEnglish = false) {
@@ -6899,6 +6966,9 @@ function getUnresolvedReferenceDetail(unresolvedReferences, useEnglish = false) 
       : "",
     unresolvedReferences.items.length > 0
       ? `${useEnglish ? "Unrecognized items" : "Objetos no reconocidos"}:\n${unresolvedReferences.items.map((name) => `- ${name}`).join("\n")}`
+      : "",
+    unresolvedReferences.summons.length > 0
+      ? `${useEnglish ? "Unrecognized summons" : "Invocaciones no reconocidas"}:\n${unresolvedReferences.summons.map((name) => `- ${name}`).join("\n")}`
       : ""
   ].filter(Boolean).join("\n\n");
 }
@@ -18049,6 +18119,12 @@ function renderCharacterSpellbookSection(character) {
     character
   );
   const abilityCount = getMeaningfulCharacterSpellbookAbilityRows(spellbookAbilities).length;
+  const hasDruidClass = getCharacterVisibleClassEntries(character).some((entry) => (
+    cleanText(entry.classKey) === "druid" || getCharacterClassKey(entry.name) === "druid"
+  ));
+  const summonCount = normalizeStoredCharacterSummons(character.summons)
+    .filter((row) => cleanText(row.name))
+    .length;
   const spellbookTitle = isEnglishInterface() ? "Spells and Abilities" : "Hechizos y habilidades";
   const spellbookToggleLabel = isEnglishInterface()
     ? (isOpen ? "Hide spells and abilities" : "Show spells and abilities")
@@ -18162,11 +18238,134 @@ function renderCharacterSpellbookSection(character) {
                   </div>
                 </div>
               </div>
+              ${hasDruidClass ? `
+                <div class="character-spellbook__panel character-summons">
+                  <div class="character-spellbook__panel-title">
+                    <span>Invocaciones conocidas</span>
+                    <small>${escapeHtml(String(summonCount))} criaturas</small>
+                  </div>
+                  <div class="character-summons__list">
+                    <div class="character-summons__header" aria-hidden="true">
+                      <span>Criatura</span>
+                      <span></span>
+                    </div>
+                    ${normalizeStoredCharacterSummons(character.summons).map((row) => renderCharacterSummonRow(row)).join("")}
+                    <div class="character-rows-add">
+                      <button class="toolbar-button toolbar-button--subtle character-rows-add__button" type="button" data-action="add-character-summon-row">
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ` : ""}
             </div>
           `
           : ""
       }
     </section>
+  `;
+}
+
+function getCharacterSummonMatchedEntry(row) {
+  return findCompendiumEntryByReference(state.bestiary, {
+    entryKey: row.bestiaryKey,
+    entryId: row.bestiaryId,
+    name: row.name,
+    canonicalName: row.canonicalName,
+    localizedName: row.localizedName,
+    source: row.source
+  });
+}
+
+function getCharacterSummonDisplayName(row, matchedEntry = getCharacterSummonMatchedEntry(row)) {
+  if (!matchedEntry) {
+    return cleanText(row?.name);
+  }
+
+  return isEnglishInterface()
+    ? cleanText(matchedEntry.canonicalName || matchedEntry.name || row?.name)
+    : cleanText(matchedEntry.localizedName || matchedEntry.name || row?.name);
+}
+
+function getCharacterSummonSuggestions(rowId) {
+  const character = getActiveCharacter();
+  const row = character?.summons.find((entry) => entry.id === rowId);
+  const query = normalizeSearchText(row?.name);
+
+  if (!query || state.bestiaryStatus !== "ready") {
+    return [];
+  }
+
+  return state.bestiary
+    .filter((entry) => getBestiaryEntryNameAliases(entry).some((alias) => alias.includes(query)))
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
+      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
+    .slice(0, 12);
+}
+
+function renderCharacterSummonPreview(entry) {
+  return `
+    <div class="character-spellbook__preview character-summons__preview" role="tooltip">
+      <div class="character-spellbook__preview-card">
+        ${renderBestiaryDetail(entry)}
+      </div>
+    </div>
+  `;
+}
+
+function renderCharacterSummonRow(row) {
+  const matchedEntry = getCharacterSummonMatchedEntry(row);
+  const displayName = getCharacterSummonDisplayName(row, matchedEntry);
+  const linkedDisplayName = matchedEntry?.source ? `${displayName} (${matchedEntry.source})` : displayName;
+  const shouldLoadSuggestions = state.showCharacterSummonSuggestions
+    && state.activeCharacterSummonRowId === row.id;
+  const suggestions = shouldLoadSuggestions ? getCharacterSummonSuggestions(row.id) : [];
+  const duplicateCounts = buildSuggestionDuplicateCountMap(suggestions);
+
+  return `
+    <div class="character-summons__row" data-character-summon-menu>
+      <div class="character-spellbook__name-cell${matchedEntry ? " character-spellbook__name-cell--linked" : ""}" data-character-summon-menu>
+        ${matchedEntry ? `
+          <button
+            class="filter-input character-summons__link"
+            type="button"
+            data-action="open-character-summon-bestiary"
+            data-character-summon-row-id="${escapeHtml(row.id)}"
+          >${escapeHtml(linkedDisplayName)}</button>
+          ${renderCharacterSummonPreview(matchedEntry)}
+        ` : `
+          <div class="character-spellbook__name-stack">
+            <input
+              class="filter-input character-spellbook__input"
+              type="search"
+              value="${escapeHtml(displayName)}"
+              placeholder="Nombre de la criatura"
+              data-character-summon-name="${escapeHtml(row.id)}"
+            />
+            ${suggestions.length > 0 ? `
+              <div class="bestiary-query__popover character-spellbook__suggestions" role="listbox" aria-label="Sugerencias de criaturas">
+                ${suggestions.map((entry) => `
+                  <button
+                    class="bestiary-query__option"
+                    type="button"
+                    data-action="select-character-summon-suggestion"
+                    data-character-summon-row-id="${escapeHtml(row.id)}"
+                    data-bestiary-entry-id="${escapeHtml(entry.id)}"
+                  >${escapeHtml(formatCompendiumSuggestionLabel(entry, duplicateCounts))}</button>
+                `).join("")}
+              </div>
+            ` : ""}
+          </div>
+        `}
+      </div>
+      <button
+        class="toolbar-button toolbar-button--subtle-danger character-spellbook__remove"
+        type="button"
+        data-action="remove-character-summon-row"
+        data-character-summon-row-id="${escapeHtml(row.id)}"
+        aria-label="Quitar ${escapeHtml(displayName || "invocacion")}"
+      >Quitar</button>
+    </div>
   `;
 }
 
@@ -20532,6 +20731,7 @@ function createDefaultCharacter(overrides = {}) {
     skillProgress: getDefaultCharacterSkillProgress(),
     spellsOpen: false,
     spells: [],
+    summons: [],
     spellAttackModifier: "",
     spellSaveDc: "",
     spellSlotLevelsVisible: 1,
@@ -20580,6 +20780,8 @@ function selectCharacter(characterId, options = {}) {
   state.showCharacterInventorySuggestions = false;
   state.activeCharacterSpellRowId = "";
   state.showCharacterSpellSuggestions = false;
+  state.activeCharacterSummonRowId = "";
+  state.showCharacterSummonSuggestions = false;
 }
 
 function duplicateActiveCharacter() {
@@ -21389,6 +21591,25 @@ function addCharacterSpellRow(overrides = {}) {
   return row.id;
 }
 
+function addCharacterSummonRow(overrides = {}) {
+  const row = createBlankCharacterSummonRow(overrides);
+
+  if (!row) {
+    return "";
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      spellsOpen: true,
+      summons: [...character.summons, row]
+    })
+    : character);
+  state.activeCharacterSummonRowId = row.id;
+  state.showCharacterSummonSuggestions = false;
+  return row.id;
+}
+
 function addCharacterSpellbookAbilityRow(overrides = {}) {
   const row = createBlankCharacterSpellbookAbilityRow(overrides);
 
@@ -21469,6 +21690,26 @@ function removeCharacterSpellRow(rowId) {
   }
 }
 
+function removeCharacterSummonRow(rowId) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      summons: character.summons.filter((row) => row.id !== normalizedRowId)
+    })
+    : character);
+
+  if (state.activeCharacterSummonRowId === normalizedRowId) {
+    state.activeCharacterSummonRowId = "";
+    state.showCharacterSummonSuggestions = false;
+  }
+}
+
 function removeCharacterSpellbookAbilityRow(rowId) {
   const normalizedRowId = cleanText(rowId);
 
@@ -21538,6 +21779,32 @@ function updateCharacterSpellRow(rowId, key, rawValue, normalize = true) {
   });
 }
 
+function updateCharacterSummonRow(rowId, rawValue) {
+  const normalizedRowId = cleanText(rowId);
+
+  if (!normalizedRowId) {
+    return;
+  }
+
+  const matchedEntry = findCompendiumEntryByReference(state.bestiary, { name: rawValue });
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      summons: character.summons.map((row) => row.id === normalizedRowId
+        ? normalizeStoredCharacterSummonRow({
+          ...row,
+          bestiaryId: matchedEntry?.id || "",
+          bestiaryKey: matchedEntry ? getCompendiumEntryIdentityKey(matchedEntry) : "",
+          name: matchedEntry?.name || rawValue,
+          canonicalName: matchedEntry?.canonicalName || "",
+          localizedName: matchedEntry?.localizedName || "",
+          source: matchedEntry?.source || ""
+        })
+        : row)
+    })
+    : character);
+}
+
 function updateCharacterSpellbookAbilityRow(rowId, key, rawValue, normalize = true) {
   const normalizedRowId = cleanText(rowId);
 
@@ -21604,6 +21871,52 @@ function selectCharacterSpellSuggestion(rowId, arcanumEntryId) {
 
   state.activeCharacterSpellRowId = normalizedRowId;
   state.showCharacterSpellSuggestions = false;
+}
+
+function selectCharacterSummonSuggestion(rowId, bestiaryEntryId) {
+  const normalizedRowId = cleanText(rowId);
+  const bestiaryEntry = state.bestiary.find((entry) => entry.id === cleanText(bestiaryEntryId));
+
+  if (!normalizedRowId || !bestiaryEntry) {
+    return;
+  }
+
+  state.characters = state.characters.map((character) => character.id === state.activeCharacterId
+    ? normalizeStoredCharacter({
+      ...character,
+      summons: character.summons.map((row) => row.id === normalizedRowId
+        ? normalizeStoredCharacterSummonRow({
+          ...row,
+          bestiaryId: bestiaryEntry.id,
+          bestiaryKey: getCompendiumEntryIdentityKey(bestiaryEntry),
+          name: bestiaryEntry.name,
+          canonicalName: bestiaryEntry.canonicalName || bestiaryEntry.name,
+          localizedName: bestiaryEntry.localizedName || (bestiaryEntry.canonicalName && bestiaryEntry.canonicalName !== bestiaryEntry.name ? bestiaryEntry.name : ""),
+          source: bestiaryEntry.source
+        })
+        : row)
+    })
+    : character);
+  state.activeCharacterSummonRowId = "";
+  state.showCharacterSummonSuggestions = false;
+}
+
+function openCharacterSummonBestiary(rowId) {
+  const character = getActiveCharacter();
+  const row = character?.summons.find((entry) => entry.id === cleanText(rowId));
+  const bestiaryEntry = row ? getCharacterSummonMatchedEntry(row) : null;
+
+  if (!bestiaryEntry) {
+    return;
+  }
+
+  resetBestiaryVirtualScroll();
+  state.activeScreen = "bestiary";
+  state.bestiaryFilters = { ...blankBestiaryFilters, query: bestiaryEntry.name };
+  state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
+  state.activeBestiaryFilterKey = "";
+  state.showBestiaryQuerySuggestions = false;
+  state.bestiarySelectedId = bestiaryEntry.id;
 }
 
 function addCharacterInventoryRow(overrides = {}) {
@@ -21833,6 +22146,29 @@ function reconcileCharactersWithCurrentCompendiumReferences(options = {}) {
 
       return nextRow;
     });
+    const summons = character.summons.map((row) => {
+      const bestiaryEntry = getCharacterSummonMatchedEntry(row);
+
+      if (!bestiaryEntry) {
+        return row;
+      }
+
+      const nextRow = normalizeStoredCharacterSummonRow({
+        ...row,
+        bestiaryId: bestiaryEntry.id,
+        bestiaryKey: getCompendiumEntryIdentityKey(bestiaryEntry),
+        name: bestiaryEntry.name,
+        canonicalName: bestiaryEntry.canonicalName || bestiaryEntry.name,
+        localizedName: bestiaryEntry.localizedName || (bestiaryEntry.canonicalName && bestiaryEntry.canonicalName !== bestiaryEntry.name ? bestiaryEntry.name : cleanText(row.localizedName)),
+        source: bestiaryEntry.source
+      });
+
+      if (JSON.stringify(nextRow) !== JSON.stringify(row)) {
+        characterChanged = true;
+      }
+
+      return nextRow;
+    });
     const inventory = character.inventory.map((row) => {
       if (isCharacterCurrencyRow(row.name)) {
         return row;
@@ -21869,6 +22205,7 @@ function reconcileCharactersWithCurrentCompendiumReferences(options = {}) {
     return normalizeStoredCharacter({
       ...character,
       spells,
+      summons,
       inventory
     });
   });
@@ -22190,7 +22527,8 @@ async function exportActiveCharacterPdf(characterId = state.activeCharacterId) {
   try {
     await Promise.all([
       ensureCompendiumLoaded("arcanum"),
-      ensureCompendiumLoaded("items")
+      ensureCompendiumLoaded("items"),
+      ensureCompendiumLoaded("bestiary")
     ]);
     const characterTemplateUrl = getCharacterPdfTemplateUrl(character);
     const exportCharacter = getCharacterPdfExportCharacter(character);
@@ -22328,7 +22666,28 @@ function getCharacterPdfExportCharacter(character) {
     };
   });
 
-  return { ...character, spells, inventory };
+  const summons = (Array.isArray(character?.summons) ? character.summons : [])
+    .map((summon) => {
+      const matchedEntry = getCharacterSummonMatchedEntry(summon);
+
+      if (!matchedEntry) {
+        return summon;
+      }
+
+      const translatedName = contentLanguage === CONTENT_LANGUAGE_EN
+        ? cleanText(matchedEntry.canonicalName || matchedEntry.name || summon?.name)
+        : cleanText(matchedEntry.localizedName || matchedEntry.name || summon?.name);
+      return {
+        ...matchedEntry,
+        ...summon,
+        name: translatedName || summon.name,
+        source: cleanText(matchedEntry.source || summon.source),
+        bestiaryEntry: matchedEntry
+      };
+    })
+    .filter((summon) => summon.bestiaryEntry);
+
+  return { ...character, spells, summons, inventory };
 }
 
 function getCharacterPdfTemplateUrl(character) {
@@ -26139,6 +26498,7 @@ async function loadBestiary() {
     state.bestiarySelectedId = state.bestiary[0]?.id ?? "";
     reconcileEncounterRowsWithCurrentBestiaryReferences();
     reconcileCombatantsWithCurrentBestiaryReferences();
+    reconcileCharactersWithCurrentCompendiumReferences();
     render();
   } catch (error) {
     if (loadToken !== compendiumLoadTokens.bestiary) {
@@ -31781,6 +32141,8 @@ function resetTransientCampaignUiState() {
   state.showCharacterInventorySuggestions = false;
   state.activeCharacterSpellRowId = "";
   state.showCharacterSpellSuggestions = false;
+  state.activeCharacterSummonRowId = "";
+  state.showCharacterSummonSuggestions = false;
   state.encounterInventoryOpen = false;
   state.selectedIds = new Set();
   state.activeFilterKey = "";

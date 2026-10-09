@@ -57,8 +57,8 @@ export function findCharacterClassRecord(catalog, entryOrName, explicitSource = 
     : { name: entryOrName, source: explicitSource };
   const parsedInput = parseSourceSuffix(entry.name);
   const requestedSource = clean(parsedInput.source || explicitSource || entry.source).toUpperCase();
-  const requestedClassKey = clean(entry.classKey)
-    || getCharacterClassKey(parsedInput.name)
+  const requestedClassKey = getCharacterClassKey(parsedInput.name)
+    || clean(entry.classKey)
     || normalizeKey(parsedInput.name);
   const candidates = classes.filter((classEntity) => (
     normalizeKey(classEntity.key || classEntity.name) === requestedClassKey

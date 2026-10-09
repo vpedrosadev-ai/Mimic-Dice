@@ -157,9 +157,11 @@ export function findCompendiumEntryByReference(entries, reference = {}) {
 export function getUnresolvedCharacterCompendiumReferences(characters, options = {}) {
   const spellEntries = Array.isArray(options.spellEntries) ? options.spellEntries : [];
   const itemEntries = Array.isArray(options.itemEntries) ? options.itemEntries : [];
+  const bestiaryEntries = Array.isArray(options.bestiaryEntries) ? options.bestiaryEntries : [];
   const isCurrencyName = typeof options.isCurrencyName === "function" ? options.isCurrencyName : () => false;
   const unresolvedSpells = new Map();
   const unresolvedItems = new Map();
+  const unresolvedSummons = new Map();
 
   for (const character of Array.isArray(characters) ? characters : []) {
     for (const spell of Array.isArray(character?.spells) ? character.spells : []) {
@@ -191,10 +193,26 @@ export function getUnresolvedCharacterCompendiumReferences(characters, options =
 
       unresolvedItems.set(normalizeSearchText(name), name);
     }
+
+    for (const summon of Array.isArray(character?.summons) ? character.summons : []) {
+      const name = cleanText(summon?.name);
+
+      if (!name || findCompendiumEntryByReference(bestiaryEntries, {
+        name,
+        canonicalName: summon?.canonicalName,
+        localizedName: summon?.localizedName,
+        source: summon?.source
+      })) {
+        continue;
+      }
+
+      unresolvedSummons.set(normalizeSearchText(name), name);
+    }
   }
 
   return {
     spells: [...unresolvedSpells.values()],
-    items: [...unresolvedItems.values()]
+    items: [...unresolvedItems.values()],
+    summons: [...unresolvedSummons.values()]
   };
 }

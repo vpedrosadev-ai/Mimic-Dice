@@ -227,6 +227,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     ),
     spellsOpen: character.spellsOpen === true,
     spells: normalizeStoredCharacterSpells(character.spells),
+    summons: normalizeStoredCharacterSummons(character.summons),
     spellAttackModifier: normalizeStoredNumber(character.spellAttackModifier),
     spellSaveDc: normalizeStoredNumber(character.spellSaveDc),
     spellSlotLevelsVisible: normalizeStoredCharacterSpellSlotVisibleLevels(character.spellSlotLevelsVisible, character.spellSlots),
@@ -688,6 +689,51 @@ function createBlankCharacterSpellRow(overrides = {}) {
   });
 }
 
+function normalizeStoredCharacterSummons(rows) {
+  return Array.isArray(rows)
+    ? rows.map((row) => normalizeStoredCharacterSummonRow(row)).filter(Boolean)
+    : [];
+}
+
+function normalizeStoredCharacterSummonRow(row) {
+  if (!isPlainObject(row)) {
+    return null;
+  }
+
+  const name = cleanText(row.name);
+  const matchedEntry = findCompendiumEntryByReference(getCurrentCompendiumEntries("bestiary"), {
+    entryKey: row.bestiaryKey,
+    entryId: row.bestiaryId,
+    name,
+    canonicalName: row.canonicalName,
+    localizedName: row.localizedName,
+    source: row.source
+  });
+
+  return {
+    id: cleanText(row.id) || createStableId("character-summon"),
+    bestiaryId: cleanText(row.bestiaryId) || matchedEntry?.id || "",
+    bestiaryKey: cleanText(row.bestiaryKey) || (matchedEntry ? getCompendiumEntryIdentityKey(matchedEntry) : ""),
+    name,
+    canonicalName: cleanText(row.canonicalName) || matchedEntry?.canonicalName || "",
+    localizedName: cleanText(row.localizedName) || matchedEntry?.localizedName || "",
+    source: cleanText(row.source)
+  };
+}
+
+function createBlankCharacterSummonRow(overrides = {}) {
+  return normalizeStoredCharacterSummonRow({
+    id: createStableId("character-summon"),
+    bestiaryId: "",
+    bestiaryKey: "",
+    name: "",
+    canonicalName: "",
+    localizedName: "",
+    source: "",
+    ...overrides
+  });
+}
+
 function normalizeStoredCharacterSpellbookAbilities(rows) {
   const normalizedRows = Array.isArray(rows)
     ? rows.map((row) => normalizeStoredCharacterSpellbookAbilityRow(row)).filter(Boolean)
@@ -948,6 +994,9 @@ function normalizeCharacterProficiencyKey(key) {
     formatCompactSpellLevelLabel,
     formatCharacterSignedFieldValue,
     createBlankCharacterSpellRow,
+    normalizeStoredCharacterSummons,
+    normalizeStoredCharacterSummonRow,
+    createBlankCharacterSummonRow,
     normalizeStoredCharacterSpellbookAbilities,
     normalizeStoredCharacterSpellbookAbilityRow,
     normalizeStoredCharacterSpellbookAbilitySpent,

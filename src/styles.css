@@ -15605,6 +15605,7 @@ body.is-table-resizing * {
 
 .character-spellbook__list,
 .character-spellbook__ability-list,
+.character-summons__list,
 .character-inventory__list {
   display: grid;
   gap: 0.5rem;
@@ -15620,6 +15621,8 @@ body.is-table-resizing * {
 
 .character-spellbook__ability-header,
 .character-spellbook__ability-row,
+.character-summons__header,
+.character-summons__row,
 .character-inventory__header,
 .character-inventory__row {
   display: grid;
@@ -15633,8 +15636,14 @@ body.is-table-resizing * {
   grid-template-columns: minmax(0, 1fr) 7.2rem 5.6rem 5.2rem;
 }
 
+.character-summons__header,
+.character-summons__row {
+  grid-template-columns: minmax(0, 1fr) 5.2rem;
+}
+
 .character-spellbook__header,
 .character-spellbook__ability-header,
+.character-summons__header,
 .character-inventory__header {
   color: var(--accent-soft);
   font-size: 0.806rem;
@@ -15645,6 +15654,7 @@ body.is-table-resizing * {
 
 .character-spellbook__header span,
 .character-spellbook__ability-header span,
+.character-summons__header span,
 .character-inventory__header span {
   display: flex;
   align-items: center;
@@ -15654,6 +15664,7 @@ body.is-table-resizing * {
 
 .character-spellbook__header span:first-child,
 .character-spellbook__ability-header span:first-child,
+.character-summons__header span:first-child,
 .character-inventory__header span:first-child {
   justify-content: flex-start;
   padding-left: 0.72rem;
@@ -15675,6 +15686,7 @@ body.is-table-resizing * {
 
 .character-spellbook__header span:last-child,
 .character-spellbook__ability-header span:last-child,
+.character-summons__header span:last-child,
 .character-inventory__header span:last-child {
   justify-content: flex-end;
 }
@@ -15704,6 +15716,27 @@ body.is-table-resizing * {
 .character-inventory__input {
   min-width: 0;
   width: 100%;
+}
+
+.character-summons__link {
+  width: 100%;
+  min-width: 0;
+  color: var(--accent-soft);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(240, 200, 121, 0.52);
+  text-underline-offset: 0.18em;
+  box-shadow: inset 0 -1px 0 rgba(240, 200, 121, 0.58);
+}
+
+.character-summons__link:hover,
+.character-summons__link:focus-visible {
+  color: var(--text);
+  text-decoration-color: rgba(240, 200, 121, 0.82);
+  box-shadow: inset 0 -1px 0 rgba(240, 200, 121, 0.82);
 }
 
 .character-spellbook__field .character-spellbook__input,
@@ -18646,6 +18679,11 @@ body.is-table-resizing * {
     grid-template-columns: minmax(0, 1fr) 7rem 5.6rem auto;
   }
 
+  .character-summons__header,
+  .character-summons__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .character-sheet__media {
     position: static;
     justify-items: center;
@@ -19003,12 +19041,14 @@ body.is-table-resizing * {
 
   .character-spellbook__header,
   .character-spellbook__ability-header,
+  .character-summons__header,
   .character-inventory__header {
     display: none;
   }
 
   .character-spellbook__row,
   .character-spellbook__ability-row,
+  .character-summons__row,
   .character-inventory__row {
     grid-template-columns: 1fr 1fr;
   }
