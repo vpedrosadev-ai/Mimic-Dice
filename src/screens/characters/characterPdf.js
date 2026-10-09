@@ -1268,6 +1268,230 @@ function getSummonPdfParagraphLines(value, font, size, maxWidth) {
   ]);
 }
 
+function createCharacterPdfExtraPage(document, character, fonts, pdfLibrary, title, options = {}) {
+  const { rgb } = pdfLibrary;
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 42;
+  const accent = rgb(0.44, 0.12, 0.08);
+  const paper = rgb(0.98, 0.965, 0.91);
+  const page = document.addPage([pageWidth, pageHeight]);
+  const characterName = toPdfText(character?.name);
+
+  page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: paper });
+  page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: accent });
+  page.drawText(toPdfText(title), {
+    x: margin,
+    y: pageHeight - 15,
+    size: 7,
+    font: fonts.bold,
+    color: rgb(1, 0.96, 0.84)
+  });
+  page.drawText(fitPdfLine(characterName, fonts.regular, 7, 190), {
+    x: pageWidth - margin - Math.min(190, fonts.regular.widthOfTextAtSize(characterName, 7)),
+    y: pageHeight - 15,
+    size: 7,
+    font: fonts.regular,
+    color: rgb(1, 0.96, 0.84)
+  });
+
+  return { page, y: pageHeight - 36, pageWidth, pageHeight, margin, bottom: 38, options };
+}
+
+function getSummonCardBlocks(summon, fonts, contentWidth, useEnglish) {
+  const textSize = 7.2;
+  const lineHeight = 9;
+  const blocks = [{ kind: "identity", height: 98 }];
+  const labelRows = [
+    [useEnglish ? "Saving Throws" : "Salvaciones", summon.savingThrows],
+    [useEnglish ? "Skills" : "Habilidades", summon.skills],
+    [useEnglish ? "Damage Vulnerabilities" : "Vulnerabilidades al dano", summon.damageVulnerabilities],
+    [useEnglish ? "Damage Resistances" : "Resistencias al dano", summon.damageResistances],
+    [useEnglish ? "Damage Immunities" : "Inmunidades al dano", summon.damageImmunities],
+    [useEnglish ? "Condition Immunities" : "Inmunidades a estados", summon.conditionImmunities],
+    [useEnglish ? "Senses" : "Sentidos", summon.senses],
+    [useEnglish ? "Languages" : "Idiomas", summon.languages],
+    [useEnglish ? "Environment" : "Entorno", summon.environment]
+  ];
+
+  labelRows.forEach(([label, value]) => {
+    if (!cleanPdfText(value)) return;
+    const prefixWidth = fonts.bold.widthOfTextAtSize(toPdfText(`${label}: `), textSize);
+    const lines = getSummonPdfParagraphLines(value, fonts.regular, textSize, contentWidth - prefixWidth);
+    blocks.push({ kind: "label", label, lines, height: Math.max(1, lines.length) * lineHeight + 2 });
+  });
+
+  [
+    [useEnglish ? "Traits" : "Rasgos", summon.traits],
+    [useEnglish ? "Actions" : "Acciones", summon.actions],
+    [useEnglish ? "Bonus Actions" : "Acciones adicionales", summon.bonusActions],
+    [useEnglish ? "Reactions" : "Reacciones", summon.reactions],
+    [useEnglish ? "Legendary Actions" : "Acciones legendarias", summon.legendaryActions],
+    [useEnglish ? "Mythic Actions" : "Acciones miticas", summon.mythicActions],
+    [useEnglish ? "Lair Actions" : "Acciones de guarida", summon.lairActions],
+    [useEnglish ? "Regional Effects" : "Efectos regionales", summon.regionalEffects]
+  ].forEach(([title, value]) => {
+    if (!cleanPdfText(value)) return;
+    const lines = getSummonPdfParagraphLines(value, fonts.regular, textSize, contentWidth);
+    blocks.push({
+      kind: "section",
+      title,
+      lines,
+      lineHeight,
+      height: 17 + lines.length * lineHeight
+    });
+  });
+
+  return blocks;
+}
+
+function splitSummonCardBlocks(summon, blocks, maximumContentHeight, useEnglish) {
+  const continuationHeight = 24;
+  const fragments = [];
+  let current = [];
+  let currentHeight = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    fragments.push({ summon, blocks: current, contentHeight: currentHeight });
+    current = [{ kind: "continuation", height: continuationHeight }];
+    currentHeight = continuationHeight;
+  };
+
+  const addBlock = (block) => {
+    if (currentHeight + block.height > maximumContentHeight && current.length > 0) flush();
+    current.push(block);
+    currentHeight += block.height;
+  };
+
+  blocks.forEach((block) => {
+    if (block.kind !== "section" || block.height <= maximumContentHeight - continuationHeight) {
+      addBlock(block);
+      return;
+    }
+
+    let remainingLines = [...block.lines];
+    let continued = false;
+    while (remainingLines.length > 0) {
+      const availableHeight = maximumContentHeight - currentHeight;
+      const titleHeight = 17;
+      let lineCapacity = Math.floor((availableHeight - titleHeight) / block.lineHeight);
+
+      if (lineCapacity < 2 && current.length > 0) {
+        flush();
+        continue;
+      }
+
+      lineCapacity = Math.max(1, lineCapacity);
+      const lines = remainingLines.splice(0, lineCapacity);
+      addBlock({
+        ...block,
+        title: continued ? `${block.title} (${useEnglish ? "continued" : "cont."})` : block.title,
+        lines,
+        height: titleHeight + lines.length * block.lineHeight
+      });
+      continued = true;
+      if (remainingLines.length > 0) flush();
+    }
+  });
+
+  if (current.length > 0 && !(current.length === 1 && current[0].kind === "continuation")) {
+    fragments.push({ summon, blocks: current, contentHeight: currentHeight });
+  }
+
+  return fragments;
+}
+
+function drawSummonCardIdentity(page, summon, x, y, width, fonts, colors, useEnglish) {
+  const { bold, regular, italic } = fonts;
+  const { accent, accentSoft, ink, muted } = colors;
+  page.drawText(fitPdfLine(summon.name, bold, 15, width), { x, y, size: 15, font: bold, color: accent });
+  page.drawText(fitPdfLine(summon.sourceFullName || summon.sourceLabel || summon.source, regular, 6.3, width), {
+    x, y: y - 12, size: 6.3, font: regular, color: muted
+  });
+  page.drawText(fitPdfLine(summon.typeLine, italic, 7.5, width), { x, y: y - 23, size: 7.5, font: italic, color: ink });
+  page.drawLine({ start: { x, y: y - 29 }, end: { x: x + width, y: y - 29 }, thickness: 1, color: accentSoft });
+
+  const metrics = [
+    [useEnglish ? "ARMOR CLASS" : "CLASE DE ARMADURA", summon.ac || "-"],
+    [useEnglish ? "HIT POINTS" : "PUNTOS DE GOLPE", summon.hp || "-"],
+    [useEnglish ? "SPEED" : "VELOCIDAD", summon.speed || "-"],
+    ["CR", summon.crLabel || summon.cr || "-"]
+  ];
+  const gap = 5;
+  const metricWidth = (width - gap * 3) / 4;
+  metrics.forEach(([label, value], index) => {
+    const metricX = x + index * (metricWidth + gap);
+    page.drawRectangle({ x: metricX, y: y - 58, width: metricWidth, height: 23, borderWidth: 0.55, borderColor: accentSoft });
+    page.drawText(toPdfText(label), { x: metricX + 4, y: y - 43, size: 4.7, font: bold, color: accent });
+    page.drawText(fitPdfLine(value, bold, 6.8, metricWidth - 8), { x: metricX + 4, y: y - 54, size: 6.8, font: bold, color: ink });
+  });
+
+  const abilityKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+  const abilityWidth = width / abilityKeys.length;
+  abilityKeys.forEach((key, index) => {
+    const score = Number(summon.abilities?.[key]) || 10;
+    const abilityX = x + index * abilityWidth + 5;
+    page.drawText(key, { x: abilityX, y: y - 72, size: 5.6, font: bold, color: accent });
+    page.drawText(`${score} (${formatSigned(getAbilityModifier(score))})`, { x: abilityX, y: y - 84, size: 7, font: regular, color: ink });
+  });
+}
+
+function drawSummonCardFragment(page, fragment, x, topY, width, fonts, pdfLibrary, useEnglish) {
+  const { rgb } = pdfLibrary;
+  const colors = {
+    accent: rgb(0.44, 0.12, 0.08),
+    accentSoft: rgb(0.76, 0.58, 0.28),
+    ink: rgb(0.14, 0.11, 0.09),
+    muted: rgb(0.38, 0.34, 0.3),
+    card: rgb(1, 0.992, 0.955)
+  };
+  const horizontalPadding = 10;
+  const topPadding = 14;
+  const bottomPadding = 10;
+  const height = fragment.contentHeight + topPadding + bottomPadding;
+  const innerX = x + horizontalPadding;
+  const innerWidth = width - horizontalPadding * 2;
+  let y = topY - topPadding;
+
+  page.drawRectangle({
+    x,
+    y: topY - height,
+    width,
+    height,
+    color: colors.card,
+    borderWidth: 0.85,
+    borderColor: colors.accentSoft
+  });
+
+  fragment.blocks.forEach((block) => {
+    if (block.kind === "identity") {
+      drawSummonCardIdentity(page, fragment.summon, innerX, y, innerWidth, fonts, colors, useEnglish);
+    } else if (block.kind === "continuation") {
+      page.drawText(fitPdfLine(`${fragment.summon.name} (${useEnglish ? "continued" : "continuacion"})`, fonts.bold, 11, innerWidth), {
+        x: innerX, y, size: 11, font: fonts.bold, color: colors.accent
+      });
+      page.drawLine({ start: { x: innerX, y: y - 6 }, end: { x: innerX + innerWidth, y: y - 6 }, thickness: 0.7, color: colors.accentSoft });
+    } else if (block.kind === "label") {
+      const prefix = toPdfText(`${block.label}: `);
+      const prefixWidth = fonts.bold.widthOfTextAtSize(prefix, 7.2);
+      block.lines.forEach((line, index) => {
+        if (index === 0) page.drawText(prefix, { x: innerX, y: y - index * 9, size: 7.2, font: fonts.bold, color: colors.accent });
+        if (line) page.drawText(line, { x: innerX + prefixWidth, y: y - index * 9, size: 7.2, font: fonts.regular, color: colors.ink });
+      });
+    } else if (block.kind === "section") {
+      page.drawText(toPdfText(block.title), { x: innerX, y, size: 8.8, font: fonts.bold, color: colors.accent });
+      page.drawLine({ start: { x: innerX, y: y - 4 }, end: { x: innerX + innerWidth, y: y - 4 }, thickness: 0.55, color: colors.accentSoft });
+      block.lines.forEach((line, index) => {
+        if (line) page.drawText(line, { x: innerX, y: y - 14 - index * block.lineHeight, size: 7.2, font: fonts.regular, color: colors.ink });
+      });
+    }
+    y -= block.height;
+  });
+
+  return height;
+}
+
 async function appendCharacterSummonSheets(document, character, pdfLibrary, options = {}) {
   const summons = getCharacterPdfSummons(character);
 
@@ -1275,213 +1499,130 @@ async function appendCharacterSummonSheets(document, character, pdfLibrary, opti
     return;
   }
 
-  const { StandardFonts, rgb } = pdfLibrary;
-  const regularFont = await document.embedFont(StandardFonts.Helvetica);
-  const boldFont = await document.embedFont(StandardFonts.HelveticaBold);
-  const italicFont = await document.embedFont(StandardFonts.HelveticaOblique);
+  const { StandardFonts } = pdfLibrary;
+  const fonts = {
+    regular: await document.embedFont(StandardFonts.Helvetica),
+    bold: await document.embedFont(StandardFonts.HelveticaBold),
+    italic: await document.embedFont(StandardFonts.HelveticaOblique)
+  };
   const pageWidth = 595.28;
-  const pageHeight = 841.89;
   const margin = 42;
-  const contentWidth = pageWidth - margin * 2;
-  const bottom = 42;
-  const textSize = 8.5;
-  const lineHeight = 11;
-  const accent = rgb(0.44, 0.12, 0.08);
-  const accentSoft = rgb(0.76, 0.58, 0.28);
-  const ink = rgb(0.14, 0.11, 0.09);
-  const muted = rgb(0.38, 0.34, 0.3);
-  const paper = rgb(0.98, 0.965, 0.91);
+  const cardWidth = pageWidth - margin * 2;
+  const cardContentWidth = cardWidth - 20;
+  const maximumContentHeight = 690;
   const useEnglish = options.contentLanguage === "en";
+  const fragments = summons.flatMap((summon) => splitSummonCardBlocks(
+    summon,
+    getSummonCardBlocks(summon, fonts, cardContentWidth, useEnglish),
+    maximumContentHeight,
+    useEnglish
+  ));
+  let sheet = null;
 
-  for (const summon of summons) {
-    let page;
-    let y;
+  fragments.forEach((fragment) => {
+    const cardHeight = fragment.contentHeight + 24;
+    if (!sheet || sheet.y - cardHeight < sheet.bottom) {
+      sheet = createCharacterPdfExtraPage(
+        document,
+        character,
+        fonts,
+        pdfLibrary,
+        useEnglish ? "KNOWN SUMMONS" : "INVOCACIONES CONOCIDAS",
+        options
+      );
+    }
+    const drawnHeight = drawSummonCardFragment(sheet.page, fragment, margin, sheet.y, cardWidth, fonts, pdfLibrary, useEnglish);
+    sheet.y -= drawnHeight + 10;
+  });
+}
 
-    const addPage = (continuation = false) => {
-      page = document.addPage([pageWidth, pageHeight]);
-      page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: paper });
-      page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: accent });
-      page.drawText(toPdfText(useEnglish ? "KNOWN SUMMON" : "INVOCACION CONOCIDA"), {
-        x: margin,
-        y: pageHeight - 15,
-        size: 7,
-        font: boldFont,
-        color: rgb(1, 0.96, 0.84)
-      });
-      page.drawText(toPdfText(character?.name), {
-        x: pageWidth - margin - Math.min(190, regularFont.widthOfTextAtSize(toPdfText(character?.name), 7)),
-        y: pageHeight - 15,
-        size: 7,
-        font: regularFont,
-        color: rgb(1, 0.96, 0.84)
-      });
-      y = pageHeight - 54;
+export function getCharacterPdfAbilities(character) {
+  return (Array.isArray(character?.spellbookAbilities) ? character.spellbookAbilities : [])
+    .filter((ability) => cleanPdfText(ability?.name) || cleanPdfText(ability?.description) || Number(ability?.uses) > 0);
+}
 
-      if (continuation) {
-        page.drawText(fitPdfLine(`${summon.name} (${useEnglish ? "continued" : "continuacion"})`, boldFont, 15, contentWidth), {
-          x: margin,
-          y,
-          size: 15,
-          font: boldFont,
-          color: accent
-        });
-        y -= 18;
-        page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1.4, color: accentSoft });
-        y -= 16;
-      }
-    };
+async function appendCharacterAbilitySheets(document, character, pdfLibrary, options = {}) {
+  const abilities = getCharacterPdfAbilities(character);
+  if (abilities.length === 0) return;
 
-    const ensureSpace = (height, continuation = true) => {
-      if (y - height < bottom) {
-        addPage(continuation);
-      }
-    };
+  const { StandardFonts, rgb } = pdfLibrary;
+  const fonts = {
+    regular: await document.embedFont(StandardFonts.Helvetica),
+    bold: await document.embedFont(StandardFonts.HelveticaBold),
+    italic: await document.embedFont(StandardFonts.HelveticaOblique)
+  };
+  const useEnglish = options.contentLanguage === "en";
+  const pageWidth = 595.28;
+  const margin = 42;
+  const gap = 12;
+  const cardWidth = (pageWidth - margin * 2 - gap) / 2;
+  const innerWidth = cardWidth - 20;
+  const lineHeight = 10;
+  const maximumLinesPerCard = 54;
+  const cardFragments = abilities.flatMap((ability) => {
+    const descriptionLines = getSummonPdfParagraphLines(ability.description, fonts.regular, 8, innerWidth);
+    const chunks = descriptionLines.length > 0
+      ? Array.from({ length: Math.ceil(descriptionLines.length / maximumLinesPerCard) }, (_, index) => (
+        descriptionLines.slice(index * maximumLinesPerCard, (index + 1) * maximumLinesPerCard)
+      ))
+      : [[]];
+    return chunks.map((lines, index) => ({ ability, lines, continuation: index > 0, height: Math.max(78, 58 + lines.length * lineHeight) }));
+  });
+  let sheet = null;
 
-    const drawLabelValue = (label, value) => {
-      if (!cleanPdfText(value)) return;
-      const prefix = `${label}: `;
-      const prefixWidth = boldFont.widthOfTextAtSize(toPdfText(prefix), textSize);
-      const lines = getSummonPdfParagraphLines(value, regularFont, textSize, contentWidth - prefixWidth);
-      ensureSpace(Math.max(lineHeight, lines.length * lineHeight) + 2);
-      page.drawText(toPdfText(prefix), { x: margin, y, size: textSize, font: boldFont, color: accent });
-      lines.forEach((line, index) => {
-        if (index > 0) ensureSpace(lineHeight);
-        page.drawText(line, {
-          x: index === 0 ? margin + prefixWidth : margin + prefixWidth,
-          y,
-          size: textSize,
-          font: regularFont,
-          color: ink
-        });
-        y -= lineHeight;
-      });
-      y -= 2;
-    };
+  const drawCard = (page, fragment, x, topY) => {
+    const { ability, lines, continuation, height } = fragment;
+    const accent = rgb(0.44, 0.12, 0.08);
+    const accentSoft = rgb(0.76, 0.58, 0.28);
+    const ink = rgb(0.14, 0.11, 0.09);
+    const muted = rgb(0.38, 0.34, 0.3);
+    const card = rgb(1, 0.992, 0.955);
+    const title = continuation
+      ? `${cleanPdfText(ability.name) || (useEnglish ? "Unnamed ability" : "Habilidad sin nombre")} (${useEnglish ? "continued" : "cont."})`
+      : cleanPdfText(ability.name) || (useEnglish ? "Unnamed ability" : "Habilidad sin nombre");
+    const featureLevel = Number(ability.featureLevel) || 0;
+    const sourceParts = [
+      cleanPdfText(ability.source),
+      featureLevel > 0 ? `${useEnglish ? "Level" : "Nivel"} ${featureLevel}` : "",
+      ability.autoIncluded ? (useEnglish ? "Class ability" : "Habilidad de clase") : ""
+    ].filter(Boolean);
+    const uses = Math.max(0, Math.floor(Number(ability.uses) || 0));
+    const spent = (Array.isArray(ability.spent) ? ability.spent : []).filter(Boolean).length;
+    const usesLabel = uses > 0
+      ? `${useEnglish ? "Uses" : "Usos"}: ${Math.max(0, uses - spent)}/${uses}`
+      : (useEnglish ? "Unlimited" : "Sin limite");
 
-    const drawSection = (title, value) => {
-      if (!cleanPdfText(value)) return;
-      let lines = getSummonPdfParagraphLines(value, regularFont, textSize, contentWidth);
-      let continuation = false;
-
-      while (lines.length > 0) {
-        ensureSpace(29);
-        page.drawText(toPdfText(continuation ? `${title} (${useEnglish ? "continued" : "cont."})` : title), {
-          x: margin,
-          y,
-          size: 11,
-          font: boldFont,
-          color: accent
-        });
-        y -= 5;
-        page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.8, color: accentSoft });
-        y -= 13;
-
-        while (lines.length > 0 && y - lineHeight >= bottom) {
-          if (lines[0] === "") {
-            const nextParagraphLineCount = lines.slice(1).findIndex((line) => line === "");
-            const paragraphLineCount = nextParagraphLineCount < 0 ? lines.length - 1 : nextParagraphLineCount;
-            const fullPageLineCapacity = Math.floor((pageHeight - 100 - bottom) / lineHeight);
-
-            if (
-              paragraphLineCount > 0
-              && paragraphLineCount <= fullPageLineCapacity
-              && y - (paragraphLineCount + 1) * lineHeight < bottom
-            ) {
-              break;
-            }
-          }
-
-          const line = lines.shift();
-          if (line) {
-            page.drawText(line, { x: margin, y, size: textSize, font: regularFont, color: ink });
-          }
-          y -= lineHeight;
-        }
-
-        y -= 5;
-        if (lines.length > 0) {
-          while (lines[0] === "") lines.shift();
-          addPage(true);
-          continuation = true;
-        }
-      }
-    };
-
-    addPage(false);
-    page.drawText(fitPdfLine(summon.name, boldFont, 22, contentWidth), {
-      x: margin,
-      y,
-      size: 22,
-      font: boldFont,
+    page.drawRectangle({ x, y: topY - height, width: cardWidth, height, color: card, borderWidth: 0.85, borderColor: accentSoft });
+    page.drawText(fitPdfLine(title, fonts.bold, 11.5, innerWidth), { x: x + 10, y: topY - 20, size: 11.5, font: fonts.bold, color: accent });
+    page.drawText(fitPdfLine(sourceParts.join(" · "), fonts.italic, 6.5, innerWidth), { x: x + 10, y: topY - 32, size: 6.5, font: fonts.italic, color: muted });
+    page.drawText(usesLabel, {
+      x: x + cardWidth - 10 - Math.min(innerWidth, fonts.bold.widthOfTextAtSize(toPdfText(usesLabel), 6.7)),
+      y: topY - 43,
+      size: 6.7,
+      font: fonts.bold,
       color: accent
     });
-    y -= 16;
-    page.drawText(fitPdfLine(summon.sourceFullName || summon.sourceLabel || summon.source, regularFont, 7.5, contentWidth), {
-      x: margin,
-      y,
-      size: 7.5,
-      font: regularFont,
-      color: muted
+    page.drawLine({ start: { x: x + 10, y: topY - 48 }, end: { x: x + cardWidth - 10, y: topY - 48 }, thickness: 0.6, color: accentSoft });
+    lines.forEach((line, index) => {
+      if (line) page.drawText(line, { x: x + 10, y: topY - 62 - index * lineHeight, size: 8, font: fonts.regular, color: ink });
     });
-    y -= 16;
-    page.drawText(fitPdfLine(summon.typeLine, italicFont, 9.5, contentWidth), {
-      x: margin,
-      y,
-      size: 9.5,
-      font: italicFont,
-      color: ink
-    });
-    y -= 11;
-    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1.5, color: accentSoft });
-    y -= 25;
+  };
 
-    const metrics = [
-      [useEnglish ? "ARMOR CLASS" : "CLASE DE ARMADURA", summon.ac || "-"],
-      [useEnglish ? "HIT POINTS" : "PUNTOS DE GOLPE", summon.hp || "-"],
-      [useEnglish ? "SPEED" : "VELOCIDAD", summon.speed || "-"],
-      ["CR", summon.crLabel || summon.cr || "-"]
-    ];
-    const metricGap = 8;
-    const metricWidth = (contentWidth - metricGap * 3) / 4;
-    metrics.forEach(([label, value], index) => {
-      const x = margin + index * (metricWidth + metricGap);
-      page.drawRectangle({ x, y: y - 34, width: metricWidth, height: 42, borderWidth: 0.7, borderColor: accentSoft });
-      page.drawText(toPdfText(label), { x: x + 5, y: y - 4, size: 5.7, font: boldFont, color: accent });
-      page.drawText(fitPdfLine(value, boldFont, 8.2, metricWidth - 10), { x: x + 5, y: y - 20, size: 8.2, font: boldFont, color: ink });
-    });
-    y -= 54;
-
-    const abilityKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-    const abilityWidth = contentWidth / abilityKeys.length;
-    abilityKeys.forEach((key, index) => {
-      const score = Number(summon.abilities?.[key]) || 10;
-      const modifier = getAbilityModifier(score);
-      const x = margin + index * abilityWidth;
-      page.drawText(key, { x: x + 12, y, size: 7, font: boldFont, color: accent });
-      page.drawText(`${score} (${formatSigned(modifier)})`, { x: x + 12, y: y - 13, size: 8.5, font: regularFont, color: ink });
-    });
-    y -= 33;
-
-    drawLabelValue(useEnglish ? "Saving Throws" : "Salvaciones", summon.savingThrows);
-    drawLabelValue(useEnglish ? "Skills" : "Habilidades", summon.skills);
-    drawLabelValue(useEnglish ? "Damage Vulnerabilities" : "Vulnerabilidades al dano", summon.damageVulnerabilities);
-    drawLabelValue(useEnglish ? "Damage Resistances" : "Resistencias al dano", summon.damageResistances);
-    drawLabelValue(useEnglish ? "Damage Immunities" : "Inmunidades al dano", summon.damageImmunities);
-    drawLabelValue(useEnglish ? "Condition Immunities" : "Inmunidades a estados", summon.conditionImmunities);
-    drawLabelValue(useEnglish ? "Senses" : "Sentidos", summon.senses);
-    drawLabelValue(useEnglish ? "Languages" : "Idiomas", summon.languages);
-    drawLabelValue(useEnglish ? "Environment" : "Entorno", summon.environment);
-
-    [
-      [useEnglish ? "Traits" : "Rasgos", summon.traits],
-      [useEnglish ? "Actions" : "Acciones", summon.actions],
-      [useEnglish ? "Bonus Actions" : "Acciones adicionales", summon.bonusActions],
-      [useEnglish ? "Reactions" : "Reacciones", summon.reactions],
-      [useEnglish ? "Legendary Actions" : "Acciones legendarias", summon.legendaryActions],
-      [useEnglish ? "Mythic Actions" : "Acciones miticas", summon.mythicActions],
-      [useEnglish ? "Lair Actions" : "Acciones de guarida", summon.lairActions],
-      [useEnglish ? "Regional Effects" : "Efectos regionales", summon.regionalEffects]
-    ].forEach(([title, value]) => drawSection(title, value));
+  for (let index = 0; index < cardFragments.length; index += 2) {
+    const row = cardFragments.slice(index, index + 2);
+    const rowHeight = Math.max(...row.map((fragment) => fragment.height));
+    if (!sheet || sheet.y - rowHeight < sheet.bottom) {
+      sheet = createCharacterPdfExtraPage(
+        document,
+        character,
+        fonts,
+        pdfLibrary,
+        useEnglish ? "ABILITIES" : "HABILIDADES",
+        options
+      );
+    }
+    row.forEach((fragment, columnIndex) => drawCard(sheet.page, fragment, margin + columnIndex * (cardWidth + gap), sheet.y));
+    sheet.y -= rowHeight + 12;
   }
 }
 
@@ -1804,6 +1945,7 @@ export async function fillCharacterPdfTemplate(templateBytes, character, spellTe
   await appendCharacterSpellSheet(document, spellTemplateBytes, exportCharacter, pdfLibrary, remainingSpells);
   await appendCharacterSpellCardSheets(document, options.spellCardTemplateBytes, exportCharacter, pdfLibrary, options);
   await appendCharacterSummonSheets(document, exportCharacter, pdfLibrary, options);
+  await appendCharacterAbilitySheets(document, exportCharacter, pdfLibrary, options);
   await appendCharacterBackSheet(document, options.backTemplateBytes, exportCharacter, pdfLibrary);
   document.setTitle(toPdfText(exportCharacter?.name) || "Ficha de personaje");
   document.setAuthor("Mimic Dice");

@@ -22687,7 +22687,9 @@ function getCharacterPdfExportCharacter(character) {
     })
     .filter((summon) => summon.bestiaryEntry);
 
-  return { ...character, spells, summons, inventory };
+  const spellbookAbilities = getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(character));
+
+  return { ...character, spells, summons, inventory, spellbookAbilities };
 }
 
 function getCharacterPdfTemplateUrl(character) {

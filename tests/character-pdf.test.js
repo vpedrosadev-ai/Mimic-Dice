@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   fillCharacterPdfTemplate,
+  getCharacterPdfAbilities,
   getCharacterPdfSummons,
   getCharacterSpellCardEffectFontSize,
   getCharacterSpellCardEffectRuns,
@@ -195,5 +196,50 @@ const summonResultBytes = await fillCharacterPdfTemplate(templateBytes, {
 });
 const summonResultDocument = await PDFDocument.load(summonResultBytes);
 assert.ok(summonResultDocument.getPageCount() > resultDocument.getPageCount());
+
+const sharedSummonPageBytes = await fillCharacterPdfTemplate(templateBytes, {
+  name: "Druida compacto",
+  className: "Druida",
+  level: 2,
+  abilities: { str: 10, dex: 12, con: 14, int: 10, wis: 16, cha: 8 },
+  proficiencies: [],
+  expertise: [],
+  inventory: [],
+  spells: [],
+  summons: [
+    { bestiaryEntry: { name: "Lobo", source: "MM", typeLine: "Bestia mediana", ac: "13", hp: "11", actions: "Mordisco." } },
+    { bestiaryEntry: { name: "Oso", source: "MM", typeLine: "Bestia grande", ac: "11", hp: "34", actions: "Garras." } }
+  ],
+  spellbookAbilities: [],
+  spellSlots: [],
+  classEntries: [{ name: "Druida", level: 2 }]
+});
+const sharedSummonPageDocument = await PDFDocument.load(sharedSummonPageBytes);
+assert.equal(sharedSummonPageDocument.getPageCount(), resultDocument.getPageCount() + 1);
+
+const pdfAbilities = getCharacterPdfAbilities({
+  spellbookAbilities: [
+    { name: "Segundo aliento", description: "Recuperas puntos de golpe.", featureLevel: 2, uses: 1 },
+    { name: "Accion impetuosa", description: "Realizas una accion adicional.", featureLevel: 2, uses: 1 },
+    { name: "", description: "", uses: 0 }
+  ]
+});
+assert.deepEqual(pdfAbilities.map((ability) => ability.name), ["Segundo aliento", "Accion impetuosa"]);
+
+const abilityCardResultBytes = await fillCharacterPdfTemplate(templateBytes, {
+  name: "Guerrero de prueba",
+  className: "Guerrero",
+  level: 2,
+  abilities: { str: 16, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+  proficiencies: [],
+  expertise: [],
+  inventory: [],
+  spells: [],
+  spellbookAbilities: pdfAbilities,
+  spellSlots: [],
+  classEntries: [{ name: "Guerrero", level: 2 }]
+});
+const abilityCardResultDocument = await PDFDocument.load(abilityCardResultBytes);
+assert.equal(abilityCardResultDocument.getPageCount(), resultDocument.getPageCount() + 1);
 
 console.log("Character PDF tests passed.");
