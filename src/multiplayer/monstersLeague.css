@@ -754,6 +754,72 @@
   font-size: 0.72rem;
 }
 
+.ml-draft-player__rank {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--team-color) 55%, transparent);
+  border-radius: 50%;
+  color: var(--team-color);
+  background: color-mix(in srgb, var(--team-color) 10%, #100a07);
+  font-weight: 900;
+}
+
+.ml-draft-player__identity {
+  min-width: 0;
+}
+
+.ml-roster-slots {
+  display: flex;
+  grid-column: 2 / -1;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.ml-roster-slot {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 2.25rem;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: #030201;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.72);
+}
+
+.ml-roster-slot.is-filled {
+  border-color: color-mix(in srgb, var(--team-color) 72%, white);
+  background: color-mix(in srgb, var(--team-color) 16%, #050302);
+}
+
+.ml-roster-slot img,
+.ml-roster-slot .ml-monster-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  font-size: 0.55rem;
+}
+
+.ml-draft-players--large {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+  gap: 0.8rem;
+}
+
+.ml-draft-players--large .ml-draft-player {
+  padding: 1rem;
+}
+
+.ml-draft-players--large .ml-roster-slot {
+  width: clamp(2.8rem, 5vw, 4.4rem);
+  height: clamp(2.8rem, 5vw, 4.4rem);
+  flex-basis: clamp(2.8rem, 5vw, 4.4rem);
+}
+
 .ml-draft-player b {
   font-size: 1rem;
 }
@@ -780,13 +846,38 @@
 }
 
 .ml-countdown {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 4;
   display: grid;
   justify-items: center;
   min-width: 5.5rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid rgba(217, 171, 93, 0.36);
   border-radius: 12px;
-  background: rgba(217, 171, 93, 0.07);
+  background: rgba(12, 7, 4, 0.86);
+  backdrop-filter: blur(10px);
+}
+
+.ml-final-countdown {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 6;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.72);
+  color: #fff8e8;
+  font-family: Georgia, serif;
+  font-size: clamp(7rem, 22vw, 15rem);
+  line-height: 0.8;
+  text-shadow: 0 0 1.5rem rgba(0, 0, 0, 0.95), 0 0 3rem rgba(217, 171, 93, 0.75);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ml-final-countdown.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
 }
 
 .ml-countdown span {
@@ -1536,6 +1627,77 @@
   animation: ml-flash-in 180ms ease-out both;
 }
 
+.ml-active-lot__portrait .ml-draft-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 7;
+  width: min(25rem, calc(100% - 2rem));
+  min-width: 0;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.68);
+}
+
+.ml-lot-summary-page {
+  width: min(92rem, 100%);
+  min-height: calc(100vh - 5rem);
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.ml-lot-summary {
+  display: grid;
+  gap: 1.4rem;
+  padding: clamp(1rem, 2.5vw, 2rem);
+}
+
+.ml-lot-summary__result {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.7fr) minmax(18rem, 1fr);
+  align-items: center;
+  gap: clamp(1rem, 3vw, 3rem);
+}
+
+.ml-lot-summary__portrait {
+  min-height: 18rem;
+  border: 1px solid color-mix(in srgb, var(--team-color) 50%, transparent);
+  border-radius: 20px;
+}
+
+.ml-lot-summary__portrait img,
+.ml-lot-summary__portrait .ml-monster-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: 18rem;
+  object-fit: contain;
+}
+
+.ml-lot-summary__result h1 {
+  margin: 0.25rem 0;
+  font-family: Georgia, serif;
+  font-size: clamp(2.4rem, 6vw, 5rem);
+}
+
+.ml-lot-summary__result p:not(.ml-eyebrow) {
+  color: var(--muted);
+  font-size: clamp(1rem, 2vw, 1.35rem);
+}
+
+.ml-lot-summary__result strong,
+.ml-lot-summary__result b {
+  color: var(--team-color);
+}
+
+.ml-lot-summary__ranking {
+  padding-top: 1.2rem;
+  border-top: 1px solid rgba(217, 171, 93, 0.2);
+}
+
+.ml-lot-summary__actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.5rem;
+}
+
 .ml-draft-flash span {
   color: color-mix(in srgb, var(--team-color) 72%, white);
   font-size: 0.65rem;
@@ -1804,5 +1966,25 @@
   .ml-live-metrics,
   .ml-test-control-row {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ml-lot-summary-page {
+    padding: 0.65rem;
+  }
+
+  .ml-lot-summary__result {
+    grid-template-columns: 1fr;
+  }
+
+  .ml-lot-summary__portrait,
+  .ml-lot-summary__portrait img,
+  .ml-lot-summary__portrait .ml-monster-placeholder {
+    min-height: 14rem;
+  }
+
+  .ml-roster-slots {
+    overflow-x: auto;
   }
 }

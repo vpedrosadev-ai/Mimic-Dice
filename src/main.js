@@ -1337,6 +1337,7 @@ app.addEventListener("error", handleAppImageError, true);
 window.addEventListener("message", handleMonstersLeagueWindowMessage);
 
 let monstersLeagueBroadcastChannel = null;
+let monstersLeagueCampaignActivationId = "";
 
 if (typeof BroadcastChannel !== "undefined") {
   monstersLeagueBroadcastChannel = new BroadcastChannel("mimic-dice:monsters-league");
@@ -8680,16 +8681,51 @@ function openMonstersLeagueWindow({ testMode = false } = {}) {
 }
 
 function handleMonstersLeagueWindowMessage(event) {
-  if (event.origin !== window.location.origin || event.data?.type !== "mimic-dice:monsters-league-result") {
+  if (event.origin !== window.location.origin) {
     return;
   }
 
-  importMonstersLeagueResult(event.data.payload);
+  handleMonstersLeagueMessage(event.data);
 }
 
 function handleMonstersLeagueBroadcastMessage(event) {
-  if (event.data?.type === "mimic-dice:monsters-league-result") {
-    importMonstersLeagueResult(event.data.payload);
+  handleMonstersLeagueMessage(event.data);
+}
+
+function handleMonstersLeagueMessage(message) {
+  if (message?.type === "mimic-dice:monsters-league-result") {
+    importMonstersLeagueResult(message.payload);
+  } else if (message?.type === "mimic-dice:monsters-league-campaign") {
+    activateMonstersLeagueCampaign(message.payload);
+  }
+}
+
+async function activateMonstersLeagueCampaign(payload) {
+  const campaignId = cleanText(payload?.campaignId);
+
+  if (
+    !isPlainObject(payload)
+    || payload.schema !== "mimic-dice:monsters-league-campaign"
+    || !campaignId
+    || campaignId === state.cloudCampaignId
+    || campaignId === monstersLeagueCampaignActivationId
+  ) {
+    return;
+  }
+
+  monstersLeagueCampaignActivationId = campaignId;
+  const loaded = await loadCloudCampaignById(campaignId, {
+    operationTarget: `monsters-league:${cleanText(payload.roomId) || campaignId}`
+  });
+  monstersLeagueCampaignActivationId = "";
+
+  if (loaded) {
+    pushNotification({
+      title: "Monsters League",
+      message: `Campaña activada: ${cleanText(payload.campaignName) || state.campaignName}.`,
+      tone: "success"
+    });
+    render();
   }
 }
 
@@ -10543,15 +10579,8 @@ function renderAccountDialog() {
                   </div>
                 </div>
                 <section class="account-dialog__section account-multiplayer-card">
-                  <div class="account-multiplayer-card__mark" aria-hidden="true">ML</div>
-                  <div class="account-multiplayer-card__copy">
-                    <p class="account-dialog__eyebrow">MULTIJUGADOR</p>
-                    <h3>Monsters League</h3>
-                    <small>Crea una sala por enlace, subasta criaturas y lleva los equipos directamente al combate.</small>
-                  </div>
                   <div class="account-multiplayer-card__actions">
-                    <button class="account-action-button" type="button" data-action="open-monsters-league">Crear lobby</button>
-                    <button class="account-action-button account-action-button--ghost" type="button" data-action="open-monsters-league-test">Probar con bots</button>
+                    <button class="account-action-button" type="button" data-action="open-monsters-league">Multijugador</button>
                   </div>
                 </section>
                 <section class="account-dialog__section">

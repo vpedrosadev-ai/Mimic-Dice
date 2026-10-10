@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 import {
   addMonstersLeaguePlayer,
+  advanceMonstersLeagueDraft,
   chooseBotBid,
   createMonstersLeagueRoom,
   getMonstersLeagueRoomSummary,
@@ -156,6 +157,8 @@ export class MonstersLeagueRoom extends DurableObject {
       openRandomMonstersLeagueLot(this.room, this.catalog, now);
     } else if (type === "bid") {
       placeMonstersLeagueBid(this.room, playerId, command.amount, now);
+    } else if (type === "next-lot") {
+      advanceMonstersLeagueDraft(this.room, playerId, this.catalog, now);
     } else if (type === "enter-combat") {
       if (playerId !== this.room.hostPlayerId || this.room.status !== "complete") {
         throw Object.assign(new Error("Only host can start combat after draft."), { code: "host_required" });
@@ -186,9 +189,6 @@ export class MonstersLeagueRoom extends DurableObject {
 
     if (now >= this.room.currentLot.deadlineAt) {
       resolveMonstersLeagueLot(this.room, now);
-      if (this.room.status === "drafting") {
-        openRandomMonstersLeagueLot(this.room, this.catalog, now);
-      }
       return true;
     }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   addMonstersLeaguePlayer,
+  advanceMonstersLeagueDraft,
   createMonstersLeagueEncounters,
   createMonstersLeagueRoom,
   getEligibleMonsters,
@@ -55,7 +56,7 @@ test("rejects bids that make roster impossible to finish", () => {
   );
 });
 
-test("awards creatures, rotates nomination, and completes full draft", () => {
+test("awards a creature, pauses for review, and completes the final roster", () => {
   const room = readyRoom(1);
   const firstNominator = room.nominationOrder[0];
   const secondNominator = room.nominationOrder[1];
@@ -66,15 +67,86 @@ test("awards creatures, rotates nomination, and completes full draft", () => {
 
   assert.equal(room.players.find((player) => player.id === secondNominator).roster.length, 1);
   assert.equal(room.players.find((player) => player.id === secondNominator).gold, 98);
-  assert.equal(room.status, "drafting");
+  assert.equal(room.status, "reviewing");
 
-  const nextNominator = room.nominationOrder[room.nominationIndex];
-  nominateMonstersLeagueCreature(room, nextNominator, catalog[1], 23000);
-  resolveMonstersLeagueLot(room, 45000);
-
+  advanceMonstersLeagueDraft(room, "host", catalog, 22500, () => 0);
   assert.equal(room.status, "complete");
+  assert.equal(room.history.length, 2);
+  assert.equal(room.history.at(-1).automatic, true);
   assert.equal(room.players.every((player) => player.roster.length === 1), true);
   assert.equal(createMonstersLeagueEncounters(room).length, 2);
+});
+
+test("uses the configured starting gold", () => {
+  const room = createMonstersLeagueRoom({
+    id: "gold-room",
+    host: { id: "host", userId: "host", name: "Host" },
+    config: { teamSize: 2, startingGold: 37, crMin: 0, crMax: 30 }
+  });
+  addMonstersLeaguePlayer(room, { id: "bot", name: "Bot", isBot: true }, "host");
+  publishMonstersLeagueRoom(room, "host");
+  startMonstersLeagueDraft(room, "host", catalog, 1000, () => 0);
+  assert.deepEqual(room.players.map((player) => player.gold), [37, 37]);
+});
+
+test("keeps enough starting gold to fill every roster slot", () => {
+  const room = createMonstersLeagueRoom({
+    id: "minimum-gold-room",
+    host: { id: "host", userId: "host", name: "Host" },
+    config: { teamSize: 4, startingGold: 1 }
+  });
+  assert.equal(room.config.startingGold, 4);
+});
+
+test("automatically fills the only remaining roster before another auction", () => {
+  const room = readyRoom(2);
+  const first = room.nominationOrder[0];
+  const second = room.nominationOrder[1];
+  room.players.find((player) => player.id === second).roster.push({ monster: catalog[10], price: 1, acquiredAt: 1 });
+  room.players.find((player) => player.id === second).roster.push({ monster: catalog[11], price: 1, acquiredAt: 1 });
+  room.availableMonsterIds = room.availableMonsterIds.filter((id) => ![catalog[10].id, catalog[11].id].includes(id));
+  nominateMonstersLeagueCreature(room, first, catalog[0], 1100);
+  resolveMonstersLeagueLot(room, 22000);
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
+
+  assert.equal(room.status, "complete");
+  assert.equal(room.players.find((player) => player.id === first).roster.length, 2);
+  assert.equal(room.history.at(-1).automaticReason, "only_player_remaining");
+});
+
+test("automatically fills players who only retain reserved slot gold", () => {
+  const room = readyRoom(2);
+  const constrained = room.players[0];
+  constrained.gold = 2;
+  nominateMonstersLeagueCreature(room, room.nominationOrder[0], catalog[0], 1100);
+  resolveMonstersLeagueLot(room, 22000);
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
+
+  assert.equal(constrained.roster.length, 2);
+  assert.equal(constrained.gold, 0);
+  assert.equal(room.history.some((entry) => entry.automaticReason === "insufficient_gold"), true);
+});
+
+test("host opens the next auction after the result review when players can still compete", () => {
+  const room = createMonstersLeagueRoom({
+    id: "review-room",
+    host: { id: "host", userId: "host", name: "Host" },
+    config: { teamSize: 1, crMin: 0, crMax: 30 }
+  });
+  addMonstersLeaguePlayer(room, { id: "bot-1", name: "Bot 1", isBot: true }, "host");
+  addMonstersLeaguePlayer(room, { id: "bot-2", name: "Bot 2", isBot: true }, "host");
+  publishMonstersLeagueRoom(room, "host");
+  startMonstersLeagueDraft(room, "host", catalog, 1000, () => 0.99);
+  openRandomMonstersLeagueLot(room, catalog, 1100, () => 0);
+  resolveMonstersLeagueLot(room, 22000);
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
+
+  assert.equal(room.status, "drafting");
+  assert.ok(room.currentLot);
+  assert.equal(room.players.filter((player) => player.roster.length === 0).length, 2);
 });
 
 test("anti-snipe bid extends deadline", () => {

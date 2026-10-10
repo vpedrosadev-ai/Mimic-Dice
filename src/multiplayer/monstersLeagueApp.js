@@ -15,6 +15,7 @@ import {
 } from "./monstersLeagueClient.js";
 import {
   addMonstersLeaguePlayer,
+  advanceMonstersLeagueDraft,
   chooseBotBid,
   createMonstersLeagueEncounters,
   createMonstersLeagueRoom,
@@ -168,6 +169,9 @@ const state = {
   botNominationPending: false,
   encountersSent: false,
   cloudCampaignSaveStatus: "idle",
+  cloudCampaignSavePromise: null,
+  cloudCampaignResult: null,
+  campaignActivationSent: false,
   connection: null,
   connectionStatus: localTestMode ? "local" : "connecting",
   draftFlash: null,
@@ -361,7 +365,7 @@ function render() {
     ? renderConfiguration()
     : room.status === "waiting"
       ? renderLobby()
-      : room.status === "drafting"
+      : ["drafting", "reviewing"].includes(room.status)
         ? renderDraft()
         : renderTeamScreen();
 
@@ -387,14 +391,15 @@ function render() {
       ${stage}
     </div>
     ${renderSpellDialog()}
-    ${renderDraftFlash()}
   `;
   persistTestRoom();
 }
 
 function renderStagePill(status, label) {
   const order = ["configuring", "waiting", "drafting", "complete"];
-  const currentStatus = state.room.status === "combat" ? "complete" : state.room.status;
+  const currentStatus = state.room.status === "combat"
+    ? "complete"
+    : state.room.status === "reviewing" ? "drafting" : state.room.status;
   const currentIndex = order.indexOf(currentStatus);
   const index = order.indexOf(status);
   return `<span class="${index === currentIndex ? "is-active" : index < currentIndex ? "is-complete" : ""}"><i>${index + 1}</i>${escapeHtml(label)}</span>`;
@@ -410,11 +415,11 @@ function renderConfiguration() {
     <main class="ml-page ml-config-page">
       <section class="ml-hero-card">
         <div class="ml-hero-card__copy">
-          <p class="ml-eyebrow">DRAFT DE CRIATURAS · 100 PO</p>
+          <p class="ml-eyebrow">DRAFT DE CRIATURAS · ${config.startingGold} PO</p>
           <h1>${language === "en" ? "Build a monster team. Win every bid." : "Forma un equipo monstruoso. Gana cada puja."}</h1>
           <p>${language === "en" ? "Configure the league, invite players or add bots, then auction every roster slot." : "Configura la liga, invita jugadores o añade bots y subasta cada hueco del equipo."}</p>
         </div>
-        <div class="ml-hero-card__seal" aria-hidden="true"><span>ML</span><i>100</i><small>ORO</small></div>
+        <div class="ml-hero-card__seal" aria-hidden="true"><span>ML</span><i>${config.startingGold}</i><small>ORO</small></div>
       </section>
       <div class="ml-config-layout">
         <form class="ml-panel ml-config-form" data-ml-config-form>
@@ -423,6 +428,7 @@ function renderConfiguration() {
             <label class="ml-field ml-field--wide"><span>Nombre de la liga</span><input name="name" maxlength="80" value="${escapeHtml(config.name)}" /></label>
             <label class="ml-field"><span>Máximo de jugadores</span><input name="maxPlayers" type="number" min="2" max="8" value="${config.maxPlayers}" /></label>
             <label class="ml-field"><span>Criaturas por equipo</span><input name="teamSize" type="number" min="1" max="8" value="${config.teamSize}" /></label>
+            <label class="ml-field"><span>Oro inicial</span><input name="startingGold" type="number" min="${config.teamSize}" max="10000" value="${config.startingGold}" /></label>
             <label class="ml-field"><span>CR mínimo</span><input name="crMin" type="number" min="0" max="30" step="0.125" value="${config.crMin}" /></label>
             <label class="ml-field"><span>CR máximo</span><input name="crMax" type="number" min="0" max="30" step="0.125" value="${config.crMax}" /></label>
             <label class="ml-field"><span>Tiempo de puja</span><select name="bidSeconds">${renderTimeOptions(config.bidSeconds)}</select></label>
@@ -433,7 +439,7 @@ function renderConfiguration() {
           </div>
           <div class="ml-config-summary">
             <article><span>Catálogo elegible</span><strong>${eligibleCount.toLocaleString(language)}</strong><small>criaturas únicas</small></article>
-            <article><span>Oro inicial</span><strong>100</strong><small>por jugador</small></article>
+            <article><span>Oro inicial</span><strong>${config.startingGold}</strong><small>por jugador</small></article>
             <article><span>Lotes previstos</span><strong>${state.room.players.length * config.teamSize}</strong><small>con participantes actuales</small></article>
           </div>
           <div class="ml-form-actions">
@@ -502,7 +508,7 @@ function renderLobby() {
   return `
     <main class="ml-page ml-lobby-page">
       <section class="ml-panel ml-lobby-banner">
-        <div><p class="ml-eyebrow">LOBBY PUBLICADO</p><h1>${escapeHtml(room.config.name)}</h1><p>CR ${room.config.crMin}–${room.config.crMax} · ${room.config.teamSize} criaturas · 100 oro</p></div>
+        <div><p class="ml-eyebrow">LOBBY PUBLICADO</p><h1>${escapeHtml(room.config.name)}</h1><p>CR ${room.config.crMin}–${room.config.crMax} · ${room.config.teamSize} criaturas · ${room.config.startingGold} oro</p></div>
         ${localTestMode
           ? `<div class="ml-invite-box"><span>MODO DE PRUEBA</span><p>Los bots ocuparán los demás asientos y completarán la subasta automáticamente.</p></div>`
           : `<div class="ml-invite-box"><span>Enlace de invitación</span><div><input readonly value="${escapeHtml(inviteUrl)}" /><button type="button" data-ml-action="copy-link">Copiar</button></div></div>`}
@@ -516,7 +522,7 @@ function renderLobby() {
         <aside class="ml-panel ml-lobby-rules">
           <p class="ml-eyebrow">REGLAS DE PARTIDA</p>
           <h2>Todo listo</h2>
-          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Exclusiones</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
+          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Oro inicial</dt><dd>${room.config.startingGold}</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Exclusiones</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
           ${isHost
             ? `<button class="ml-button ml-button--primary ml-button--large" type="button" data-ml-action="start-draft" ${allReady ? "" : "disabled"}>Comenzar subasta</button>`
             : `<button class="ml-button ${currentPlayer?.ready ? "" : "ml-button--primary"} ml-button--large" type="button" data-ml-action="toggle-ready">${currentPlayer?.ready ? "Dejar de estar listo" : "Estoy listo"}</button>`}
@@ -546,16 +552,19 @@ function renderDraft() {
   const lot = room.currentLot;
   const highBidder = lot ? room.players.find((entry) => entry.id === lot.highBidPlayerId) : null;
 
+  if (room.status === "reviewing") {
+    return renderLotSummary();
+  }
+
   return `
     <main class="ml-draft-page">
       <aside class="ml-draft-sidebar ml-panel">
         <div class="ml-panel-heading"><div><p class="ml-eyebrow">CLASIFICACIÓN</p><h2>Equipos</h2></div><span>${room.history.length}/${room.players.length * room.config.teamSize}</span></div>
-        <div class="ml-draft-players">${room.players.map((entry) => renderDraftPlayer(entry, lot)).join("")}</div>
+        ${renderLeagueRanking(lot)}
       </aside>
       <section class="ml-auction-stage">
         <div class="ml-auction-stage__heading">
           <div><p class="ml-eyebrow">LOTE ${room.history.length + 1}</p><h1>${lot ? "Subasta en curso" : "Preparando lote aleatorio"}</h1></div>
-          <div class="ml-countdown"><span data-ml-countdown>${formatCountdown(getActiveDeadline())}</span><small>PUJA</small></div>
         </div>
         ${lot ? renderActiveLot(lot, player, highBidder) : renderRandomLotWaiting()}
       </section>
@@ -568,14 +577,64 @@ function renderDraft() {
   `;
 }
 
-function renderDraftPlayer(player, lot) {
+function renderLeagueRanking(lot = null, large = false) {
+  const players = [...state.room.players].sort((left, right) => (
+    right.roster.length - left.roster.length || right.gold - left.gold
+  ));
+  return `<div class="ml-draft-players ${large ? "ml-draft-players--large" : ""}">${players.map((player, index) => renderDraftPlayer(player, lot, index)).join("")}</div>`;
+}
+
+function renderDraftPlayer(player, lot, rank = 0) {
   const isHighBidder = lot?.highBidPlayerId === player.id;
+  const slots = Array.from({ length: state.room.config.teamSize }, (_, index) => {
+    const award = player.roster[index];
+    if (!award) return `<i class="ml-roster-slot" aria-label="Hueco libre"></i>`;
+    const monster = state.catalogById.get(award.monster.id) || award.monster;
+    return `<i class="ml-roster-slot is-filled" title="${escapeHtml(monster.name)}">${renderMonsterImage(monster)}</i>`;
+  }).join("");
   return `
     <article class="ml-draft-player ${isHighBidder ? "is-leading" : ""}" style="--team-color:${escapeHtml(player.color)}">
-      <span>${escapeHtml(getInitials(player.name))}</span>
-      <div><strong>${escapeHtml(player.name)}</strong><small>${player.roster.length}/${state.room.config.teamSize} criaturas</small></div>
-      <b>${player.gold}<small> oro</small></b>
+      <span class="ml-draft-player__rank">${rank + 1}</span>
+      <div class="ml-draft-player__identity"><strong>${escapeHtml(player.name)}</strong><small>${player.gold} oro</small></div>
+      <div class="ml-roster-slots" aria-label="${player.roster.length} de ${state.room.config.teamSize} huecos ocupados">${slots}</div>
     </article>
+  `;
+}
+
+function renderLotSummary() {
+  const room = state.room;
+  const result = room.history.at(-1);
+  const winner = room.players.find((player) => player.id === result?.winnerPlayerId);
+  const monster = state.catalogById.get(result?.monster?.id) || result?.monster;
+  const isHost = room.hostPlayerId === state.hostPlayerId;
+  const draftFinished = room.players.every((player) => player.roster.length >= room.config.teamSize);
+
+  return `
+    <main class="ml-lot-summary-page">
+      <section class="ml-lot-summary ml-panel" style="--team-color:${escapeHtml(winner?.color || "#d9ab5d")}">
+        <div class="ml-lot-summary__result">
+          <figure class="ml-active-lot__portrait ml-lot-summary__portrait">
+            ${renderMonsterImage(monster, "eager")}
+            ${renderDraftFlash()}
+          </figure>
+          <div>
+            <p class="ml-eyebrow">SUBASTA CERRADA</p>
+            <h1>${escapeHtml(monster?.name || "Criatura adjudicada")}</h1>
+            <p>Se incorpora al equipo de <strong>${escapeHtml(winner?.name || "—")}</strong> por <b>${result?.price || 0} oro</b>.</p>
+            ${result?.automatic ? `<small>Adjudicación automática para completar los equipos.</small>` : ""}
+          </div>
+        </div>
+        <div class="ml-lot-summary__ranking">
+          <div class="ml-panel-heading"><div><p class="ml-eyebrow">CLASIFICACIÓN</p><h2>Equipos de la liga</h2></div><span>${room.history.length}/${room.players.length * room.config.teamSize}</span></div>
+          ${renderLeagueRanking(null, true)}
+        </div>
+        <div class="ml-lot-summary__actions">
+          ${isHost
+            ? `<button class="ml-button ml-button--primary ml-button--large" type="button" data-ml-action="next-lot">${draftFinished ? "Ver equipos" : "Dar paso a la siguiente subasta"}</button>`
+            : `<p class="ml-helper">Esperando a que el host dé paso a ${draftFinished ? "los equipos" : "la siguiente subasta"}.</p>`}
+        </div>
+      </section>
+    </main>
   `;
 }
 
@@ -587,7 +646,12 @@ function renderActiveLot(lot, player, highBidder) {
 
   return `
     <div class="ml-active-lot">
-      <figure class="ml-active-lot__portrait">${renderMonsterImage(monster, "eager")}</figure>
+      <figure class="ml-active-lot__portrait">
+        ${renderMonsterImage(monster, "eager")}
+        <div class="ml-countdown"><span data-ml-countdown>${formatCountdown(getActiveDeadline())}</span><small>PUJA</small></div>
+        <strong class="ml-final-countdown" data-ml-final-countdown aria-live="assertive"></strong>
+        ${renderDraftFlash()}
+      </figure>
       <div class="ml-active-lot__name"><span>CRIATURA ALEATORIA</span><h2>${escapeHtml(monster.name)}</h2></div>
       <div class="ml-bid-board">
         <div><span>${t("currentBid")}</span><strong>${lot.currentBid}</strong><small>ORO</small></div>
@@ -878,6 +942,7 @@ function handleClick(event) {
     else if (action === "copy-link") copyInviteLink();
     else if (action === "toggle-ready") toggleReady();
     else if (action === "start-draft") startDraft();
+    else if (action === "next-lot") nextLot();
     else if (action === "quick-bid") bid(Number(target.dataset.bidAmount));
     else if (action === "select-monster") state.selectedMonsterId = target.dataset.monsterId;
     else if (action === "open-spell") state.selectedSpellId = target.dataset.spellId;
@@ -921,6 +986,7 @@ function handleSubmit(event) {
       name: form.get("name"),
       maxPlayers: form.get("maxPlayers"),
       teamSize: form.get("teamSize"),
+      startingGold: form.get("startingGold"),
       crMin: form.get("crMin"),
       crMax: form.get("crMax"),
       bidSeconds: form.get("bidSeconds"),
@@ -1022,6 +1088,18 @@ function bid(amount) {
   state.nextBotDecisionAt = Date.now() + 500;
 }
 
+function nextLot() {
+  if (localTestMode) {
+    advanceMonstersLeagueDraft(state.room, state.hostPlayerId, state.catalog);
+    observeDraftEvents(state.room);
+  } else {
+    sendOnlineCommand("next-lot");
+  }
+  state.nextBotDecisionAt = Date.now() + 650;
+  state.draftFlash = null;
+  render();
+}
+
 function tick() {
   const room = state.room;
 
@@ -1032,6 +1110,12 @@ function tick() {
   const now = Date.now();
   const countdown = app.querySelector("[data-ml-countdown]");
   if (countdown) countdown.textContent = formatCountdown(getActiveDeadline(), now);
+  const finalCountdown = app.querySelector("[data-ml-final-countdown]");
+  if (finalCountdown) {
+    const remainingSeconds = Math.max(0, Math.ceil((getActiveDeadline() - now) / 1000));
+    finalCountdown.textContent = remainingSeconds > 0 && remainingSeconds <= 3 ? String(remainingSeconds) : "";
+    finalCountdown.classList.toggle("is-visible", remainingSeconds > 0 && remainingSeconds <= 3);
+  }
   updateCountdownSound(room, now);
 
   if (!localTestMode) {
@@ -1041,7 +1125,6 @@ function tick() {
   try {
     if (room.currentLot && now >= room.currentLot.deadlineAt) {
       resolveMonstersLeagueLot(room, now);
-      if (room.status === "drafting") openRandomMonstersLeagueLot(room, state.catalog, now);
       observeDraftEvents(room);
       state.nextBotDecisionAt = now + 650;
       state.botNominationPending = false;
@@ -1134,6 +1217,7 @@ function enterCombat() {
   }
   ensureTestCombatState();
   if (!state.encountersSent) sendEncountersToMainApp();
+  ensureCloudCampaignSaved().then(notifyMainAppCampaignActivation);
   state.notice = localTestMode
     ? "Combate de prueba iniciado. Los controles laterales simulan actualizaciones del host."
     : "Encuentros preparados. Cárgalos en la tabla para iniciar la sincronización en vivo.";
@@ -1152,12 +1236,7 @@ function sendEncountersToMainApp() {
     }))
   };
   localStorage.setItem(IMPORT_STORAGE_KEY, JSON.stringify({ payload, createdAt: Date.now() }));
-  window.opener?.postMessage({ type: "mimic-dice:monsters-league-result", payload }, window.location.origin);
-  try {
-    const channel = new BroadcastChannel("mimic-dice:monsters-league");
-    channel.postMessage({ type: "mimic-dice:monsters-league-result", payload });
-    channel.close();
-  } catch {}
+  notifyMainApp({ type: "mimic-dice:monsters-league-result", payload });
   state.encountersSent = true;
   ensureCloudCampaignSaved();
   state.notice = localTestMode
@@ -1178,25 +1257,58 @@ function ensureCloudCampaignSaved() {
     || !state.room
     || state.room.hostPlayerId !== state.hostPlayerId
     || !["complete", "combat"].includes(state.room.status)
-    || ["saving", "saved"].includes(state.cloudCampaignSaveStatus)
+    || state.cloudCampaignSaveStatus === "saved"
   ) {
-    return;
+    return state.cloudCampaignSavePromise || Promise.resolve(state.cloudCampaignResult);
   }
 
+  if (state.cloudCampaignSavePromise) return state.cloudCampaignSavePromise;
+
   state.cloudCampaignSaveStatus = "saving";
-  finalizeMonstersLeagueOnlineRoom(state.room.id)
+  state.cloudCampaignSavePromise = finalizeMonstersLeagueOnlineRoom(state.room.id)
     .then((result) => {
       state.cloudCampaignSaveStatus = "saved";
+      state.cloudCampaignResult = result;
       state.notice = language === "en"
         ? `${result.encounterCount} teams saved in ${result.campaignName}.`
         : `${result.encounterCount} equipos guardados en ${result.campaignName}.`;
       render();
+      return result;
     })
     .catch((error) => {
       state.cloudCampaignSaveStatus = "error";
       state.error = error instanceof Error ? error.message : String(error);
       render();
+      return null;
+    })
+    .finally(() => {
+      state.cloudCampaignSavePromise = null;
     });
+  return state.cloudCampaignSavePromise;
+}
+
+function notifyMainAppCampaignActivation(result) {
+  if (!result?.campaignId || state.campaignActivationSent) return;
+  state.campaignActivationSent = true;
+  notifyMainApp({
+    type: "mimic-dice:monsters-league-campaign",
+    payload: {
+      schema: "mimic-dice:monsters-league-campaign",
+      version: 1,
+      roomId: state.room.id,
+      campaignId: result.campaignId,
+      campaignName: result.campaignName
+    }
+  });
+}
+
+function notifyMainApp(message) {
+  window.opener?.postMessage(message, window.location.origin);
+  try {
+    const channel = new BroadcastChannel("mimic-dice:monsters-league");
+    channel.postMessage(message);
+    channel.close();
+  } catch {}
 }
 
 function copyInviteLink() {

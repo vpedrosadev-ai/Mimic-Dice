@@ -18,6 +18,7 @@ const DEFAULT_CONFIG = Object.freeze({
   name: "Monsters League",
   maxPlayers: 4,
   teamSize: 4,
+  startingGold: MONSTERS_LEAGUE_STARTING_GOLD,
   crMin: 0.5,
   crMax: 5,
   nominationSeconds: 30,
@@ -77,11 +78,13 @@ export function normalizeMonstersLeagueConfig(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   const crMin = normalizeCrBoundary(source.crMin, DEFAULT_CONFIG.crMin);
   const crMax = normalizeCrBoundary(source.crMax, DEFAULT_CONFIG.crMax);
+  const teamSize = clampInteger(source.teamSize, 1, 8, DEFAULT_CONFIG.teamSize);
 
   return {
     name: cleanText(source.name).slice(0, 80) || DEFAULT_CONFIG.name,
     maxPlayers: clampInteger(source.maxPlayers, 2, 8, DEFAULT_CONFIG.maxPlayers),
-    teamSize: clampInteger(source.teamSize, 1, 8, DEFAULT_CONFIG.teamSize),
+    teamSize,
+    startingGold: Math.max(teamSize, clampInteger(source.startingGold, 1, 10000, DEFAULT_CONFIG.startingGold)),
     crMin: Math.min(crMin, crMax),
     crMax: Math.max(crMin, crMax),
     nominationSeconds: clampInteger(source.nominationSeconds, 5, 120, DEFAULT_CONFIG.nominationSeconds),
@@ -171,6 +174,7 @@ export function setMonstersLeagueReady(room, playerId, ready, now = Date.now()) 
 export function startMonstersLeagueDraft(room, actorPlayerId, catalog, now = Date.now(), random = Math.random) {
   assertHost(room, actorPlayerId);
   assertStatus(room, "waiting");
+  room.config = normalizeMonstersLeagueConfig(room.config);
 
   if (room.players.length < 2) {
     throw new MonstersLeagueRuleError("players_required", "At least two players are required.");
@@ -188,7 +192,7 @@ export function startMonstersLeagueDraft(room, actorPlayerId, catalog, now = Dat
   }
 
   room.players.forEach((player) => {
-    player.gold = MONSTERS_LEAGUE_STARTING_GOLD;
+    player.gold = room.config.startingGold;
     player.roster = [];
   });
   room.availableMonsterIds = eligible.map((monster) => monster.id);
@@ -369,16 +373,45 @@ export function resolveMonstersLeagueLot(room, now = Date.now()) {
   });
   room.currentLot = null;
 
+  advanceNominator(room);
+  room.status = "reviewing";
+  room.nominationDeadlineAt = 0;
+
+  touch(room, now);
+  return room;
+}
+
+export function advanceMonstersLeagueDraft(room, actorPlayerId, catalog, now = Date.now(), random = Math.random) {
+  assertHost(room, actorPlayerId);
+  assertStatus(room, "reviewing");
+
+  if (room.currentLot) {
+    throw new MonstersLeagueRuleError("lot_active", "Current auction must finish first.");
+  }
+
+  if (room.players.every((player) => player.roster.length >= room.config.teamSize)) {
+    room.status = "complete";
+    room.completedAt = now;
+    touch(room, now);
+    return room;
+  }
+
+  room.status = "drafting";
+  assignForcedMonstersLeagueAwards(room, catalog, now, random);
+
   if (room.players.every((player) => player.roster.length >= room.config.teamSize)) {
     room.status = "complete";
     room.completedAt = now;
     room.nominationDeadlineAt = 0;
-  } else {
-    advanceNominator(room);
-    room.nominationDeadlineAt = now + room.config.nominationSeconds * 1000;
+    touch(room, now);
+    return room;
   }
 
-  touch(room, now);
+  const nominator = getCurrentNominator(room);
+  if (!nominator || nominator.roster.length >= room.config.teamSize) {
+    advanceNominator(room);
+  }
+  openRandomMonstersLeagueLot(room, catalog, now, random);
   return room;
 }
 
@@ -401,7 +434,7 @@ export function getMonstersLeagueRoomSummary(room) {
     revision: room.revision,
     language: room.language,
     hostPlayerId: room.hostPlayerId,
-    config: { ...room.config },
+    config: normalizeMonstersLeagueConfig(room.config),
     players: room.players.map((player) => ({
       ...player,
       roster: player.roster.map((entry) => ({ ...entry, monster: { ...entry.monster } }))
@@ -562,6 +595,46 @@ function advanceNominator(room) {
       room.nominationIndex = nextIndex;
       return;
     }
+  }
+}
+
+function assignForcedMonstersLeagueAwards(room, catalog, now, random) {
+  const availableById = new Map((Array.isArray(catalog) ? catalog : []).map((monster) => [cleanText(monster?.id), monster]));
+  const constrainedPlayers = room.players.filter((player) => (
+    player.roster.length < room.config.teamSize
+    && getMonstersLeagueMaxBid(room, player.id) <= 1
+  ));
+
+  constrainedPlayers.forEach((player) => fillPlayerRosterAutomatically(room, player, availableById, now, random, "insufficient_gold"));
+
+  const incompletePlayers = room.players.filter((player) => player.roster.length < room.config.teamSize);
+  if (incompletePlayers.length === 1) {
+    fillPlayerRosterAutomatically(room, incompletePlayers[0], availableById, now, random, "only_player_remaining");
+  }
+}
+
+function fillPlayerRosterAutomatically(room, player, availableById, now, random, reason) {
+  while (player.roster.length < room.config.teamSize) {
+    const available = room.availableMonsterIds.map((id) => availableById.get(id)).filter(Boolean);
+    if (available.length === 0) {
+      throw new MonstersLeagueRuleError("monster_unavailable", "No creature is available to complete the roster.");
+    }
+
+    const monster = available[Math.min(available.length - 1, Math.floor(random() * available.length))];
+    const sanitizedMonster = sanitizeMonster(monster);
+    const price = Math.min(1, Math.max(0, player.gold));
+    player.gold -= price;
+    player.roster.push({ monster: sanitizedMonster, price, acquiredAt: now, automatic: true });
+    room.availableMonsterIds = room.availableMonsterIds.filter((id) => id !== sanitizedMonster.id);
+    room.history.push({
+      monster: sanitizedMonster,
+      winnerPlayerId: player.id,
+      price,
+      nominatedByPlayerId: "",
+      resolvedAt: now,
+      automatic: true,
+      automaticReason: reason
+    });
   }
 }
 
