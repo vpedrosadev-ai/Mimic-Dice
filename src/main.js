@@ -874,6 +874,9 @@ state = {
   characterExportDialogOpen: false,
   characterExportCharacterId: "",
   characterExportFormat: "",
+  characterExportAbilityIds: new Set(),
+  activeCharacterClassPickerRowId: "",
+  activeCharacterClassPickerField: "",
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
   charactersOverviewHidden: false,
@@ -1402,6 +1405,7 @@ async function handleClick(event) {
   const clickedCharacterInventoryMenu = event.target.closest("[data-character-inventory-menu]");
   const clickedCharacterSpellMenu = event.target.closest("[data-character-spell-menu]");
   const clickedCharacterSummonMenu = event.target.closest("[data-character-summon-menu]");
+  const clickedCharacterClassMenu = event.target.closest("[data-character-class-menu]");
   const clickedArcanumFilter = event.target.closest("[data-arcanum-filter-menu]");
   const clickedArcanumQuery = event.target.closest("[data-arcanum-query-menu]");
   const clickedCloudCatalogTagMenu = event.target.closest("[data-cloud-catalog-tag-menu]");
@@ -1628,6 +1632,16 @@ async function handleClick(event) {
   if (state.showCharacterSummonSuggestions && !clickedCharacterSummonMenu) {
     state.showCharacterSummonSuggestions = false;
     state.activeCharacterSummonRowId = "";
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
+
+  if (state.activeCharacterClassPickerRowId && !clickedCharacterClassMenu) {
+    state.activeCharacterClassPickerRowId = "";
+    state.activeCharacterClassPickerField = "";
 
     if (!actionButton) {
       render();
@@ -2514,7 +2528,7 @@ async function handleClick(event) {
       closeImportExportDialog();
     }
 
-    openCharacterExportDialog(actionButton.dataset.characterExportFormat);
+    openCharacterExportDialog(actionButton.dataset.characterExportFormat, actionButton.dataset.characterId);
     render({ focusSelector: '[data-action="select-character-export"]' });
     return;
   }
@@ -2527,6 +2541,12 @@ async function handleClick(event) {
 
   if (action === "select-character-export") {
     state.characterExportCharacterId = cleanText(actionButton.dataset.characterId);
+    const selectedCharacter = state.characters.find((character) => character.id === state.characterExportCharacterId);
+    state.characterExportAbilityIds = new Set(
+      getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(selectedCharacter))
+        .map((ability) => cleanText(ability.id))
+        .filter(Boolean)
+    );
     render();
     return;
   }
@@ -2542,8 +2562,9 @@ async function handleClick(event) {
       return;
     }
 
+    const selectedAbilityIds = new Set(state.characterExportAbilityIds);
     closeCharacterExportDialog();
-    await exportActiveCharacterPdf(characterId);
+    await exportActiveCharacterPdf(characterId, selectedAbilityIds);
     return;
   }
 
@@ -3527,6 +3548,8 @@ async function handleClick(event) {
       actionButton.dataset.characterClassValue,
       true
     );
+    state.activeCharacterClassPickerRowId = "";
+    state.activeCharacterClassPickerField = "";
     saveCharacters();
     render({
       focusSelector: `[data-character-class-field="${actionButton.dataset.characterClassField}"][data-character-class-row="${actionButton.dataset.characterClassRow}"]`
@@ -4253,6 +4276,18 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-cloud-map-association-option]")) {
+    const draft = state.cloudMapUploadDraft;
+    if (!draft || draft.mode !== "properties") return;
+    const entryId = cleanText(target.dataset.cloudMapAssociationOption);
+    const nextIds = new Set(draft.associatedMapIds || []);
+    if (target.checked) nextIds.add(entryId);
+    else nextIds.delete(entryId);
+    draft.associatedMapIds = [...nextIds];
+    render({ focusSelector: `[data-cloud-map-association-option="${CSS.escape(entryId)}"]` });
+    return;
+  }
+
   if (target.matches("[data-cloud-map-upload-visibility]")) {
     if (state.cloudMapUploadDraft) {
       state.cloudMapUploadDraft.isPublic = target.value !== "private";
@@ -4306,6 +4341,16 @@ async function handleChange(event) {
     render({
       focusSelector: `[data-import-export-diary-folder-checkbox="${target.dataset.importExportDiaryFolderCheckbox}"]`
     });
+    return;
+  }
+
+  if (target.matches("[data-character-export-ability]")) {
+    const abilityId = cleanText(target.dataset.characterExportAbility);
+    const nextIds = new Set(state.characterExportAbilityIds);
+    if (target.checked) nextIds.add(abilityId);
+    else nextIds.delete(abilityId);
+    state.characterExportAbilityIds = nextIds;
+    render({ focusSelector: `[data-character-export-ability="${CSS.escape(abilityId)}"]` });
     return;
   }
 
@@ -4986,7 +5031,17 @@ function handleInput(event) {
       target.value,
       false
     );
+    if (target.dataset.characterClassField !== "level") {
+      state.activeCharacterClassPickerRowId = target.dataset.characterClassRow;
+      state.activeCharacterClassPickerField = target.dataset.characterClassField;
+    }
     saveCharacters();
+    scheduleRender({
+      focusSelector: `[data-character-class-field="${target.dataset.characterClassField}"][data-character-class-row="${target.dataset.characterClassRow}"]`,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd,
+      value: target.value
+    });
     return;
   }
 
@@ -5037,7 +5092,8 @@ function handleInput(event) {
     scheduleRender({
       focusSelector: `[data-character-inventory-name="${target.dataset.characterInventoryName}"]`,
       selectionStart: target.selectionStart,
-      selectionEnd: target.selectionEnd
+      selectionEnd: target.selectionEnd,
+      value: target.value
     });
     return;
   }
@@ -5050,7 +5106,8 @@ function handleInput(event) {
     scheduleRender({
       focusSelector: `[data-character-spell-name="${target.dataset.characterSpellName}"]`,
       selectionStart: target.selectionStart,
-      selectionEnd: target.selectionEnd
+      selectionEnd: target.selectionEnd,
+      value: target.value
     });
     return;
   }
@@ -5063,7 +5120,8 @@ function handleInput(event) {
     scheduleRender({
       focusSelector: `[data-character-summon-name="${target.dataset.characterSummonName}"]`,
       selectionStart: target.selectionStart,
-      selectionEnd: target.selectionEnd
+      selectionEnd: target.selectionEnd,
+      value: target.value
     });
     return;
   }
@@ -8242,18 +8300,25 @@ function renderCharacterPdfImportDialog() {
   `;
 }
 
-function openCharacterExportDialog(format = "") {
+function openCharacterExportDialog(format = "", characterId = "") {
   state.characterExportDialogOpen = true;
-  state.characterExportCharacterId = "";
+  state.characterExportCharacterId = cleanText(characterId);
   state.characterExportFormat = ["pdf", "xml"].includes(cleanText(format).toLowerCase())
     ? cleanText(format).toLowerCase()
     : "";
+  const selectedCharacter = state.characters.find((character) => character.id === state.characterExportCharacterId);
+  state.characterExportAbilityIds = new Set(
+    getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(selectedCharacter))
+      .map((ability) => cleanText(ability.id))
+      .filter(Boolean)
+  );
 }
 
 function closeCharacterExportDialog() {
   state.characterExportDialogOpen = false;
   state.characterExportCharacterId = "";
   state.characterExportFormat = "";
+  state.characterExportAbilityIds = new Set();
 }
 
 function renderCharacterExportDialog() {
@@ -8264,6 +8329,9 @@ function renderCharacterExportDialog() {
   const selectedCharacterId = cleanText(state.characterExportCharacterId);
   const selectedCharacter = state.characters.find((character) => character.id === selectedCharacterId) ?? null;
   const preferredFormat = cleanText(state.characterExportFormat);
+  const exportAbilities = selectedCharacter
+    ? getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(selectedCharacter))
+    : [];
 
   return `
     <div class="campaign-save-dialog character-export-dialog" role="presentation">
@@ -8313,6 +8381,20 @@ function renderCharacterExportDialog() {
         ${selectedCharacter
           ? `<p class="character-export-dialog__selection">${escapeHtml(isEnglishInterface() ? "Selected" : "Seleccionado")}: <strong>${escapeHtml(selectedCharacter.name || "Personaje")}</strong></p>`
           : ""}
+        ${selectedCharacter && exportAbilities.length > 0 ? `
+          <fieldset class="character-export-dialog__abilities">
+            <legend>${escapeHtml(isEnglishInterface() ? "Abilities included in PDF" : "Habilidades incluidas en el PDF")}</legend>
+            <p>${escapeHtml(isEnglishInterface() ? "Uncheck abilities you do not want to export." : "Desmarca las habilidades que no quieras exportar.")}</p>
+            <div class="character-export-dialog__ability-list">
+              ${exportAbilities.map((ability) => `
+                <label>
+                  <input type="checkbox" data-character-export-ability="${escapeHtml(ability.id)}" ${state.characterExportAbilityIds.has(ability.id) ? "checked" : ""}>
+                  <span>${escapeHtml(ability.name || (isEnglishInterface() ? "Unnamed ability" : "Habilidad sin nombre"))}</span>
+                </label>
+              `).join("")}
+            </div>
+          </fieldset>
+        ` : ""}
         <div class="data-exchange-dialog__mode-grid">
           <button class="data-exchange-dialog__mode-card${preferredFormat === "pdf" ? " is-preferred" : ""}" type="button" data-action="export-character-pdf" ${selectedCharacter ? "" : "disabled"}>
             <strong>${escapeHtml(t("character_export_pdf"))}</strong>
@@ -8399,6 +8481,10 @@ function restoreRenderFocus(focusState) {
     target.focus({ preventScroll: true });
   } catch {
     target.focus();
+  }
+
+  if (typeof focusState.value === "string" && "value" in target) {
+    target.value = focusState.value;
   }
 
   if (typeof focusState.selectionStart === "number" && typeof target.setSelectionRange === "function") {
@@ -9683,6 +9769,11 @@ async function prepareCloudMapReplacement(file) {
     draft.width = converted.width;
     draft.height = converted.height;
     draft.isAnimated = converted.isAnimated === true;
+    const replacementRatio = converted.width / converted.height;
+    const validAssociationIds = new Set((draft.associationOptions || [])
+      .filter((option) => Math.abs(option.width / option.height - replacementRatio) <= 0.0001)
+      .map((option) => option.id));
+    draft.associatedMapIds = (draft.associatedMapIds || []).filter((entryId) => validAssociationIds.has(entryId));
   } catch (error) {
     draft.error = getCloudErrorMessage(error);
   }
@@ -9728,8 +9819,23 @@ async function savePendingCommunityMapUpload() {
 
   try {
     if (editingProperties) {
-      let replacementImageUrl;
-      let replacementPayload;
+      if (draft.canReplaceImage !== true) {
+        await updateCloudLibraryEntry(draft.entryId, {
+          name,
+          isPublic,
+          tags,
+          baseRevision: draft.baseRevision
+        });
+        state.cloudMapUploadDraft = null;
+        state.accountError = "";
+        await refreshCommunityCatalog();
+        pushNotification({ title: "Propiedades guardadas", message: `${name} se ha actualizado.` });
+        syncNotificationUi();
+        endCloudOperation("saving", operationTarget);
+        render();
+        return;
+      }
+      let replacementImageUrl = "";
       if (draft.replacementBlob) {
         const uploadResult = await uploadCloudImage(draft.replacementBlob, {
           width: draft.width,
@@ -9738,25 +9844,67 @@ async function savePendingCommunityMapUpload() {
         const assetUrl = cleanText(uploadResult?.asset?.url);
         replacementImageUrl = assetUrl ? `${assetUrl}${draft.isAnimated ? "?animated=1" : ""}` : "";
         if (!replacementImageUrl) throw new Error("La imagen no pudo guardarse en la nube.");
-        replacementPayload = {
-          ...(isPlainObject(draft.payload) ? draft.payload : {}),
-          map: {
-            ...(isPlainObject(draft.payload?.map) ? draft.payload.map : {}),
-            name,
-            imageUrl: replacementImageUrl,
-            width: draft.width,
-            height: draft.height,
-            isAnimated: draft.isAnimated === true
-          }
-        };
       }
+      const currentImageUrl = replacementImageUrl || cleanText(draft.payload?.map?.imageUrl || draft.originalPreviewUrl);
+      const selectedIds = new Set((draft.associatedMapIds || []).map(cleanText).filter(Boolean));
+      const originalIds = new Set((draft.originalAssociatedMapIds || []).map(cleanText).filter(Boolean));
+      const selectedOptions = (draft.associationOptions || []).filter((option) => selectedIds.has(option.id));
+      const toReference = (option) => ({
+        name: cleanText(option.name) || "Mapa",
+        imageUrl: cleanText(option.imageUrl),
+        width: Math.max(1, Number(option.width) || 1),
+        height: Math.max(1, Number(option.height) || 1),
+        cloudEntryId: cleanText(option.id),
+        isPrivate: option.isPrivate === true,
+        isAnimated: option.isAnimated === true
+      });
+      const currentReference = toReference({
+        id: draft.entryId,
+        name,
+        imageUrl: currentImageUrl,
+        width: draft.width,
+        height: draft.height,
+        isPrivate: !isPublic,
+        isAnimated: draft.isAnimated
+      });
+      const groupReferences = [currentReference, ...selectedOptions.map(toReference)];
+      const replacementPayload = {
+        ...(isPlainObject(draft.payload) ? draft.payload : {}),
+        map: {
+          ...(isPlainObject(draft.payload?.map) ? draft.payload.map : {}),
+          name,
+          imageUrl: currentImageUrl,
+          width: draft.width,
+          height: draft.height,
+          isAnimated: draft.isAnimated === true,
+          associatedMaps: groupReferences.filter((map) => map.cloudEntryId !== draft.entryId)
+        }
+      };
       await updateCloudLibraryEntry(draft.entryId, {
         name,
         isPublic,
         tags,
-        ...(replacementImageUrl ? { imageUrl: replacementImageUrl, payload: replacementPayload } : {}),
+        imageUrl: currentImageUrl,
+        payload: replacementPayload,
         baseRevision: draft.baseRevision
       });
+      const affectedOptions = (draft.associationOptions || [])
+        .filter((option) => selectedIds.has(option.id) || originalIds.has(option.id));
+      for (const option of affectedOptions) {
+        const optionMap = isPlainObject(option.payload?.map) ? option.payload.map : {};
+        const associatedMaps = selectedIds.has(option.id)
+          ? groupReferences.filter((map) => map.cloudEntryId !== option.id)
+          : (Array.isArray(optionMap.associatedMaps) ? optionMap.associatedMaps : [])
+            .filter((map) => !selectedIds.has(cleanText(map?.cloudEntryId)) && cleanText(map?.cloudEntryId) !== draft.entryId);
+        await updateCloudLibraryEntry(option.id, {
+          imageUrl: option.imageUrl,
+          payload: {
+            ...(isPlainObject(option.payload) ? option.payload : {}),
+            map: { ...optionMap, associatedMaps }
+          },
+          baseRevision: option.baseRevision
+        });
+      }
       state.cloudMapUploadDraft = null;
       state.accountError = "";
       await refreshCommunityCatalog();
@@ -9843,6 +9991,51 @@ async function openCloudMapProperties(entryId) {
     const imageUrl = cleanText(map.imageUrl || entry.imageUrl);
     const byteSize = await getCloudMapAssetByteSize(imageUrl);
     const isAnimated = map.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl);
+    const width = Math.max(0, Number(map.width) || 0);
+    const height = Math.max(0, Number(map.height) || 0);
+    const aspectRatio = width > 0 && height > 0 ? width / height : 0;
+    const candidateSummaries = state.cloudLibraryEntries.filter((item) => (
+      item.id !== id
+      && item.isOwner === true
+      && item.entryKind === "manual"
+      && cleanText(item.type).toLowerCase() === "map"
+    ));
+    const candidateResults = await Promise.allSettled(
+      candidateSummaries.map((item) => getCloudLibraryEntry(item.id))
+    );
+    const associationOptions = candidateResults
+      .filter((candidate) => candidate.status === "fulfilled")
+      .map((candidate) => {
+        const candidateResult = candidate.value;
+        const candidateEntry = candidateResult?.entry || {};
+        const candidateMap = candidateResult?.payload?.map || {};
+        const candidateWidth = Math.max(0, Number(candidateMap.width) || 0);
+        const candidateHeight = Math.max(0, Number(candidateMap.height) || 0);
+        const candidateRatio = candidateWidth > 0 && candidateHeight > 0 ? candidateWidth / candidateHeight : 0;
+        if (!aspectRatio || !candidateRatio || Math.abs(candidateRatio - aspectRatio) > 0.0001) return null;
+        return {
+          id: cleanText(candidateEntry.id),
+          name: cleanText(candidateEntry.name || candidateMap.name) || "Mapa",
+          imageUrl: cleanText(candidateMap.imageUrl || candidateEntry.imageUrl),
+          width: candidateWidth,
+          height: candidateHeight,
+          isPrivate: candidateEntry.isPublic !== true,
+          isAnimated: candidateMap.isAnimated === true || /[?&]animated=1(?:&|$)/.test(cleanText(candidateMap.imageUrl || candidateEntry.imageUrl)),
+          baseRevision: Number(candidateEntry.revision) || 1,
+          payload: candidateResult?.payload
+        };
+      })
+      .filter((item) => item?.id);
+    const associatedMapIds = new Set(
+      (Array.isArray(map.associatedMaps) ? map.associatedMaps : [])
+        .map((associatedMap) => cleanText(associatedMap?.cloudEntryId))
+        .filter(Boolean)
+    );
+    associationOptions.forEach((option) => {
+      const reverseIds = (Array.isArray(option.payload?.map?.associatedMaps) ? option.payload.map.associatedMaps : [])
+        .map((associatedMap) => cleanText(associatedMap?.cloudEntryId));
+      if (reverseIds.includes(id)) associatedMapIds.add(option.id);
+    });
     state.cloudMapUploadDraft = {
       mode: "properties",
       entryId: id,
@@ -9851,14 +10044,17 @@ async function openCloudMapProperties(entryId) {
       originalPreviewUrl: imageUrl,
       byteSize,
       originalByteSize: byteSize,
-      width: Math.max(0, Number(map.width) || 0),
-      originalWidth: Math.max(0, Number(map.width) || 0),
-      height: Math.max(0, Number(map.height) || 0),
-      originalHeight: Math.max(0, Number(map.height) || 0),
+      width,
+      originalWidth: width,
+      height,
+      originalHeight: height,
       isAnimated,
       originalIsAnimated: isAnimated,
       replacementBlob: null,
       payload: result?.payload,
+      associationOptions,
+      associatedMapIds: [...associatedMapIds],
+      originalAssociatedMapIds: [...associatedMapIds],
       canReplaceImage: entry.isOwner === true && entry.entryKind === "manual",
       name: cleanText(entry.name || map.name) || "Mapa",
       tags: normalizeMapTags(entry.tags),
@@ -9982,6 +10178,29 @@ function renderCloudMapTagEditor(draft) {
   `;
 }
 
+function renderCloudMapAssociationEditor(draft) {
+  if (draft.mode !== "properties" || draft.canReplaceImage !== true) return "";
+  const draftRatio = draft.width > 0 && draft.height > 0 ? draft.width / draft.height : 0;
+  const options = (Array.isArray(draft.associationOptions) ? draft.associationOptions : [])
+    .filter((option) => draftRatio && Math.abs(option.width / option.height - draftRatio) <= 0.0001);
+  const selectedIds = new Set(draft.associatedMapIds || []);
+  return `
+    <fieldset class="cloud-map-association-editor">
+      <legend>Mapas asociados</legend>
+      <p>Solo aparecen mapas propios con la misma relación de aspecto. Al intercambiarlos se conserva todo el estado del editor.</p>
+      <div class="cloud-map-association-editor__list">
+        ${options.length ? options.map((option) => `
+          <label class="cloud-map-association-editor__option">
+            <input type="checkbox" data-cloud-map-association-option="${escapeHtml(option.id)}" ${selectedIds.has(option.id) ? "checked" : ""}>
+            ${option.imageUrl ? `<img src="${escapeHtml(option.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}
+            <span><strong>${escapeHtml(option.name)}</strong><small>${escapeHtml(`${option.width} × ${option.height} px`)}</small></span>
+          </label>
+        `).join("") : `<p class="cloud-map-association-editor__empty">No hay otros mapas propios con esta relación de aspecto.</p>`}
+      </div>
+    </fieldset>
+  `;
+}
+
 function renderCloudMapUploadDialog() {
   const draft = state.cloudMapUploadDraft;
   if (!draft) return "";
@@ -10011,6 +10230,7 @@ function renderCloudMapUploadDialog() {
         <label><span>Nombre</span><input type="text" maxlength="120" value="${escapeHtml(draft.name)}" data-cloud-map-upload-name></label>
         <label><span>Visibilidad</span><select data-cloud-map-upload-visibility><option value="public" ${draft.isPublic ? "selected" : ""}>Público</option><option value="private" ${draft.isPublic ? "" : "selected"}>Privado</option></select></label>
         ${renderCloudMapTagEditor(draft)}
+        ${renderCloudMapAssociationEditor(draft)}
         <p class="combat-map-help">${editingProperties ? draft.replacementBlob ? "La nueva imagen está preparada y se subirá cuando pulses Guardar." : "Puedes cambiar las propiedades o reemplazar la imagen desde un archivo local." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
         ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
         <footer>
@@ -17959,7 +18179,8 @@ function renderCharacterSheetPdfControls(character) {
         <button
           class="toolbar-button toolbar-button--subtle character-sheet-pdf-card__button${getCloudButtonBusyClass("loading", exportTarget)}"
           type="button"
-          data-action="export-character-pdf"
+          data-action="open-character-export-dialog"
+          data-character-export-format="pdf"
           data-character-id="${escapeHtml(character.id)}"
           ${isExporting ? `disabled aria-busy="true"` : ""}
         >
@@ -19384,10 +19605,25 @@ function renderCharacterClassRow(entry, index) {
 function renderCharacterClassTextField(rowId, key, label, value, placeholder = "", options = {}) {
   const lengthClass = getCharacterTextLengthClass(value);
   const suggestions = Array.isArray(options.options) ? options.options : [];
+  const query = normalizeSearchText(value);
+  const pickerActive = state.activeCharacterClassPickerRowId === rowId
+    && state.activeCharacterClassPickerField === key
+    && Boolean(query);
+  const visibleSuggestions = pickerActive
+    ? suggestions
+      .filter((suggestion) => normalizeSearchText(`${suggestion.label || ""} ${suggestion.value || ""}`).includes(query))
+      .sort((left, right) => {
+        const leftValue = normalizeSearchText(left.value);
+        const rightValue = normalizeSearchText(right.value);
+        return Number(rightValue === query) - Number(leftValue === query)
+          || leftValue.localeCompare(rightValue, "es", { sensitivity: "base" });
+      })
+      .slice(0, 12)
+    : suggestions;
   const menuLabel = key === "name" ? "Mostrar todas las clases" : "Mostrar todas las subclases";
 
   return `
-    <div class="toolbar-field character-identity-field">
+    <div class="toolbar-field character-identity-field" data-character-class-menu>
       <span>${escapeHtml(label)}</span>
       <div class="character-class-picker">
         <input
@@ -19398,11 +19634,11 @@ function renderCharacterClassTextField(rowId, key, label, value, placeholder = "
           data-character-class-field="${escapeHtml(key)}"
           data-character-class-row="${escapeHtml(rowId)}"
         />
-        <details class="character-class-picker__menu">
+        <details class="character-class-picker__menu" ${pickerActive ? "open" : ""}>
           <summary aria-label="${escapeHtml(menuLabel)}" title="${escapeHtml(menuLabel)}">⌄</summary>
           <div class="character-class-picker__options" role="listbox" aria-label="${escapeHtml(menuLabel)}">
-            ${suggestions.length > 0
-              ? suggestions.map((suggestion) => `
+            ${visibleSuggestions.length > 0
+              ? visibleSuggestions.map((suggestion) => `
                 <button
                   type="button"
                   role="option"
@@ -19412,7 +19648,7 @@ function renderCharacterClassTextField(rowId, key, label, value, placeholder = "
                   data-character-class-value="${escapeHtml(suggestion.value)}"
                 >${escapeHtml(suggestion.label || suggestion.value)}</button>
               `).join("")
-              : `<span class="character-class-picker__empty">${escapeHtml(key === "name" ? "No hay clases disponibles." : "Selecciona primero una clase reconocida.")}</span>`}
+              : `<span class="character-class-picker__empty">${escapeHtml(pickerActive ? "No hay coincidencias." : key === "name" ? "No hay clases disponibles." : "Selecciona primero una clase reconocida.")}</span>`}
           </div>
         </details>
       </div>
@@ -22513,7 +22749,7 @@ function importPendingCharacterPdfData() {
   render();
 }
 
-async function exportActiveCharacterPdf(characterId = state.activeCharacterId) {
+async function exportActiveCharacterPdf(characterId = state.activeCharacterId, selectedAbilityIds = null) {
   const character = state.characters.find((entry) => entry.id === cleanText(characterId)) ?? null;
 
   if (!character) {
@@ -22531,7 +22767,7 @@ async function exportActiveCharacterPdf(characterId = state.activeCharacterId) {
       ensureCompendiumLoaded("bestiary")
     ]);
     const characterTemplateUrl = getCharacterPdfTemplateUrl(character);
-    const exportCharacter = getCharacterPdfExportCharacter(character);
+    const exportCharacter = getCharacterPdfExportCharacter(character, { selectedAbilityIds });
     const [characterTemplateResponse, spellTemplateResponse, spellCardTemplateResponse, backTemplateResponse] = await Promise.all([
       fetch(characterTemplateUrl, { cache: "force-cache" }),
       fetch(characterSpellPdfTemplateUrl, { cache: "force-cache" }),
@@ -22628,7 +22864,7 @@ async function exportActiveCharacterFightClubXml(characterId = state.activeChara
   render();
 }
 
-function getCharacterPdfExportCharacter(character) {
+function getCharacterPdfExportCharacter(character, options = {}) {
   const contentLanguage = normalizeStoredContentLanguage(state.contentLanguage);
   const spells = (Array.isArray(character?.spells) ? character.spells : []).map((spell) => {
     const matchedSpell = getCharacterSpellMatchedEntry(spell);
@@ -22687,7 +22923,9 @@ function getCharacterPdfExportCharacter(character) {
     })
     .filter((summon) => summon.bestiaryEntry);
 
-  const spellbookAbilities = getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(character));
+  const selectedAbilityIds = options.selectedAbilityIds instanceof Set ? options.selectedAbilityIds : null;
+  const spellbookAbilities = getMeaningfulCharacterSpellbookAbilityRows(getCharacterSpellbookAbilities(character))
+    .filter((ability) => !selectedAbilityIds || selectedAbilityIds.has(cleanText(ability.id)));
 
   return { ...character, spells, summons, inventory, spellbookAbilities };
 }

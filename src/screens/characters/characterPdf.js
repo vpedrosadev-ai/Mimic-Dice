@@ -614,8 +614,7 @@ function getCharacterInventoryText(character) {
 }
 
 function getCharacterFeaturesText(character) {
-  const abilities = (Array.isArray(character?.spellbookAbilities) ? character.spellbookAbilities : [])
-    .filter((entry) => cleanPdfText(entry?.name) || cleanPdfText(entry?.description))
+  const abilities = getCharacterPdfAbilities(character)
     .map((entry) => [cleanPdfText(entry.name), cleanPdfText(entry.description)].filter(Boolean).join(": "));
   const notes = cleanPdfText(character?.notes);
   return [...abilities, notes].filter(Boolean).join("\n\n");
@@ -1538,7 +1537,18 @@ async function appendCharacterSummonSheets(document, character, pdfLibrary, opti
 
 export function getCharacterPdfAbilities(character) {
   return (Array.isArray(character?.spellbookAbilities) ? character.spellbookAbilities : [])
-    .filter((ability) => cleanPdfText(ability?.name) || cleanPdfText(ability?.description) || Number(ability?.uses) > 0);
+    .filter((ability) => cleanPdfText(ability?.name) || cleanPdfText(ability?.description) || Number(ability?.uses) > 0)
+    .map((ability, index) => ({ ability, index }))
+    .sort((left, right) => {
+      const getEstimatedSize = (entry) => {
+        const description = cleanPdfText(entry?.description);
+        const explicitLines = description ? description.split(/\r?\n/u).length : 0;
+        return description.length + explicitLines * 48 + cleanPdfText(entry?.name).length * 0.2;
+      };
+      const difference = getEstimatedSize(left.ability) - getEstimatedSize(right.ability);
+      return difference || left.index - right.index;
+    })
+    .map(({ ability }) => ability);
 }
 
 async function appendCharacterAbilitySheets(document, character, pdfLibrary, options = {}) {
@@ -1559,8 +1569,11 @@ async function appendCharacterAbilitySheets(document, character, pdfLibrary, opt
   const innerWidth = cardWidth - 20;
   const lineHeight = 10;
   const maximumLinesPerCard = 54;
-  const cardFragments = abilities.flatMap((ability) => {
+  const measuredAbilities = abilities.map((ability, index) => {
     const descriptionLines = getSummonPdfParagraphLines(ability.description, fonts.regular, 8, innerWidth);
+    return { ability, descriptionLines, index };
+  }).sort((left, right) => left.descriptionLines.length - right.descriptionLines.length || left.index - right.index);
+  const cardFragments = measuredAbilities.flatMap(({ ability, descriptionLines }) => {
     const chunks = descriptionLines.length > 0
       ? Array.from({ length: Math.ceil(descriptionLines.length / maximumLinesPerCard) }, (_, index) => (
         descriptionLines.slice(index * maximumLinesPerCard, (index + 1) * maximumLinesPerCard)

@@ -285,3 +285,23 @@ test("private map references omit asset URLs from portable saves", () => {
     isPrivate: true
   });
 });
+
+test("associated map references preserve variants and hide private asset URLs in portable saves", () => {
+  const normalized = normalizeMapReference({
+    name: "Summer",
+    imageUrl: "/api/assets/summer",
+    width: 1600,
+    height: 900,
+    cloudEntryId: "map-summer",
+    associatedMaps: [{
+      name: "Winter",
+      imageUrl: "/api/assets/winter",
+      width: 3200,
+      height: 1800,
+      cloudEntryId: "map-winter",
+      isPrivate: true
+    }]
+  });
+  assert.equal(normalized.associatedMaps[0].cloudEntryId, "map-winter");
+  assert.equal(getPortableMapReference(normalized).associatedMaps[0].imageUrl, "");
+});

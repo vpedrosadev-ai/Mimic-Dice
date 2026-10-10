@@ -2923,6 +2923,68 @@ button.is-cloud-busy:disabled {
   min-height: 2.75rem;
 }
 
+.cloud-map-association-editor {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(240, 200, 121, 0.22);
+  border-radius: 12px;
+  background: rgba(9, 7, 5, 0.32);
+}
+
+.cloud-map-association-editor legend {
+  padding: 0 0.35rem;
+  color: var(--accent-soft);
+  font-weight: 800;
+}
+
+.cloud-map-association-editor > p,
+.cloud-map-association-editor__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.cloud-map-association-editor__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.cloud-map-association-editor__option {
+  display: grid;
+  grid-template-columns: auto 4.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(240, 200, 121, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.cloud-map-association-editor__option img,
+.cloud-map-association-editor__option > .combat-map-cloud-placeholder {
+  width: 4.5rem;
+  height: 3rem;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.cloud-map-association-editor__option span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.cloud-map-association-editor__option strong,
+.cloud-map-association-editor__option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cloud-map-upload-dialog__panel footer {
   justify-content: flex-end;
 }
@@ -16109,6 +16171,45 @@ body.is-table-resizing * {
 
 .character-export-dialog__selection strong {
   color: var(--accent-soft);
+}
+
+.character-export-dialog__abilities {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px solid rgba(240, 200, 121, 0.2);
+  border-radius: 12px;
+  background: rgba(9, 7, 5, 0.32);
+}
+
+.character-export-dialog__abilities legend {
+  padding: 0 0.35rem;
+  color: var(--accent-soft);
+  font-weight: 800;
+}
+
+.character-export-dialog__abilities p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.character-export-dialog__ability-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.38rem 0.75rem;
+  max-height: 13rem;
+  overflow-y: auto;
+}
+
+.character-export-dialog__ability-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.82rem;
 }
 
 .character-export-dialog .data-exchange-dialog__mode-card.is-preferred:not(:disabled) {

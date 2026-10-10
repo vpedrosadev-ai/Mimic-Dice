@@ -513,6 +513,23 @@ export function normalizeMapReference(value) {
   const imageUrl = clean(value.imageUrl);
   const cloudEntryId = clean(value.cloudEntryId);
   if (!imageUrl && !cloudEntryId) return null;
+  const associatedMaps = Array.isArray(value.associatedMaps)
+    ? value.associatedMaps.slice(0, 24).map((entry) => {
+      if (!isObject(entry)) return null;
+      const associatedImageUrl = clean(entry.imageUrl);
+      const associatedCloudEntryId = clean(entry.cloudEntryId);
+      if (!associatedImageUrl && !associatedCloudEntryId) return null;
+      return {
+        name: clean(entry.name) || "Mapa",
+        imageUrl: associatedImageUrl,
+        width: Math.max(1, Math.round(Number(entry.width) || DEFAULT_WIDTH)),
+        height: Math.max(1, Math.round(Number(entry.height) || DEFAULT_HEIGHT)),
+        cloudEntryId: associatedCloudEntryId,
+        isPrivate: entry.isPrivate === true,
+        ...(entry.isAnimated === true || /[?&]animated=1(?:&|$)/.test(associatedImageUrl) ? { isAnimated: true } : {})
+      };
+    }).filter(Boolean)
+    : [];
   return {
     name: clean(value.name) || "Mapa",
     imageUrl,
@@ -520,6 +537,7 @@ export function normalizeMapReference(value) {
     height: Math.max(1, Math.round(Number(value.height) || DEFAULT_HEIGHT)),
     cloudEntryId,
     isPrivate: value.isPrivate === true,
+    ...(associatedMaps.length > 0 ? { associatedMaps } : {}),
     ...(value.isAnimated === true || /[?&]animated=1(?:&|$)/.test(imageUrl) ? { isAnimated: true } : {})
   };
 }
@@ -527,7 +545,11 @@ export function normalizeMapReference(value) {
 export function getPortableMapReference(value) {
   const map = normalizeMapReference(value);
   if (!map) return null;
-  return map.isPrivate ? { ...map, imageUrl: "" } : map;
+  const associatedMaps = Array.isArray(map.associatedMaps)
+    ? map.associatedMaps.map((entry) => entry.isPrivate ? { ...entry, imageUrl: "" } : entry)
+    : [];
+  const portable = associatedMaps.length > 0 ? { ...map, associatedMaps } : map;
+  return map.isPrivate ? { ...portable, imageUrl: "" } : portable;
 }
 
 export function normalizeMapEditorState(value) {
@@ -980,6 +1002,7 @@ export function createCombatMapController(options = {}) {
       state.map = next;
       persist();
       sync();
+      if (!next.imageUrl && next.cloudEntryId) resolveCloudMap(next.cloudEntryId);
       behavior.onApplied?.(next);
       return;
     }
@@ -1023,8 +1046,12 @@ export function createCombatMapController(options = {}) {
   async function resolveCloudMap(entryId) {
     try {
       const result = await getCloudLibraryEntry(entryId);
+      const retainedDimensions = state.map?.cloudEntryId === entryId
+        ? { width: state.map.width, height: state.map.height }
+        : {};
       const resolved = normalizeMapReference({
         ...(result.payload?.map || {}),
+        ...retainedDimensions,
         name: result.entry?.name || result.payload?.map?.name,
         cloudEntryId: entryId,
         isPrivate: result.entry?.isPublic !== true
@@ -1241,6 +1268,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderMapLoadMenu(encounterMaps, savedMaps) {
+    const associatedMaps = Array.isArray(state.map?.associatedMaps) ? state.map.associatedMaps : [];
     return `<section class="combat-map-popover combat-map-popover--map-loader" data-map-panel="map">
       <h2>Cargar imagen</h2>
       <button class="combat-map-load-menu__back" type="button" data-map-action="close-map-load-menu">← Volver a Mapa</button>
@@ -1251,10 +1279,12 @@ export function createCombatMapController(options = {}) {
           <button class="combat-map-load-option ${mapLoadSection === "blank" ? "is-active" : ""}" type="button" data-map-action="toggle-blank-map-options">Hoja en blanco</button>
           <button class="combat-map-load-option ${mapLoadSection === "encounters" ? "is-active" : ""}" type="button" data-map-action="toggle-encounter-map-options" ${encounterMaps.length ? "" : "disabled"}>Mapas de encuentros <small>${encounterMaps.length}</small></button>
           <button class="combat-map-load-option ${mapLoadSection === "recent" ? "is-active" : ""}" type="button" data-map-action="toggle-recent-map-options" ${savedMaps.length ? "" : "disabled"}>Mapas recientes <small>${savedMaps.length}</small></button>
+          <button class="combat-map-load-option ${mapLoadSection === "associated" ? "is-active" : ""}" type="button" data-map-action="toggle-associated-map-options" ${associatedMaps.length ? "" : "disabled"}>Mapas asociados <small>${associatedMaps.length}</small></button>
         </div>
         ${mapLoadSection === "blank" ? `<div class="combat-map-blank-map"><strong>Hoja en blanco</strong><label>Proporción <select data-blank-map-ratio><option value="1:1" ${blankMapRatio === "1:1" ? "selected" : ""}>Cuadrado 1:1</option><option value="4:3" ${blankMapRatio === "4:3" ? "selected" : ""}>Rectángulo 4:3</option><option value="16:9" ${blankMapRatio === "16:9" ? "selected" : ""}>Panorámico 16:9</option><option value="3:2" ${blankMapRatio === "3:2" ? "selected" : ""}>Rectángulo 3:2</option><option value="3:4" ${blankMapRatio === "3:4" ? "selected" : ""}>Vertical 3:4</option><option value="9:16" ${blankMapRatio === "9:16" ? "selected" : ""}>Vertical 9:16</option></select></label><button type="button" data-map-action="create-blank-map">Crear hoja blanca</button></div>` : ""}
         ${mapLoadSection === "encounters" ? `<div class="combat-map-priority-list"><h3>Mapas asociados a encuentros cargados</h3><div class="combat-map-cloud-grid">${encounterMaps.map((choice, index) => `<button type="button" data-map-encounter-choice="${index}">${choice.map.imageUrl ? `<img src="${escapeHtml(choice.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(choice.map.name)}</span><small>${escapeHtml(choice.encounterName || "Encuentro")}</small></button>`).join("")}</div></div>` : ""}
         ${mapLoadSection === "recent" ? `<div class="combat-map-priority-list"><h3>Los 2 mapas más recientes</h3><div class="combat-map-cloud-grid">${savedMaps.map((layout) => `<button type="button" data-map-saved-layout="${escapeHtml(layout.key)}">${layout.map.imageUrl ? `<img src="${escapeHtml(layout.map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(layout.map.name)}</span><small>Disposición guardada</small></button>`).join("")}</div></div>` : ""}
+        ${mapLoadSection === "associated" ? `<div class="combat-map-priority-list"><h3>Versiones asociadas</h3><p class="combat-map-help">Intercambia la imagen conservando rejilla, peanas, dibujos, niebla, zoom y posición.</p><div class="combat-map-cloud-grid">${associatedMaps.map((map, index) => `<button type="button" data-map-associated-choice="${index}">${map.imageUrl ? `<img src="${escapeHtml(map.imageUrl)}" alt="">` : `<span class="combat-map-cloud-placeholder">Mapa</span>`}<span>${escapeHtml(map.name)}</span><small>Misma proporción</small></button>`).join("")}</div></div>` : ""}
       </div>
       ${localImageBusy ? `<p class="combat-map-converting" role="status">Convirtiendo imagen a WebP…</p>` : ""}
       ${localImageError ? `<p class="combat-map-error" role="alert">${escapeHtml(localImageError)}</p>` : ""}
@@ -2140,6 +2170,27 @@ export function createCombatMapController(options = {}) {
     if (layout?.map) finishMapSelection(layout.map, surface);
   }
 
+  function selectAssociatedMap(index, surface = masterHost) {
+    const associatedMap = state.map?.associatedMaps?.[Number(index)];
+    if (!associatedMap || !state.map) return;
+    const currentMap = state.map;
+    const nextMap = normalizeMapReference({
+      ...associatedMap,
+      width: currentMap.width,
+      height: currentMap.height,
+      associatedMaps: [
+        { ...currentMap, associatedMaps: undefined },
+        ...currentMap.associatedMaps
+          .filter((map) => map.cloudEntryId !== associatedMap.cloudEntryId)
+          .map((map) => ({ ...map, associatedMaps: undefined }))
+      ]
+    });
+    if (!nextMap) return;
+    mapLoadMenuSurface = "";
+    mapLoadSection = "";
+    setMap(nextMap, { surface, retainWorkspace: true, promptToSave: false });
+  }
+
   async function handleImageFile(file, surface = masterHost) {
     localImageBusy = true;
     localImageError = "";
@@ -2338,8 +2389,10 @@ export function createCombatMapController(options = {}) {
     const cloudChoice = event.target.closest("[data-map-cloud-choice]")?.dataset.mapCloudChoice;
     const encounterChoice = event.target.closest("[data-map-encounter-choice]")?.dataset.mapEncounterChoice;
     const savedLayout = event.target.closest("[data-map-saved-layout]")?.dataset.mapSavedLayout;
+    const associatedChoice = event.target.closest("[data-map-associated-choice]")?.dataset.mapAssociatedChoice;
     if (encounterChoice !== undefined) { selectEncounterChoice(encounterChoice, surface); return; }
     if (savedLayout) { selectSavedLayout(savedLayout, surface); return; }
+    if (associatedChoice !== undefined) { selectAssociatedMap(associatedChoice, surface); return; }
     if (cloudChoice) { selectCloudMap(cloudChoice, surface); return; }
     if (!action) return;
     if (action === "confirm-confirmation") { resolveConfirmation(true); return; }
@@ -2358,6 +2411,7 @@ export function createCombatMapController(options = {}) {
     if (action === "toggle-blank-map-options") { mapLoadSection = mapLoadSection === "blank" ? "" : "blank"; sync(); }
     if (action === "toggle-encounter-map-options") { mapLoadSection = mapLoadSection === "encounters" ? "" : "encounters"; sync(); }
     if (action === "toggle-recent-map-options") { mapLoadSection = mapLoadSection === "recent" ? "" : "recent"; sync(); }
+    if (action === "toggle-associated-map-options") { mapLoadSection = mapLoadSection === "associated" ? "" : "associated"; sync(); }
     if (action === "create-blank-map") createBlankMap(surface);
     if (action === "open-cloud-map-catalog") {
       mapLoadMenuSurface = "";

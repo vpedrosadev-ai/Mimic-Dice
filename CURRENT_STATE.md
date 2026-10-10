@@ -2,7 +2,7 @@
 
 ## Snapshot
 
-- Fecha de revision: 2026-05-01
+- Fecha de revision: 2026-10-10
 - Repo asumido: `Mimic Dice`
 - Rama actual: `main`
 - HEAD: `a174a49`
@@ -115,6 +115,9 @@
 - En los pop-outs de fichas funcionan tambien los enlaces y detalles flotantes de objetos, hechizos y habilidades; cada ventana gestiona su propio panel de detalle y los enlaces pueden abrir el compendio correspondiente en la ventana principal. En combate, doble clic sobre el retrato de una criatura abre directamente su ficha en ventana independiente; clic simple conserva la apertura en Bestiario.
 - Las menciones de hechizos en fichas de criatura se enlazan con alias bilingues y sin alterar espacios/saltos; su ficha flotante usa overlay ajustado al viewport. Las criaturas lanzadoras muestran en su ficha de combate aptitud, CD/ataque, grupos de conjuros y usos diarios/espacios marcables, persistentes y restaurados con descanso largo.
 - La exportacion de personajes (JSON, PDF o XML de Fight Club) exige elegir de forma explicita una unica ficha de la lista antes de continuar.
+- La exportacion PDF permite desmarcar habilidades concretas; las habilidades incluidas se ordenan de menor a mayor altura estimada antes de componer sus tarjetas para compactar paginas.
+- Las propiedades de mapas cloud propios permiten asociar versiones con la misma relacion de aspecto. `Cargar imagen > Mapas asociados` intercambia la imagen conservando dimensiones de lienzo, rejilla, peanas, niebla, dibujos, zoom y resto del estado del editor.
+- Los campos Clase y Subclase muestran coincidencias parciales mientras se escribe. Los nombres libres de objetos, hechizos e invocaciones conservan espacios durante el rerender de sugerencias.
 - El autoguardado cloud reintenta automaticamente fallos temporales de red/HTTP (`408`, `425`, `429` y `5xx`) con espera progresiva; al recuperarse retira el aviso persistente y confirma el guardado correcto.
 - El menu de configuracion de skills se despliega como overlay sobre la UI y no empuja el layout.
 - En ficha de personaje, campo editable de XP de skill representa progreso dentro del nivel actual, no XP total acumulada.

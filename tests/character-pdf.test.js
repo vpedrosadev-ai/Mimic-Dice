@@ -226,6 +226,14 @@ const pdfAbilities = getCharacterPdfAbilities({
 });
 assert.deepEqual(pdfAbilities.map((ability) => ability.name), ["Segundo aliento", "Accion impetuosa"]);
 
+const sortedPdfAbilities = getCharacterPdfAbilities({
+  spellbookAbilities: [
+    { name: "Habilidad extensa", description: "Una descripción muy larga que ocupará varias líneas en la tarjeta del PDF. ".repeat(8) },
+    { name: "Habilidad breve", description: "Breve." }
+  ]
+});
+assert.deepEqual(sortedPdfAbilities.map((ability) => ability.name), ["Habilidad breve", "Habilidad extensa"]);
+
 const abilityCardResultBytes = await fillCharacterPdfTemplate(templateBytes, {
   name: "Guerrero de prueba",
   className: "Guerrero",
