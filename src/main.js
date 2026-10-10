@@ -9855,7 +9855,7 @@ async function savePendingCommunityMapUpload() {
 
   try {
     if (editingProperties) {
-      if (draft.canReplaceImage !== true) {
+      if (draft.canEditAssociations !== true) {
         await updateCloudLibraryEntry(draft.entryId, {
           name,
           isPublic,
@@ -9920,12 +9920,12 @@ async function savePendingCommunityMapUpload() {
         name,
         isPublic,
         tags,
-        imageUrl: currentImageUrl,
+        ...(draft.replacementBlob ? { imageUrl: currentImageUrl } : {}),
         payload: replacementPayload,
         baseRevision: draft.baseRevision
       });
       const affectedOptions = (draft.associationOptions || [])
-        .filter((option) => selectedIds.has(option.id) || originalIds.has(option.id));
+        .filter((option) => option.canEditAssociations === true && (selectedIds.has(option.id) || originalIds.has(option.id)));
       for (const option of affectedOptions) {
         const optionMap = isPlainObject(option.payload?.map) ? option.payload.map : {};
         const associatedMaps = selectedIds.has(option.id)
@@ -9933,7 +9933,6 @@ async function savePendingCommunityMapUpload() {
           : (Array.isArray(optionMap.associatedMaps) ? optionMap.associatedMaps : [])
             .filter((map) => !selectedIds.has(cleanText(map?.cloudEntryId)) && cleanText(map?.cloudEntryId) !== draft.entryId);
         await updateCloudLibraryEntry(option.id, {
-          imageUrl: option.imageUrl,
           payload: {
             ...(isPlainObject(option.payload) ? option.payload : {}),
             map: { ...optionMap, associatedMaps }
@@ -10032,7 +10031,8 @@ async function openCloudMapProperties(entryId) {
     const aspectRatio = width > 0 && height > 0 ? width / height : 0;
     const candidateSummaries = state.cloudLibraryEntries.filter((item) => (
       item.id !== id
-      && item.isOwner === true
+      && cleanText(item.ownerId) === cleanText(entry.ownerId)
+      && item.canManage === true
       && item.entryKind === "manual"
       && cleanText(item.type).toLowerCase() === "map"
     ));
@@ -10057,6 +10057,7 @@ async function openCloudMapProperties(entryId) {
           height: candidateHeight,
           isPrivate: candidateEntry.isPublic !== true,
           isAnimated: candidateMap.isAnimated === true || /[?&]animated=1(?:&|$)/.test(cleanText(candidateMap.imageUrl || candidateEntry.imageUrl)),
+          canEditAssociations: candidateEntry.canManage === true && candidateEntry.entryKind === "manual",
           baseRevision: Number(candidateEntry.revision) || 1,
           payload: candidateResult?.payload
         };
@@ -10092,6 +10093,7 @@ async function openCloudMapProperties(entryId) {
       associatedMapIds: [...associatedMapIds],
       originalAssociatedMapIds: [...associatedMapIds],
       canReplaceImage: entry.isOwner === true && entry.entryKind === "manual",
+      canEditAssociations: entry.canManage === true && entry.entryKind === "manual",
       name: cleanText(entry.name || map.name) || "Mapa",
       tags: normalizeMapTags(entry.tags),
       newTag: "",
@@ -10215,15 +10217,15 @@ function renderCloudMapTagEditor(draft) {
 }
 
 function renderCloudMapAssociationEditor(draft) {
-  if (draft.mode !== "properties" || draft.canReplaceImage !== true) return "";
+  if (draft.mode !== "properties" || draft.canEditAssociations !== true) return "";
   const draftRatio = draft.width > 0 && draft.height > 0 ? draft.width / draft.height : 0;
   const options = (Array.isArray(draft.associationOptions) ? draft.associationOptions : [])
     .filter((option) => draftRatio && Math.abs(option.width / option.height - draftRatio) <= 0.0001);
   const selectedIds = new Set(draft.associatedMapIds || []);
   return `
     <fieldset class="cloud-map-association-editor">
-      <legend>Mapas asociados</legend>
-      <p>Solo aparecen mapas propios con la misma relación de aspecto. Al intercambiarlos se conserva todo el estado del editor.</p>
+      <legend>Asociar versiones del mapa</legend>
+      <p>Selecciona otros mapas del mismo propietario y con la misma relación de aspecto. Podrás intercambiarlos conservando posición, tamaño y elementos del editor.</p>
       <div class="cloud-map-association-editor__list">
         ${options.length ? options.map((option) => `
           <label class="cloud-map-association-editor__option">
@@ -10265,8 +10267,8 @@ function renderCloudMapUploadDialog() {
         <p class="combat-map-help"><strong>Tamaño convertido:</strong> ${escapeHtml(draft.byteSize ? formatCloudCampaignSize(draft.byteSize) : "No disponible")} · <strong>Resolución:</strong> ${draft.width && draft.height ? `${draft.width} × ${draft.height} px` : "No disponible"}</p>
         <label><span>Nombre</span><input type="text" maxlength="120" value="${escapeHtml(draft.name)}" data-cloud-map-upload-name></label>
         <label><span>Visibilidad</span><select data-cloud-map-upload-visibility><option value="public" ${draft.isPublic ? "selected" : ""}>Público</option><option value="private" ${draft.isPublic ? "" : "selected"}>Privado</option></select></label>
-        ${renderCloudMapTagEditor(draft)}
         ${renderCloudMapAssociationEditor(draft)}
+        ${renderCloudMapTagEditor(draft)}
         <p class="combat-map-help">${editingProperties ? draft.replacementBlob ? "La nueva imagen está preparada y se subirá cuando pulses Guardar." : "Puedes cambiar las propiedades o reemplazar la imagen desde un archivo local." : "La imagen ya está convertida. No se enviará hasta que pulses Guardar."}</p>
         ${draft.error ? `<p class="combat-map-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
         <footer>
@@ -19505,18 +19507,23 @@ function renderAutosaveProblemDialog() {
 
 function renderCharacterMetricField(key, label, value, placeholder = "") {
   const isNumberField = ["armorClass", "currentHp", "maxHp", "initiativeBonus"].includes(key);
+  const isSignedField = key === "initiativeBonus";
+  const sign = isSignedField && toNumber(value) >= 0 ? "+" : "";
 
   return `
     <label class="character-metric-field">
       <span>${escapeHtml(label)}</span>
-      <input
-        class="character-metric-field__input"
-        type="${isNumberField ? "number" : "text"}"
-        ${isNumberField ? "inputmode=\"numeric\"" : ""}
-        value="${escapeHtml(String(value ?? ""))}"
-        placeholder="${escapeHtml(placeholder)}"
-        data-character-field="${escapeHtml(key)}"
-      />
+      <div class="character-metric-field__control ${isSignedField ? "is-signed" : ""}">
+        ${sign ? `<i aria-hidden="true">${sign}</i>` : ""}
+        <input
+          class="character-metric-field__input"
+          type="${isNumberField ? "number" : "text"}"
+          ${isNumberField ? "inputmode=\"numeric\"" : ""}
+          value="${escapeHtml(String(value ?? ""))}"
+          placeholder="${escapeHtml(placeholder)}"
+          data-character-field="${escapeHtml(key)}"
+        />
+      </div>
     </label>
   `;
 }
@@ -20988,6 +20995,7 @@ function createDefaultCharacter(overrides = {}) {
     tempHp: 0,
     speed: "30 ft",
     initiativeBonus: 0,
+    initiativeBonusOverride: "",
     trapPerception: 0,
     conditions: "",
     stand: "",
@@ -21094,9 +21102,13 @@ function updateCharacterFieldForId(characterId, key, rawValue, normalize = true)
     }
 
     const value = numberFields.has(key) && normalize ? normalizeStoredNumber(rawValue) : rawValue;
+    const initiativeBonusOverride = key === "initiativeBonus"
+      ? rawValue === "" ? "" : value
+      : character.initiativeBonusOverride;
     const updatedCharacter = normalizeStoredCharacter({
       ...character,
-      [key]: value
+      [key]: value,
+      ...(key === "initiativeBonus" ? { initiativeBonusOverride } : {})
     });
 
     if (key === "maxHp" && toNumber(updatedCharacter.currentHp) > toNumber(updatedCharacter.maxHp)) {
@@ -22736,6 +22748,10 @@ function importPendingCharacterPdfData() {
 
   if (importedData.maxHp !== undefined && importedData.currentHp === undefined) {
     nextData.currentHp = importedData.maxHp;
+  }
+
+  if (importedData.initiativeBonus !== undefined) {
+    nextData.initiativeBonusOverride = importedData.initiativeBonus;
   }
 
   if (importedData.proficiencyBonus !== undefined) {

@@ -6,9 +6,23 @@ import {
   characterStatBlocks,
   itemSizeThresholds
 } from "../../data/gameConstants.js";
-import { formatModifier } from "../../shared/dndRules.js";
+import { formatModifier, getAbilityModifier } from "../../shared/dndRules.js";
 import { isPlainObject, toNumber } from "../../shared/numberUtils.js";
 import { cleanText } from "../../shared/text.js";
+
+export function resolveStoredCharacterInitiative(character, abilities, normalizeNumber = (value) => value) {
+  const dexterityModifier = getAbilityModifier(toNumber(abilities?.dex) || 10);
+  const hasStoredOverride = Object.prototype.hasOwnProperty.call(character || {}, "initiativeBonusOverride");
+  const rawOverride = hasStoredOverride ? character.initiativeBonusOverride : "";
+  const override = rawOverride === "" || rawOverride === null || rawOverride === undefined
+    ? ""
+    : normalizeNumber(rawOverride);
+
+  return {
+    override,
+    value: override === "" ? dexterityModifier : normalizeNumber(override)
+  };
+}
 
 export function createCharacterStateController({
   state,
@@ -174,6 +188,8 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     currentHp = Math.min(currentHp, maxHp);
   }
 
+  const abilities = normalizeStoredCharacterAbilities(character.abilities);
+  const initiative = resolveStoredCharacterInitiative(character, abilities, normalizeStoredNumber);
   const expertise = normalizeStoredCharacterProficiencies(character.expertise);
   const proficiencies = [...new Set([
     ...normalizeStoredCharacterProficiencies(character.proficiencies),
@@ -214,7 +230,8 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     currentHp,
     tempHp: normalizeStoredNonNegativeNumber(character.tempHp),
     speed: cleanText(character.speed) || "30 ft",
-    initiativeBonus: normalizeStoredNumber(character.initiativeBonus),
+    initiativeBonus: initiative.value,
+    initiativeBonusOverride: initiative.override,
     trapPerception: Math.max(0, Math.floor(toNumber(normalizeStoredNumber(character.trapPerception)) || 0)),
     conditions: cleanText(character.conditions),
     stand: normalizeStoredStandLabel(character.stand),
@@ -235,7 +252,7 @@ function normalizeStoredCharacter(character, skillDefinitions = undefined) {
     spellbookAbilities: normalizeStoredCharacterSpellbookAbilities(character.spellbookAbilities),
     inventoryOpen: character.inventoryOpen !== false,
     inventory: normalizeStoredCharacterInventory(character.inventory),
-    abilities: normalizeStoredCharacterAbilities(character.abilities)
+    abilities
   };
 }
 

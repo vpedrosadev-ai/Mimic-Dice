@@ -13746,6 +13746,25 @@ body.is-table-resizing * {
   text-align: left;
 }
 
+.character-metric-field__control {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.character-metric-field__control > i {
+  color: var(--text);
+  font-size: clamp(1.36rem, 1.12rem + 0.38vw, 1.6rem);
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.character-metric-field__control.is-signed .character-metric-field__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .character-metric-field__input:focus {
   outline: 0;
 }

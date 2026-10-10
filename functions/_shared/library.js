@@ -359,15 +359,19 @@ async function updateEntry(context, entryId, user) {
   const changesTags = Object.prototype.hasOwnProperty.call(body, "tags");
   const changesImageUrl = Object.prototype.hasOwnProperty.call(body, "imageUrl");
   const changesPayload = Object.prototype.hasOwnProperty.call(body, "payload");
-  const replacesMapImage = changesImageUrl || changesPayload;
-  if (!changesName && !changesVisibility && !changesTags && !replacesMapImage) {
-    throw new HttpError(400, "invalid_library_update", "Library update must change its name, visibility, tags, or map image.");
+  const replacesMapImage = changesImageUrl;
+  const updatesMapPayload = changesPayload;
+  if (!changesName && !changesVisibility && !changesTags && !updatesMapPayload) {
+    throw new HttpError(400, "invalid_library_update", "Library update must change its name, visibility, tags, or map data.");
   }
-  if (changesImageUrl !== changesPayload) {
-    throw new HttpError(400, "invalid_library_update", "Map image URL and payload must be updated together.");
+  if (changesImageUrl && !changesPayload) {
+    throw new HttpError(400, "invalid_library_update", "Replacing a map image also requires its map payload.");
   }
   if (replacesMapImage && (catalogEntry || entry.type !== "map" || entry.ownerId !== user.id)) {
     throw new HttpError(403, "library_image_update_forbidden", "Only owners can replace images on manual map entries.");
+  }
+  if (updatesMapPayload && (catalogEntry || entry.type !== "map" || (entry.ownerId !== user.id && !administrator))) {
+    throw new HttpError(403, "library_map_update_forbidden", "Only map managers can update associations on manual map entries.");
   }
 
   const nextName = changesName ? cleanText(body.name, 160) : entry.name;
@@ -379,7 +383,7 @@ async function updateEntry(context, entryId, user) {
   const nextImageUrl = changesImageUrl ? cleanText(body.imageUrl, 600) : entry.imageUrl;
 
   let replacementPayload = null;
-  if (replacesMapImage) {
+  if (updatesMapPayload) {
     if (!nextImageUrl) {
       throw new HttpError(400, "invalid_library_update", "Map image URL is required.");
     }
