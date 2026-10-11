@@ -120,7 +120,6 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
 
   const total = parseExpression();
   if (position !== tokens.length) throw new DiceFormulaError("syntax", `Unexpected token ${peek()?.raw || ""}.`);
-  if (groups.length === 0) throw new DiceFormulaError("no-dice", "Formula must contain dice notation.");
   if (!Number.isFinite(total)) throw new DiceFormulaError("invalid-result", "Formula result is not finite.");
 
   return {
@@ -128,7 +127,7 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
     normalizedFormula: tokens.map((token) => token.normalized).join(""),
     total,
     groups,
-    hitDiceMode: Boolean(hitDiceMode)
+    hitDiceMode: Boolean(hitDiceMode && groups.length > 0)
   };
 }
 

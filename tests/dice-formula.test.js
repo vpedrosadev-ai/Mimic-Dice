@@ -29,15 +29,22 @@ assert.deepEqual(hitDiceResult.groups.map((group) => group.minimum), [3, 4, 5, 6
 assert.equal(hitDiceResult.total, 25);
 assert.equal(hitDiceResult.hitDiceMode, true);
 assert.equal(rollDiceFormula("1d8", { random: () => 0 }).total, 1);
+const numericResult = rollDiceFormula("(20-5)/3+2*4");
+assert.equal(numericResult.total, 13);
+assert.deepEqual(numericResult.groups, []);
+assert.equal(numericResult.hitDiceMode, false);
+assert.equal(rollDiceFormula("25").total, 25);
+assert.equal(rollDiceFormula("10+4", { hitDiceMode: true }).hitDiceMode, false);
 assert.equal(isValidDiceFormula("2d4 + 3"), true);
 assert.equal(isValidDiceFormula("2d4 + alert(1)"), false);
-assert.equal(isValidDiceFormula("2 + 3"), false);
+assert.equal(isValidDiceFormula("2 + 3"), true);
 
 assert.deepEqual(findDiceFormulaMatches("Deal 2d4+3 damage, then roll d20."), [
   { formula: "2d4+3", start: 5, end: 10 },
   { formula: "d20", start: 29, end: 32 }
 ]);
 assert.deepEqual(findDiceFormulaMatches("id20 and 2d6damage are not formulas"), []);
+assert.deepEqual(findDiceFormulaMatches("Numbers 20 + 5 stay plain text."), []);
 
 assert.throws(() => rollDiceFormula("101d6"), (error) => error instanceof DiceFormulaError && error.code === "too-many-dice");
 assert.throws(() => rollDiceFormula("1d1"), (error) => error instanceof DiceFormulaError && error.code === "invalid-sides");

@@ -111,16 +111,17 @@ export function renderDiceRollerDock({
 }
 
 function renderDiceFormulaHelp(isEnglish) {
-  const examples = ["1d20+5", "2d6+1d4*2", "(4d6+8)/2"];
+  const examples = ["1d20+5", "2d6+1d4*2", "(4d6+8)/2", "20+5*2"];
 
   return `
     <aside class="dice-roller-help" role="dialog" aria-label="${escapeHtml(isEnglish ? "Dice formula syntax" : "Sintaxis de formulas de dados")}">
       <strong>${escapeHtml(isEnglish ? "Formula syntax" : "Sintaxis de formulas")}</strong>
       <p>${escapeHtml(isEnglish
-        ? "Use NdS to roll N dice with S sides. Spaces are optional."
-        : "Usa NdN para lanzar una cantidad de dados con el numero de caras indicado, por ejemplo 2d6. Los espacios son opcionales.")}</p>
+        ? "Combine dice and numbers, or enter a numeric calculation without dice. Spaces are optional."
+        : "Combina dados y numeros, o introduce un calculo numerico sin dados. Los espacios son opcionales.")}</p>
       <ul>
         <li><code>2d6</code> — ${escapeHtml(isEnglish ? "two six-sided dice" : "dos dados de seis caras")}</li>
+        <li><code>20+5*2</code> — ${escapeHtml(isEnglish ? "calculation without dice" : "calculo sin dados")}</li>
         <li><code>+ − * /</code> — ${escapeHtml(isEnglish ? "add, subtract, multiply, divide" : "sumar, restar, multiplicar, dividir")}</li>
         <li><code>( )</code> — ${escapeHtml(isEnglish ? "control operation order" : "controlar el orden de operaciones")}</li>
         <li><strong>${escapeHtml(isEnglish ? "Hit dice" : "Dados de vida")}</strong> — ${escapeHtml(isEnglish
@@ -148,7 +149,7 @@ function renderDiceRollEntry(entry, language) {
         <strong>= ${escapeHtml(formatTotal(entry.total))}</strong>
       </header>
       <div class="dice-roll-entry__groups">
-        ${(entry.groups || []).map((group) => `
+        ${(entry.groups || []).length > 0 ? (entry.groups || []).map((group) => `
           <section class="dice-roll-group">
             <span class="dice-roll-group__notation">${escapeHtml(group.notation)}</span>
             <div class="dice-roll-group__dice">
@@ -156,7 +157,7 @@ function renderDiceRollEntry(entry, language) {
             </div>
             <strong class="dice-roll-group__subtotal">= ${escapeHtml(formatTotal(group.subtotal))}</strong>
           </section>
-        `).join("")}
+        `).join("") : `<p class="dice-roll-entry__calculation">${escapeHtml(language === "en" ? "Numeric calculation without dice" : "Cálculo numérico sin dados")}</p>`}
       </div>
     </article>
   `;

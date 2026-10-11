@@ -12077,24 +12077,22 @@ function formatDiceFormulaError(error) {
 
   const messages = isEnglishInterface()
     ? {
-        empty: "Enter a dice formula.",
-        "no-dice": "The formula must contain dice, such as 2d6+3.",
+        empty: "Enter a formula.",
         "division-zero": "The formula cannot divide by zero.",
         "too-long": "The formula is too long.",
         "too-many-dice": "That formula contains too many dice.",
         "invalid-sides": "Dice must have between 2 and 1000 sides.",
         "invalid-count": "The dice count must be positive.",
-        syntax: "Invalid formula. Try 2d6+3."
+        syntax: "Invalid formula. Try 2d6+3 or 20+5."
       }
     : {
-        empty: "Escribe una formula de dados.",
-        "no-dice": "La formula debe contener dados, como 2d6+3.",
+        empty: "Escribe una formula.",
         "division-zero": "La formula no puede dividir entre cero.",
         "too-long": "La formula es demasiado larga.",
         "too-many-dice": "La formula contiene demasiados dados.",
         "invalid-sides": "Los dados deben tener entre 2 y 1000 caras.",
         "invalid-count": "La cantidad de dados debe ser positiva.",
-        syntax: "Formula no valida. Prueba 2d6+3."
+        syntax: "Formula no valida. Prueba 2d6+3 o 20+5."
       };
 
   return messages[error.code] || messages.syntax;

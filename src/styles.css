@@ -356,6 +356,14 @@
   padding-top: 0.62rem;
 }
 
+.dice-roll-entry__calculation {
+  margin: 0;
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
 .dice-roll-group {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
