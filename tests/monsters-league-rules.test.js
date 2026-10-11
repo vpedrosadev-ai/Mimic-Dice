@@ -129,26 +129,66 @@ test("automatically assigns the only remaining roster one creature per review", 
   assert.equal(room.status, "complete");
 });
 
-test("automatically assigns constrained players one creature per review", () => {
+test("lets a funded player decide before assigning to a constrained player", () => {
   const room = readyRoom(3);
   const constrained = room.players[0];
+  const funded = room.players[1];
   constrained.gold = 3;
   nominateMonstersLeagueCreature(room, room.nominationOrder[0], catalog[0], 1100);
   resolveMonstersLeagueLot(room, 22000);
 
   advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
 
+  assert.equal(constrained.roster.length, 1);
+  assert.equal(funded.roster.length, 0);
+  assert.equal(room.status, "drafting");
+  assert.equal(room.history.length, 1);
+  assert.equal(room.currentLot.highBidPlayerId, constrained.id);
+  assert.equal(room.currentLot.automaticFallbackPlayerId, constrained.id);
+
+  resolveMonstersLeagueLot(room, room.currentLot.deadlineAt);
   assert.equal(constrained.roster.length, 2);
-  assert.equal(constrained.gold, 1);
   assert.equal(room.status, "reviewing");
   assert.equal(room.history.length, 2);
-  assert.equal(room.history.at(-1).automaticReason, "insufficient_gold");
+  assert.equal(room.history.at(-1).automaticReason, "uncontested_constrained");
+});
 
-  advanceMonstersLeagueDraft(room, "host", catalog, 24000, () => 0);
-  assert.equal(constrained.roster.length, 3);
+test("a funded player can outbid the automatic fallback", () => {
+  const room = readyRoom(3);
+  const constrained = room.players[0];
+  const funded = room.players[1];
+  constrained.gold = 3;
+  nominateMonstersLeagueCreature(room, room.nominationOrder[0], catalog[0], 1100);
+  resolveMonstersLeagueLot(room, 22000);
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
+  placeMonstersLeagueBid(room, funded.id, 2, 24000);
+  resolveMonstersLeagueLot(room, room.currentLot.deadlineAt);
+
+  assert.equal(constrained.roster.length, 1);
+  assert.equal(funded.roster.length, 1);
+  assert.equal(room.history.at(-1).winnerPlayerId, funded.id);
+  assert.equal(room.history.at(-1).automatic, undefined);
+});
+
+test("offers a zero-gold player's creature to funded players before assigning it for free", () => {
+  const room = readyRoom(2);
+  const constrained = room.players[0];
+  const funded = room.players[1];
+  constrained.gold = 0;
+  room.status = "reviewing";
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
+
+  assert.equal(room.status, "drafting");
+  assert.equal(room.currentLot.currentBid, 0);
+  assert.equal(room.currentLot.highBidPlayerId, constrained.id);
+  assert.ok(getMonstersLeagueMaxBid(room, funded.id) > 0);
+
+  resolveMonstersLeagueLot(room, room.currentLot.deadlineAt);
+  assert.equal(constrained.roster.length, 1);
   assert.equal(constrained.gold, 0);
-  assert.equal(room.status, "reviewing");
-  assert.equal(room.history.length, 3);
+  assert.equal(room.history.at(-1).automaticReason, "uncontested_constrained");
 });
 
 test("host opens the next auction after the result review when players can still compete", () => {

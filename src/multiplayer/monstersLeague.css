@@ -769,8 +769,9 @@
   min-width: 0;
 }
 
-.ml-roster-slots {
+.ml-draft-player .ml-roster-slots {
   display: flex;
+  flex-flow: row nowrap;
   grid-column: auto;
   justify-self: end;
   gap: 0.38rem;
@@ -996,6 +997,15 @@
 
 .ml-bid-board b {
   color: var(--team-color);
+}
+
+.ml-bid-board__fallback {
+  max-width: 34rem;
+  margin: 0 1rem 0.55rem;
+  color: #e5c887;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .ml-bid-controls {
@@ -2044,7 +2054,7 @@
     min-height: 14rem;
   }
 
-  .ml-roster-slots {
+  .ml-draft-player .ml-roster-slots {
     overflow-x: auto;
   }
 }

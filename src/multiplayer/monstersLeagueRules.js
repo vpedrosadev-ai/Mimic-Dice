@@ -287,15 +287,13 @@ export function nominateMonstersLeagueCreature(room, playerId, monster, now = Da
     throw new MonstersLeagueRuleError("monster_unavailable", "Creature is not available.");
   }
 
-  if (getMonstersLeagueMaxBid(room, nominator.id) < 1) {
-    throw new MonstersLeagueRuleError("insufficient_gold", "Player cannot afford another creature.");
-  }
+  const openingBid = Math.min(1, getMonstersLeagueMaxBid(room, nominator.id));
 
   room.currentLot = {
     monster: sanitizeMonster(monster),
     nominatedByPlayerId: nominator.id,
     highBidPlayerId: nominator.id,
-    currentBid: 1,
+    currentBid: openingBid,
     openedAt: now,
     deadlineAt: now + room.config.bidSeconds * 1000
   };
@@ -352,6 +350,7 @@ export function resolveMonstersLeagueLot(room, now = Date.now()) {
 
   const lot = room.currentLot;
   const winner = getPlayer(room, lot.highBidPlayerId);
+  const automatic = lot.automaticFallbackPlayerId === winner.id;
 
   if (lot.currentBid > getMonstersLeagueMaxBid(room, winner.id)) {
     throw new MonstersLeagueRuleError("invalid_winning_bid", "Winning bid is no longer affordable.");
@@ -361,7 +360,8 @@ export function resolveMonstersLeagueLot(room, now = Date.now()) {
   winner.roster.push({
     monster: lot.monster,
     price: lot.currentBid,
-    acquiredAt: now
+    acquiredAt: now,
+    ...(automatic ? { automatic: true } : {})
   });
   room.availableMonsterIds = room.availableMonsterIds.filter((id) => id !== lot.monster.id);
   room.history.push({
@@ -369,7 +369,11 @@ export function resolveMonstersLeagueLot(room, now = Date.now()) {
     winnerPlayerId: winner.id,
     price: lot.currentBid,
     nominatedByPlayerId: lot.nominatedByPlayerId,
-    resolvedAt: now
+    resolvedAt: now,
+    ...(automatic ? {
+      automatic: true,
+      automaticReason: "uncontested_constrained"
+    } : {})
   });
   room.currentLot = null;
 
@@ -403,11 +407,19 @@ export function advanceMonstersLeagueDraft(room, actorPlayerId, catalog, now = D
     return room;
   }
 
+  const automaticFallback = getAutomaticFallbackPlayer(room);
+  if (automaticFallback) {
+    room.nominationIndex = room.nominationOrder.indexOf(automaticFallback.id);
+  }
+
   const nominator = getCurrentNominator(room);
   if (!nominator || nominator.roster.length >= room.config.teamSize) {
     advanceNominator(room);
   }
   openRandomMonstersLeagueLot(room, catalog, now, random);
+  if (automaticFallback && room.currentLot) {
+    room.currentLot.automaticFallbackPlayerId = automaticFallback.id;
+  }
   return room;
 }
 
@@ -601,9 +613,26 @@ function getForcedMonstersLeagueAward(room) {
   }
 
   const constrainedPlayer = incompletePlayers.find((player) => getMonstersLeagueMaxBid(room, player.id) <= 1);
+  const hasPlayerWithChoice = incompletePlayers.some((player) => getMonstersLeagueMaxBid(room, player.id) > 1);
+
+  if (constrainedPlayer && hasPlayerWithChoice) {
+    return null;
+  }
+
   return constrainedPlayer
     ? { player: constrainedPlayer, reason: "insufficient_gold" }
     : null;
+}
+
+function getAutomaticFallbackPlayer(room) {
+  const incompletePlayers = getIncompletePlayersInNominationOrder(room);
+  const hasPlayerWithChoice = incompletePlayers.some((player) => getMonstersLeagueMaxBid(room, player.id) > 1);
+
+  if (!hasPlayerWithChoice) {
+    return null;
+  }
+
+  return incompletePlayers.find((player) => getMonstersLeagueMaxBid(room, player.id) <= 1) || null;
 }
 
 function getIncompletePlayersInNominationOrder(room) {

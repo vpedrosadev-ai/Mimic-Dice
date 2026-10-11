@@ -640,9 +640,15 @@ function renderLotSummary() {
 
 function renderActiveLot(lot, player, highBidder) {
   const monster = state.catalogById.get(lot.monster.id) || lot.monster;
+  const automaticFallback = state.room.players.find((entry) => entry.id === lot.automaticFallbackPlayerId);
   const canBid = player.roster.length < state.room.config.teamSize && lot.highBidPlayerId !== player.id;
   const nextBid = lot.currentBid + 1;
   const maxBid = getMonstersLeagueMaxBid(state.room, player.id);
+  const fallbackCopy = automaticFallback
+    ? (state.room.language === "en"
+        ? `Bid to claim it, or let it be automatically assigned to ${escapeHtml(automaticFallback.name)}.`
+        : `Puja para quedártela o deja que se asigne automáticamente a ${escapeHtml(automaticFallback.name)}.`)
+    : "";
 
   return `
     <div class="ml-active-lot">
@@ -657,6 +663,7 @@ function renderActiveLot(lot, player, highBidder) {
         <div><span>${t("currentBid")}</span><strong>${lot.currentBid}</strong><small>ORO</small></div>
         <p>Lidera <b style="--team-color:${escapeHtml(highBidder?.color || "#d9ab5d")}">${escapeHtml(highBidder?.name || "—")}</b></p>
       </div>
+      ${fallbackCopy ? `<p class="ml-bid-board__fallback">${fallbackCopy}</p>` : ""}
       <form class="ml-bid-controls" data-ml-bid-form>
         <button class="ml-button ml-button--bid" type="button" data-ml-action="quick-bid" data-bid-amount="${nextBid}" ${canBid && nextBid <= maxBid ? "" : "disabled"}>+1</button>
         <button class="ml-button ml-button--bid" type="button" data-ml-action="quick-bid" data-bid-amount="${lot.currentBid + 5}" ${canBid && lot.currentBid + 5 <= maxBid ? "" : "disabled"}>+5</button>
