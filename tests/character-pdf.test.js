@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   fillCharacterPdfTemplate,
@@ -178,6 +178,7 @@ const summonResultBytes = await fillCharacterPdfTemplate(templateBytes, {
       name: "Lobo",
       source: "MM",
       sourceFullName: "Monster Manual",
+      pdfPortraitBytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
       typeLine: "Bestia mediana, sin alineamiento",
       ac: "13",
       hp: "11 (2d8 + 2)",
@@ -196,6 +197,11 @@ const summonResultBytes = await fillCharacterPdfTemplate(templateBytes, {
 });
 const summonResultDocument = await PDFDocument.load(summonResultBytes);
 assert.ok(summonResultDocument.getPageCount() > resultDocument.getPageCount());
+
+if (process.env.CHARACTER_PDF_QA_OUTPUT) {
+  await mkdir(new URL("../tmp/pdfs/", import.meta.url), { recursive: true });
+  await writeFile(new URL("../tmp/pdfs/druid-transformations.pdf", import.meta.url), summonResultBytes);
+}
 
 const sharedSummonPageBytes = await fillCharacterPdfTemplate(templateBytes, {
   name: "Druida compacto",

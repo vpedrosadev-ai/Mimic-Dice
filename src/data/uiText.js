@@ -664,6 +664,7 @@ export const UI_TEXT_TRANSLATIONS_EN = new Map([
   ["Hechizos y Habilidades", "Spells and Abilities"],
   ["Hechizos", "Spells"],
   ["Habilidades", "Abilities"],
+  ["Transformaciones conocidas", "Known transformations"],
   ["Espacios totales", "Total slots"],
   ["Espacios gastados", "Spent slots"],
   ["Conjuros preparados", "Prepared spells"],

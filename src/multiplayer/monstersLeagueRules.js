@@ -397,13 +397,9 @@ export function advanceMonstersLeagueDraft(room, actorPlayerId, catalog, now = D
   }
 
   room.status = "drafting";
-  assignForcedMonstersLeagueAwards(room, catalog, now, random);
-
-  if (room.players.every((player) => player.roster.length >= room.config.teamSize)) {
-    room.status = "complete";
-    room.completedAt = now;
-    room.nominationDeadlineAt = 0;
-    touch(room, now);
+  const forcedAward = getForcedMonstersLeagueAward(room);
+  if (forcedAward) {
+    assignAutomaticMonstersLeagueAward(room, forcedAward.player, catalog, now, random, forcedAward.reason);
     return room;
   }
 
@@ -598,44 +594,58 @@ function advanceNominator(room) {
   }
 }
 
-function assignForcedMonstersLeagueAwards(room, catalog, now, random) {
-  const availableById = new Map((Array.isArray(catalog) ? catalog : []).map((monster) => [cleanText(monster?.id), monster]));
-  const constrainedPlayers = room.players.filter((player) => (
-    player.roster.length < room.config.teamSize
-    && getMonstersLeagueMaxBid(room, player.id) <= 1
-  ));
-
-  constrainedPlayers.forEach((player) => fillPlayerRosterAutomatically(room, player, availableById, now, random, "insufficient_gold"));
-
-  const incompletePlayers = room.players.filter((player) => player.roster.length < room.config.teamSize);
+function getForcedMonstersLeagueAward(room) {
+  const incompletePlayers = getIncompletePlayersInNominationOrder(room);
   if (incompletePlayers.length === 1) {
-    fillPlayerRosterAutomatically(room, incompletePlayers[0], availableById, now, random, "only_player_remaining");
+    return { player: incompletePlayers[0], reason: "only_player_remaining" };
   }
+
+  const constrainedPlayer = incompletePlayers.find((player) => getMonstersLeagueMaxBid(room, player.id) <= 1);
+  return constrainedPlayer
+    ? { player: constrainedPlayer, reason: "insufficient_gold" }
+    : null;
 }
 
-function fillPlayerRosterAutomatically(room, player, availableById, now, random, reason) {
-  while (player.roster.length < room.config.teamSize) {
-    const available = room.availableMonsterIds.map((id) => availableById.get(id)).filter(Boolean);
-    if (available.length === 0) {
-      throw new MonstersLeagueRuleError("monster_unavailable", "No creature is available to complete the roster.");
-    }
+function getIncompletePlayersInNominationOrder(room) {
+  const orderedIds = Array.from({ length: room.nominationOrder.length }, (_, offset) => (
+    room.nominationOrder[(room.nominationIndex + offset) % room.nominationOrder.length]
+  ));
+  return orderedIds
+    .map((playerId) => room.players.find((player) => player.id === playerId))
+    .filter((player) => player && player.roster.length < room.config.teamSize);
+}
 
-    const monster = available[Math.min(available.length - 1, Math.floor(random() * available.length))];
-    const sanitizedMonster = sanitizeMonster(monster);
-    const price = Math.min(1, Math.max(0, player.gold));
-    player.gold -= price;
-    player.roster.push({ monster: sanitizedMonster, price, acquiredAt: now, automatic: true });
-    room.availableMonsterIds = room.availableMonsterIds.filter((id) => id !== sanitizedMonster.id);
-    room.history.push({
-      monster: sanitizedMonster,
-      winnerPlayerId: player.id,
-      price,
-      nominatedByPlayerId: "",
-      resolvedAt: now,
-      automatic: true,
-      automaticReason: reason
-    });
+function assignAutomaticMonstersLeagueAward(room, player, catalog, now, random, reason) {
+  const availableById = new Map((Array.isArray(catalog) ? catalog : []).map((monster) => [cleanText(monster?.id), monster]));
+  const available = room.availableMonsterIds.map((id) => availableById.get(id)).filter(Boolean);
+  if (available.length === 0) {
+    throw new MonstersLeagueRuleError("monster_unavailable", "No creature is available to complete the roster.");
   }
+
+  const monster = available[Math.min(available.length - 1, Math.floor(random() * available.length))];
+  const sanitizedMonster = sanitizeMonster(monster);
+  const price = Math.min(1, Math.max(0, player.gold));
+  player.gold -= price;
+  player.roster.push({ monster: sanitizedMonster, price, acquiredAt: now, automatic: true });
+  room.availableMonsterIds = room.availableMonsterIds.filter((id) => id !== sanitizedMonster.id);
+  room.history.push({
+    monster: sanitizedMonster,
+    winnerPlayerId: player.id,
+    price,
+    nominatedByPlayerId: "",
+    resolvedAt: now,
+    automatic: true,
+    automaticReason: reason
+  });
+
+  const awardedPlayerIndex = room.nominationOrder.indexOf(player.id);
+  if (awardedPlayerIndex >= 0) {
+    room.nominationIndex = awardedPlayerIndex;
+    advanceNominator(room);
+  }
+  room.status = "reviewing";
+  room.nominationDeadlineAt = 0;
+  touch(room, now);
 }
 
 function getPlayer(room, playerId) {

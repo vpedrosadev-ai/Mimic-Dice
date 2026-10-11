@@ -11,7 +11,7 @@ export class DiceFormulaError extends Error {
   }
 }
 
-export function rollDiceFormula(formula, { random = Math.random } = {}) {
+export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = false } = {}) {
   const source = String(formula ?? "").trim();
   if (!source) throw new DiceFormulaError("empty", "Formula is empty.");
   if (source.length > MAX_FORMULA_LENGTH) throw new DiceFormulaError("too-long", "Formula is too long.");
@@ -53,19 +53,26 @@ export function rollDiceFormula(formula, { random = Math.random } = {}) {
         throw new DiceFormulaError("too-many-dice", `Maximum ${MAX_TOTAL_DICE} dice per formula.`);
       }
 
-      const rolls = Array.from({ length: token.count }, () => {
+      const minimum = Math.floor(token.sides / 2) + 1;
+      const rawRolls = Array.from({ length: token.count }, () => {
         const sample = Number(random());
         const safeSample = Number.isFinite(sample) ? Math.max(0, Math.min(0.9999999999999999, sample)) : 0;
         return Math.floor(safeSample * token.sides) + 1;
       });
+      const rolls = hitDiceMode
+        ? rawRolls.map((value) => Math.max(value, minimum))
+        : rawRolls;
       const subtotal = rolls.reduce((sum, value) => sum + value, 0);
       groups.push({
         id: `dice-group-${groups.length + 1}`,
         notation: `${token.count}d${token.sides}`,
         count: token.count,
         sides: token.sides,
+        rawRolls,
         rolls,
-        subtotal
+        subtotal,
+        hitDiceMode: Boolean(hitDiceMode),
+        minimum: hitDiceMode ? minimum : null
       });
       return subtotal;
     }
@@ -120,7 +127,8 @@ export function rollDiceFormula(formula, { random = Math.random } = {}) {
     formula: source,
     normalizedFormula: tokens.map((token) => token.normalized).join(""),
     total,
-    groups
+    groups,
+    hitDiceMode: Boolean(hitDiceMode)
   };
 }
 

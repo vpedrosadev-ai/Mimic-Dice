@@ -1404,12 +1404,28 @@ function splitSummonCardBlocks(summon, blocks, maximumContentHeight, useEnglish)
 function drawSummonCardIdentity(page, summon, x, y, width, fonts, colors, useEnglish) {
   const { bold, regular, italic } = fonts;
   const { accent, accentSoft, ink, muted } = colors;
-  page.drawText(fitPdfLine(summon.name, bold, 15, width), { x, y, size: 15, font: bold, color: accent });
-  page.drawText(fitPdfLine(summon.sourceFullName || summon.sourceLabel || summon.source, regular, 6.3, width), {
+  const portrait = summon.pdfPortraitImage;
+  const portraitBoxWidth = portrait ? 82 : 0;
+  const textWidth = width - portraitBoxWidth;
+  page.drawText(fitPdfLine(summon.name, bold, 15, textWidth), { x, y, size: 15, font: bold, color: accent });
+  page.drawText(fitPdfLine(summon.sourceFullName || summon.sourceLabel || summon.source, regular, 6.3, textWidth), {
     x, y: y - 12, size: 6.3, font: regular, color: muted
   });
-  page.drawText(fitPdfLine(summon.typeLine, italic, 7.5, width), { x, y: y - 23, size: 7.5, font: italic, color: ink });
-  page.drawLine({ start: { x, y: y - 29 }, end: { x: x + width, y: y - 29 }, thickness: 1, color: accentSoft });
+  page.drawText(fitPdfLine(summon.typeLine, italic, 7.5, textWidth), { x, y: y - 23, size: 7.5, font: italic, color: ink });
+  page.drawLine({ start: { x, y: y - 29 }, end: { x: x + textWidth, y: y - 29 }, thickness: 1, color: accentSoft });
+
+  if (portrait) {
+    const boxX = x + width - 76;
+    const boxY = y - 84;
+    const dimensions = portrait.scaleToFit(72, 80);
+    page.drawRectangle({ x: boxX - 2, y: boxY - 2, width: 76, height: 84, borderWidth: 0.65, borderColor: accentSoft });
+    page.drawImage(portrait, {
+      x: boxX + (72 - dimensions.width) / 2,
+      y: boxY + (80 - dimensions.height) / 2,
+      width: dimensions.width,
+      height: dimensions.height
+    });
+  }
 
   const metrics = [
     [useEnglish ? "ARMOR CLASS" : "CLASE DE ARMADURA", summon.ac || "-"],
@@ -1418,7 +1434,7 @@ function drawSummonCardIdentity(page, summon, x, y, width, fonts, colors, useEng
     ["CR", summon.crLabel || summon.cr || "-"]
   ];
   const gap = 5;
-  const metricWidth = (width - gap * 3) / 4;
+  const metricWidth = (textWidth - gap * 3) / 4;
   metrics.forEach(([label, value], index) => {
     const metricX = x + index * (metricWidth + gap);
     page.drawRectangle({ x: metricX, y: y - 58, width: metricWidth, height: 23, borderWidth: 0.55, borderColor: accentSoft });
@@ -1427,7 +1443,7 @@ function drawSummonCardIdentity(page, summon, x, y, width, fonts, colors, useEng
   });
 
   const abilityKeys = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-  const abilityWidth = width / abilityKeys.length;
+  const abilityWidth = textWidth / abilityKeys.length;
   abilityKeys.forEach((key, index) => {
     const score = Number(summon.abilities?.[key]) || 10;
     const abilityX = x + index * abilityWidth + 5;
@@ -1492,11 +1508,20 @@ function drawSummonCardFragment(page, fragment, x, topY, width, fonts, pdfLibrar
 }
 
 async function appendCharacterSummonSheets(document, character, pdfLibrary, options = {}) {
-  const summons = getCharacterPdfSummons(character);
+  const sourceSummons = getCharacterPdfSummons(character);
 
-  if (summons.length === 0) {
+  if (sourceSummons.length === 0) {
     return;
   }
+
+  const summons = await Promise.all(sourceSummons.map(async (summon) => {
+    if (!summon?.pdfPortraitBytes) return summon;
+    try {
+      return { ...summon, pdfPortraitImage: await document.embedPng(summon.pdfPortraitBytes) };
+    } catch {
+      return summon;
+    }
+  }));
 
   const { StandardFonts } = pdfLibrary;
   const fonts = {
@@ -1526,7 +1551,7 @@ async function appendCharacterSummonSheets(document, character, pdfLibrary, opti
         character,
         fonts,
         pdfLibrary,
-        useEnglish ? "KNOWN SUMMONS" : "INVOCACIONES CONOCIDAS",
+        useEnglish ? "KNOWN TRANSFORMATIONS" : "TRANSFORMACIONES CONOCIDAS",
         options
       );
     }

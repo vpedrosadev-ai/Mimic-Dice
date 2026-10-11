@@ -621,7 +621,7 @@ function renderLotSummary() {
             <p class="ml-eyebrow">SUBASTA CERRADA</p>
             <h1>${escapeHtml(monster?.name || "Criatura adjudicada")}</h1>
             <p>Se incorpora al equipo de <strong>${escapeHtml(winner?.name || "—")}</strong> por <b>${result?.price || 0} oro</b>.</p>
-            ${result?.automatic ? `<small>Adjudicación automática para completar los equipos.</small>` : ""}
+            ${result?.automatic ? `<small class="ml-lot-summary__automatic">ASIGNACIÓN AUTOMÁTICA</small>` : ""}
           </div>
         </div>
         <div class="ml-lot-summary__ranking">

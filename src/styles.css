@@ -331,6 +331,19 @@
   font-weight: 800;
 }
 
+.dice-roll-entry__mode {
+  flex: 0 0 auto;
+  padding: 0.18rem 0.38rem;
+  border: 1px solid rgba(124, 190, 153, 0.42);
+  border-radius: 999px;
+  color: #a8dbba;
+  background: rgba(50, 126, 82, 0.12);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.54rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
 .dice-roll-entry > header strong {
   flex: 0 0 auto;
   color: var(--accent-soft);
@@ -373,11 +386,27 @@
 }
 
 .dice-result {
+  position: relative;
   display: inline-grid;
   place-items: center;
   width: 2.75rem;
   height: 2.75rem;
   color: #f3d7a2;
+}
+
+.dice-result.is-adjusted {
+  color: #9cddb6;
+}
+
+.dice-result > small {
+  position: absolute;
+  right: -0.18rem;
+  bottom: -0.1rem;
+  padding: 0.08rem 0.22rem;
+  border-radius: 4px;
+  color: #d8f3df;
+  background: #173725;
+  font: 800 0.52rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .dice-result svg {
@@ -457,6 +486,50 @@
 .dice-roller-form button:focus-visible {
   filter: brightness(1.1);
   outline: none;
+}
+
+.dice-roller-form .dice-roller-hit-dice {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  justify-items: start;
+  gap: 0.48rem;
+  width: 100%;
+  height: auto;
+  min-height: 2.15rem;
+  padding: 0.38rem 0.55rem;
+  border-color: rgba(215, 171, 103, 0.25);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.dice-roller-form .dice-roller-hit-dice > span {
+  display: grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--accent-soft);
+  font-size: 0.58rem;
+  font-weight: 900;
+}
+
+.dice-roller-form .dice-roller-hit-dice strong {
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.dice-roller-form .dice-roller-hit-dice small {
+  font-size: 0.62rem;
+}
+
+.dice-roller-form .dice-roller-hit-dice.is-active {
+  border-color: rgba(124, 190, 153, 0.65);
+  color: #a8dbba;
+  background: linear-gradient(90deg, rgba(50, 126, 82, 0.2), rgba(255, 255, 255, 0.025));
+  box-shadow: inset 3px 0 #69b789;
 }
 
 .dice-roller-form__error {

@@ -9,7 +9,8 @@ export function renderDiceRollerDock({
   appIconUrl = "",
   language = "es",
   isPopout = false,
-  helpOpen = false
+  helpOpen = false,
+  hitDiceMode = false
 } = {}) {
   const isEnglish = language === "en";
 
@@ -77,6 +78,17 @@ export function renderDiceRollerDock({
           : `<div class="dice-roller-log__empty"><strong>${escapeHtml(isEnglish ? "Ready to roll" : "Listo para lanzar")}</strong><p>${escapeHtml(isEnglish ? "Try 2d20+5 or (6d6+2d4*2+6)." : "Prueba 2d20+5 o (6d6+2d4*2+6).")}</p></div>`}
       </div>
       <form class="dice-roller-form" data-dice-roller-form>
+        <button
+          class="dice-roller-hit-dice${hitDiceMode ? " is-active" : ""}"
+          type="button"
+          data-action="toggle-dice-roller-hit-dice"
+          aria-pressed="${hitDiceMode}"
+          title="${escapeHtml(isEnglish ? "Apply the fixed hit-die average as a minimum to every die" : "Aplica la media fija del dado de golpe como mínimo a cada dado")}"
+        >
+          <span aria-hidden="true">HP</span>
+          <strong>${escapeHtml(isEnglish ? "Hit dice" : "Dados de vida")}</strong>
+          <small>${escapeHtml(hitDiceMode ? (isEnglish ? "Minimum active" : "Mínimo activo") : (isEnglish ? "Normal roll" : "Tirada normal"))}</small>
+        </button>
         <label class="sr-only" for="dice-roller-formula${isPopout ? "-popout" : ""}">${escapeHtml(isEnglish ? "Dice formula" : "Formula de dados")}</label>
         <input
           id="dice-roller-formula${isPopout ? "-popout" : ""}"
@@ -111,6 +123,9 @@ function renderDiceFormulaHelp(isEnglish) {
         <li><code>2d6</code> — ${escapeHtml(isEnglish ? "two six-sided dice" : "dos dados de seis caras")}</li>
         <li><code>+ − * /</code> — ${escapeHtml(isEnglish ? "add, subtract, multiply, divide" : "sumar, restar, multiplicar, dividir")}</li>
         <li><code>( )</code> — ${escapeHtml(isEnglish ? "control operation order" : "controlar el orden de operaciones")}</li>
+        <li><strong>${escapeHtml(isEnglish ? "Hit dice" : "Dados de vida")}</strong> — ${escapeHtml(isEnglish
+          ? "each die has the fixed average as its minimum: d4 3, d6 4, d8 5, d10 6, d12 7"
+          : "cada dado tiene como mínimo su media fija: d4 3, d6 4, d8 5, d10 6, d12 7")}</li>
       </ul>
       <div class="dice-roller-help__examples">
         ${examples.map((formula) => `<button type="button" data-action="roll-dice-formula" data-dice-formula="${escapeHtml(formula)}"><code>${escapeHtml(formula)}</code></button>`).join("")}
@@ -128,6 +143,7 @@ function renderDiceRollEntry(entry, language) {
         <div class="dice-roll-entry__title">
           ${timeLabel ? `<time datetime="${escapeHtml(new Date(entry.rolledAt).toISOString())}">${escapeHtml(timeLabel)}</time>` : ""}
           <code>${escapeHtml(entry.formula)}</code>
+          ${entry.hitDiceMode ? `<span class="dice-roll-entry__mode">${escapeHtml(language === "en" ? "HIT DICE" : "DADOS DE VIDA")}</span>` : ""}
         </div>
         <strong>= ${escapeHtml(formatTotal(entry.total))}</strong>
       </header>
@@ -136,7 +152,7 @@ function renderDiceRollEntry(entry, language) {
           <section class="dice-roll-group">
             <span class="dice-roll-group__notation">${escapeHtml(group.notation)}</span>
             <div class="dice-roll-group__dice">
-              ${(group.rolls || []).map((value) => renderDie(group.sides, value)).join("")}
+              ${(group.rolls || []).map((value, index) => renderDie(group.sides, value, group.rawRolls?.[index])).join("")}
             </div>
             <strong class="dice-roll-group__subtotal">= ${escapeHtml(formatTotal(group.subtotal))}</strong>
           </section>
@@ -158,16 +174,19 @@ function formatRollTime(value, language) {
   }).format(date);
 }
 
-function renderDie(sides, value) {
+function renderDie(sides, value, rawValue = value) {
   const shape = getDieShape(sides);
+  const adjusted = Number(rawValue) !== Number(value);
+  const title = adjusted ? `d${sides}: ${rawValue} → ${value}` : `d${sides}: ${value}`;
   return `
-    <span class="dice-result dice-result--d${escapeHtml(String(shape.classSides))}" title="d${escapeHtml(String(sides))}: ${escapeHtml(String(value))}">
+    <span class="dice-result dice-result--d${escapeHtml(String(shape.classSides))}${adjusted ? " is-adjusted" : ""}" title="${escapeHtml(title)}">
       <svg viewBox="0 0 48 48" aria-hidden="true">
         <polygon points="${shape.points}" />
         ${shape.lines}
         <text x="24" y="27" text-anchor="middle">${escapeHtml(String(value))}</text>
       </svg>
-      <span class="sr-only">d${escapeHtml(String(sides))}: ${escapeHtml(String(value))}</span>
+      ${adjusted ? `<small aria-hidden="true">${escapeHtml(String(rawValue))}→${escapeHtml(String(value))}</small>` : ""}
+      <span class="sr-only">${escapeHtml(title)}</span>
     </span>
   `;
 }

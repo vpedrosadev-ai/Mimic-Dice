@@ -1,0 +1,115 @@
+name: Monitor Production Availability
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-uptime-monitor
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Probe public website
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Check website and health endpoint
+        id: probe
+        shell: bash
+        run: |
+          success=false
+          detail=""
+          for attempt in 1 2 3; do
+            if health="$(curl --fail --silent --show-error --location --max-time 20 --connect-timeout 10 \
+              --header 'Cache-Control: no-cache' \
+              "https://themimicdice.com/api/health?probe=${GITHUB_RUN_ID}-${attempt}" 2>&1)" \
+              && printf '%s' "$health" | jq -e '.ok == true and .service == "mimic-dice"' >/dev/null \
+              && curl --fail --silent --show-error --location --max-time 20 --connect-timeout 10 \
+                --header 'Cache-Control: no-cache' \
+                "https://themimicdice.com/?probe=${GITHUB_RUN_ID}-${attempt}" | grep -qi 'Mimic Dice'; then
+              success=true
+              detail="HTTP and application checks passed on attempt ${attempt}."
+              break
+            fi
+            detail="Attempt ${attempt} failed: ${health:-no response}"
+            sleep 10
+          done
+          echo "success=${success}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'detail<<EOF'
+            echo "$detail" | tail -c 2000
+            echo
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or close uptime alert
+        uses: actions/github-script@v8
+        env:
+          PROBE_OK: ${{ steps.probe.outputs.success }}
+          PROBE_DETAIL: ${{ steps.probe.outputs.detail }}
+        with:
+          script: |
+            const title = "[Uptime] themimicdice.com no responde";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              labels: "uptime-alert",
+              per_page: 100
+            });
+            const alert = issues.find((issue) => issue.title === title);
+            const checkedAt = new Date().toISOString();
+
+            if (process.env.PROBE_OK === "true") {
+              if (alert) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: alert.number,
+                  body: `Servicio recuperado a las ${checkedAt}. Las comprobaciones HTTP y de aplicación vuelven a responder.`
+                });
+                await github.rest.issues.update({ owner, repo, issue_number: alert.number, state: "closed" });
+              }
+              return;
+            }
+
+            if (!alert) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: "uptime-alert" });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: "uptime-alert",
+                  color: "b60205",
+                  description: "Alerta automática de disponibilidad de producción"
+                });
+              }
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                labels: ["uptime-alert"],
+                body: [
+                  "La comprobación externa ha fallado tres veces consecutivas.",
+                  "",
+                  `- Hora UTC: ${checkedAt}`,
+                  `- Detalle: ${process.env.PROBE_DETAIL || "Sin respuesta"}`,
+                  `- Ejecución: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                  "",
+                  "Comprueba también desde una conexión residencial española: un bloqueo de ISP puede afectar España sin afectar esta sonda externa."
+                ].join("\n")
+              });
+            }
+
+            core.setFailed(`Production probe failed: ${process.env.PROBE_DETAIL || "no response"}`);

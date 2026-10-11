@@ -70,10 +70,13 @@ test("awards a creature, pauses for review, and completes the final roster", () 
   assert.equal(room.status, "reviewing");
 
   advanceMonstersLeagueDraft(room, "host", catalog, 22500, () => 0);
-  assert.equal(room.status, "complete");
+  assert.equal(room.status, "reviewing");
   assert.equal(room.history.length, 2);
   assert.equal(room.history.at(-1).automatic, true);
   assert.equal(room.players.every((player) => player.roster.length === 1), true);
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
+  assert.equal(room.status, "complete");
   assert.equal(createMonstersLeagueEncounters(room).length, 2);
 });
 
@@ -98,35 +101,54 @@ test("keeps enough starting gold to fill every roster slot", () => {
   assert.equal(room.config.startingGold, 4);
 });
 
-test("automatically fills the only remaining roster before another auction", () => {
-  const room = readyRoom(2);
+test("automatically assigns the only remaining roster one creature per review", () => {
+  const room = readyRoom(3);
   const first = room.nominationOrder[0];
   const second = room.nominationOrder[1];
-  room.players.find((player) => player.id === second).roster.push({ monster: catalog[10], price: 1, acquiredAt: 1 });
-  room.players.find((player) => player.id === second).roster.push({ monster: catalog[11], price: 1, acquiredAt: 1 });
-  room.availableMonsterIds = room.availableMonsterIds.filter((id) => ![catalog[10].id, catalog[11].id].includes(id));
+  const alreadyAwarded = [catalog[9], catalog[10], catalog[11]];
+  room.players.find((player) => player.id === second).roster.push(
+    ...alreadyAwarded.map((monster) => ({ monster, price: 1, acquiredAt: 1 }))
+  );
+  room.availableMonsterIds = room.availableMonsterIds.filter((id) => !alreadyAwarded.some((monster) => monster.id === id));
   nominateMonstersLeagueCreature(room, first, catalog[0], 1100);
   resolveMonstersLeagueLot(room, 22000);
 
   advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
 
-  assert.equal(room.status, "complete");
+  assert.equal(room.status, "reviewing");
   assert.equal(room.players.find((player) => player.id === first).roster.length, 2);
+  assert.equal(room.history.length, 2);
   assert.equal(room.history.at(-1).automaticReason, "only_player_remaining");
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 24000, () => 0);
+  assert.equal(room.status, "reviewing");
+  assert.equal(room.players.find((player) => player.id === first).roster.length, 3);
+  assert.equal(room.history.length, 3);
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 25000, () => 0);
+  assert.equal(room.status, "complete");
 });
 
-test("automatically fills players who only retain reserved slot gold", () => {
-  const room = readyRoom(2);
+test("automatically assigns constrained players one creature per review", () => {
+  const room = readyRoom(3);
   const constrained = room.players[0];
-  constrained.gold = 2;
+  constrained.gold = 3;
   nominateMonstersLeagueCreature(room, room.nominationOrder[0], catalog[0], 1100);
   resolveMonstersLeagueLot(room, 22000);
 
   advanceMonstersLeagueDraft(room, "host", catalog, 23000, () => 0);
 
   assert.equal(constrained.roster.length, 2);
+  assert.equal(constrained.gold, 1);
+  assert.equal(room.status, "reviewing");
+  assert.equal(room.history.length, 2);
+  assert.equal(room.history.at(-1).automaticReason, "insufficient_gold");
+
+  advanceMonstersLeagueDraft(room, "host", catalog, 24000, () => 0);
+  assert.equal(constrained.roster.length, 3);
   assert.equal(constrained.gold, 0);
-  assert.equal(room.history.some((entry) => entry.automaticReason === "insufficient_gold"), true);
+  assert.equal(room.status, "reviewing");
+  assert.equal(room.history.length, 3);
 });
 
 test("host opens the next auction after the result review when players can still compete", () => {

@@ -18,6 +18,17 @@ assert.equal(result.normalizedFormula, "(6d6+2d4*2+6)");
 assert.equal(rollDiceFormula("d20+3", { random: () => 0.999 }).total, 23);
 assert.equal(rollDiceFormula("2*(1d6+1)", { random: () => 0 }).total, 4);
 assert.equal(rollDiceFormula("-1d4+10", { random: () => 0 }).total, 9);
+
+const hitDiceResult = rollDiceFormula("1d4+1d6+1d8+1d10+1d12", {
+  random: () => 0,
+  hitDiceMode: true
+});
+assert.deepEqual(hitDiceResult.groups.map((group) => group.rawRolls[0]), [1, 1, 1, 1, 1]);
+assert.deepEqual(hitDiceResult.groups.map((group) => group.rolls[0]), [3, 4, 5, 6, 7]);
+assert.deepEqual(hitDiceResult.groups.map((group) => group.minimum), [3, 4, 5, 6, 7]);
+assert.equal(hitDiceResult.total, 25);
+assert.equal(hitDiceResult.hitDiceMode, true);
+assert.equal(rollDiceFormula("1d8", { random: () => 0 }).total, 1);
 assert.equal(isValidDiceFormula("2d4 + 3"), true);
 assert.equal(isValidDiceFormula("2d4 + alert(1)"), false);
 assert.equal(isValidDiceFormula("2 + 3"), false);

@@ -835,6 +835,7 @@ state = {
   diceRollerDraft: "",
   diceRollerError: "",
   diceRollerHelpOpen: false,
+  diceRollerHitDiceMode: false,
   diceRollHistory: [],
   diceRollerRect: null,
   autosaveProblemDialogOpen: false,
@@ -1859,6 +1860,12 @@ async function handleClick(event) {
 
   if (action === "toggle-dice-roller-help") {
     state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-dice-roller-hit-dice") {
+    state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
     render();
     return;
   }
@@ -7027,7 +7034,7 @@ function getUnresolvedReferenceDetail(unresolvedReferences, useEnglish = false) 
       ? `${useEnglish ? "Unrecognized items" : "Objetos no reconocidos"}:\n${unresolvedReferences.items.map((name) => `- ${name}`).join("\n")}`
       : "",
     unresolvedReferences.summons.length > 0
-      ? `${useEnglish ? "Unrecognized summons" : "Invocaciones no reconocidas"}:\n${unresolvedReferences.summons.map((name) => `- ${name}`).join("\n")}`
+      ? `${useEnglish ? "Unrecognized transformations" : "Transformaciones no reconocidas"}:\n${unresolvedReferences.summons.map((name) => `- ${name}`).join("\n")}`
       : ""
   ].filter(Boolean).join("\n\n");
 }
@@ -8569,7 +8576,8 @@ function render(focusState = null) {
         rect: state.diceRollerRect,
         appIconUrl,
         language: state.appLanguage,
-        helpOpen: state.diceRollerHelpOpen
+        helpOpen: state.diceRollerHelpOpen,
+        hitDiceMode: state.diceRollerHitDiceMode
       })}
     </div>
   `;
@@ -11958,7 +11966,7 @@ function submitDiceFormula(formula) {
   const source = cleanText(formula);
 
   try {
-    rollAndRecordDiceFormula(source);
+    rollAndRecordDiceFormula(source, { hitDiceMode: state.diceRollerHitDiceMode });
     render({ focusSelector: state.diceRollerOpen ? "[data-dice-roller-input]" : "" });
 
     if (isDiceRollerPopoutOpen()) {
@@ -11972,8 +11980,8 @@ function submitDiceFormula(formula) {
   }
 }
 
-function rollAndRecordDiceFormula(formula) {
-  const result = rollDiceFormula(formula);
+function rollAndRecordDiceFormula(formula, options = {}) {
+  const result = rollDiceFormula(formula, options);
   state.diceRollHistory = [
     ...state.diceRollHistory,
     {
@@ -11981,6 +11989,7 @@ function rollAndRecordDiceFormula(formula) {
       formula: result.normalizedFormula,
       total: result.total,
       groups: result.groups,
+      hitDiceMode: result.hitDiceMode,
       rolledAt: Date.now()
     }
   ].slice(-DICE_ROLLER_MAX_HISTORY);
@@ -12242,7 +12251,8 @@ function syncDiceRollerPopout() {
     appIconUrl,
     language: state.appLanguage,
     isPopout: true,
-    helpOpen: state.diceRollerHelpOpen
+    helpOpen: state.diceRollerHelpOpen,
+    hitDiceMode: state.diceRollerHitDiceMode
   });
   applyInterfaceTranslations(root);
   scrollDiceRollerLogToBottom(root);
@@ -12274,6 +12284,10 @@ function handleDiceRollerPopoutClick(event) {
   } else if (action === "toggle-dice-roller-help") {
     state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
     syncDiceRollerPopout();
+  } else if (action === "toggle-dice-roller-hit-dice") {
+    state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
+    syncDiceRollerPopout();
+    render();
   } else if (action === "roll-dice-formula") {
     submitDiceFormula(actionButton.dataset.diceFormula);
   } else if (action === "submit-dice-formula") {
@@ -18493,7 +18507,7 @@ function renderCharacterSpellbookSection(character) {
               ${hasDruidClass ? `
                 <div class="character-spellbook__panel character-summons">
                   <div class="character-spellbook__panel-title">
-                    <span>Invocaciones conocidas</span>
+                    <span>Transformaciones conocidas</span>
                     <small>${escapeHtml(String(summonCount))} criaturas</small>
                   </div>
                   <div class="character-summons__list">
@@ -18615,7 +18629,7 @@ function renderCharacterSummonRow(row) {
         type="button"
         data-action="remove-character-summon-row"
         data-character-summon-row-id="${escapeHtml(row.id)}"
-        aria-label="Quitar ${escapeHtml(displayName || "invocacion")}"
+        aria-label="Quitar ${escapeHtml(displayName || "transformacion")}"
       >Quitar</button>
     </div>
   `;
@@ -22817,7 +22831,8 @@ async function exportActiveCharacterPdf(characterId = state.activeCharacterId, s
       fetch(characterTemplateUrl, { cache: "force-cache" }),
       fetch(characterSpellPdfTemplateUrl, { cache: "force-cache" }),
       fetch(characterSpellCardPdfTemplateUrl, { cache: "force-cache" }),
-      fetch(characterBackPdfTemplateUrl, { cache: "force-cache" })
+      fetch(characterBackPdfTemplateUrl, { cache: "force-cache" }),
+      prepareCharacterPdfTransformationPortraits(exportCharacter)
     ]);
 
     if (!characterTemplateResponse.ok || !spellTemplateResponse.ok || !spellCardTemplateResponse.ok || !backTemplateResponse.ok) {
@@ -22973,6 +22988,44 @@ function getCharacterPdfExportCharacter(character, options = {}) {
     .filter((ability) => !selectedAbilityIds || selectedAbilityIds.has(cleanText(ability.id)));
 
   return { ...character, spells, summons, inventory, spellbookAbilities };
+}
+
+async function prepareCharacterPdfTransformationPortraits(exportCharacter) {
+  const summons = Array.isArray(exportCharacter?.summons) ? exportCharacter.summons : [];
+  await Promise.all(summons.map(async (summon) => {
+    const entry = summon?.bestiaryEntry;
+    const imageUrl = cleanText(entry?.imageUrl || entry?.tokenUrl);
+    if (!entry || !imageUrl) return;
+    const portraitEntry = { ...entry };
+    summon.bestiaryEntry = portraitEntry;
+
+    try {
+      const response = await fetch(imageUrl, { cache: "force-cache", credentials: "same-origin" });
+      if (!response.ok) return;
+      const decoded = await decodeCloudImage(await response.blob());
+      const maxDimension = 320;
+      const scale = Math.min(1, maxDimension / Math.max(decoded.width, decoded.height, 1));
+      const width = Math.max(1, Math.round(decoded.width * scale));
+      const height = Math.max(1, Math.round(decoded.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { alpha: true });
+
+      if (!context) {
+        decoded.close();
+        return;
+      }
+
+      context.drawImage(decoded.source, 0, 0, width, height);
+      decoded.close();
+      const portraitBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!portraitBlob) return;
+      portraitEntry.pdfPortraitBytes = new Uint8Array(await portraitBlob.arrayBuffer());
+    } catch {
+      // A missing portrait must never prevent the character sheet from exporting.
+    }
+  }));
 }
 
 function getCharacterPdfTemplateUrl(character) {
