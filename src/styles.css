@@ -3587,6 +3587,7 @@ button.is-cloud-busy:disabled {
 }
 
 .combat-map-editor {
+  position: relative;
   display: grid;
   grid-template: auto minmax(0, 1fr) / minmax(0, 1fr);
   width: 100vw;
@@ -3595,6 +3596,99 @@ button.is-cloud-busy:disabled {
   background:
     radial-gradient(circle at 50% 0, rgba(217, 171, 93, .13), transparent 36%),
     linear-gradient(165deg, #26180e, #0f0a07 68%);
+}
+
+.combat-map-token-feedback-host {
+  position: absolute;
+  inset: 0;
+  z-index: 2147483645;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.combat-map-token-feedback {
+  --feedback-color: #e8d3aa;
+  --feedback-bg: rgba(35, 25, 18, .98);
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: .48rem;
+  width: max-content;
+  max-width: min(16rem, calc(100% - 1rem));
+  min-height: 2.55rem;
+  padding: .5rem .72rem;
+  border: 2px solid var(--feedback-color);
+  border-radius: .75rem;
+  background: var(--feedback-bg);
+  color: #fff8e7;
+  box-shadow: 0 .7rem 1.6rem rgba(0, 0, 0, .52), inset 0 0 0 1px rgba(255, 255, 255, .06);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1;
+  white-space: nowrap;
+  animation: combat-map-token-feedback-life 2400ms ease both;
+}
+
+.combat-map-token-feedback::before,
+.combat-map-token-feedback::after {
+  content: "";
+  position: absolute;
+  left: var(--feedback-arrow-x, 50%);
+  bottom: -11px;
+  transform: translateX(-50%);
+  border-width: 10px 8px 0;
+  border-style: solid;
+  border-color: var(--feedback-color) transparent transparent;
+}
+
+.combat-map-token-feedback::after {
+  bottom: -7px;
+  border-width: 8px 6px 0;
+  border-top-color: var(--feedback-bg);
+}
+
+.combat-map-token-feedback.is-below::before,
+.combat-map-token-feedback.is-below::after {
+  top: -11px;
+  bottom: auto;
+  border-width: 0 8px 10px;
+  border-color: transparent transparent var(--feedback-color);
+}
+
+.combat-map-token-feedback.is-below::after {
+  top: -7px;
+  border-width: 0 6px 8px;
+  border-bottom-color: var(--feedback-bg);
+}
+
+.combat-map-token-feedback img {
+  flex: none;
+  width: 1.8rem;
+  height: 1.8rem;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .5));
+}
+
+.combat-map-token-feedback strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 1rem;
+}
+
+.combat-map-token-feedback--damage { --feedback-color: #ff7a85; --feedback-bg: rgba(86, 24, 31, .98); }
+.combat-map-token-feedback--heal { --feedback-color: #78d58d; --feedback-bg: rgba(24, 72, 38, .98); }
+.combat-map-token-feedback--necrotic { --feedback-color: #bc91ff; --feedback-bg: rgba(53, 30, 88, .98); }
+.combat-map-token-feedback--temp { --feedback-color: #f0c879; --feedback-bg: rgba(83, 61, 21, .98); }
+.combat-map-token-feedback--status-add { --feedback-color: #74d7c5; --feedback-bg: rgba(22, 70, 63, .98); }
+.combat-map-token-feedback--status-remove { --feedback-color: #c4c8cf; --feedback-bg: rgba(48, 52, 59, .98); }
+
+@keyframes combat-map-token-feedback-life {
+  0% { opacity: 0; transform: translateY(.45rem) scale(.9); }
+  12%, 82% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-.2rem) scale(.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combat-map-token-feedback { animation: none; }
 }
 
 .combat-map-editor--master {

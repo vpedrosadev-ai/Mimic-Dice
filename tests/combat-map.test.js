@@ -5,6 +5,7 @@ import {
   getAreaShapeMetrics,
   getGridCoordinateForPosition,
   getMapLayoutKey,
+  getTokenFeedbackPosition,
   normalizeMapEditorState,
   getPortableMapReference,
   isImageFileLike,
@@ -14,6 +15,35 @@ import {
   snapCreaturePosition,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
+
+test("token feedback stays inside viewport and flips below tokens near top edge", () => {
+  const bounds = { left: 100, top: 60, right: 900, bottom: 660 };
+  const nearTop = getTokenFeedbackPosition({
+    tokenCenterX: 125,
+    tokenTop: 62,
+    tokenBottom: 112,
+    bubbleWidth: 220,
+    bubbleHeight: 70,
+    bounds
+  });
+  assert.equal(nearTop.below, true);
+  assert.equal(nearTop.left, 108);
+  assert.equal(nearTop.top, 126);
+  assert.equal(nearTop.arrowX, 17);
+
+  const nearRightBottom = getTokenFeedbackPosition({
+    tokenCenterX: 890,
+    tokenTop: 650,
+    tokenBottom: 700,
+    bubbleWidth: 240,
+    bubbleHeight: 80,
+    bounds
+  });
+  assert.equal(nearRightBottom.below, false);
+  assert.equal(nearRightBottom.left, 652);
+  assert.equal(nearRightBottom.top, 556);
+  assert.equal(nearRightBottom.arrowX, 226);
+});
 
 test("accepts image files created in a different window realm", () => {
   const popupFile = { name: "barco.jpg", type: "image/jpeg", arrayBuffer: async () => new ArrayBuffer(0) };

@@ -1078,6 +1078,16 @@ const combatMapController = createCombatMapController({
     return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId)).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
   },
   renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
+  renderNotifications,
+  onDismissNotification: (notificationId) => {
+    dismissNotification(notificationId);
+    syncNotificationUi();
+  },
+  onOpenNotificationDetail: (notificationId) => {
+    openNotificationDetail(notificationId);
+    render();
+    window.focus();
+  },
   openContextMenu: (combatantId, x, y) => openCombatTurnQuickMenu(combatantId, x, y),
   closeContextMenu: closeCombatTurnQuickMenu,
   handleContextClick: handleCombatTurnPopoutClick,
@@ -1121,6 +1131,16 @@ const encounterMapController = createCombatMapController({
     iconUrl: getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName))
   }),
   getAccountSession: () => state.accountSession,
+  renderNotifications,
+  onDismissNotification: (notificationId) => {
+    dismissNotification(notificationId);
+    syncNotificationUi();
+  },
+  onOpenNotificationDetail: (notificationId) => {
+    openNotificationDetail(notificationId);
+    render();
+    window.focus();
+  },
   onChange: () => {
     saveActiveEncounterMapEditorState();
     scheduleDesktopCampaignDirtyStateSync(60);
@@ -4810,7 +4830,7 @@ async function handleChange(event) {
 
   if (target.matches("[data-edit-id][data-edit-key]")) {
     const previousCharacters = state.characters;
-    updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value);
+    updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value, true, target.defaultValue);
     saveCombatTrackerState();
 
     if (target.dataset.editKey === "nombre") {
@@ -12019,7 +12039,7 @@ function resolveCombatDiceFormulaInput(target, options = {}) {
     target.value = value;
 
     if (target.matches("[data-edit-id][data-edit-key]")) {
-      updateCombatantField(target.dataset.editId, target.dataset.editKey, value);
+      updateCombatantField(target.dataset.editId, target.dataset.editKey, value, true, target.defaultValue);
     } else if (target.matches("[data-stat-id][data-stat-key]")) {
       updateCombatantStat(target.dataset.statId, target.dataset.statKey, value);
     } else if (target.matches("[data-adjust-id][data-adjust-field]")) {
@@ -15115,12 +15135,17 @@ function syncCombatSelectionUi() {
 function syncNotificationUi() {
   const notificationRoot = app.querySelector("[data-notification-root]");
 
-  if (!notificationRoot) {
-    return;
+  if (notificationRoot) {
+    notificationRoot.innerHTML = renderNotifications();
+    applyInterfaceTranslations(notificationRoot);
   }
 
-  notificationRoot.innerHTML = renderNotifications();
-  applyInterfaceTranslations(notificationRoot);
+  syncMapNotificationUi();
+}
+
+function syncMapNotificationUi() {
+  combatMapController.syncNotifications();
+  encounterMapController.syncNotifications();
 }
 
 function renderDataCell(combatant, column, isDead, rowContext = getCombatRowContext(combatant)) {
@@ -20864,7 +20889,7 @@ function toggleAllVisible(selected) {
   visibleIds.forEach((id) => state.selectedIds.delete(id));
 }
 
-function updateCombatantField(id, key, rawValue, normalize = true) {
+function updateCombatantField(id, key, rawValue, normalize = true, previousValueOverride) {
   const previousCombatants = state.combatants;
   const isResourceField = ["pgAct", "pgMax", "pgTemp", "necrotic"].includes(key);
 
@@ -20903,7 +20928,33 @@ function updateCombatantField(id, key, rawValue, normalize = true) {
     distributeExperienceForNewlyDefeatedEnemies(previousCombatants);
     applyReviveExhaustion(previousCombatants);
     notifyCombatantDeaths(previousCombatants);
+    showDirectCombatResourceFeedback(previousCombatants, id, key, previousValueOverride);
   }
+}
+
+function showDirectCombatResourceFeedback(previousCombatants, combatantId, key, previousValueOverride) {
+  const previousCombatant = previousCombatants.find((combatant) => combatant.id === combatantId);
+  const nextCombatant = state.combatants.find((combatant) => combatant.id === combatantId);
+  if (!previousCombatant || !nextCombatant) return;
+
+  const previousValue = previousValueOverride === undefined
+    ? previousCombatant[key]
+    : previousValueOverride;
+  const delta = toNumber(nextCombatant[key]) - toNumber(previousValue);
+  if (!Number.isFinite(delta) || delta === 0) return;
+
+  let kind = delta > 0 ? "heal" : "damage";
+  let text = `${delta > 0 ? "+" : "−"}${Math.abs(delta)}`;
+  if (key === "pgTemp") kind = "temp";
+  if (key === "necrotic") kind = "necrotic";
+  if (key === "pgMax") text = `MAX ${text}`;
+
+  combatMapController.showTokenFeedback({
+    combatantId,
+    kind,
+    text,
+    iconUrl: getCombatMiniActionIconUrl(kind)
+  });
 }
 
 function updateCombatantInitiativeHidden(id, isHidden) {
@@ -24720,6 +24771,7 @@ function toggleCombatantStatus(combatantId, statusName) {
 
   let addedStatusName = "";
   let notificationCombatant = null;
+  let statusChange = null;
 
   state.combatants = state.combatants.map((combatant) => {
     if (combatant.id !== combatantId) {
@@ -24729,12 +24781,19 @@ function toggleCombatantStatus(combatantId, statusName) {
     const currentStatuses = getCombatantStatusNames(combatant);
     const normalizedStatuses = currentStatuses.map((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()));
     const targetKey = normalizeTranslationKey(canonicalTargetStatus.toLowerCase());
-    const nextStatuses = normalizedStatuses.includes(targetKey)
+    const hasStatus = normalizedStatuses.includes(targetKey);
+    const localizedStatusName = translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage);
+    const nextStatuses = hasStatus
       ? currentStatuses.filter((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()) !== targetKey)
-      : [...currentStatuses, translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage)];
+      : [...currentStatuses, localizedStatusName];
 
-    if (!normalizedStatuses.includes(targetKey)) {
-      addedStatusName = translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage);
+    statusChange = {
+      added: !hasStatus,
+      name: localizedStatusName
+    };
+
+    if (!hasStatus) {
+      addedStatusName = localizedStatusName;
       notificationCombatant = combatant;
     }
 
@@ -24750,6 +24809,15 @@ function toggleCombatantStatus(combatantId, statusName) {
       message: `${getCombatantNotificationLabel(notificationCombatant || {})} está ahora ${addedStatusName}.`,
       tone: "warning",
       imageUrl: cleanText(getCombatantTokenUrl(notificationCombatant || {}))
+    });
+  }
+
+  if (statusChange) {
+    combatMapController.showTokenFeedback({
+      combatantId,
+      kind: statusChange.added ? "status-add" : "status-remove",
+      text: `${statusChange.added ? "+" : "−"} ${statusChange.name}`,
+      iconUrl: getCombatStatusIconUrl(canonicalTargetStatus)
     });
   }
 
@@ -25448,6 +25516,12 @@ function queueCombatResourceNotification(combatant, kind, amount) {
     tone,
     imageUrl: cleanText(getCombatantTokenUrl(combatant)),
     effectKind: kind
+  });
+  combatMapController.showTokenFeedback({
+    combatantId: combatant.id,
+    kind,
+    text: amountLabel,
+    iconUrl: getCombatMiniActionIconUrl(kind)
   });
 }
 
@@ -33109,6 +33183,7 @@ function pushNotification({
     notificationTimeouts.set(id, timeoutId);
   }
 
+  syncMapNotificationUi();
   return id;
 }
 

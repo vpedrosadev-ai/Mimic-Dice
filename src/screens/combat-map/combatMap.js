@@ -786,6 +786,35 @@ function getSide(combatant) {
   return "allies";
 }
 
+export function getTokenFeedbackPosition({ tokenCenterX, tokenTop, tokenBottom, bubbleWidth, bubbleHeight, bounds, padding = 8 }) {
+  const safeBounds = {
+    left: Number(bounds?.left) || 0,
+    top: Number(bounds?.top) || 0,
+    right: Math.max(Number(bounds?.left) || 0, Number(bounds?.right) || 0),
+    bottom: Math.max(Number(bounds?.top) || 0, Number(bounds?.bottom) || 0)
+  };
+  const width = Math.max(1, Number(bubbleWidth) || 1);
+  const height = Math.max(1, Number(bubbleHeight) || 1);
+  const centerX = Number(tokenCenterX) || 0;
+  const minLeft = safeBounds.left + padding;
+  const maxLeft = Math.max(minLeft, safeBounds.right - padding - width);
+  const left = clamp(centerX - width / 2, minLeft, maxLeft);
+  let top = (Number(tokenTop) || 0) - height - 14;
+  let below = false;
+
+  if (top < safeBounds.top + padding) {
+    top = (Number(tokenBottom) || 0) + 14;
+    below = true;
+  }
+
+  return {
+    left: clamp(left, minLeft, maxLeft),
+    top: clamp(top, safeBounds.top + padding, Math.max(safeBounds.top + padding, safeBounds.bottom - padding - height)),
+    below,
+    arrowX: clamp(centerX - left, 14, Math.max(14, width - 14))
+  };
+}
+
 export function createCombatMapController(options = {}) {
   const storageKey = clean(options.storageKey) || MAP_STORAGE_KEY;
   const popupName = clean(options.windowName) || "mimic-dice-combat-map";
@@ -818,6 +847,9 @@ export function createCombatMapController(options = {}) {
   let masterHost = null;
   let pendingConfirmation = null;
   let detachedConfirmationElement = null;
+  let tokenFeedbackSequence = 0;
+  let tokenFeedbacks = [];
+  const tokenFeedbackTimers = new Map();
 
   function loadLocalState() {
     try {
@@ -1157,6 +1189,109 @@ export function createCombatMapController(options = {}) {
       detachedConfirmationElement?.remove();
       detachedConfirmationElement = null;
     }
+  }
+
+  function syncNotifications() {
+    if (!isOpen()) return;
+    const root = editorWindow.document.querySelector("[data-map-notification-root]");
+    if (root) root.innerHTML = options.renderNotifications?.() || "";
+  }
+
+  function showTokenFeedback({ combatantId = "", kind = "info", text = "", iconUrl = "", durationMs = 2400 } = {}) {
+    const normalizedCombatantId = clean(combatantId);
+    const normalizedText = clean(text);
+    if (!normalizedCombatantId || !normalizedText) return "";
+
+    const id = `map-feedback-${Date.now().toString(36)}-${++tokenFeedbackSequence}`;
+    tokenFeedbacks = [...tokenFeedbacks, {
+      id,
+      combatantId: normalizedCombatantId,
+      kind: clean(kind) || "info",
+      text: normalizedText.slice(0, 80),
+      iconUrl: clean(iconUrl)
+    }].slice(-16);
+    mountTokenFeedbacks(masterHost);
+    mountTokenFeedbacks(editorWindow?.document?.querySelector?.("[data-combat-map-player-root]"));
+
+    if (typeof window !== "undefined" && durationMs > 0) {
+      const timeoutId = window.setTimeout(() => {
+        tokenFeedbackTimers.delete(id);
+        tokenFeedbacks = tokenFeedbacks.filter((entry) => entry.id !== id);
+        removeTokenFeedback(id, masterHost);
+        removeTokenFeedback(id, editorWindow?.document?.querySelector?.("[data-combat-map-player-root]"));
+      }, durationMs);
+      tokenFeedbackTimers.set(id, timeoutId);
+    }
+
+    return id;
+  }
+
+  function removeTokenFeedback(feedbackId, surface) {
+    surface?.querySelector?.(`[data-map-token-feedback="${CSS.escape(feedbackId)}"]`)?.remove();
+  }
+
+  function mountTokenFeedbacks(surface) {
+    if (!surface?.isConnected || tokenFeedbacks.length === 0) return;
+    const editor = surface.matches?.(".combat-map-editor") ? surface : surface.querySelector?.(".combat-map-editor");
+    const viewport = editor?.querySelector?.(".combat-map-viewport");
+    if (!editor || !viewport) return;
+
+    let host = editor.querySelector(":scope > [data-map-token-feedback-host]");
+    if (!host) {
+      host = editor.ownerDocument.createElement("div");
+      host.className = "combat-map-token-feedback-host";
+      host.dataset.mapTokenFeedbackHost = "";
+      editor.append(host);
+    }
+
+    host.replaceChildren();
+    const editorRect = editor.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const bounds = {
+      left: Math.max(0, viewportRect.left - editorRect.left),
+      top: Math.max(0, viewportRect.top - editorRect.top),
+      right: Math.min(editorRect.width, viewportRect.right - editorRect.left),
+      bottom: Math.min(editorRect.height, viewportRect.bottom - editorRect.top)
+    };
+    const padding = 8;
+
+    tokenFeedbacks.forEach((feedback) => {
+      const token = editor.querySelector(`[data-map-token="${CSS.escape(feedback.combatantId)}"]`);
+      if (!token) return;
+      const tokenRect = token.getBoundingClientRect();
+      const tokenCenterX = tokenRect.left + tokenRect.width / 2;
+      const tokenCenterY = tokenRect.top + tokenRect.height / 2;
+      if (
+        tokenCenterX < viewportRect.left || tokenCenterX > viewportRect.right
+        || tokenCenterY < viewportRect.top || tokenCenterY > viewportRect.bottom
+      ) return;
+
+      const element = editor.ownerDocument.createElement("div");
+      element.className = `combat-map-token-feedback combat-map-token-feedback--${feedback.kind.replace(/[^a-z0-9-]/gi, "") || "info"}`;
+      element.dataset.mapTokenFeedback = feedback.id;
+      element.innerHTML = `${feedback.iconUrl ? `<img src="${escapeHtml(feedback.iconUrl)}" alt="">` : ""}<strong>${escapeHtml(feedback.text)}</strong>`;
+      host.append(element);
+
+      const bubbleRect = element.getBoundingClientRect();
+      const bubbleWidth = bubbleRect.width;
+      const bubbleHeight = bubbleRect.height;
+      const tokenLeft = tokenCenterX - editorRect.left;
+      const tokenTop = tokenRect.top - editorRect.top;
+      const tokenBottom = tokenRect.bottom - editorRect.top;
+      const position = getTokenFeedbackPosition({
+        tokenCenterX: tokenLeft,
+        tokenTop,
+        tokenBottom,
+        bubbleWidth,
+        bubbleHeight,
+        bounds,
+        padding
+      });
+      element.classList.toggle("is-below", position.below);
+      element.style.left = `${Math.round(position.left)}px`;
+      element.style.top = `${Math.round(position.top)}px`;
+      element.style.setProperty("--feedback-arrow-x", `${Math.round(position.arrowX)}px`);
+    });
   }
 
   function captureWindowBounds() {
@@ -1690,7 +1825,7 @@ export function createCombatMapController(options = {}) {
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root>${options.renderNotifications?.() || ""}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function sync() {
@@ -1704,6 +1839,7 @@ export function createCombatMapController(options = {}) {
         drawGridLabels(root);
         drawPaint(root);
         drawFog(root);
+        mountTokenFeedbacks(root);
       }
     }
     if (masterHost?.isConnected) syncMasterSurface(masterHost);
@@ -2376,6 +2512,15 @@ export function createCombatMapController(options = {}) {
   function handleClick(event) {
     const surface = getEventSurface(event);
     const surfaceKind = getSurfaceKind(surface);
+    const notificationAction = event.target.closest("[data-action]");
+    if (notificationAction?.dataset.action === "dismiss-notification") {
+      options.onDismissNotification?.(notificationAction.dataset.notificationId);
+      return;
+    }
+    if (notificationAction?.dataset.action === "open-notification-detail") {
+      options.onOpenNotificationDetail?.(notificationAction.dataset.notificationId);
+      return;
+    }
     if (event.target.closest("[data-map-initiative-order]")) {
       options.handleInitiativeClick?.(event);
       return;
@@ -3081,6 +3226,7 @@ export function createCombatMapController(options = {}) {
     drawGridLabels(host);
     drawPaint(host);
     drawFog(host);
+    mountTokenFeedbacks(host);
   }
 
   function syncMirror(root = document) {
@@ -3091,5 +3237,5 @@ export function createCombatMapController(options = {}) {
     syncMasterSurface(masterHost);
   }
 
-  return { open, sync, syncMirror, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  return { open, sync, syncMirror, syncNotifications, showTokenFeedback, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }
