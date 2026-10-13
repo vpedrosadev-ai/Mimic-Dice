@@ -80,9 +80,19 @@ export function summarizeAdminStorage(objects = [], assetRows = []) {
     const category = tracked ? classifyAdminAsset(tracked) : "untracked";
     const bytes = Math.max(0, Number(object?.size || 0));
     const ownerId = String(tracked?.ownerId || parseObjectOwnerId(objectKey));
-    const current = categories.get(category) || { type: category, bytes: 0, count: 0 };
+    const current = categories.get(category) || { type: category, bytes: 0, count: 0, items: [] };
     current.bytes += bytes;
     current.count += 1;
+    current.items.push({
+      id: String(tracked?.id || ""),
+      objectKey,
+      name: String(tracked?.directLibraryName || tracked?.directCatalogName || ""),
+      ownerId,
+      mimeType: String(tracked?.mimeType || ""),
+      bytes,
+      tracked: Boolean(tracked),
+      createdAt: tracked?.createdAt || (object?.uploaded ? new Date(object.uploaded).toISOString() : "")
+    });
     categories.set(category, current);
     totalBytes += bytes;
     if (ownerId) {
@@ -115,8 +125,12 @@ async function getAdminAssetRows(db, ownerId = "") {
     SELECT a.*,
       (SELECT e."type" FROM "cloud_library_entries" e
        WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directLibraryType",
+      (SELECT e."name" FROM "cloud_library_entries" e
+       WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directLibraryName",
       (SELECT e."type" FROM "cloud_catalog_entries" e
        WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directCatalogType",
+      (SELECT e."name" FROM "cloud_catalog_entries" e
+       WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directCatalogName",
       (SELECT GROUP_CONCAT(DISTINCT e."type")
        FROM "cloud_asset_references" r
        INNER JOIN "cloud_library_entries" e ON r."parentType" = 'library' AND e."id" = r."parentId"
@@ -201,6 +215,20 @@ async function getOverview(context) {
       }
     };
   });
+  const usersById = new Map(normalizedUsers.map((user) => [user.id, user]));
+  const storageByType = storage.categories.map((category) => ({
+    ...category,
+    items: category.items
+      .map((item) => {
+        const owner = usersById.get(item.ownerId);
+        return {
+          ...item,
+          ownerName: owner?.name || "",
+          ownerEmail: owner?.email || ""
+        };
+      })
+      .sort((left, right) => right.bytes - left.bytes || left.objectKey.localeCompare(right.objectKey))
+  }));
 
   return jsonResponse({
     generatedAt: new Date().toISOString(),
@@ -212,7 +240,7 @@ async function getOverview(context) {
       r2Objects: r2Objects.length,
       trackedAssets: assetRows.length
     },
-    storageByType: storage.categories,
+    storageByType,
     users: normalizedUsers
   });
 }

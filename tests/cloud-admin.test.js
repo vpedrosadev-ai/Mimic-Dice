@@ -67,6 +67,19 @@ test("admin storage classifies tracked and untracked R2 objects", () => {
   assert.equal(summary.userObjects.get("user-1"), 2);
   assert.equal(summary.userObjects.get("user-2"), 2);
   assert.deepEqual(
+    summary.categories.find((entry) => entry.type === "map-image").items[0],
+    {
+      id: "",
+      objectKey: "users/user-1/map.webp",
+      name: "",
+      ownerId: "user-1",
+      mimeType: "image/webp",
+      bytes: 100,
+      tracked: true,
+      createdAt: ""
+    }
+  );
+  assert.deepEqual(
     Object.fromEntries(summary.categories.map((entry) => [entry.type, { bytes: entry.bytes, percentage: entry.percentage }])),
     {
       "campaign-asset": { bytes: 500, percentage: 50 },
