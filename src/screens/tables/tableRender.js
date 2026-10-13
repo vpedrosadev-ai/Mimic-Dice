@@ -601,6 +601,9 @@ function openItemFromLootTable(itemName) {
   state.activeItemFilterKey = "";
   state.showItemQuerySuggestions = false;
   state.itemSelectedId = matchedItem?.id || "";
+  state.mobileCompendiumDetailOpen = "items";
+  state.mobileCompendiumFiltersOpen = "";
+  state.mobileNavigationOpen = false;
   render({
     focusSelector: "[data-item-query]"
   });
@@ -624,6 +627,9 @@ function openSpellFromTable(spellName) {
   state.activeArcanumFilterKey = "";
   state.showArcanumQuerySuggestions = false;
   state.arcanumSelectedId = matchedSpell?.id || "";
+  state.mobileCompendiumDetailOpen = "arcanum";
+  state.mobileCompendiumFiltersOpen = "";
+  state.mobileNavigationOpen = false;
   render({
     focusSelector: "[data-arcanum-query]"
   });

@@ -845,6 +845,9 @@ state = {
   menuHubOpen: false,
   fileMenuOpen: false,
   optionsMenuOpen: false,
+  mobileNavigationOpen: false,
+  mobileCompendiumFiltersOpen: "",
+  mobileCompendiumDetailOpen: "",
   optionsMenuSection: OPTIONS_MENU_SECTION_GENERAL,
   activeReleaseNotesVersion: APP_VERSION,
   importExportDialogOpen: false,
@@ -880,7 +883,7 @@ state = {
   activeCharacterClassPickerField: "",
   characterSkillConfigOpen: false,
   characterSkillsExpanded: false,
-  charactersOverviewHidden: false,
+  charactersOverviewHidden: true,
   characterClassData: getBundledCharacterClassCatalog(
     normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage)
   ),
@@ -1402,6 +1405,9 @@ async function handleClick(event) {
     state.menuHubOpen = false;
     state.fileMenuOpen = false;
     state.optionsMenuOpen = false;
+    state.mobileNavigationOpen = false;
+    state.mobileCompendiumFiltersOpen = "";
+    state.mobileCompendiumDetailOpen = "";
     state.combatEncounterPickerOpen = false;
     state.combatAddPickerMode = "";
     queueCompendiumLoadsForScreen(state.activeScreen);
@@ -1465,8 +1471,9 @@ async function handleClick(event) {
 
   if (clickedDiaryMentionLink) {
     const diaryEditor = clickedDiaryMentionLink.closest("[data-diary-editor]");
+    const mentionKind = cleanText(clickedDiaryMentionLink.dataset.diaryMentionKind);
 
-    if (diaryEditor && !ctrlOrMetaPressed) {
+    if (diaryEditor && mentionKind === "character" && !ctrlOrMetaPressed) {
       return;
     }
 
@@ -1479,55 +1486,31 @@ async function handleClick(event) {
     return;
   }
 
-  if (ctrlOrMetaPressed) {
-    const clickedInventoryName = event.target.closest("[data-character-inventory-name]");
+  const clickedInventoryName = event.target.closest("[data-character-inventory-name][data-character-reference-base-name]");
 
-    if (clickedInventoryName) {
-      const activeCharacter = getActiveCharacter();
-      const row = activeCharacter?.inventory.find((entry) => entry.id === clickedInventoryName.dataset.characterInventoryName);
-      const matchedItem = row ? getCharacterInventoryMatchedItemEntry(row) : null;
+  if (clickedInventoryName) {
+    const activeCharacter = getActiveCharacter();
+    const row = activeCharacter?.inventory.find((entry) => entry.id === clickedInventoryName.dataset.characterInventoryName);
+    const matchedItem = row ? getCharacterInventoryMatchedItemEntry(row) : null;
 
-      if (matchedItem) {
-        event.preventDefault();
-        resetItemVirtualScroll();
-        state.activeScreen = "items";
-        state.itemFilters = {
-          ...blankItemFilters,
-          query: matchedItem.name
-        };
-        state.itemFilterSearch = { ...blankItemFilterSearch };
-        state.activeItemFilterKey = "";
-        state.showItemQuerySuggestions = false;
-        render({
-          focusSelector: "[data-item-query]"
-        });
-        return;
-      }
+    if (matchedItem) {
+      event.preventDefault();
+      openDiaryMentionTarget("item", getCompendiumEntryIdentityKey(matchedItem), matchedItem.name, matchedItem.source);
+      return;
     }
+  }
 
-    const clickedSpellName = event.target.closest("[data-character-spell-name]");
+  const clickedSpellName = event.target.closest("[data-character-spell-name][data-character-reference-base-name]");
 
-    if (clickedSpellName) {
-      const activeCharacter = getActiveCharacter();
-      const row = activeCharacter?.spells.find((entry) => entry.id === clickedSpellName.dataset.characterSpellName);
-      const matchedSpell = row ? getCharacterSpellMatchedEntry(row) : null;
+  if (clickedSpellName) {
+    const activeCharacter = getActiveCharacter();
+    const row = activeCharacter?.spells.find((entry) => entry.id === clickedSpellName.dataset.characterSpellName);
+    const matchedSpell = row ? getCharacterSpellMatchedEntry(row) : null;
 
-      if (matchedSpell) {
-        event.preventDefault();
-        resetArcanumVirtualScroll();
-        state.activeScreen = "arcanum";
-        state.arcanumFilters = {
-          ...blankArcanumFilters,
-          query: matchedSpell.name
-        };
-        state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
-        state.activeArcanumFilterKey = "";
-        state.showArcanumQuerySuggestions = false;
-        render({
-          focusSelector: "[data-arcanum-query]"
-        });
-        return;
-      }
+    if (matchedSpell) {
+      event.preventDefault();
+      openDiaryMentionTarget("arcanum", getCompendiumEntryIdentityKey(matchedSpell), matchedSpell.name, matchedSpell.source);
+      return;
     }
   }
 
@@ -1862,6 +1845,33 @@ async function handleClick(event) {
   }
 
   const { action } = actionButton.dataset;
+
+  if (action === "toggle-mobile-navigation") {
+    state.mobileNavigationOpen = !state.mobileNavigationOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-mobile-compendium-filters") {
+    const repositoryKey = cleanText(actionButton.dataset.repositoryKey);
+    state.mobileCompendiumFiltersOpen = state.mobileCompendiumFiltersOpen === repositoryKey ? "" : repositoryKey;
+    render();
+    return;
+  }
+
+  if (action === "close-mobile-compendium-detail") {
+    const repositoryKey = cleanText(actionButton.dataset.repositoryKey);
+    state.mobileCompendiumDetailOpen = "";
+    const detailRoot = actionButton.closest(".bestiary-detail");
+    detailRoot?.classList.remove("is-mobile-open");
+    const selectedId = repositoryKey === "bestiary"
+      ? state.bestiarySelectedId
+      : repositoryKey === "items"
+        ? state.itemSelectedId
+        : state.arcanumSelectedId;
+    app.querySelector(`[data-${repositoryKey === "items" ? "item" : repositoryKey}-row-id="${CSS.escape(selectedId)}"]`)?.focus?.();
+    return;
+  }
 
   if (action === "open-dice-roller") {
     openDiceRoller();
@@ -3420,6 +3430,7 @@ async function handleClick(event) {
   if (action === "select-bestiary-entry") {
     const previousSelectedId = state.bestiarySelectedId;
     state.bestiarySelectedId = actionButton.dataset.entryId;
+    openMobileCompendiumDetail("bestiary");
 
     if (state.activeScreen === "bestiary") {
       updateBestiarySelectionUI(previousSelectedId, state.bestiarySelectedId);
@@ -3433,6 +3444,7 @@ async function handleClick(event) {
   if (action === "select-item-entry") {
     const previousSelectedId = state.itemSelectedId;
     state.itemSelectedId = actionButton.dataset.entryId;
+    openMobileCompendiumDetail("items");
 
     if (state.activeScreen === "items") {
       updateItemSelectionUI(previousSelectedId, state.itemSelectedId);
@@ -3446,6 +3458,7 @@ async function handleClick(event) {
   if (action === "select-arcanum-entry") {
     const previousSelectedId = state.arcanumSelectedId;
     state.arcanumSelectedId = actionButton.dataset.entryId;
+    openMobileCompendiumDetail("arcanum");
 
     if (state.activeScreen === "arcanum") {
       updateArcanumSelectionUI(previousSelectedId, state.arcanumSelectedId);
@@ -4067,6 +4080,7 @@ async function handleClick(event) {
     state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
     state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
+    openMobileCompendiumDetail("arcanum");
     clearActiveCombatPreview();
     render({
       focusSelector: "[data-arcanum-query]"
@@ -5406,6 +5420,20 @@ function handleInput(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (event.key === "Escape" && state.mobileCompendiumDetailOpen) {
+    event.preventDefault();
+    state.mobileCompendiumDetailOpen = "";
+    render();
+    return;
+  }
+
+  if (event.key === "Escape" && state.mobileNavigationOpen) {
+    event.preventDefault();
+    state.mobileNavigationOpen = false;
+    render();
+    return;
+  }
+
   if (state.characterExportDialogOpen && event.key === "Escape") {
     event.preventDefault();
     closeCharacterExportDialog();
@@ -8543,7 +8571,7 @@ function render(focusState = null) {
   const viewportState = captureRenderViewportState();
 
   app.innerHTML = `
-    <div class="shell">
+    <div class="shell ${state.mobileCompendiumDetailOpen ? "has-mobile-compendium-detail" : ""}">
       <div class="shell__backdrop"></div>
       <header class="topbar">
         <div class="brand">
@@ -10746,9 +10774,19 @@ function renderTopbarNavigation() {
     .filter(Boolean);
 
   return `
-    <div class="topbar__nav-stack" aria-label="Barra principal">
+    <div class="topbar__nav-stack ${state.mobileNavigationOpen ? "is-mobile-open" : ""}" aria-label="Barra principal">
+      <button
+        class="mobile-navigation-toggle"
+        type="button"
+        data-action="toggle-mobile-navigation"
+        aria-expanded="${state.mobileNavigationOpen}"
+        aria-controls="primary-screen-navigation"
+      >
+        <span class="mobile-navigation-toggle__icon" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>${escapeHtml(isEnglishInterface() ? "Screens" : "Pantallas")}</span>
+      </button>
       <div class="nav-row nav-row--combined">
-        <nav class="nav nav--row" aria-label="Pantallas principales">
+        <nav class="nav nav--row" id="primary-screen-navigation" aria-label="Pantallas principales">
           ${buttonScreens.map((screen) => renderScreenButton(screen)).join("")}
         </nav>
       </div>
@@ -13228,6 +13266,7 @@ function handleCombatantPreviewPopoutClick(event, descriptor) {
     state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
     state.activeArcanumFilterKey = "";
     state.showArcanumQuerySuggestions = false;
+    openMobileCompendiumDetail("arcanum");
     render({ focusSelector: "[data-arcanum-query]" });
     window.focus();
     return;
@@ -14178,13 +14217,16 @@ function renderBestiary() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("bestiary_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderBestiaryQueryField()}
-          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-bestiary-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
+          ${renderMobileCompendiumFilterToggle("bestiary")}
+          <button class="toolbar-button bestiary-toolbar__clear compendium-filter-desktop-only" type="button" data-action="clear-bestiary-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
-        <div class="bestiary-toolbar__row bestiary-toolbar__row--filters">
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--filters ${state.mobileCompendiumFiltersOpen === "bestiary" ? "is-mobile-open" : ""}">
+          <div class="mobile-compendium-filter-only">${renderBestiarySortButton("name", isEnglishInterface() ? "Sort by name" : "Ordenar por nombre")}</div>
           ${renderBestiaryFilterDropdown("type", t("filter_type"))}
           ${renderBestiaryFilterDropdown("environment", t("filter_environment"))}
           ${renderBestiaryFilterDropdown("crBase", "CR")}
           ${renderBestiaryFilterDropdown("source", t("filter_source"))}
+          <button class="toolbar-button bestiary-toolbar__clear mobile-compendium-filter-only" type="button" data-action="clear-bestiary-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
       </div>
 
@@ -14211,13 +14253,16 @@ function renderItems() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("items_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderItemQueryField()}
-          <button class="toolbar-button bestiary-toolbar__clear" type="button" data-action="clear-item-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
+          ${renderMobileCompendiumFilterToggle("items")}
+          <button class="toolbar-button bestiary-toolbar__clear compendium-filter-desktop-only" type="button" data-action="clear-item-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
-        <div class="bestiary-toolbar__row bestiary-toolbar__row--item-filters">
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--item-filters ${state.mobileCompendiumFiltersOpen === "items" ? "is-mobile-open" : ""}">
+          <div class="mobile-compendium-filter-only">${renderItemSortButton("name", isEnglishInterface() ? "Sort by name" : "Ordenar por nombre")}</div>
           ${renderItemFilterDropdown("type", t("filter_type"))}
           ${renderItemFilterDropdown("rarity", "Rareza")}
           ${renderItemFilterDropdown("source", t("filter_source"))}
           ${renderItemAttunementFilterButton()}
+          <button class="toolbar-button bestiary-toolbar__clear mobile-compendium-filter-only" type="button" data-action="clear-item-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
       </div>
 
@@ -14244,19 +14289,41 @@ function renderArcanum() {
       <div class="bestiary-toolbar" aria-label="${escapeHtml(t("arcanum_filters_label"))}">
         <div class="bestiary-toolbar__row bestiary-toolbar__row--primary">
           ${renderArcanumQueryField()}
-          ${renderArcanumConcentrationFilterButton()}
+          ${renderMobileCompendiumFilterToggle("arcanum")}
+          <div class="compendium-filter-desktop-only">${renderArcanumConcentrationFilterButton()}</div>
         </div>
-        <div class="bestiary-toolbar__row bestiary-toolbar__row--filters">
+        <div class="bestiary-toolbar__row bestiary-toolbar__row--filters ${state.mobileCompendiumFiltersOpen === "arcanum" ? "is-mobile-open" : ""}">
+          <div class="mobile-compendium-filter-only">${renderArcanumSortButton("name", isEnglishInterface() ? "Sort by name" : "Ordenar por nombre")}</div>
           ${renderArcanumFilterDropdown("level", t("arcanum_filter_level"))}
           ${renderArcanumFilterDropdown("castingTime", t("arcanum_filter_casting"))}
           ${renderArcanumFilterDropdown("school", t("arcanum_filter_school"))}
           ${renderArcanumFilterDropdown("class", t("arcanum_filter_class"))}
           ${renderArcanumFilterDropdown("source", t("filter_source"))}
+          <div class="mobile-compendium-filter-only">${renderArcanumConcentrationFilterButton()}</div>
+          <button class="toolbar-button bestiary-toolbar__clear mobile-compendium-filter-only" type="button" data-action="clear-arcanum-filters">${escapeHtml(t("bestiary_clear_filters"))}</button>
         </div>
       </div>
 
       ${renderArcanumContent(filteredEntries, selectedEntry)}
     </section>
+  `;
+}
+
+function renderMobileCompendiumFilterToggle(repositoryKey) {
+  const expanded = state.mobileCompendiumFiltersOpen === repositoryKey;
+  const label = isEnglishInterface() ? "Filters" : "Filtros";
+
+  return `
+    <button
+      class="toolbar-button mobile-compendium-filter-toggle ${expanded ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-mobile-compendium-filters"
+      data-repository-key="${escapeHtml(repositoryKey)}"
+      aria-expanded="${expanded}"
+    >
+      <span class="mobile-compendium-filter-toggle__icon" aria-hidden="true">&#9776;</span>
+      ${escapeHtml(label)}
+    </button>
   `;
 }
 
@@ -14310,8 +14377,8 @@ function renderItemsContent(filteredEntries, selectedEntry) {
       <div class="bestiary-list" role="list" aria-label="Objetos del catalogo" data-item-list-root>
         ${renderItemList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
-      <aside class="bestiary-detail panel panel--inner" data-item-detail-root>
-        ${selectedEntry ? renderSelectedCompendiumDetail("items", selectedEntry) : renderItemDetailEmpty()}
+      <aside class="bestiary-detail panel panel--inner ${state.mobileCompendiumDetailOpen === "items" ? "is-mobile-open" : ""}" data-item-detail-root>
+        ${renderCompendiumDetailRootContent("items", selectedEntry, renderItemDetailEmpty)}
       </aside>
     </div>
   `;
@@ -14335,8 +14402,8 @@ function renderArcanumContent(filteredEntries, selectedEntry) {
       <div class="bestiary-list" role="list" aria-label="Hechizos del arcanum" data-arcanum-list-root>
         ${renderArcanumList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
-      <aside class="bestiary-detail panel panel--inner" data-arcanum-detail-root>
-        ${selectedEntry ? renderSelectedCompendiumDetail("arcanum", selectedEntry) : renderArcanumDetailEmpty()}
+      <aside class="bestiary-detail panel panel--inner ${state.mobileCompendiumDetailOpen === "arcanum" ? "is-mobile-open" : ""}" data-arcanum-detail-root>
+        ${renderCompendiumDetailRootContent("arcanum", selectedEntry, renderArcanumDetailEmpty)}
       </aside>
     </div>
   `;
@@ -14360,10 +14427,35 @@ function renderBestiaryContent(filteredEntries, selectedEntry) {
       <div class="bestiary-list" role="list" aria-label="Criaturas del bestiario" data-bestiary-list-root>
         ${renderBestiaryList(filteredEntries, selectedEntry?.id ?? "")}
       </div>
-      <aside class="bestiary-detail panel panel--inner" data-bestiary-detail-root>
-        ${selectedEntry ? renderSelectedCompendiumDetail("bestiary", selectedEntry) : renderBestiaryDetailEmpty()}
+      <aside class="bestiary-detail panel panel--inner ${state.mobileCompendiumDetailOpen === "bestiary" ? "is-mobile-open" : ""}" data-bestiary-detail-root>
+        ${renderCompendiumDetailRootContent("bestiary", selectedEntry, renderBestiaryDetailEmpty)}
       </aside>
     </div>
+  `;
+}
+
+function openMobileCompendiumDetail(repositoryKey) {
+  state.mobileCompendiumDetailOpen = repositoryKey;
+  state.mobileCompendiumFiltersOpen = "";
+  state.mobileNavigationOpen = false;
+}
+
+function renderCompendiumDetailRootContent(repositoryKey, entry, renderEmpty) {
+  const closeLabel = isEnglishInterface() ? "Close sheet" : "Cerrar ficha";
+
+  return `
+    <div class="mobile-compendium-detail__toolbar">
+      <strong>${escapeHtml(entry?.name || (isEnglishInterface() ? "Details" : "Ficha"))}</strong>
+      <button
+        class="mobile-compendium-detail__close"
+        type="button"
+        data-action="close-mobile-compendium-detail"
+        data-repository-key="${escapeHtml(repositoryKey)}"
+        aria-label="${escapeHtml(closeLabel)}"
+        title="${escapeHtml(closeLabel)}"
+      >&times;</button>
+    </div>
+    ${entry ? renderSelectedCompendiumDetail(repositoryKey, entry) : renderEmpty()}
   `;
 }
 
@@ -14489,7 +14581,8 @@ function updateBestiarySelectionUI(previousSelectedId, nextSelectedId) {
 
   const filteredEntries = getFilteredBestiary();
   const selectedEntry = getSelectedBestiaryEntry(filteredEntries);
-  detailRoot.innerHTML = selectedEntry ? renderSelectedCompendiumDetail("bestiary", selectedEntry) : renderBestiaryDetailEmpty();
+  detailRoot.classList.toggle("is-mobile-open", state.mobileCompendiumDetailOpen === "bestiary");
+  detailRoot.innerHTML = renderCompendiumDetailRootContent("bestiary", selectedEntry, renderBestiaryDetailEmpty);
 }
 
 function getItemVirtualWindow(totalEntries) {
@@ -14562,7 +14655,8 @@ function updateItemSelectionUI(previousSelectedId, nextSelectedId) {
 
   const filteredEntries = getFilteredItems();
   const selectedEntry = getSelectedItemEntry(filteredEntries);
-  detailRoot.innerHTML = selectedEntry ? renderSelectedCompendiumDetail("items", selectedEntry) : renderItemDetailEmpty();
+  detailRoot.classList.toggle("is-mobile-open", state.mobileCompendiumDetailOpen === "items");
+  detailRoot.innerHTML = renderCompendiumDetailRootContent("items", selectedEntry, renderItemDetailEmpty);
 }
 
 function getArcanumVirtualWindow(totalEntries) {
@@ -14635,7 +14729,8 @@ function updateArcanumSelectionUI(previousSelectedId, nextSelectedId) {
 
   const filteredEntries = getFilteredArcanum();
   const selectedEntry = getSelectedArcanumEntry(filteredEntries);
-  detailRoot.innerHTML = selectedEntry ? renderSelectedCompendiumDetail("arcanum", selectedEntry) : renderArcanumDetailEmpty();
+  detailRoot.classList.toggle("is-mobile-open", state.mobileCompendiumDetailOpen === "arcanum");
+  detailRoot.innerHTML = renderCompendiumDetailRootContent("arcanum", selectedEntry, renderArcanumDetailEmpty);
 }
 
 function renderAssetLoadErrorState(message, debugInfo) {
@@ -22267,6 +22362,7 @@ function openCharacterSummonBestiary(rowId) {
   state.activeBestiaryFilterKey = "";
   state.showBestiaryQuerySuggestions = false;
   state.bestiarySelectedId = bestiaryEntry.id;
+  openMobileCompendiumDetail("bestiary");
 }
 
 function addCharacterInventoryRow(overrides = {}) {
@@ -24365,6 +24461,7 @@ function openCombatantBestiary(entryId) {
   state.activeBestiaryFilterKey = "";
   state.showBestiaryQuerySuggestions = false;
   state.bestiarySelectedId = entry.id;
+  openMobileCompendiumDetail("bestiary");
   resetBestiaryVirtualScroll();
 }
 
@@ -32551,12 +32648,16 @@ function resetTransientCampaignUiState() {
   state.menuHubOpen = false;
   state.fileMenuOpen = false;
   state.optionsMenuOpen = false;
+  state.mobileNavigationOpen = false;
+  state.mobileCompendiumFiltersOpen = "";
+  state.mobileCompendiumDetailOpen = "";
   state.autosaveProblemDialogOpen = false;
   state.autosaveProblemDetailCopyStatus = "";
   closeCharacterExportDialog();
   closeCampaignSaveNameDialog();
   state.characterSkillConfigOpen = false;
   state.characterSkillsExpanded = false;
+  state.charactersOverviewHidden = true;
   state.activeCharacterInventoryRowId = "";
   state.showCharacterInventorySuggestions = false;
   state.activeCharacterSpellRowId = "";
@@ -34774,6 +34875,7 @@ function openDiaryMentionTarget(kind, id, name, source = "") {
     };
     state.itemSelectedId = entry?.id || normalizedId;
     state.showItemQuerySuggestions = false;
+    openMobileCompendiumDetail("items");
     render({
       focusSelector: "[data-item-query]"
     });
@@ -34793,6 +34895,7 @@ function openDiaryMentionTarget(kind, id, name, source = "") {
     };
     state.bestiarySelectedId = entry?.id || normalizedId;
     state.showBestiaryQuerySuggestions = false;
+    openMobileCompendiumDetail("bestiary");
     render({
       focusSelector: "[data-bestiary-query]"
     });
@@ -34813,6 +34916,7 @@ function openDiaryMentionTarget(kind, id, name, source = "") {
     };
     state.arcanumSelectedId = entry?.id || normalizedId;
     state.showArcanumQuerySuggestions = false;
+    openMobileCompendiumDetail("arcanum");
     render({
       focusSelector: "[data-arcanum-query]"
     });

@@ -1,6 +1,33 @@
 export function syncCompendiumLayoutHeights(root = document) {
+  const useResponsiveLayout = window.matchMedia?.(
+    "(max-width: 760px), (max-width: 900px) and (orientation: landscape) and (max-height: 560px)"
+  ).matches === true;
+
   root.querySelectorAll(".bestiary-layout").forEach((layout) => {
     const panel = layout.closest(".compendium-panel");
+
+    if (useResponsiveLayout) {
+      layout.style.height = "";
+      layout.style.minHeight = "";
+      layout.style.removeProperty("--compendium-viewport-height");
+
+      layout.querySelectorAll(".bestiary-list, .bestiary-detail").forEach((element) => {
+        element.style.height = "";
+        element.style.maxHeight = "";
+      });
+
+      if (panel) {
+        panel.style.height = "";
+        panel.style.minHeight = "";
+        panel.style.overflow = "";
+        panel.style.removeProperty("--compendium-panel-height");
+        panel.style.removeProperty("--compendium-viewport-height");
+        panel.style.removeProperty("--compendium-chrome-height");
+      }
+
+      return;
+    }
+
     let chromeHeight = 0;
     let panelPaddingBlock = 0;
 
