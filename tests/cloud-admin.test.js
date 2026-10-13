@@ -61,6 +61,7 @@ test("admin storage classifies tracked and untracked R2 objects", () => {
   assert.equal(classifyAdminAsset(assetRows[0]), "map-image");
   assert.equal(classifyAdminAsset(assetRows[1]), "character-pdf");
   assert.equal(classifyAdminAsset(assetRows[2]), "campaign-asset");
+  assert.equal(classifyAdminAsset({ embeddedLibraryType: "map", mimeType: "image/webp" }), "map-image");
   assert.equal(summary.totalBytes, 1000);
   assert.equal(summary.userBytes.get("user-1"), 400);
   assert.equal(summary.userBytes.get("user-2"), 600);

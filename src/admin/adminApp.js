@@ -4,6 +4,7 @@ import {
   deleteAdminR2Object,
   deleteAdminUser,
   fetchAuthSession,
+  getAdminR2ObjectUrl,
   getAdminOverview,
   getAdminUserDetail,
   setAdminUserBan
@@ -38,13 +39,15 @@ const state = {
   selectedUserId: new URLSearchParams(window.location.search).get("user") || "",
   userDetail: null,
   expandedStorage: new Set(),
+  expandedContentGroups: new Set(),
   query: "",
   sort: "r2-desc",
   busy: "",
   error: "",
   confirmation: null,
   confirmationValue: "",
-  confirmationReason: ""
+  confirmationReason: "",
+  preview: null
 };
 
 document.title = "Administración · Mimic Dice";
@@ -179,7 +182,7 @@ function renderCapacityMetric(label, usedBytes, limitBytes, detail) {
 function renderStorageItem(item) {
   const deleteAction = item.tracked ? "delete-item" : "delete-r2-object";
   const owner = item.ownerEmail || item.ownerName || item.ownerId || "Sin propietario";
-  return `<article class="admin-storage-item"><div><strong>${escapeHtml(item.name || item.objectKey)}</strong><small>${escapeHtml(item.objectKey)}</small><small>${escapeHtml(owner)} · ${escapeHtml(item.mimeType || "archivo")}</small></div><div><b>${formatBytes(item.bytes)}</b><time>${formatDate(item.createdAt)}</time><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="${deleteAction}" data-kind="asset" data-item-id="${escapeHtml(item.id || "")}" data-object-key="${escapeHtml(item.objectKey)}" data-label="${escapeHtml(item.name || item.objectKey)}">Eliminar</button></div></article>`;
+  return `<article class="admin-storage-item" tabindex="0" data-admin-action="preview-r2-object" data-object-key="${escapeHtml(item.objectKey)}" data-mime-type="${escapeHtml(item.mimeType || "")}" data-label="${escapeHtml(item.name || item.objectKey)}"><div><strong>${escapeHtml(item.name || item.objectKey)}</strong><small>${escapeHtml(item.objectKey)}</small><small>${escapeHtml(owner)} · ${escapeHtml(item.mimeType || "formato desconocido")}</small></div><div><b>${formatBytes(item.bytes)}</b><time>${formatDate(item.createdAt)}</time><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="${deleteAction}" data-kind="asset" data-item-id="${escapeHtml(item.id || "")}" data-object-key="${escapeHtml(item.objectKey)}" data-label="${escapeHtml(item.name || item.objectKey)}">Eliminar</button></div></article>`;
 }
 
 function renderStorageBreakdown() {
@@ -193,6 +196,7 @@ function renderStorageBreakdown() {
         <div class="admin-storage-bar"><i style="width:${Math.max(1, Math.min(100, entry.percentage))}%"></i></div><b aria-hidden="true">⌄</b>
       </button>
       <button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="delete-group" data-kind="asset" data-category="${escapeHtml(entry.type)}" data-label="${escapeHtml(entry.label)}">Eliminar categoría</button>
+      ${entry.type === "orphan" ? `<p class="admin-storage-note">Archivo registrado en R2, pero sin enlace activo encontrado en campañas, biblioteca o catálogo. Puede ser una subida antigua o pendiente; no implica que sea prescindible.</p>` : ""}
       ${expanded ? `<div class="admin-storage-items">${(entry.items || []).map(renderStorageItem).join("") || `<p class="admin-empty">Sin objetos.</p>`}</div>` : ""}
     </article>`;
   }).join("")}</div>`;
@@ -218,7 +222,10 @@ function renderItemSection({ title, kind, items, type = "" }) {
         ? `${item.categoryLabel || TYPE_LABELS[itemType] || itemType} · ${item.mimeType || "archivo"} · ${item.references?.length || 0} referencias${item.existsInR2 ? "" : " · NO EN R2"}`
         : `${TYPE_LABELS[itemType] || itemType}${item.isPublic === 1 ? " · Público" : " · Privado"}`;
       const deleteAction = kind === "asset" && item.tracked === false ? "delete-r2-object" : "delete-item";
-      return `<article class="admin-item-card"><div><strong>${escapeHtml(item.name || item.objectKey || item.id)}</strong><small>${escapeHtml(detail)}</small><small>${escapeHtml(item.id || item.objectKey)}</small></div><div class="admin-item-card__meta"><b>${formatBytes(size)}</b><time>${formatDate(item.updatedAt || item.createdAt)}</time><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="${deleteAction}" data-kind="${escapeHtml(kind)}" data-item-id="${escapeHtml(item.id)}" data-object-key="${escapeHtml(item.objectKey || "")}" data-label="${escapeHtml(item.name || item.objectKey || item.id)}">Eliminar</button></div></article>`;
+      const previewAttributes = kind === "asset" && item.existsInR2
+        ? ` tabindex="0" data-admin-action="preview-r2-object" data-object-key="${escapeHtml(item.objectKey || "")}" data-mime-type="${escapeHtml(item.mimeType || "")}" data-label="${escapeHtml(item.name || item.objectKey || item.id)}"`
+        : "";
+      return `<article class="admin-item-card${previewAttributes ? " admin-item-card--previewable" : ""}"${previewAttributes}><div><strong>${escapeHtml(item.name || item.objectKey || item.id)}</strong><small>${escapeHtml(detail)}</small><small>${escapeHtml(item.id || item.objectKey)}</small></div><div class="admin-item-card__meta"><b>${formatBytes(size)}</b><time>${formatDate(item.updatedAt || item.createdAt)}</time><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="${deleteAction}" data-kind="${escapeHtml(kind)}" data-item-id="${escapeHtml(item.id)}" data-object-key="${escapeHtml(item.objectKey || "")}" data-label="${escapeHtml(item.name || item.objectKey || item.id)}">Eliminar</button></div></article>`;
     }).join("")}</div>` : `<p class="admin-empty">Sin elementos.</p>`}
   </section>`;
 }
@@ -238,8 +245,14 @@ function groupItemsByType(items) {
   });
 }
 
-function renderGroupedLibrary(items) {
-  return `<section class="admin-card admin-grouped-card"><header class="admin-card__header"><div><small>Datos D1</small><h2>Biblioteca cloud por tipo</h2></div><strong>${items.length} objetos</strong></header><div class="admin-type-groups">${groupItemsByType(items).map(([type, group]) => renderItemSection({ title: TYPE_LABELS[type] || type, kind: "library", items: group, type })).join("") || `<p class="admin-empty">Sin elementos.</p>`}</div></section>`;
+function renderGroupedCollection(items, { kind, title, eyebrow }) {
+  const groups = groupItemsByType(items);
+  return `<section class="admin-card admin-grouped-card"><header class="admin-card__header"><div><small>${escapeHtml(eyebrow)}</small><h2>${escapeHtml(title)}</h2></div><strong>${items.length} objetos</strong></header><div class="admin-type-groups">${groups.map(([type, group]) => {
+    const groupKey = `${kind}:${type}`;
+    const expanded = state.expandedContentGroups.has(groupKey);
+    const bytes = group.reduce((sum, item) => sum + Number(item.payloadBytes || 0), 0);
+    return `<article class="admin-content-group ${expanded ? "is-expanded" : ""}"><button type="button" data-admin-action="toggle-content-group" data-group-key="${escapeHtml(groupKey)}" aria-expanded="${expanded}"><span><strong>${escapeHtml(TYPE_LABELS[type] || type)}</strong><small>${group.length} objetos · ${formatBytes(bytes)}</small></span><b aria-hidden="true">⌄</b></button>${expanded ? renderItemSection({ title: "Elementos", kind, items: group, type }) : ""}</article>`;
+  }).join("") || `<p class="admin-empty">Sin elementos.</p>`}</div></section>`;
 }
 
 function getUserTotals(detail) {
@@ -267,8 +280,8 @@ function renderUserPage() {
     <section class="admin-card admin-account-hero"><div class="admin-user-identity">${user.image ? `<img src="${escapeHtml(user.image)}" alt="">` : `<span>${escapeHtml((user.name || user.email || "?").slice(0, 1).toUpperCase())}</span>`}<div><small>Detalle de cuenta</small><h2>${escapeHtml(user.name || "Sin nombre")}</h2><p>${escapeHtml(user.email || user.id)}</p></div></div><div class="admin-account-hero__actions"><span>${user.isAdmin ? "Administrador" : user.isBanned ? `Baneada · ${escapeHtml(user.banReason || "Sin motivo")}` : "Cuenta activa"}</span>${user.isAdmin ? "" : `<button class="admin-button ${user.isBanned ? "" : "admin-button--warning"}" type="button" data-admin-action="toggle-ban" data-user-id="${escapeHtml(user.id)}" data-banned="${user.isBanned}" data-user-label="${escapeHtml(user.email || user.name || user.id)}">${user.isBanned ? "Desbanear" : "Banear cuenta"}</button><button class="admin-button admin-button--danger" type="button" data-admin-action="delete-user" data-user-id="${escapeHtml(user.id)}" data-user-label="${escapeHtml(user.email || user.name || user.id)}">Eliminar cuenta</button>`}</div></section>
     <section class="admin-metrics">${renderMetric("R2 de la cuenta", formatBytes(totals.r2Bytes), `${detail.items.assets?.length || 0} archivos`)}${renderMetric("Datos D1", formatBytes(totals.d1Bytes), "Payload de campañas + biblioteca")}${renderMetric("Objetos", String(totals.objects), "Todos los niveles")}${renderMetric("Registro", formatDate(user.createdAt), user.isBanned ? "Cuenta bloqueada" : "Cuenta disponible")}</section>
     ${renderItemSection({ title: "Campañas guardadas", kind: "campaign", items: detail.items.campaigns || [] })}
-    ${renderGroupedLibrary(detail.items.library || [])}
-    ${renderItemSection({ title: "Catálogo de comunidad", kind: "catalog", items: detail.items.catalog || [] })}
+    ${renderGroupedCollection(detail.items.library || [], { kind: "library", title: "Biblioteca cloud por tipo", eyebrow: "Datos D1" })}
+    ${renderGroupedCollection(detail.items.catalog || [], { kind: "catalog", title: "Catálogo de comunidad por tipo", eyebrow: "Comunidad" })}
     ${renderItemSection({ title: "Objetos físicos en R2", kind: "asset", items: detail.items.assets || [] })}
   </main>`;
 }
@@ -291,12 +304,35 @@ function renderConfirmation() {
   return `<div class="admin-confirm-backdrop" data-admin-action="dismiss-confirmation"><section class="admin-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-confirm-title" data-admin-dialog><small>Confirmación obligatoria</small><h2 id="admin-confirm-title">${escapeHtml(confirmation.title)}</h2><p>${escapeHtml(confirmation.message)}</p>${confirmation.kind === "ban-user" ? `<label>Motivo opcional<textarea data-admin-confirm-reason>${escapeHtml(state.confirmationReason)}</textarea></label>` : ""}<label>Escribe <strong>${escapeHtml(confirmation.word)}</strong><input type="text" autocomplete="off" spellcheck="false" data-admin-confirm-value value="${escapeHtml(state.confirmationValue)}"></label><div><button class="admin-button admin-button--ghost" type="button" data-admin-action="cancel-confirmation">Cancelar</button><button class="admin-button admin-button--danger" type="button" data-admin-action="confirm-action" ${ready ? "" : "disabled"}>${escapeHtml(confirmation.word)}</button></div></section></div>`;
 }
 
+function renderPreview() {
+  const preview = state.preview;
+  if (!preview) return "";
+  const sourceUrl = getAdminR2ObjectUrl(preview.objectKey);
+  const downloadUrl = getAdminR2ObjectUrl(preview.objectKey, { download: true });
+  const mimeType = String(preview.mimeType || "").toLowerCase();
+  let content;
+  if (mimeType.startsWith("image/")) {
+    content = `<img class="admin-preview-media" src="${escapeHtml(sourceUrl)}" alt="${escapeHtml(preview.label)}">`;
+  } else if (mimeType === "application/pdf") {
+    content = `<iframe class="admin-preview-frame" src="${escapeHtml(sourceUrl)}" title="${escapeHtml(preview.label)}"></iframe>`;
+  } else if (mimeType.startsWith("video/")) {
+    content = `<video class="admin-preview-media" src="${escapeHtml(sourceUrl)}" controls></video>`;
+  } else if (mimeType.startsWith("audio/")) {
+    content = `<audio class="admin-preview-audio" src="${escapeHtml(sourceUrl)}" controls></audio>`;
+  } else if (mimeType.startsWith("text/")) {
+    content = `<iframe class="admin-preview-frame admin-preview-frame--text" src="${escapeHtml(sourceUrl)}" title="${escapeHtml(preview.label)}"></iframe>`;
+  } else {
+    content = `<div class="admin-preview-unsupported"><strong>Vista previa no disponible</strong><span>Formato: ${escapeHtml(preview.mimeType || "desconocido")}</span><p>Descarga el archivo para abrirlo con una aplicación compatible.</p></div>`;
+  }
+  return `<div class="admin-preview-backdrop" data-admin-action="dismiss-preview"><section class="admin-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-preview-title" data-admin-preview-dialog><header><div><small>Objeto R2</small><h2 id="admin-preview-title">${escapeHtml(preview.label)}</h2><p>${escapeHtml(preview.objectKey)}</p></div><button class="admin-icon-button" type="button" data-admin-action="close-preview" aria-label="Cerrar">×</button></header><div class="admin-preview-content">${content}</div><footer><a class="admin-button admin-button--ghost" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener">Abrir en otra pestaña</a><a class="admin-button" href="${escapeHtml(downloadUrl)}" download>Descargar archivo</a></footer></section></div>`;
+}
+
 function renderTopbar() {
   return `<header class="admin-topbar"><div class="admin-brand"><img src="${escapeHtml(appIconUrl)}" alt=""><div><small>Mimic Dice Cloud</small><h1>Panel de administrador</h1></div></div><div class="admin-topbar__actions"><span>${escapeHtml(state.session?.user?.email || "")}</span><button class="admin-button" type="button" data-admin-action="refresh">Actualizar</button><a class="admin-button admin-button--ghost" href="./">Volver a la app</a></div></header>`;
 }
 
 function renderReady() {
-  return `<div class="admin-shell">${renderTopbar()}${state.selectedUserId ? renderUserPage() : renderDashboard()}${renderConfirmation()}</div>`;
+  return `<div class="admin-shell">${renderTopbar()}${state.selectedUserId ? renderUserPage() : renderDashboard()}${renderConfirmation()}${renderPreview()}</div>`;
 }
 
 function render() {
@@ -407,9 +443,20 @@ function handleKeydown(event) {
     closeConfirmation();
     return;
   }
+  if (event.key === "Escape" && state.preview) {
+    state.preview = null;
+    render();
+    return;
+  }
   if ((event.key === "Enter" || event.key === " ") && event.target.matches('[data-admin-action="open-user"]')) {
     event.preventDefault();
     navigateToUser(event.target.dataset.userId);
+    return;
+  }
+  if ((event.key === "Enter" || event.key === " ") && event.target.matches('[data-admin-action="preview-r2-object"]')) {
+    event.preventDefault();
+    state.preview = { objectKey: event.target.dataset.objectKey, mimeType: event.target.dataset.mimeType, label: event.target.dataset.label };
+    render();
   }
 }
 
@@ -418,6 +465,7 @@ async function handleClick(event) {
   if (!trigger) return;
   const action = trigger.dataset.adminAction;
   if (action === "dismiss-confirmation" && event.target.closest("[data-admin-dialog]")) return;
+  if (action === "dismiss-preview" && event.target.closest("[data-admin-preview-dialog]")) return;
   if (action === "refresh" || action === "retry") { await refreshOverview(); return; }
   if (action === "open-user") { await navigateToUser(trigger.dataset.userId); return; }
   if (action === "admin-home") { await navigateToUser(""); return; }
@@ -425,6 +473,23 @@ async function handleClick(event) {
     const category = trigger.dataset.category;
     if (state.expandedStorage.has(category)) state.expandedStorage.delete(category);
     else state.expandedStorage.add(category);
+    render();
+    return;
+  }
+  if (action === "toggle-content-group") {
+    const groupKey = trigger.dataset.groupKey;
+    if (state.expandedContentGroups.has(groupKey)) state.expandedContentGroups.delete(groupKey);
+    else state.expandedContentGroups.add(groupKey);
+    render();
+    return;
+  }
+  if (action === "preview-r2-object") {
+    state.preview = { objectKey: trigger.dataset.objectKey, mimeType: trigger.dataset.mimeType, label: trigger.dataset.label };
+    render();
+    return;
+  }
+  if (action === "close-preview" || action === "dismiss-preview") {
+    state.preview = null;
     render();
     return;
   }

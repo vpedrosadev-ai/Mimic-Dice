@@ -26,7 +26,7 @@ const STORAGE_CATEGORY_LABELS = Object.freeze({
   "table-image": "Imágenes de tablas",
   "campaign-asset": "Archivos de campañas",
   "referenced-asset": "Otros archivos referenciados",
-  orphan: "Archivos huérfanos",
+  orphan: "Subidas sin referencia activa",
   untracked: "Objetos R2 sin registro"
 });
 
@@ -51,6 +51,7 @@ export function classifyAdminAsset(row = {}) {
   const contentType = cleanText(
     row.directLibraryType
       || row.directCatalogType
+      || row.embeddedLibraryType
       || splitTypes(row.referenceLibraryTypes)[0],
     30
   ).toLowerCase();
@@ -58,7 +59,7 @@ export function classifyAdminAsset(row = {}) {
   if (CONTENT_TYPES.has(contentType)) {
     return `${contentType}-image`;
   }
-  if (Number(row.campaignReferenceCount || 0) > 0) {
+  if (Number(row.campaignReferenceCount || 0) > 0 || Number(row.embeddedCampaignCount || 0) > 0) {
     return "campaign-asset";
   }
   if (Number(row.referenceCount || 0) > 0) {
@@ -86,9 +87,9 @@ export function summarizeAdminStorage(objects = [], assetRows = []) {
     current.items.push({
       id: String(tracked?.id || ""),
       objectKey,
-      name: String(tracked?.directLibraryName || tracked?.directCatalogName || ""),
+      name: String(tracked?.directLibraryName || tracked?.directCatalogName || tracked?.embeddedLibraryName || ""),
       ownerId,
-      mimeType: String(tracked?.mimeType || ""),
+      mimeType: String(tracked?.mimeType || object?.httpMetadata?.contentType || ""),
       bytes,
       tracked: Boolean(tracked),
       createdAt: tracked?.createdAt || (object?.uploaded ? new Date(object.uploaded).toISOString() : "")
@@ -124,19 +125,31 @@ async function getAdminAssetRows(db, ownerId = "") {
   return queryAll(db, `
     SELECT a.*,
       (SELECT e."type" FROM "cloud_library_entries" e
-       WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directLibraryType",
+       WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directLibraryType",
       (SELECT e."name" FROM "cloud_library_entries" e
-       WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directLibraryName",
+       WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directLibraryName",
       (SELECT e."type" FROM "cloud_catalog_entries" e
-       WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directCatalogType",
+       WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directCatalogType",
       (SELECT e."name" FROM "cloud_catalog_entries" e
-       WHERE e."imageUrl" = '/api/assets/' || a."id" LIMIT 1) AS "directCatalogName",
+       WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directCatalogName",
+      (SELECT e."type"
+       FROM "cloud_library_chunks" ch
+       INNER JOIN "cloud_library_entries" e ON e."id" = ch."entryId"
+       WHERE ch."payloadText" LIKE '%' || a."id" || '%' LIMIT 1) AS "embeddedLibraryType",
+      (SELECT e."name"
+       FROM "cloud_library_chunks" ch
+       INNER JOIN "cloud_library_entries" e ON e."id" = ch."entryId"
+       WHERE ch."payloadText" LIKE '%' || a."id" || '%' LIMIT 1) AS "embeddedLibraryName",
       (SELECT GROUP_CONCAT(DISTINCT e."type")
        FROM "cloud_asset_references" r
        INNER JOIN "cloud_library_entries" e ON r."parentType" = 'library' AND e."id" = r."parentId"
        WHERE r."assetId" = a."id") AS "referenceLibraryTypes",
       (SELECT COUNT(*) FROM "cloud_asset_references" r
        WHERE r."assetId" = a."id" AND r."parentType" = 'campaign') AS "campaignReferenceCount",
+      (SELECT COUNT(DISTINCT c."id")
+       FROM "campaign_chunks" ch
+       INNER JOIN "campaigns" c ON c."id" = ch."campaignId"
+       WHERE ch."payloadText" LIKE '%' || a."id" || '%') AS "embeddedCampaignCount",
       (SELECT COUNT(*) FROM "cloud_asset_references" r
        WHERE r."assetId" = a."id") AS "referenceCount"
     FROM "cloud_assets" a
@@ -150,7 +163,11 @@ async function listAllR2Objects(bucket) {
   let cursor;
 
   do {
-    const page = await bucket.list({ limit: 1000, ...(cursor ? { cursor } : {}) });
+    const page = await bucket.list({
+      limit: 1000,
+      include: ["httpMetadata", "customMetadata"],
+      ...(cursor ? { cursor } : {})
+    });
     objects.push(...(Array.isArray(page?.objects) ? page.objects : []));
     cursor = page?.truncated ? page.cursor : undefined;
   } while (cursor);
@@ -417,6 +434,28 @@ async function deleteR2Object(context) {
   return new Response(null, { status: 204 });
 }
 
+async function getR2Object(context) {
+  const requestUrl = new URL(context.request.url);
+  const objectKey = cleanText(requestUrl.searchParams.get("key"), 2048);
+  if (!objectKey) throw new HttpError(400, "invalid_admin_object_key", "R2 object key is required.");
+  const object = await context.env.CLOUD_ASSETS.get(objectKey);
+  if (!object) throw new HttpError(404, "admin_r2_object_not_found", "R2 object not found.");
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  const contentType = cleanText(headers.get("Content-Type"), 150) || "application/octet-stream";
+  const fallbackName = objectKey.split("/").pop() || "mimic-dice-file";
+  const filename = fallbackName.replace(/[^a-z0-9._-]/gi, "_").slice(0, 180) || "mimic-dice-file";
+  const download = requestUrl.searchParams.get("download") === "1";
+  headers.set("Content-Type", contentType);
+  headers.set("Content-Length", String(object.size || 0));
+  headers.set("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${filename}"`);
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Content-Security-Policy", "sandbox");
+  return new Response(context.request.method.toUpperCase() === "HEAD" ? null : object.body, { headers });
+}
+
 async function deleteGroup(context) {
   const body = await readJsonBody(context.request, 8192);
   const kind = cleanText(body.kind, 30).toLowerCase();
@@ -515,6 +554,10 @@ export async function handleAdminRequest(context) {
     if (pathParts[0] === "delete-r2-object" && pathParts.length === 1) {
       if (method !== "POST") return methodNotAllowed(["POST"]);
       return deleteR2Object(context);
+    }
+    if (pathParts[0] === "r2-object" && pathParts.length === 1) {
+      if (method !== "GET" && method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
+      return getR2Object(context);
     }
     throw new HttpError(404, "admin_route_not_found", "Admin route not found.");
   } catch (error) {

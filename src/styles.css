@@ -2410,7 +2410,13 @@ button.is-cloud-busy:disabled {
 .admin-storage-bar { height: .55rem; overflow: hidden; border-radius: 99px; background: rgba(255, 255, 255, .07); }
 .admin-storage-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #d39a52, #5eb7a6); }
 .admin-storage-items { grid-column: 1 / -1; display: grid; gap: .45rem; margin-top: .35rem; padding-top: .7rem; border-top: 1px solid rgba(224, 173, 96, .13); }
+.admin-storage-note { grid-column: 1 / -1; margin: .2rem 0 0; color: #b9a78e; font-size: .76rem; line-height: 1.45; }
 .admin-storage-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .8rem; padding: .62rem; border-radius: .55rem; background: rgba(10, 7, 5, .5); }
+.admin-storage-item { cursor: pointer; }
+.admin-storage-item:hover,
+.admin-storage-item:focus-visible,
+.admin-item-card--previewable:hover,
+.admin-item-card--previewable:focus-visible { outline: 1px solid rgba(120, 213, 195, .55); background: rgba(94, 183, 166, .08); }
 .admin-storage-item > div { display: grid; gap: .18rem; min-width: 0; }
 .admin-storage-item > div:last-child { justify-items: end; }
 .admin-storage-item strong,
@@ -2481,6 +2487,26 @@ button.is-cloud-busy:disabled {
 .admin-account-hero__actions > span { width: 100%; color: #bbaa91; text-align: right; }
 .admin-grouped-card > .admin-card__header { margin-bottom: .25rem; }
 .admin-type-groups { display: grid; gap: .8rem; }
+.admin-content-group { overflow: hidden; border: 1px solid rgba(224, 173, 96, .14); border-radius: .7rem; background: rgba(255, 255, 255, .02); }
+.admin-content-group > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: .8rem;
+  border: 0;
+  color: #f5e7d1;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.admin-content-group > button > span { display: grid; gap: .18rem; }
+.admin-content-group > button small { color: #9f927f; }
+.admin-content-group > button > b { color: #d7ab69; font-size: 1.2rem; transition: transform .16s ease; }
+.admin-content-group.is-expanded > button > b { transform: rotate(180deg); }
+.admin-content-group .admin-detail-section { margin: 0 .8rem .8rem; }
+.admin-item-card--previewable { cursor: pointer; }
 
 .admin-detail-section { margin-top: .9rem; padding: .8rem; border: 1px solid rgba(224, 173, 96, .14); border-radius: .7rem; background: rgba(255, 255, 255, .02); }
 .admin-detail-section > header { margin-bottom: .65rem; }
@@ -2549,6 +2575,44 @@ button.is-cloud-busy:disabled {
 .admin-confirm-dialog > div { display: flex; justify-content: flex-end; gap: .6rem; }
 .admin-button:disabled { opacity: .42; cursor: not-allowed; }
 
+.admin-preview-backdrop {
+  position: fixed;
+  z-index: 105;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(5, 3, 2, .82);
+  backdrop-filter: blur(6px);
+}
+.admin-preview-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(72rem, 96vw);
+  height: min(54rem, 92vh);
+  overflow: hidden;
+  border: 1px solid rgba(224, 173, 96, .34);
+  border-radius: .9rem;
+  background: #130d0a;
+  box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, .7);
+}
+.admin-preview-dialog > header,
+.admin-preview-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding: .8rem 1rem; }
+.admin-preview-dialog > header { border-bottom: 1px solid rgba(224, 173, 96, .16); }
+.admin-preview-dialog > footer { justify-content: flex-end; border-top: 1px solid rgba(224, 173, 96, .16); }
+.admin-preview-dialog h2,
+.admin-preview-dialog p { margin: 0; }
+.admin-preview-dialog header small { color: #d7ab69; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.admin-preview-dialog header p { max-width: 60vw; overflow: hidden; color: #988a77; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.admin-preview-content { display: grid; min-height: 0; place-items: center; overflow: auto; padding: 1rem; background: #090605; }
+.admin-preview-media { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.admin-preview-frame { width: 100%; height: 100%; min-height: 24rem; border: 0; background: #fff; }
+.admin-preview-frame--text { background: #f8f4ec; }
+.admin-preview-audio { width: min(36rem, 100%); }
+.admin-preview-unsupported { display: grid; justify-items: center; gap: .5rem; max-width: 30rem; color: #b9a78e; text-align: center; }
+.admin-preview-unsupported strong { color: #f2cc8c; font-size: 1.2rem; }
+.admin-preview-unsupported p { margin: 0; }
+
 @media (max-width: 900px) {
   .admin-topbar { align-items: flex-start; }
   .admin-topbar__actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -2572,6 +2636,8 @@ button.is-cloud-busy:disabled {
   .admin-account-hero { display: grid; }
   .admin-account-hero__actions { justify-content: flex-start; }
   .admin-account-hero__actions > span { text-align: left; }
+  .admin-preview-dialog { width: 100%; height: 96vh; }
+  .admin-preview-dialog > footer { align-items: stretch; flex-direction: column; }
 }
 
 .account-campaign-list {

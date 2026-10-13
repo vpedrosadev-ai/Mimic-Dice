@@ -339,3 +339,9 @@ export async function deleteAdminR2Object(objectKey) {
     body: JSON.stringify({ objectKey })
   });
 }
+
+export function getAdminR2ObjectUrl(objectKey, { download = false } = {}) {
+  const params = new URLSearchParams({ key: String(objectKey || "") });
+  if (download) params.set("download", "1");
+  return `/api/admin/r2-object?${params.toString()}`;
+}
