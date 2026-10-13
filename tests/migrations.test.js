@@ -27,6 +27,7 @@ test("all database migrations apply in order and allow map entries", () => {
   assert.ok(database.prepare('PRAGMA table_info("cloud_library_entries")').all().some((column) => column.name === "tags"));
   assert.ok(database.prepare('PRAGMA table_info("cloud_catalog_entries")').all().some((column) => column.name === "tags"));
   assert.ok(database.prepare('PRAGMA table_info("multiplayer_rooms")').all().some((column) => column.name === "campaignId"));
+  assert.ok(database.prepare('PRAGMA table_info("admin_user_bans")').all().some((column) => column.name === "bannedBy"));
   database.close();
 });
 

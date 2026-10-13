@@ -1,7 +1,7 @@
 import { Auth } from "@auth/core";
 import Google from "@auth/core/providers/google";
 import { D1Adapter } from "@auth/d1-adapter";
-import { assertServerBindings, isAdministrator } from "../../_shared/auth.js";
+import { assertServerBindings, isAdministrator, isUserBanned } from "../../_shared/auth.js";
 import { errorResponse } from "../../_shared/http.js";
 import {
   getClearedRegistrationCookie,
@@ -10,7 +10,7 @@ import {
   verifyRegistrationToken
 } from "../../_shared/invitation.js";
 
-async function isExistingGoogleUser(db, account, profile) {
+async function getExistingGoogleUserId(db, account, profile) {
   const providerAccountId = String(account?.providerAccountId || "");
 
   if (providerAccountId) {
@@ -23,20 +23,20 @@ async function isExistingGoogleUser(db, account, profile) {
     `).bind(providerAccountId).first();
 
     if (accountUser?.id) {
-      return true;
+      return accountUser.id;
     }
   }
 
   const email = String(profile?.email || "").trim().toLowerCase();
 
   if (!email) {
-    return false;
+    return "";
   }
 
   const emailUser = await db.prepare(
     'SELECT "id" FROM "users" WHERE lower("email") = ? LIMIT 1'
   ).bind(email).first();
-  return Boolean(emailUser?.id);
+  return String(emailUser?.id || "");
 }
 
 export async function onRequest(context) {
@@ -73,8 +73,9 @@ export async function onRequest(context) {
             return false;
           }
 
-          if (await isExistingGoogleUser(context.env.DB, account, profile)) {
-            return true;
+          const existingUserId = await getExistingGoogleUserId(context.env.DB, account, profile);
+          if (existingUserId) {
+            return !(await isUserBanned(context.env.DB, existingUserId));
           }
 
           return registrationAuthorized;

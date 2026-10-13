@@ -302,3 +302,40 @@ export async function deleteCloudLibraryEntry(entryId) {
 
   return null;
 }
+
+export async function getAdminOverview() {
+  return requestJson("/api/admin/overview");
+}
+
+export async function getAdminUserDetail(userId) {
+  return requestJson(`/api/admin/users/${encodeURIComponent(userId)}`);
+}
+
+export async function setAdminUserBan(userId, { banned, reason = "" }) {
+  return requestJson(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
+    method: "PATCH",
+    body: JSON.stringify({ banned: banned === true, reason })
+  });
+}
+
+export async function deleteAdminUser(userId) {
+  return requestJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export async function deleteAdminItem(kind, itemId) {
+  return requestJson(`/api/admin/items/${encodeURIComponent(kind)}/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+}
+
+export async function deleteAdminGroup({ kind, ownerId = "", type = "", category = "" }) {
+  return requestJson("/api/admin/delete-group", {
+    method: "POST",
+    body: JSON.stringify({ kind, ownerId, type, category })
+  });
+}
+
+export async function deleteAdminR2Object(objectKey) {
+  return requestJson("/api/admin/delete-r2-object", {
+    method: "POST",
+    body: JSON.stringify({ objectKey })
+  });
+}

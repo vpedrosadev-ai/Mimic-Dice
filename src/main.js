@@ -1913,6 +1913,15 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-admin-panel") {
+    const adminUrl = new URL(window.location.href);
+    adminUrl.search = "";
+    adminUrl.hash = "";
+    adminUrl.searchParams.set("view", "admin");
+    window.open(adminUrl.toString(), "_blank", "noopener,noreferrer");
+    return;
+  }
+
   if (action === "dismiss-account-dialog") {
     state.accountDialogOpen = false;
     state.accountRegistrationPromptOpen = false;
@@ -10597,6 +10606,7 @@ function renderAccountDialog() {
                     <small>${escapeHtml(cleanText(user.email))}</small>
                   </div>
                   <div class="account-profile__actions">
+                    ${user.isAdmin === true ? `<button class="account-action-button account-action-button--admin" type="button" data-action="open-admin-panel">Panel de administrador</button>` : ""}
                     <label class="account-action-button account-action-button--ghost account-profile__image-button${getCloudButtonBusyClass("saving", "profile:image")}" ${isCloudOperationActive("saving", "profile:image") ? `aria-busy="true"` : ""}>
                       ${renderCloudButtonLabel("Cambiar imagen", "Guardando...", "saving", "profile:image")}
                       <input class="account-profile__image-input" type="file" accept="image/*" data-account-profile-image ${isCloudOperationActive("saving", "profile:image") ? "disabled" : ""} />
