@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   getAreaShapeMetrics,
   getGridCoordinateForPosition,
+  getMapKeyboardPanDelta,
   getMapLayoutKey,
   getTokenFeedbackPosition,
   normalizeMapEditorState,
@@ -45,6 +46,19 @@ test("token feedback stays inside viewport and flips below tokens near top edge"
   assert.equal(nearRightBottom.arrowX, 226);
 });
 
+test("map arrow keys pan consistently and Shift accelerates movement", () => {
+  assert.deepEqual(getMapKeyboardPanDelta("ArrowLeft"), { left: -56, top: 0 });
+  assert.deepEqual(getMapKeyboardPanDelta("ArrowDown", true), { left: 0, top: 168 });
+  assert.equal(getMapKeyboardPanDelta("Enter"), null);
+});
+
+test("map zoom reaches 500 percent and player notifications default off", () => {
+  const defaults = normalizeMapEditorState({});
+  const enlarged = normalizeMapEditorState({ viewport: { zoom: 99 } });
+  assert.equal(defaults.playerNotifications.visible, false);
+  assert.equal(enlarged.viewport.zoom, 5);
+});
+
 test("accepts image files created in a different window realm", () => {
   const popupFile = { name: "barco.jpg", type: "image/jpeg", arrayBuffer: async () => new ArrayBuffer(0) };
   const untypedDownloadedFile = { name: "cueva.JPEG", type: "", arrayBuffer: async () => new ArrayBuffer(0) };
@@ -81,6 +95,7 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
     openPanel: "grid",
     windowBounds: { width: 200, height: 5000, left: -80, top: 25 },
     viewport: { scrollLeft: 140, scrollTop: 75 },
+    playerNotifications: { visible: false, scale: 9 },
     rotation: 91,
     rotationOrientation: "with-map",
     grid: { type: "triangle", size: 1000 },
@@ -95,6 +110,7 @@ test("map editor state clamps controls and rejects unsafe shapes", () => {
   assert.equal(normalized.openPanel, "grid");
   assert.deepEqual(normalized.windowBounds, { width: 720, height: 2160, left: -80, top: 25 });
   assert.deepEqual(normalized.viewport, { scrollLeft: 140, scrollTop: 75, zoom: 1 });
+  assert.deepEqual(normalized.playerNotifications, { visible: false, scale: 1.25 });
   assert.equal(normalized.grid.type, "square");
   assert.equal(normalized.grid.size, 240);
   assert.equal(normalized.grid.color, "#ffffff");

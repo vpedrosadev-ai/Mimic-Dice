@@ -19,7 +19,10 @@ const MAX_FOG_POINTS = 12000;
 const MAX_AREA_SHAPES = 200;
 const MAX_SAVED_MAP_LAYOUTS = 20;
 const MIN_MAP_ZOOM = 0.25;
-const MAX_MAP_ZOOM = 3;
+const MAX_MAP_ZOOM = 5;
+const MIN_PLAYER_NOTIFICATION_SCALE = 0.75;
+const MAX_PLAYER_NOTIFICATION_SCALE = 1.25;
+const MAP_KEYBOARD_PAN_STEP = 56;
 const GRID_LABEL_GUTTER = 34;
 const TEXT_SHAPE_GUTTER = 180;
 const MAP_STORAGE_KEY = "mimic-dice:combat-map:v1";
@@ -584,6 +587,10 @@ export function normalizeMapEditorState(value) {
       scrollTop: Math.max(0, Number(source.playerViewport?.scrollTop) || 0),
       zoom: clamp(source.playerViewport?.zoom || 1, MIN_MAP_ZOOM, MAX_MAP_ZOOM)
     },
+    playerNotifications: {
+      visible: source.playerNotifications?.visible === true,
+      scale: clamp(source.playerNotifications?.scale || 1, MIN_PLAYER_NOTIFICATION_SCALE, MAX_PLAYER_NOTIFICATION_SCALE)
+    },
     opacity: {
       overall: normalizeOpacity(source.opacity?.overall),
       grid: normalizeOpacity(source.opacity?.grid),
@@ -813,6 +820,15 @@ export function getTokenFeedbackPosition({ tokenCenterX, tokenTop, tokenBottom, 
     below,
     arrowX: clamp(centerX - left, 14, Math.max(14, width - 14))
   };
+}
+
+export function getMapKeyboardPanDelta(key, accelerated = false) {
+  const distance = MAP_KEYBOARD_PAN_STEP * (accelerated ? 3 : 1);
+  if (key === "ArrowLeft") return { left: -distance, top: 0 };
+  if (key === "ArrowRight") return { left: distance, top: 0 };
+  if (key === "ArrowUp") return { left: 0, top: -distance };
+  if (key === "ArrowDown") return { left: 0, top: distance };
+  return null;
 }
 
 export function createCombatMapController(options = {}) {
@@ -1194,7 +1210,9 @@ export function createCombatMapController(options = {}) {
   function syncNotifications() {
     if (!isOpen()) return;
     const root = editorWindow.document.querySelector("[data-map-notification-root]");
-    if (root) root.innerHTML = options.renderNotifications?.() || "";
+    if (!root) return;
+    root.style.setProperty("--map-player-notification-scale", String(state.playerNotifications.scale));
+    root.innerHTML = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
   }
 
   function showTokenFeedback({ combatantId = "", kind = "info", text = "", iconUrl = "", durationMs = 2400 } = {}) {
@@ -1332,8 +1350,12 @@ export function createCombatMapController(options = {}) {
   }
 
   function getEventSurface(event) {
-    return event?.target?.closest?.("[data-combat-map-master-root], [data-combat-map-player-root]")
-      || activeDrag?.surface
+    const closestSurface = event?.target?.closest?.("[data-combat-map-master-root], [data-combat-map-player-root]");
+    if (closestSurface) return closestSurface;
+    if (editorWindow?.document && event?.target?.ownerDocument === editorWindow.document) {
+      return editorWindow.document.querySelector("[data-combat-map-player-root]");
+    }
+    return activeDrag?.surface
       || masterHost
       || editorWindow?.document?.querySelector?.("[data-combat-map-player-root]");
   }
@@ -1440,8 +1462,13 @@ export function createCombatMapController(options = {}) {
     return `<section class="combat-map-popover" data-map-panel="map" ${panel === "map" ? "" : "hidden"}>
       <h2>Mapa</h2>
       <button type="button" data-map-action="toggle-map-load-menu">Cargar imagen</button>
-      <label>Zoom <input type="range" min="25" max="300" step="5" value="${Math.round(viewport.zoom * 100)}" data-map-zoom><output>${Math.round(viewport.zoom * 100)}%</output></label>
+      <label>Zoom <input type="range" min="25" max="500" step="5" value="${Math.round(viewport.zoom * 100)}" data-map-zoom><output>${Math.round(viewport.zoom * 100)}%</output></label>
       ${renderOpacityControl("overall", "Opacidad general de elementos")}
+      <fieldset class="combat-map-notification-settings">
+        <legend>Notificaciones del jugador</legend>
+        <label><input type="checkbox" data-map-player-notifications ${state.playerNotifications.visible ? "checked" : ""}> Mostrar en la ventana del jugador</label>
+        ${state.playerNotifications.visible ? `<label>Tamaño <input type="range" min="75" max="125" step="5" value="${Math.round(state.playerNotifications.scale * 100)}" data-map-player-notification-scale><output>${Math.round(state.playerNotifications.scale * 100)}%</output></label>` : ""}
+      </fieldset>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="zoom-out">Alejar</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in">Acercar</button></div>
       <div class="combat-map-tool-actions"><button type="button" data-map-action="rotate-left">Rotar 90° izquierda</button><button type="button" data-map-action="rotate-right">Rotar 90° derecha</button></div>
       <label>Orientación al rotar <select data-map-rotation-orientation><option value="upright" ${state.rotationOrientation === "upright" ? "selected" : ""}>Mantener textos y peanas derechos</option><option value="with-map" ${state.rotationOrientation === "with-map" ? "selected" : ""}>Rotar todo con el mapa</option></select></label>
@@ -1689,7 +1716,8 @@ export function createCombatMapController(options = {}) {
       const flyingHeight = Math.max(0, Math.round(Number(combatant.flyingHeight) || 0));
       const stackIndex = getTokenStackIndex(combatant.id, index);
       const teamColor = /^#[0-9a-f]{6}$/i.test(clean(combatant.teamColor)) ? clean(combatant.teamColor) : "";
-      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${master && hidden ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
+      const dead = !isAlive(combatant);
+      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${master && hidden ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
         ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt=""><span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
         <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span><strong>${escapeHtml(combatant.numPeana || "—")}</strong>
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
@@ -1750,7 +1778,7 @@ export function createCombatMapController(options = {}) {
     const gutter = gridGutter + textGutter;
     const totalWidth = displayWidth + gutter * 2;
     const totalHeight = displayHeight + gutter * 2;
-    return `<div class="combat-map-viewport ${master ? "combat-map-viewport--master" : ""} ${player ? "combat-map-viewport--player" : ""}"><div class="combat-map-frame" data-map-frame><div class="combat-map-scale-layer" data-map-scale-layer style="width:${totalWidth}px;height:${totalHeight}px"><div class="combat-map-board" data-map-board data-map-width="${width}" data-map-height="${height}" data-display-width="${displayWidth}" data-display-height="${displayHeight}" style="left:${gutter}px;top:${gutter}px;width:${displayWidth}px;height:${displayHeight}px;aspect-ratio:${displayWidth}/${displayHeight}">
+    return `<div class="combat-map-viewport ${master ? "combat-map-viewport--master" : ""} ${player ? "combat-map-viewport--player" : ""}" tabindex="0" aria-label="Lienzo del mapa. Usa las flechas para desplazarlo."><div class="combat-map-frame" data-map-frame><div class="combat-map-scale-layer" data-map-scale-layer style="width:${totalWidth}px;height:${totalHeight}px"><div class="combat-map-board" data-map-board data-map-width="${width}" data-map-height="${height}" data-display-width="${displayWidth}" data-display-height="${displayHeight}" style="left:${gutter}px;top:${gutter}px;width:${displayWidth}px;height:${displayHeight}px;aspect-ratio:${displayWidth}/${displayHeight}">
       <div class="combat-map-clip">
       <div class="combat-map-rotating-layers" style="inset:auto;left:50%;top:50%;width:${width}px;height:${height}px;transform:translate(-50%,-50%) rotate(${state.rotation}deg)">
         ${map?.imageUrl ? `<img class="combat-map-image" src="${escapeHtml(map.imageUrl)}" alt="${escapeHtml(map.name)}" draggable="false">` : `<div class="combat-map-empty"><strong>${map ? "Mapa privado" : "Sin mapa"}</strong><span>${map ? "Inicia sesión con la cuenta propietaria para cargarlo." : "Carga una imagen desde equipo o nube."}</span></div>`}
@@ -1825,7 +1853,8 @@ export function createCombatMapController(options = {}) {
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root>${options.renderNotifications?.() || ""}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    const notifications = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function sync() {
@@ -2650,6 +2679,7 @@ export function createCombatMapController(options = {}) {
       }
     }
     else if (target.matches("[data-map-health]")) state.healthMode = target.value;
+    else if (target.matches("[data-map-player-notifications]")) state.playerNotifications.visible = target.checked;
     else if (target.matches("[data-map-initiative]")) {
       const version = getSurfaceKind(getEventSurface(event));
       state.initiative[version === "player" ? "playerVisible" : "masterVisible"] = target.checked;
@@ -2725,6 +2755,11 @@ export function createCombatMapController(options = {}) {
       persist();
     } else if (event.target.matches("[data-map-zoom]")) {
       setMapZoom(Number(event.target.value) / 100, surface);
+    } else if (event.target.matches("[data-map-player-notification-scale]")) {
+      state.playerNotifications.scale = clamp(Number(event.target.value) / 100, MIN_PLAYER_NOTIFICATION_SCALE, MAX_PLAYER_NOTIFICATION_SCALE);
+      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.playerNotifications.scale * 100)}%`);
+      editorWindow?.document?.querySelector("[data-map-notification-root]")?.style.setProperty("--map-player-notification-scale", String(state.playerNotifications.scale));
+      persist();
     } else if (event.target.matches("[data-map-initiative-size]")) {
       state.initiative.size = clamp(event.target.value, 160, 650);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.initiative.size)} px`);
@@ -2794,10 +2829,22 @@ export function createCombatMapController(options = {}) {
     if (event.target.closest("[data-map-initiative-order]")) { options.handleInitiativeKeydown?.(event); return; }
     if (event.target.closest("[data-combat-turn-quick-menu]")) { options.handleContextKeydown?.(event); return; }
     const panel = getSurfacePanel(getEventSurface(event));
-    if ((event.key === "Delete" || event.key === "Backspace") && panel === "shapes" && !event.target.matches("input, select, textarea")) {
+    const isTextControl = event.target.matches("input, select, textarea, [contenteditable='true']");
+    const panDelta = !isTextControl && !event.ctrlKey && !event.metaKey && !event.altKey
+      ? getMapKeyboardPanDelta(event.key, event.shiftKey)
+      : null;
+    if (panDelta) {
+      const surface = getEventSurface(event);
+      const viewport = surface?.querySelector(".combat-map-viewport");
+      if (viewport) {
+        event.preventDefault();
+        viewport.scrollLeft += panDelta.left;
+        viewport.scrollTop += panDelta.top;
+      }
+    } else if ((event.key === "Delete" || event.key === "Backspace") && panel === "shapes" && !isTextControl) {
       event.preventDefault();
       deleteSelectedShape();
-    } else if ((event.key === "Delete" || event.key === "Backspace") && panel === "paint" && state.paint.selectedIconId && !event.target.matches("input, select, textarea")) {
+    } else if ((event.key === "Delete" || event.key === "Backspace") && panel === "paint" && state.paint.selectedIconId && !isTextControl) {
       event.preventDefault();
       state.paint.strokes = state.paint.strokes.filter((stroke) => stroke.id !== state.paint.selectedIconId);
       state.paint.selectedIconId = "";
@@ -2958,6 +3005,10 @@ export function createCombatMapController(options = {}) {
   function handlePointerDown(event) {
     const surface = getEventSurface(event);
     if (!surface) return;
+    const viewport = event.target.closest?.(".combat-map-viewport");
+    if (viewport && !event.target.closest?.("button, input, select, textarea, [contenteditable='true']")) {
+      viewport.focus({ preventScroll: true });
+    }
     const panel = getSurfacePanel(surface);
     if (event.target.closest("[data-combat-turn-quick-menu]")) return;
     options.closeContextMenu?.();

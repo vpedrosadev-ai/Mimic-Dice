@@ -3994,6 +3994,21 @@ button.is-cloud-busy:disabled {
   gap: .55rem;
 }
 
+.combat-map-notification-settings {
+  display: grid;
+  gap: .55rem;
+  margin: 0;
+  padding: .7rem;
+  border: 1px solid rgba(220, 179, 110, .25);
+  border-radius: .65rem;
+}
+
+.combat-map-notification-settings legend {
+  padding: 0 .3rem;
+  color: #e7c58e;
+  font-weight: 700;
+}
+
 .combat-map-popover input[type="range"] {
   flex: 1;
 }
@@ -4263,6 +4278,11 @@ button.is-cloud-busy:disabled {
   min-height: 0;
   padding: .75rem;
   overflow: auto;
+}
+
+.combat-map-viewport:focus-visible {
+  outline: 2px solid rgba(240, 200, 121, .78);
+  outline-offset: -2px;
 }
 
 .combat-map-frame {
@@ -4587,6 +4607,10 @@ button.is-cloud-busy:disabled {
 
 .combat-map-token:active {
   cursor: grabbing;
+}
+
+.combat-map-token.is-dead {
+  filter: grayscale(1);
 }
 
 .combat-map-token.is-hidden-from-initiative .combat-map-token__portrait {
@@ -9135,6 +9159,12 @@ input[type="number"]::-webkit-inner-spin-button {
   gap: 0.75rem;
   width: min(31rem, calc(100vw - 2rem));
   pointer-events: none;
+}
+
+.combat-map-editor--player [data-map-notification-root] .notification-stack {
+  width: min(31rem, calc((100vw - 2rem) * .8));
+  transform: scale(var(--map-player-notification-scale, 1));
+  transform-origin: top right;
 }
 
 .notification-card {
