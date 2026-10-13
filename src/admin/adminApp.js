@@ -212,20 +212,35 @@ function renderUserRow(user) {
   </tr>`;
 }
 
+function renderLinkedAsset(asset) {
+  const label = asset.name || asset.objectKey || asset.id || "Archivo R2";
+  const previewAttributes = asset.existsInR2
+    ? ` tabindex="0" data-admin-action="preview-r2-object" data-object-key="${escapeHtml(asset.objectKey || "")}" data-mime-type="${escapeHtml(asset.mimeType || "")}" data-label="${escapeHtml(label)}"`
+    : "";
+  return `<article class="admin-linked-asset${previewAttributes ? " admin-item-card--previewable" : ""}"${previewAttributes}><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(asset.mimeType || "formato desconocido")}${asset.existsInR2 ? "" : " · NO EN R2"}</small><small>${escapeHtml(asset.objectKey || asset.id || "")}</small></div><div><b>${formatBytes(asset.byteSize)}</b><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="delete-item" data-kind="asset" data-item-id="${escapeHtml(asset.id || "")}" data-object-key="${escapeHtml(asset.objectKey || "")}" data-label="${escapeHtml(label)}">Eliminar</button></div></article>`;
+}
+
 function renderItemSection({ title, kind, items, type = "" }) {
+  const groupKinds = [...new Set(items.map((item) => item.adminKind || kind).filter(Boolean))];
+  const groupDelete = items.length
+    ? `<button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="delete-group" data-kind="${escapeHtml(groupKinds[0] || kind)}" data-kinds="${escapeHtml(groupKinds.join(","))}" data-owner-id="${escapeHtml(state.selectedUserId)}" data-type="${escapeHtml(type)}" data-label="${escapeHtml(`${title} de esta cuenta`)}">Eliminar grupo</button>`
+    : "";
   return `<section class="admin-detail-section">
-    <header><div><h3>${escapeHtml(title)}</h3><span>${items.length}</span></div>${items.length ? `<button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="delete-group" data-kind="${escapeHtml(kind)}" data-owner-id="${escapeHtml(state.selectedUserId)}" data-type="${escapeHtml(type)}" data-label="${escapeHtml(`${title} de esta cuenta`)}">Eliminar grupo</button>` : ""}</header>
+    <header><div><h3>${escapeHtml(title)}</h3><span>${items.length}</span></div>${groupDelete}</header>
     ${items.length ? `<div class="admin-item-list">${items.map((item) => {
+      const adminKind = item.adminKind || kind;
       const itemType = kind === "campaign" ? "campaign" : item.type || item.category || kind;
       const size = kind === "asset" ? item.byteSize : item.payloadBytes;
+      const linkedAssets = adminKind === "asset" ? [] : (item.assets || []);
+      const linkedBytes = linkedAssets.reduce((sum, asset) => sum + Number(asset.byteSize || 0), 0);
       const detail = kind === "asset"
         ? `${item.categoryLabel || TYPE_LABELS[itemType] || itemType} · ${item.mimeType || "archivo"} · ${item.references?.length || 0} referencias${item.existsInR2 ? "" : " · NO EN R2"}`
-        : `${TYPE_LABELS[itemType] || itemType}${item.isPublic === 1 ? " · Público" : " · Privado"}`;
-      const deleteAction = kind === "asset" && item.tracked === false ? "delete-r2-object" : "delete-item";
-      const previewAttributes = kind === "asset" && item.existsInR2
+        : `${TYPE_LABELS[itemType] || itemType}${item.isPublic === 1 ? " · Público" : " · Privado"}${linkedAssets.length ? ` · ${linkedAssets.length} archivo${linkedAssets.length === 1 ? "" : "s"} R2 (${formatBytes(linkedBytes)})` : ""}`;
+      const deleteAction = adminKind === "asset" && item.tracked === false ? "delete-r2-object" : "delete-item";
+      const previewAttributes = adminKind === "asset" && item.existsInR2
         ? ` tabindex="0" data-admin-action="preview-r2-object" data-object-key="${escapeHtml(item.objectKey || "")}" data-mime-type="${escapeHtml(item.mimeType || "")}" data-label="${escapeHtml(item.name || item.objectKey || item.id)}"`
         : "";
-      return `<article class="admin-item-card${previewAttributes ? " admin-item-card--previewable" : ""}"${previewAttributes}><div><strong>${escapeHtml(item.name || item.objectKey || item.id)}</strong><small>${escapeHtml(detail)}</small><small>${escapeHtml(item.id || item.objectKey)}</small></div><div class="admin-item-card__meta"><b>${formatBytes(size)}</b><time>${formatDate(item.updatedAt || item.createdAt)}</time><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="${deleteAction}" data-kind="${escapeHtml(kind)}" data-item-id="${escapeHtml(item.id)}" data-object-key="${escapeHtml(item.objectKey || "")}" data-label="${escapeHtml(item.name || item.objectKey || item.id)}">Eliminar</button></div></article>`;
+      return `<article class="admin-item-card${previewAttributes ? " admin-item-card--previewable" : ""}"${previewAttributes}><div><strong>${escapeHtml(item.name || item.objectKey || item.id)}</strong><small>${escapeHtml(detail)}</small><small>${escapeHtml(item.id || item.objectKey)}</small></div><div class="admin-item-card__meta"><b>${formatBytes(size)}</b><time>${formatDate(item.updatedAt || item.createdAt)}</time><button class="admin-button admin-button--danger admin-button--compact" type="button" data-admin-action="${deleteAction}" data-kind="${escapeHtml(adminKind)}" data-item-id="${escapeHtml(item.id)}" data-object-key="${escapeHtml(item.objectKey || "")}" data-label="${escapeHtml(item.name || item.objectKey || item.id)}">Eliminar</button></div>${linkedAssets.length ? `<div class="admin-item-card__assets"><span>Archivos físicos en R2</span>${linkedAssets.map(renderLinkedAsset).join("")}</div>` : ""}</article>`;
     }).join("")}</div>` : `<p class="admin-empty">Sin elementos.</p>`}
   </section>`;
 }
@@ -274,14 +289,19 @@ function renderUserPage() {
   const detail = state.userDetail;
   const user = detail.user;
   const totals = getUserTotals(detail);
+  const libraryItems = (detail.items.library || []).filter((item) => item.type !== "map");
+  const catalogItems = [
+    ...(detail.items.catalog || []).map((item) => ({ ...item, adminKind: "catalog" })),
+    ...(detail.items.library || []).filter((item) => item.type === "map").map((item) => ({ ...item, adminKind: "library" }))
+  ].sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
   return `<main class="admin-main admin-user-page">
     <button class="admin-button admin-button--ghost admin-back-button" type="button" data-admin-action="admin-home">← Volver a cuentas</button>
     ${state.error ? `<p class="admin-error" role="alert">${escapeHtml(state.error)}</p>` : ""}
     <section class="admin-card admin-account-hero"><div class="admin-user-identity">${user.image ? `<img src="${escapeHtml(user.image)}" alt="">` : `<span>${escapeHtml((user.name || user.email || "?").slice(0, 1).toUpperCase())}</span>`}<div><small>Detalle de cuenta</small><h2>${escapeHtml(user.name || "Sin nombre")}</h2><p>${escapeHtml(user.email || user.id)}</p></div></div><div class="admin-account-hero__actions"><span>${user.isAdmin ? "Administrador" : user.isBanned ? `Baneada · ${escapeHtml(user.banReason || "Sin motivo")}` : "Cuenta activa"}</span>${user.isAdmin ? "" : `<button class="admin-button ${user.isBanned ? "" : "admin-button--warning"}" type="button" data-admin-action="toggle-ban" data-user-id="${escapeHtml(user.id)}" data-banned="${user.isBanned}" data-user-label="${escapeHtml(user.email || user.name || user.id)}">${user.isBanned ? "Desbanear" : "Banear cuenta"}</button><button class="admin-button admin-button--danger" type="button" data-admin-action="delete-user" data-user-id="${escapeHtml(user.id)}" data-user-label="${escapeHtml(user.email || user.name || user.id)}">Eliminar cuenta</button>`}</div></section>
     <section class="admin-metrics">${renderMetric("R2 de la cuenta", formatBytes(totals.r2Bytes), `${detail.items.assets?.length || 0} archivos`)}${renderMetric("Datos D1", formatBytes(totals.d1Bytes), "Payload de campañas + biblioteca")}${renderMetric("Objetos", String(totals.objects), "Todos los niveles")}${renderMetric("Registro", formatDate(user.createdAt), user.isBanned ? "Cuenta bloqueada" : "Cuenta disponible")}</section>
     ${renderItemSection({ title: "Campañas guardadas", kind: "campaign", items: detail.items.campaigns || [] })}
-    ${renderGroupedCollection(detail.items.library || [], { kind: "library", title: "Biblioteca cloud por tipo", eyebrow: "Datos D1" })}
-    ${renderGroupedCollection(detail.items.catalog || [], { kind: "catalog", title: "Catálogo de comunidad por tipo", eyebrow: "Comunidad" })}
+    ${renderGroupedCollection(libraryItems, { kind: "library", title: "Biblioteca cloud por tipo", eyebrow: "Datos D1" })}
+    ${renderGroupedCollection(catalogItems, { kind: "catalog", title: "Catálogo de comunidad por tipo", eyebrow: "Comunidad" })}
     ${renderItemSection({ title: "Objetos físicos en R2", kind: "asset", items: detail.items.assets || [] })}
   </main>`;
 }
@@ -410,7 +430,12 @@ async function executeConfirmation() {
     return;
   }
   if (confirmation.kind === "delete-group") {
-    await runAdminAction(`delete-group:${confirmation.label}`, () => deleteAdminGroup(confirmation.group));
+    const kinds = Array.isArray(confirmation.group?.kinds) && confirmation.group.kinds.length
+      ? confirmation.group.kinds
+      : [confirmation.group.kind];
+    await runAdminAction(`delete-group:${confirmation.label}`, () => Promise.all(
+      kinds.map((kind) => deleteAdminGroup({ ...confirmation.group, kind, kinds: undefined }))
+    ));
   }
 }
 
@@ -520,13 +545,17 @@ async function handleClick(event) {
   }
   if (action === "delete-group") {
     const label = trigger.dataset.label || "este grupo";
+    const kinds = String(trigger.dataset.kinds || trigger.dataset.kind || "")
+      .split(",")
+      .map((kind) => kind.trim())
+      .filter(Boolean);
     openConfirmation({
       kind: "delete-group",
       word: "ELIMINAR",
       title: "Eliminar grupo",
       message: `Se eliminarán definitivamente todos los elementos de ${label}.`,
       label,
-      group: { kind: trigger.dataset.kind, ownerId: trigger.dataset.ownerId || "", type: trigger.dataset.type || "", category: trigger.dataset.category || "" }
+      group: { kind: kinds[0] || trigger.dataset.kind, kinds, ownerId: trigger.dataset.ownerId || "", type: trigger.dataset.type || "", category: trigger.dataset.category || "" }
     });
   }
 }

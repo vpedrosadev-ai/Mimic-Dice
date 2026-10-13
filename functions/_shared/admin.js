@@ -124,14 +124,22 @@ async function getAdminAssetRows(db, ownerId = "") {
   const ownerClause = ownerId ? 'WHERE a."ownerId" = ?' : "";
   return queryAll(db, `
     SELECT a.*,
+      (SELECT e."id" FROM "cloud_library_entries" e
+       WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directLibraryId",
       (SELECT e."type" FROM "cloud_library_entries" e
        WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directLibraryType",
       (SELECT e."name" FROM "cloud_library_entries" e
        WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directLibraryName",
+      (SELECT e."id" FROM "cloud_catalog_entries" e
+       WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directCatalogId",
       (SELECT e."type" FROM "cloud_catalog_entries" e
        WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directCatalogType",
       (SELECT e."name" FROM "cloud_catalog_entries" e
        WHERE e."imageUrl" LIKE '/api/assets/' || a."id" || '%' LIMIT 1) AS "directCatalogName",
+      (SELECT e."id"
+       FROM "cloud_library_chunks" ch
+       INNER JOIN "cloud_library_entries" e ON e."id" = ch."entryId"
+       WHERE ch."payloadText" LIKE '%' || a."id" || '%' LIMIT 1) AS "embeddedLibraryId",
       (SELECT e."type"
        FROM "cloud_library_chunks" ch
        INNER JOIN "cloud_library_entries" e ON e."id" = ch."entryId"
@@ -179,6 +187,42 @@ async function executeStatements(db, statements) {
   for (let index = 0; index < statements.length; index += D1_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + D1_BATCH_SIZE));
   }
+}
+
+function uniqueAdminAssetLinks(links = []) {
+  const seen = new Set();
+  return links.filter((link) => {
+    const kind = cleanText(link?.kind, 30).toLowerCase();
+    const id = cleanText(link?.id, 180);
+    const key = `${kind}:${id}`;
+    if (!kind || !id || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function attachAdminAssetsToItems(itemsByKind = {}, assets = []) {
+  const assetsByItem = new Map();
+  assets.forEach((asset) => {
+    uniqueAdminAssetLinks(asset?.links).forEach((link) => {
+      const key = `${link.kind}:${link.id}`;
+      const linkedAssets = assetsByItem.get(key) || [];
+      linkedAssets.push(asset);
+      assetsByItem.set(key, linkedAssets);
+    });
+  });
+
+  const attach = (items, kind) => (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    assets: (assetsByItem.get(`${kind}:${item.id}`) || [])
+      .slice()
+      .sort((left, right) => Number(right.byteSize || 0) - Number(left.byteSize || 0))
+  }));
+
+  return {
+    library: attach(itemsByKind.library, "library"),
+    catalog: attach(itemsByKind.catalog, "catalog")
+  };
 }
 
 async function deleteR2Keys(bucket, objectKeys) {
@@ -276,7 +320,7 @@ async function getUserDetail(context, userId) {
   const [campaigns, library, catalog, assetRows, references, r2Objects] = await Promise.all([
     queryAll(context.env.DB, `SELECT "id", "name", "isPublic", "revision", "payloadBytes", "chunkCount", "createdAt", "updatedAt" FROM "campaigns" WHERE "ownerId" = ? ORDER BY "updatedAt" DESC`, [userId]),
     queryAll(context.env.DB, `SELECT "id", "type", "name", "isPublic", "revision", "payloadBytes", "chunkCount", "imageUrl", "createdAt", "updatedAt" FROM "cloud_library_entries" WHERE "ownerId" = ? ORDER BY "updatedAt" DESC`, [userId]),
-    queryAll(context.env.DB, `SELECT "id", "type", "name", "isPublic", "revision", "payloadBytes", "sourceCampaignId", "createdAt", "updatedAt" FROM "cloud_catalog_entries" WHERE "ownerId" = ? ORDER BY "updatedAt" DESC`, [userId]),
+    queryAll(context.env.DB, `SELECT "id", "type", "name", "isPublic", "revision", "payloadBytes", "sourceCampaignId", "imageUrl", "createdAt", "updatedAt" FROM "cloud_catalog_entries" WHERE "ownerId" = ? ORDER BY "updatedAt" DESC`, [userId]),
     getAdminAssetRows(context.env.DB, userId),
     queryAll(context.env.DB, `
       SELECT r."assetId", r."parentType", r."parentId",
@@ -297,27 +341,42 @@ async function getUserDetail(context, userId) {
     referencesByAsset.set(reference.assetId, list);
   });
   const trackedObjectKeys = new Set(assetRows.map((asset) => String(asset.objectKey || "")));
-  const assets = assetRows.map((asset) => ({
-    id: asset.id,
-    tracked: true,
-    objectKey: asset.objectKey,
-    mimeType: asset.mimeType,
-    byteSize: Number(r2ByKey.get(asset.objectKey)?.size ?? asset.byteSize ?? 0),
-    width: Number(asset.width || 0),
-    height: Number(asset.height || 0),
-    createdAt: asset.createdAt || "",
-    category: classifyAdminAsset(asset),
-    categoryLabel: STORAGE_CATEGORY_LABELS[classifyAdminAsset(asset)] || classifyAdminAsset(asset),
-    existsInR2: r2ByKey.has(asset.objectKey),
-    references: referencesByAsset.get(asset.id) || []
-  }));
+  const assets = assetRows.map((asset) => {
+    const references = referencesByAsset.get(asset.id) || [];
+    const links = uniqueAdminAssetLinks([
+      ...(asset.directLibraryId ? [{ kind: "library", id: asset.directLibraryId, name: asset.directLibraryName || "" }] : []),
+      ...(asset.directCatalogId ? [{ kind: "catalog", id: asset.directCatalogId, name: asset.directCatalogName || "" }] : []),
+      ...(asset.embeddedLibraryId ? [{ kind: "library", id: asset.embeddedLibraryId, name: asset.embeddedLibraryName || "" }] : []),
+      ...references.map((reference) => ({
+        kind: reference.type,
+        id: reference.id,
+        name: reference.name || ""
+      }))
+    ]);
+    return {
+      id: asset.id,
+      name: asset.directLibraryName || asset.directCatalogName || asset.embeddedLibraryName || "",
+      tracked: true,
+      objectKey: asset.objectKey,
+      mimeType: asset.mimeType,
+      byteSize: Number(r2ByKey.get(asset.objectKey)?.size ?? asset.byteSize ?? 0),
+      width: Number(asset.width || 0),
+      height: Number(asset.height || 0),
+      createdAt: asset.createdAt || "",
+      category: classifyAdminAsset(asset),
+      categoryLabel: STORAGE_CATEGORY_LABELS[classifyAdminAsset(asset)] || classifyAdminAsset(asset),
+      existsInR2: r2ByKey.has(asset.objectKey),
+      references,
+      links
+    };
+  });
   r2Objects
     .filter((object) => parseObjectOwnerId(object.key) === userId && !trackedObjectKeys.has(String(object.key || "")))
     .forEach((object) => assets.push({
       id: "",
       tracked: false,
       objectKey: String(object.key || ""),
-      mimeType: "",
+      mimeType: String(object?.httpMetadata?.contentType || ""),
       byteSize: Math.max(0, Number(object.size || 0)),
       width: 0,
       height: 0,
@@ -325,9 +384,11 @@ async function getUserDetail(context, userId) {
       category: "untracked",
       categoryLabel: STORAGE_CATEGORY_LABELS.untracked,
       existsInR2: true,
-      references: []
+      references: [],
+      links: []
     }));
   assets.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  const linkedItems = attachAdminAssetsToItems({ library, catalog }, assets);
 
   return jsonResponse({
     user: {
@@ -341,7 +402,7 @@ async function getUserDetail(context, userId) {
       bannedAt: user.bannedAt || "",
       banReason: user.banReason || ""
     },
-    items: { campaigns, library, catalog, assets }
+    items: { campaigns, library: linkedItems.library, catalog: linkedItems.catalog, assets }
   });
 }
 

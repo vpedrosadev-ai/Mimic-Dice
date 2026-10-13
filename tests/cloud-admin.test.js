@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { isAdministrator } from "../functions/_shared/auth.js";
-import { classifyAdminAsset, summarizeAdminStorage } from "../functions/_shared/admin.js";
+import { attachAdminAssetsToItems, classifyAdminAsset, summarizeAdminStorage } from "../functions/_shared/admin.js";
 import { getCampaignSummary } from "../functions/_shared/campaigns.js";
 import { getLibraryEntrySummary } from "../functions/_shared/library.js";
 
@@ -89,4 +89,29 @@ test("admin storage classifies tracked and untracked R2 objects", () => {
       untracked: { bytes: 100, percentage: 10 }
     }
   );
+});
+
+test("admin user detail links physical R2 objects to library and catalog items", () => {
+  const mapAsset = {
+    id: "asset-map",
+    objectKey: "users/user-1/map.webp",
+    byteSize: 240,
+    links: [{ kind: "library", id: "map-1", name: "Mazmorra" }]
+  };
+  const creatureAsset = {
+    id: "asset-creature",
+    objectKey: "users/user-1/creature.webp",
+    byteSize: 120,
+    links: [
+      { kind: "catalog", id: "monster-1", name: "Dragón" },
+      { kind: "catalog", id: "monster-1", name: "Dragón" }
+    ]
+  };
+  const linked = attachAdminAssetsToItems({
+    library: [{ id: "map-1", type: "map", name: "Mazmorra" }],
+    catalog: [{ id: "monster-1", type: "monster", name: "Dragón" }]
+  }, [mapAsset, creatureAsset]);
+
+  assert.deepEqual(linked.library[0].assets, [mapAsset]);
+  assert.deepEqual(linked.catalog[0].assets, [creatureAsset]);
 });
