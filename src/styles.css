@@ -21,6 +21,148 @@
   --shadow: 0 26px 70px rgba(0, 0, 0, 0.42);
 }
 
+body.has-compendium-reference-popup {
+  overflow: hidden;
+}
+
+.shell.has-compendium-reference-popup .dice-roller-launcher,
+.shell.has-compendium-reference-popup .dice-roller-panel {
+  display: none;
+}
+
+.compendium-reference-popup-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483644;
+  display: grid;
+  place-items: center;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  pointer-events: none;
+  overscroll-behavior: contain;
+}
+
+.compendium-reference-popup__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 3, 2, 0.74);
+  opacity: 0;
+  backdrop-filter: blur(2px);
+}
+
+.compendium-reference-popup-layer.is-front {
+  pointer-events: auto;
+}
+
+.compendium-reference-popup-layer.is-front .compendium-reference-popup__backdrop {
+  opacity: 1;
+}
+
+.compendium-reference-popup.panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(64rem, calc(100vw - 2rem));
+  height: min(48rem, calc(100dvh - 2rem));
+  min-height: 0;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(240, 200, 121, 0.58);
+  border-radius: 0.95rem;
+  background: linear-gradient(180deg, rgba(31, 22, 17, 0.998), rgba(13, 10, 9, 0.998));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.78);
+  transform: translate(
+    calc(var(--compendium-popup-depth, 0) * -0.45rem),
+    calc(var(--compendium-popup-depth, 0) * -0.45rem)
+  );
+}
+
+.compendium-reference-popup__header {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0.75rem 0.8rem 0.7rem 1rem;
+  border-bottom: 1px solid rgba(240, 200, 121, 0.25);
+  background: rgba(24, 16, 12, 0.98);
+}
+
+.compendium-reference-popup__header > div {
+  min-width: 0;
+}
+
+.compendium-reference-popup__header .eyebrow {
+  margin-bottom: 0.15rem;
+}
+
+.compendium-reference-popup__header h2 {
+  margin: 0;
+  overflow: hidden;
+  color: #f2d7a2;
+  font-size: clamp(1.05rem, 2.5vw, 1.45rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compendium-reference-popup__close {
+  display: inline-grid;
+  flex: 0 0 2.75rem;
+  place-items: center;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 1px solid rgba(240, 200, 121, 0.4);
+  border-radius: 999px;
+  background: rgba(101, 58, 30, 0.58);
+  color: #ffe2aa;
+  font: 700 1.65rem/1 var(--font-body);
+  cursor: pointer;
+}
+
+.compendium-reference-popup__close:hover,
+.compendium-reference-popup__close:focus-visible {
+  border-color: rgba(255, 220, 151, 0.82);
+  background: rgba(139, 79, 37, 0.72);
+}
+
+.compendium-reference-popup__body {
+  min-width: 0;
+  min-height: 0;
+  padding: 1rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 760px), (max-width: 900px) and (orientation: landscape) and (max-height: 560px) {
+  .compendium-reference-popup-layer {
+    padding: max(0.35rem, env(safe-area-inset-top)) max(0.35rem, env(safe-area-inset-right)) max(0.35rem, env(safe-area-inset-bottom)) max(0.35rem, env(safe-area-inset-left));
+  }
+
+  .compendium-reference-popup.panel {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0.8rem;
+    transform: translate(
+      calc(var(--compendium-popup-depth, 0) * -0.22rem),
+      calc(var(--compendium-popup-depth, 0) * -0.22rem)
+    );
+  }
+
+  .compendium-reference-popup__header {
+    padding: 0.55rem 0.55rem 0.5rem 0.75rem;
+  }
+
+  .compendium-reference-popup__body {
+    padding: 0.75rem;
+  }
+}
+
 /* Monsters League team identity */
 .combat-tracker-panel .combat-table tbody tr.row--team td {
   background:

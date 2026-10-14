@@ -14,14 +14,7 @@ export function createTableRenderers({
   getTablesByFolder,
   getTableFolderNameById,
   getCompendiumEntryNameAliases,
-  findCompendiumEntryByReference,
-  resetItemVirtualScroll,
-  blankItemFilters,
-  blankItemFilterSearch,
-  render,
-  resetArcanumVirtualScroll,
-  blankArcanumFilters,
-  blankArcanumFilterSearch
+  openCompendiumReferencePopup
 }) {
   let lootTableItemMatchCache = {
     items: null,
@@ -590,23 +583,7 @@ function openItemFromLootTable(itemName) {
     return;
   }
 
-  const matchedItem = findCompendiumEntryByReference(state.items, { name: normalizedItemName }) ?? null;
-  resetItemVirtualScroll();
-  state.activeScreen = "items";
-  state.itemFilters = {
-    ...blankItemFilters,
-    query: matchedItem?.name || normalizedItemName
-  };
-  state.itemFilterSearch = { ...blankItemFilterSearch };
-  state.activeItemFilterKey = "";
-  state.showItemQuerySuggestions = false;
-  state.itemSelectedId = matchedItem?.id || "";
-  state.mobileCompendiumDetailOpen = "items";
-  state.mobileCompendiumFiltersOpen = "";
-  state.mobileNavigationOpen = false;
-  render({
-    focusSelector: "[data-item-query]"
-  });
+  openCompendiumReferencePopup("items", { name: normalizedItemName });
 }
 
 function openSpellFromTable(spellName) {
@@ -616,23 +593,7 @@ function openSpellFromTable(spellName) {
     return;
   }
 
-  const matchedSpell = findCompendiumEntryByReference(state.arcanum, { name: normalizedSpellName }) ?? null;
-  resetArcanumVirtualScroll();
-  state.activeScreen = "arcanum";
-  state.arcanumFilters = {
-    ...blankArcanumFilters,
-    query: matchedSpell?.name || normalizedSpellName
-  };
-  state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
-  state.activeArcanumFilterKey = "";
-  state.showArcanumQuerySuggestions = false;
-  state.arcanumSelectedId = matchedSpell?.id || "";
-  state.mobileCompendiumDetailOpen = "arcanum";
-  state.mobileCompendiumFiltersOpen = "";
-  state.mobileNavigationOpen = false;
-  render({
-    focusSelector: "[data-arcanum-query]"
-  });
+  openCompendiumReferencePopup("arcanum", { name: normalizedSpellName });
 }
 
 function renderTableColGroup(table) {

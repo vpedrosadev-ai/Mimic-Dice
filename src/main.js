@@ -848,6 +848,7 @@ state = {
   mobileNavigationOpen: false,
   mobileCompendiumFiltersOpen: "",
   mobileCompendiumDetailOpen: "",
+  compendiumDetailPopups: [],
   optionsMenuSection: OPTIONS_MENU_SECTION_GENERAL,
   activeReleaseNotesVersion: APP_VERSION,
   importExportDialogOpen: false,
@@ -1495,7 +1496,12 @@ async function handleClick(event) {
 
     if (matchedItem) {
       event.preventDefault();
-      openDiaryMentionTarget("item", getCompendiumEntryIdentityKey(matchedItem), matchedItem.name, matchedItem.source);
+      openCompendiumReferencePopup("items", {
+        entryKey: getCompendiumEntryIdentityKey(matchedItem),
+        entryId: matchedItem.id,
+        name: matchedItem.name,
+        source: matchedItem.source
+      });
       return;
     }
   }
@@ -1509,7 +1515,12 @@ async function handleClick(event) {
 
     if (matchedSpell) {
       event.preventDefault();
-      openDiaryMentionTarget("arcanum", getCompendiumEntryIdentityKey(matchedSpell), matchedSpell.name, matchedSpell.source);
+      openCompendiumReferencePopup("arcanum", {
+        entryKey: getCompendiumEntryIdentityKey(matchedSpell),
+        entryId: matchedSpell.id,
+        name: matchedSpell.name,
+        source: matchedSpell.source
+      });
       return;
     }
   }
@@ -1870,6 +1881,13 @@ async function handleClick(event) {
         ? state.itemSelectedId
         : state.arcanumSelectedId;
     app.querySelector(`[data-${repositoryKey === "items" ? "item" : repositoryKey}-row-id="${CSS.escape(selectedId)}"]`)?.focus?.();
+    return;
+  }
+
+  if (action === "close-compendium-reference-popup") {
+    const popupId = cleanText(actionButton.dataset.compendiumPopupId);
+    state.compendiumDetailPopups = state.compendiumDetailPopups.filter((popup) => popup.id !== popupId);
+    render();
     return;
   }
 
@@ -3793,7 +3811,7 @@ async function handleClick(event) {
 
   if (action === "open-character-summon-bestiary") {
     openCharacterSummonBestiary(actionButton.dataset.characterSummonRowId);
-    render({ focusSelector: "[data-bestiary-query]" });
+    render();
     return;
   }
 
@@ -4063,28 +4081,15 @@ async function handleClick(event) {
   }
 
   if (action === "filter-arcanum-by-spell-name") {
+    event.preventDefault();
     const spellName = cleanText(actionButton.dataset.arcanumSpellName);
-    const selectedEntry = findCompendiumEntryByReference(state.arcanum, {
+    openCompendiumReferencePopup("arcanum", {
       entryKey: actionButton.dataset.arcanumEntryId,
       entryId: actionButton.dataset.arcanumEntryId,
       name: spellName,
       source: actionButton.dataset.arcanumSource
     });
-    resetArcanumVirtualScroll();
-    state.activeScreen = "arcanum";
-    state.arcanumFilters = {
-      ...blankArcanumFilters,
-      query: selectedEntry?.name || spellName
-    };
-    state.arcanumSelectedId = selectedEntry?.id || cleanText(actionButton.dataset.arcanumEntryId);
-    state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
-    state.activeArcanumFilterKey = "";
-    state.showArcanumQuerySuggestions = false;
-    openMobileCompendiumDetail("arcanum");
     clearActiveCombatPreview();
-    render({
-      focusSelector: "[data-arcanum-query]"
-    });
     return;
   }
 
@@ -5420,6 +5425,13 @@ function handleInput(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (event.key === "Escape" && state.compendiumDetailPopups.length > 0) {
+    event.preventDefault();
+    state.compendiumDetailPopups = state.compendiumDetailPopups.slice(0, -1);
+    render();
+    return;
+  }
+
   if (event.key === "Escape" && state.mobileCompendiumDetailOpen) {
     event.preventDefault();
     state.mobileCompendiumDetailOpen = "";
@@ -5726,6 +5738,10 @@ function handleMouseOver(event) {
     showCharacterOverviewHeaderTooltip(overviewTooltipTrigger);
   }
 
+  if (shouldSuppressHoverPreviewForTouch()) {
+    return;
+  }
+
   if (event.target.closest("[data-combat-spell-preview-overlay]")) {
     cancelActiveCombatPreviewClose();
     return;
@@ -5819,6 +5835,10 @@ function handleFocusIn(event) {
     showCharacterOverviewHeaderTooltip(overviewTooltipTrigger);
   }
 
+  if (shouldSuppressHoverPreviewForTouch()) {
+    return;
+  }
+
   if (event.target.closest("[data-combat-spell-preview-overlay]")) {
     cancelActiveCombatPreviewClose();
     return;
@@ -5847,6 +5867,11 @@ function handleFocusIn(event) {
 
   setActiveCombatPreviewFromTrigger(previewTrigger);
   syncCombatSpellPreviewOverlayMarkup();
+}
+
+function shouldSuppressHoverPreviewForTouch() {
+  return typeof window.matchMedia === "function"
+    && window.matchMedia("(hover: none), (pointer: coarse)").matches;
 }
 
 function handleFocusOut(event) {
@@ -8568,10 +8593,11 @@ function restoreRenderFocus(focusState) {
 function render(focusState = null) {
   cancelScheduledRender();
   cancelRenderViewportRestore();
+  captureCompendiumReferencePopupScrollPositions();
   const viewportState = captureRenderViewportState();
 
   app.innerHTML = `
-    <div class="shell ${state.mobileCompendiumDetailOpen ? "has-mobile-compendium-detail" : ""}">
+    <div class="shell ${state.mobileCompendiumDetailOpen ? "has-mobile-compendium-detail" : ""} ${state.compendiumDetailPopups.length > 0 ? "has-compendium-reference-popup" : ""}">
       <div class="shell__backdrop"></div>
       <header class="topbar">
         <div class="brand">
@@ -8625,6 +8651,7 @@ function render(focusState = null) {
       ${renderAutosaveProblemDialog()}
       ${renderAccountDialog()}
       ${renderCloudImportUpdateDialog()}
+      ${renderCompendiumReferencePopups()}
       ${renderDiceRollerDock({
         open: state.diceRollerOpen,
         draft: state.diceRollerDraft,
@@ -8638,6 +8665,9 @@ function render(focusState = null) {
       })}
     </div>
   `;
+
+  document.body.classList.toggle("has-compendium-reference-popup", state.compendiumDetailPopups.length > 0);
+  restoreCompendiumReferencePopupScrollPositions();
 
   if (state.activeScreen === "bestiary") {
     restoreBestiaryListScroll();
@@ -13250,24 +13280,12 @@ function handleCombatantPreviewPopoutClick(event, descriptor) {
   if (action === "filter-arcanum-by-spell-name") {
     event.preventDefault();
     const spellName = cleanText(actionButton.dataset.arcanumSpellName);
-    const selectedEntry = findCompendiumEntryByReference(state.arcanum, {
+    openCompendiumReferencePopup("arcanum", {
       entryKey: actionButton.dataset.arcanumEntryId,
       entryId: actionButton.dataset.arcanumEntryId,
       name: spellName,
       source: actionButton.dataset.arcanumSource
     });
-    resetArcanumVirtualScroll();
-    state.activeScreen = "arcanum";
-    state.arcanumFilters = {
-      ...blankArcanumFilters,
-      query: selectedEntry?.name || spellName
-    };
-    state.arcanumSelectedId = selectedEntry?.id || cleanText(actionButton.dataset.arcanumEntryId);
-    state.arcanumFilterSearch = { ...blankArcanumFilterSearch };
-    state.activeArcanumFilterKey = "";
-    state.showArcanumQuerySuggestions = false;
-    openMobileCompendiumDetail("arcanum");
-    render({ focusSelector: "[data-arcanum-query]" });
     window.focus();
     return;
   }
@@ -14438,6 +14456,144 @@ function openMobileCompendiumDetail(repositoryKey) {
   state.mobileCompendiumDetailOpen = repositoryKey;
   state.mobileCompendiumFiltersOpen = "";
   state.mobileNavigationOpen = false;
+}
+
+function getCompendiumEntriesForPopup(repositoryKey) {
+  if (repositoryKey === "items") return state.items;
+  if (repositoryKey === "bestiary") return state.bestiary;
+  if (repositoryKey === "arcanum") return state.arcanum;
+  return [];
+}
+
+function openCompendiumReferencePopup(repositoryKey, reference = {}, options = {}) {
+  const entry = findCompendiumEntryByReference(getCompendiumEntriesForPopup(repositoryKey), {
+    entryKey: reference.entryKey || reference.entryId,
+    entryId: reference.entryId || reference.entryKey,
+    name: reference.name,
+    canonicalName: reference.canonicalName,
+    localizedName: reference.localizedName,
+    source: reference.source
+  });
+
+  if (!entry) {
+    return false;
+  }
+
+  state.compendiumDetailPopups = [
+    ...state.compendiumDetailPopups,
+    {
+      id: createStableId("compendium-popup"),
+      repositoryKey,
+      entryKey: getCompendiumEntryIdentityKey(entry),
+      entryId: entry.id,
+      name: entry.name,
+      source: entry.source,
+      scrollTop: 0
+    }
+  ];
+
+  if (options.render !== false) {
+    render();
+  }
+
+  return true;
+}
+
+function captureCompendiumReferencePopupScrollPositions() {
+  if (!Array.isArray(state.compendiumDetailPopups) || state.compendiumDetailPopups.length === 0) {
+    return;
+  }
+
+  app.querySelectorAll("[data-compendium-popup-scroll]").forEach((element) => {
+    const popupId = cleanText(element.dataset.compendiumPopupScroll);
+    const popup = state.compendiumDetailPopups.find((entry) => entry.id === popupId);
+
+    if (popup) {
+      popup.scrollTop = element.scrollTop;
+    }
+  });
+}
+
+function restoreCompendiumReferencePopupScrollPositions() {
+  const scrollElements = new Map(
+    [...app.querySelectorAll("[data-compendium-popup-scroll]")]
+      .map((element) => [cleanText(element.dataset.compendiumPopupScroll), element])
+  );
+
+  state.compendiumDetailPopups.forEach((popup) => {
+    const element = scrollElements.get(popup.id);
+
+    if (element) {
+      element.scrollTop = Number.isFinite(popup.scrollTop) ? popup.scrollTop : 0;
+    }
+  });
+}
+
+function getCompendiumReferencePopupEntry(popup) {
+  return findCompendiumEntryByReference(getCompendiumEntriesForPopup(popup.repositoryKey), {
+    entryKey: popup.entryKey,
+    entryId: popup.entryId,
+    name: popup.name,
+    source: popup.source
+  });
+}
+
+function renderCompendiumReferencePopups() {
+  const popups = state.compendiumDetailPopups
+    .map((popup) => ({ popup, entry: getCompendiumReferencePopupEntry(popup) }))
+    .filter(({ entry }) => Boolean(entry));
+
+  return popups.map(({ popup, entry }, index) => {
+    const isFront = index === popups.length - 1;
+    const depth = popups.length - index - 1;
+    const closeLabel = isEnglishInterface() ? "Close sheet" : "Cerrar ficha";
+
+    return `
+      <div
+        class="compendium-reference-popup-layer ${isFront ? "is-front" : ""}"
+        style="--compendium-popup-depth: ${depth}"
+        aria-hidden="${isFront ? "false" : "true"}"
+      >
+        <div class="compendium-reference-popup__backdrop" aria-hidden="true"></div>
+        <section
+          class="compendium-reference-popup panel panel--inner"
+          role="dialog"
+          aria-modal="${isFront ? "true" : "false"}"
+          aria-labelledby="compendium-popup-title-${escapeHtml(popup.id)}"
+          ${isFront ? "" : "inert"}
+        >
+          <header class="compendium-reference-popup__header">
+            <div>
+              <p class="eyebrow">${escapeHtml(getCompendiumPopupKindLabel(popup.repositoryKey))}</p>
+              <h2 id="compendium-popup-title-${escapeHtml(popup.id)}">${escapeHtml(entry.name)}</h2>
+            </div>
+            <button
+              class="compendium-reference-popup__close"
+              type="button"
+              data-action="close-compendium-reference-popup"
+              data-compendium-popup-id="${escapeHtml(popup.id)}"
+              aria-label="${escapeHtml(closeLabel)}"
+              title="${escapeHtml(closeLabel)}"
+            >&times;</button>
+          </header>
+          <div
+            class="compendium-reference-popup__body"
+            data-compendium-popup-scroll="${escapeHtml(popup.id)}"
+          >
+            ${renderSelectedCompendiumDetail(popup.repositoryKey, entry)}
+          </div>
+        </section>
+      </div>
+    `;
+  }).join("");
+}
+
+function getCompendiumPopupKindLabel(repositoryKey) {
+  if (isEnglishInterface()) {
+    return repositoryKey === "items" ? "Item" : repositoryKey === "bestiary" ? "Creature" : "Spell";
+  }
+
+  return repositoryKey === "items" ? "Objeto" : repositoryKey === "bestiary" ? "Criatura" : "Hechizo";
 }
 
 function renderCompendiumDetailRootContent(repositoryKey, entry, renderEmpty) {
@@ -17861,14 +18017,7 @@ const {
   getTablesByFolder,
   getTableFolderNameById,
   getCompendiumEntryNameAliases,
-  findCompendiumEntryByReference,
-  resetItemVirtualScroll,
-  blankItemFilters,
-  blankItemFilterSearch,
-  render,
-  resetArcanumVirtualScroll,
-  blankArcanumFilters,
-  blankArcanumFilterSearch
+  openCompendiumReferencePopup
 });
 function renderCharacterListItem(character) {
   const isActive = character.id === state.activeCharacterId;
@@ -22355,14 +22504,12 @@ function openCharacterSummonBestiary(rowId) {
     return;
   }
 
-  resetBestiaryVirtualScroll();
-  state.activeScreen = "bestiary";
-  state.bestiaryFilters = { ...blankBestiaryFilters, query: bestiaryEntry.name };
-  state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
-  state.activeBestiaryFilterKey = "";
-  state.showBestiaryQuerySuggestions = false;
-  state.bestiarySelectedId = bestiaryEntry.id;
-  openMobileCompendiumDetail("bestiary");
+  openCompendiumReferencePopup("bestiary", {
+    entryKey: getCompendiumEntryIdentityKey(bestiaryEntry),
+    entryId: bestiaryEntry.id,
+    name: bestiaryEntry.name,
+    source: bestiaryEntry.source
+  }, { render: false });
 }
 
 function addCharacterInventoryRow(overrides = {}) {
@@ -24451,18 +24598,12 @@ function openCombatantBestiary(entryId) {
     return;
   }
 
-  state.activeScreen = "bestiary";
-  state.bestiaryFilters = {
-    ...blankBestiaryFilters,
-    query: entry.name,
-    source: entry.source ? [entry.source] : []
-  };
-  state.bestiaryFilterSearch = { ...blankBestiaryFilterSearch };
-  state.activeBestiaryFilterKey = "";
-  state.showBestiaryQuerySuggestions = false;
-  state.bestiarySelectedId = entry.id;
-  openMobileCompendiumDetail("bestiary");
-  resetBestiaryVirtualScroll();
+  openCompendiumReferencePopup("bestiary", {
+    entryKey: getCompendiumEntryIdentityKey(entry),
+    entryId: entry.id,
+    name: entry.name,
+    source: entry.source
+  }, { render: false });
 }
 
 function selectCombatantSource(combatantId, source) {
@@ -32651,6 +32792,7 @@ function resetTransientCampaignUiState() {
   state.mobileNavigationOpen = false;
   state.mobileCompendiumFiltersOpen = "";
   state.mobileCompendiumDetailOpen = "";
+  state.compendiumDetailPopups = [];
   state.autosaveProblemDialogOpen = false;
   state.autosaveProblemDetailCopyStatus = "";
   closeCharacterExportDialog();
@@ -34861,64 +35003,18 @@ function openDiaryMentionTarget(kind, id, name, source = "") {
     return;
   }
 
-  if (normalizedKind === "item") {
-    const entry = findCompendiumEntryByReference(state.items, {
+  const repositoryKey = normalizedKind === "item"
+    ? "items"
+    : normalizedKind === "bestiary" || normalizedKind === "arcanum"
+      ? normalizedKind
+      : "";
+
+  if (repositoryKey) {
+    openCompendiumReferencePopup(repositoryKey, {
+      entryKey: normalizedId,
       entryId: normalizedId,
       name: normalizedName,
       source: normalizedSource
-    });
-    resetItemVirtualScroll();
-    state.activeScreen = "items";
-    state.itemFilters = {
-      ...blankItemFilters,
-      query: entry?.name || normalizedName
-    };
-    state.itemSelectedId = entry?.id || normalizedId;
-    state.showItemQuerySuggestions = false;
-    openMobileCompendiumDetail("items");
-    render({
-      focusSelector: "[data-item-query]"
-    });
-    return;
-  }
-
-  if (normalizedKind === "bestiary") {
-    const entry = findCompendiumEntryByReference(state.bestiary, {
-      entryId: normalizedId,
-      name: normalizedName
-    });
-    resetBestiaryVirtualScroll();
-    state.activeScreen = "bestiary";
-    state.bestiaryFilters = {
-      ...blankBestiaryFilters,
-      query: entry?.name || normalizedName
-    };
-    state.bestiarySelectedId = entry?.id || normalizedId;
-    state.showBestiaryQuerySuggestions = false;
-    openMobileCompendiumDetail("bestiary");
-    render({
-      focusSelector: "[data-bestiary-query]"
-    });
-    return;
-  }
-
-  if (normalizedKind === "arcanum") {
-    const entry = findCompendiumEntryByReference(state.arcanum, {
-      entryId: normalizedId,
-      name: normalizedName,
-      source: normalizedSource
-    });
-    resetArcanumVirtualScroll();
-    state.activeScreen = "arcanum";
-    state.arcanumFilters = {
-      ...blankArcanumFilters,
-      query: entry?.name || normalizedName
-    };
-    state.arcanumSelectedId = entry?.id || normalizedId;
-    state.showArcanumQuerySuggestions = false;
-    openMobileCompendiumDetail("arcanum");
-    render({
-      focusSelector: "[data-arcanum-query]"
     });
   }
 }
