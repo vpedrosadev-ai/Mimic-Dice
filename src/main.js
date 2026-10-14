@@ -873,6 +873,7 @@ state = {
   characterSpellbookAbilityDescriptionDialogOpen: false,
   characterSpellbookAbilityDescriptionDialogRowId: "",
   characterSpellbookAbilityDescriptionDialogValue: "",
+  characterSpellbookAbilityDetailRowId: "",
   characterPdfImportDialogOpen: false,
   characterPdfImportCharacterId: "",
   characterPdfImportData: null,
@@ -1873,6 +1874,8 @@ async function handleClick(event) {
   if (action === "close-mobile-compendium-detail") {
     const repositoryKey = cleanText(actionButton.dataset.repositoryKey);
     state.mobileCompendiumDetailOpen = "";
+    document.body.classList.remove("has-mobile-compendium-detail");
+    app.querySelector(".shell")?.classList.remove("has-mobile-compendium-detail");
     const detailRoot = actionButton.closest(".bestiary-detail");
     detailRoot?.classList.remove("is-mobile-open");
     const selectedId = repositoryKey === "bestiary"
@@ -1881,6 +1884,18 @@ async function handleClick(event) {
         ? state.itemSelectedId
         : state.arcanumSelectedId;
     app.querySelector(`[data-${repositoryKey === "items" ? "item" : repositoryKey}-row-id="${CSS.escape(selectedId)}"]`)?.focus?.();
+    return;
+  }
+
+  if (action === "open-character-spellbook-ability-detail") {
+    state.characterSpellbookAbilityDetailRowId = cleanText(actionButton.dataset.characterSpellbookAbilityRowId);
+    render();
+    return;
+  }
+
+  if (action === "dismiss-character-spellbook-ability-detail") {
+    state.characterSpellbookAbilityDetailRowId = "";
+    render();
     return;
   }
 
@@ -3750,6 +3765,9 @@ async function handleClick(event) {
   }
 
   if (action === "remove-character-spellbook-ability-row") {
+    if (state.characterSpellbookAbilityDetailRowId === cleanText(actionButton.dataset.characterSpellbookAbilityRowId)) {
+      state.characterSpellbookAbilityDetailRowId = "";
+    }
     removeCharacterSpellbookAbilityRow(actionButton.dataset.characterSpellbookAbilityRowId);
     saveCharacters();
     render();
@@ -3757,6 +3775,7 @@ async function handleClick(event) {
   }
 
   if (action === "open-character-spellbook-ability-description-dialog") {
+    state.characterSpellbookAbilityDetailRowId = "";
     openCharacterSpellbookAbilityDescriptionDialog(actionButton.dataset.characterSpellbookAbilityRowId);
     render({
       focusSelector: "[data-character-spellbook-ability-description-input]"
@@ -5439,6 +5458,13 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if (event.key === "Escape" && state.characterSpellbookAbilityDetailRowId) {
+    event.preventDefault();
+    state.characterSpellbookAbilityDetailRowId = "";
+    render();
+    return;
+  }
+
   if (event.key === "Escape" && state.mobileNavigationOpen) {
     event.preventDefault();
     state.mobileNavigationOpen = false;
@@ -6296,6 +6322,11 @@ function getRequiredCompendiumsForScreen(screenId) {
 
 function queueCompendiumLoadsForScreen(screenId) {
   getRequiredCompendiumsForScreen(screenId).forEach((kind, index) => {
+    if (screenId === "characters" && kind === "items") {
+      ensureCompendiumLoaded(kind);
+      return;
+    }
+
     queueCompendiumLoad(kind, screenId === "characters" ? 0 : index * 80);
   });
   queueCharacterClassDataLoad(screenId);
@@ -8251,6 +8282,79 @@ function renderCharacterSpellbookAbilityDescriptionDialog() {
   `;
 }
 
+function renderCharacterSpellbookAbilityDetailDialog() {
+  const rowId = cleanText(state.characterSpellbookAbilityDetailRowId);
+  const row = rowId
+    ? getCharacterSpellbookAbilities(getActiveCharacter()).find((entry) => entry.id === rowId)
+    : null;
+
+  if (!row) return "";
+
+  const title = cleanText(row.name) || (isEnglishInterface() ? "Unnamed ability" : "Habilidad sin nombre");
+  const description = cleanText(row.description) || (isEnglishInterface() ? "No description." : "Sin descripcion.");
+  const detailParts = [
+    row.autoIncluded && row.featureLevel
+      ? `${isEnglishInterface() ? "Level" : "Nivel"} ${row.featureLevel}`
+      : "",
+    cleanText(row.source)
+  ].filter(Boolean);
+
+  return `
+    <div class="campaign-save-dialog character-ability-detail-dialog" role="presentation">
+      <div
+        class="campaign-save-dialog__backdrop"
+        data-action="dismiss-character-spellbook-ability-detail"
+        aria-hidden="true"
+      ></div>
+      <section
+        class="campaign-save-dialog__panel character-ability-detail-dialog__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-ability-detail-dialog-title"
+      >
+        <header class="character-ability-detail-dialog__header">
+          <div>
+            <p class="campaign-save-dialog__eyebrow">${escapeHtml(isEnglishInterface() ? "Ability" : "Habilidad")}</p>
+            <h2 class="campaign-save-dialog__title" id="character-ability-detail-dialog-title">${escapeHtml(title)}</h2>
+            ${detailParts.length > 0 ? `<p class="character-ability-detail-dialog__meta">${escapeHtml(detailParts.join(" · "))}</p>` : ""}
+          </div>
+          <button
+            class="mobile-compendium-detail__close"
+            type="button"
+            data-action="dismiss-character-spellbook-ability-detail"
+            aria-label="${escapeHtml(isEnglishInterface() ? "Close ability" : "Cerrar habilidad")}"
+          >×</button>
+        </header>
+        <div class="character-ability-detail-dialog__body">
+          <p>${escapeHtml(description).replaceAll("\n", "<br />")}</p>
+          <div class="character-ability-detail-dialog__uses">
+            <strong>${escapeHtml(isEnglishInterface() ? "Uses" : "Usos")}</strong>
+            <div class="character-spellbook__ability-use-dots" role="group" aria-label="${escapeHtml(isEnglishInterface() ? `Uses of ${title}` : `Usos de ${title}`)}">
+              ${renderCharacterSpellbookAbilityUseDots(row)}
+            </div>
+          </div>
+          ${!row.autoIncluded ? `
+            <div class="character-ability-detail-dialog__actions">
+              <button
+                class="toolbar-button toolbar-button--subtle"
+                type="button"
+                data-action="open-character-spellbook-ability-description-dialog"
+                data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+              >${escapeHtml(isEnglishInterface() ? "Edit description" : "Editar descripcion")}</button>
+              <button
+                class="toolbar-button toolbar-button--subtle-danger"
+                type="button"
+                data-action="remove-character-spellbook-ability-row"
+                data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+              >${escapeHtml(isEnglishInterface() ? "Remove ability" : "Quitar habilidad")}</button>
+            </div>
+          ` : ""}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderMulticlassLevelUpDialog() {
   const pendingLevelUp = getActiveMulticlassLevelUpPrompt();
 
@@ -8644,6 +8748,7 @@ function render(focusState = null) {
       ${renderCampaignSaveNameDialog()}
       ${renderDiaryHarptosDayNoteDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
+      ${renderCharacterSpellbookAbilityDetailDialog()}
       ${renderCharacterPdfImportDialog()}
       ${renderCharacterExportDialog()}
       ${renderCompendiumCreateDialog()}
@@ -8667,6 +8772,7 @@ function render(focusState = null) {
   `;
 
   document.body.classList.toggle("has-compendium-reference-popup", state.compendiumDetailPopups.length > 0);
+  document.body.classList.toggle("has-mobile-compendium-detail", Boolean(state.mobileCompendiumDetailOpen));
   restoreCompendiumReferencePopupScrollPositions();
 
   if (state.activeScreen === "bestiary") {
@@ -10819,9 +10925,9 @@ function renderTopbarNavigation() {
         <nav class="nav nav--row" id="primary-screen-navigation" aria-label="Pantallas principales">
           ${buttonScreens.map((screen) => renderScreenButton(screen)).join("")}
         </nav>
-      </div>
-      <div class="mobile-navigation-menu">
-        ${renderFileMenu({ includeFileInputs: false })}
+        <div class="mobile-navigation-menu">
+          ${renderFileMenu({ includeFileInputs: false })}
+        </div>
       </div>
     </div>
   `;
@@ -14462,6 +14568,8 @@ function openMobileCompendiumDetail(repositoryKey) {
   state.mobileCompendiumDetailOpen = repositoryKey;
   state.mobileCompendiumFiltersOpen = "";
   state.mobileNavigationOpen = false;
+  document.body.classList.add("has-mobile-compendium-detail");
+  app.querySelector(".shell")?.classList.add("has-mobile-compendium-detail");
 }
 
 function getCompendiumEntriesForPopup(repositoryKey) {
@@ -19188,6 +19296,7 @@ function renderCharacterSpellbookAbilityRow(row) {
   if (row.autoIncluded) {
     return `
       <div class="character-spellbook__ability-row character-spellbook__ability-row--automatic">
+        ${renderCharacterSpellbookAbilityDetailButton(row)}
         <div class="character-spellbook__name-cell character-spellbook__name-cell--described">
           <strong class="character-spellbook__automatic-name">${escapeHtml(row.name)}</strong>
           ${hasDescription ? renderCharacterSpellbookAbilityPreview(row) : ""}
@@ -19203,6 +19312,7 @@ function renderCharacterSpellbookAbilityRow(row) {
 
   return `
     <div class="character-spellbook__ability-row">
+      ${renderCharacterSpellbookAbilityDetailButton(row)}
       <label class="character-spellbook__name-cell${hasDescription ? " character-spellbook__name-cell--described" : ""}">
         <input
           class="filter-input character-spellbook__input${hasDescription ? " character-spellbook__input--described" : ""}"
@@ -19247,6 +19357,21 @@ function renderCharacterSpellbookAbilityRow(row) {
         Quitar
       </button>
     </div>
+  `;
+}
+
+function renderCharacterSpellbookAbilityDetailButton(row) {
+  const title = cleanText(row?.name) || (isEnglishInterface() ? "Unnamed ability" : "Habilidad sin nombre");
+  return `
+    <button
+      class="character-spellbook__ability-detail-button"
+      type="button"
+      data-action="open-character-spellbook-ability-detail"
+      data-character-spellbook-ability-row-id="${escapeHtml(row.id)}"
+    >
+      <span>${escapeHtml(title)}</span>
+      <span aria-hidden="true">›</span>
+    </button>
   `;
 }
 
@@ -32805,6 +32930,7 @@ function resetTransientCampaignUiState() {
   state.mobileCompendiumFiltersOpen = "";
   state.mobileCompendiumDetailOpen = "";
   state.compendiumDetailPopups = [];
+  state.characterSpellbookAbilityDetailRowId = "";
   state.autosaveProblemDialogOpen = false;
   state.autosaveProblemDetailCopyStatus = "";
   closeCharacterExportDialog();
