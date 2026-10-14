@@ -16673,9 +16673,11 @@ body.is-table-resizing * {
 }
 
 .mobile-navigation-toggle,
+.mobile-navigation-menu,
 .mobile-compendium-filter-toggle,
 .mobile-compendium-filter-only,
-.mobile-compendium-detail__toolbar {
+.mobile-compendium-detail__toolbar,
+.character-mobile-field-label {
   display: none;
 }
 
@@ -20924,6 +20926,243 @@ body.is-table-resizing * {
 }
 
 @media (max-width: 760px), (max-width: 900px) and (orientation: landscape) and (max-height: 560px) {
+  .topbar > .shell-menu-bar {
+    display: none;
+  }
+
+  .topbar__nav-stack.is-mobile-open > .mobile-navigation-menu {
+    display: block;
+    width: 100%;
+    margin-top: 0.35rem;
+  }
+
+  .mobile-navigation-menu .file-menu,
+  .mobile-navigation-menu .file-menu__trigger {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+  }
+
+  .mobile-navigation-menu .file-menu__trigger {
+    display: flex;
+    flex-direction: row;
+    min-height: 2.8rem;
+    padding: 0.45rem 0.8rem;
+    border-radius: 0.7rem;
+  }
+
+  .mobile-navigation-menu .nav__icon {
+    width: 1.6rem;
+    height: 1.6rem;
+  }
+
+  .mobile-navigation-menu .nav__label {
+    font-size: 0.72rem;
+  }
+
+  .bestiary-layout {
+    --compendium-viewport-height: auto;
+    min-height: 0;
+    align-self: auto;
+  }
+
+  .bestiary-list {
+    height: min(42rem, 64dvh);
+    max-height: min(42rem, 64dvh);
+  }
+
+  .character-spellbook__body,
+  .character-inventory__body {
+    gap: 0.55rem;
+  }
+
+  .character-spellbook__panel {
+    gap: 0.6rem;
+    padding: 0.65rem;
+    border-radius: 14px;
+  }
+
+  .character-spellbook__list,
+  .character-spellbook__ability-list,
+  .character-summons__list,
+  .character-inventory__list {
+    gap: 0.42rem;
+  }
+
+  .character-spellbook__row,
+  .character-spellbook__ability-row,
+  .character-inventory__row,
+  .character-summons__row {
+    align-items: stretch;
+    padding: 0.48rem;
+    border: 1px solid rgba(240, 200, 121, 0.14);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .character-spellbook__row {
+    grid-template-columns: minmax(0, 1fr) minmax(6.2rem, 0.8fr) 2.75rem;
+    grid-template-areas:
+      "name name name"
+      "level prepared remove";
+    gap: 0.42rem;
+  }
+
+  .character-spellbook__row > .character-spellbook__name-cell {
+    grid-area: name;
+  }
+
+  .character-spellbook__row > .character-spellbook__field {
+    grid-area: level;
+  }
+
+  .character-spellbook__row > .character-spellbook__prepared {
+    grid-area: prepared;
+  }
+
+  .character-spellbook__row > .character-spellbook__remove {
+    grid-area: remove;
+  }
+
+  .character-inventory__row {
+    grid-template-columns: minmax(0, 1fr) minmax(6.2rem, 0.8fr) 2.75rem;
+    grid-template-areas:
+      "name name name"
+      "size quantity remove";
+    gap: 0.42rem;
+  }
+
+  .character-inventory__row > .character-inventory__name-cell {
+    grid-area: name;
+  }
+
+  .character-inventory__row > .character-inventory__field:nth-of-type(1) {
+    grid-area: size;
+  }
+
+  .character-inventory__row > .character-inventory__field:nth-of-type(2) {
+    grid-area: quantity;
+  }
+
+  .character-inventory__row > .character-inventory__remove {
+    grid-area: remove;
+  }
+
+  .character-spellbook__ability-row:not(.character-spellbook__ability-row--automatic) {
+    grid-template-columns: minmax(0, 1fr) minmax(6.2rem, 0.8fr) 2.75rem;
+    grid-template-areas:
+      "name name name"
+      "description uses remove";
+    gap: 0.42rem;
+  }
+
+  .character-spellbook__ability-row:not(.character-spellbook__ability-row--automatic) > .character-spellbook__name-cell {
+    grid-area: name;
+  }
+
+  .character-spellbook__ability-row:not(.character-spellbook__ability-row--automatic) > .character-spellbook__ability-description-cell {
+    grid-area: description;
+  }
+
+  .character-spellbook__ability-row:not(.character-spellbook__ability-row--automatic) > .character-spellbook__ability-field {
+    grid-area: uses;
+  }
+
+  .character-spellbook__ability-row:not(.character-spellbook__ability-row--automatic) > .character-spellbook__remove {
+    grid-area: remove;
+  }
+
+  .character-spellbook__ability-row--automatic {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name badge"
+      "description description"
+      "uses uses";
+    gap: 0.38rem 0.5rem;
+  }
+
+  .character-spellbook__ability-row--automatic > .character-spellbook__name-cell {
+    grid-area: name;
+  }
+
+  .character-spellbook__ability-row--automatic > .character-spellbook__ability-auto-description {
+    grid-area: description;
+  }
+
+  .character-spellbook__ability-row--automatic > .character-spellbook__ability-use-dots {
+    grid-area: uses;
+    justify-content: flex-start;
+  }
+
+  .character-spellbook__ability-row--automatic > .character-spellbook__automatic-badge {
+    grid-area: badge;
+  }
+
+  .character-summons__row {
+    grid-template-columns: minmax(0, 1fr) 2.75rem;
+    gap: 0.42rem;
+  }
+
+  .character-mobile-field-label {
+    display: block;
+    color: var(--muted);
+    font-size: 0.56rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .character-spellbook__field,
+  .character-spellbook__prepared,
+  .character-spellbook__ability-field,
+  .character-spellbook__ability-description-cell,
+  .character-inventory__field {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.2rem;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .character-spellbook__prepared {
+    place-items: stretch;
+    padding: 0.3rem 0.42rem;
+  }
+
+  .character-spellbook__prepared input {
+    align-self: center;
+    justify-self: center;
+  }
+
+  .character-spellbook__ability-description-cell .toolbar-button {
+    width: 100%;
+  }
+
+  .character-spellbook__remove,
+  .character-inventory__remove {
+    grid-column: auto;
+    align-self: end;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+
+  .character-spellbook__remove::before,
+  .character-inventory__remove::before {
+    content: "×";
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .character-spellbook__preview,
+  .character-inventory__item-preview {
+    display: none !important;
+  }
+
   .shell.has-mobile-compendium-detail .workspace {
     z-index: 100;
   }

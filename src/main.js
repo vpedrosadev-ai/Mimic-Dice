@@ -10820,6 +10820,9 @@ function renderTopbarNavigation() {
           ${buttonScreens.map((screen) => renderScreenButton(screen)).join("")}
         </nav>
       </div>
+      <div class="mobile-navigation-menu">
+        ${renderFileMenu({ includeFileInputs: false })}
+      </div>
     </div>
   `;
 }
@@ -10850,7 +10853,8 @@ function renderScreenButton(screen, extraClassName = "") {
   `;
 }
 
-function renderFileMenu() {
+function renderFileMenu(options = {}) {
+  const includeFileInputs = options.includeFileInputs !== false;
   const activeCampaignFileName = cleanText(state.campaignFileName) || getFileNameFromPath(state.campaignFilePath);
   const activeCampaignFilePath = cleanText(state.campaignFilePath);
   const activeCampaignSavedAt = formatCampaignSavedAt(state.campaignSavedAt);
@@ -10936,18 +10940,20 @@ function renderFileMenu() {
           `
           : ""
       }
-      <input
-        class="file-menu__file"
-        type="file"
-        accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
-        data-campaign-file-input
-      />
-      <input
-        class="file-menu__file"
-        type="file"
-        accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
-        data-cloud-campaign-file-input
-      />
+      ${includeFileInputs ? `
+        <input
+          class="file-menu__file"
+          type="file"
+          accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
+          data-campaign-file-input
+        />
+        <input
+          class="file-menu__file"
+          type="file"
+          accept=".json,.mimic-campaign,.mimic-campaign.json,application/json"
+          data-cloud-campaign-file-input
+        />
+      ` : ""}
     </div>
   `;
 }
@@ -19142,6 +19148,7 @@ function renderCharacterSpellRow(row) {
         }
       </div>
       <label class="character-spellbook__field">
+        <span class="character-mobile-field-label">${escapeHtml(isEnglishInterface() ? "Level" : "Nivel")}</span>
         <input
           class="filter-input character-spellbook__input"
           type="text"
@@ -19153,6 +19160,7 @@ function renderCharacterSpellRow(row) {
         />
       </label>
       <label class="character-spellbook__prepared">
+        <span class="character-mobile-field-label">${escapeHtml(isEnglishInterface() ? "Prepared" : "Preparado")}</span>
         <input
           type="checkbox"
           data-character-spell-field="prepared"
@@ -19207,6 +19215,7 @@ function renderCharacterSpellbookAbilityRow(row) {
         ${hasDescription ? renderCharacterSpellbookAbilityPreview(row) : ""}
       </label>
       <div class="character-spellbook__ability-description-cell">
+        <span class="character-mobile-field-label">${escapeHtml(isEnglishInterface() ? "Description" : "Descripción")}</span>
         <button
           class="toolbar-button toolbar-button--subtle character-spellbook__description-button"
           type="button"
@@ -19217,6 +19226,7 @@ function renderCharacterSpellbookAbilityRow(row) {
         </button>
       </div>
       <label class="character-spellbook__ability-field">
+        <span class="character-mobile-field-label">${escapeHtml(isEnglishInterface() ? "Uses" : "Usos")}</span>
         <input
           class="filter-input character-spellbook__input"
           type="number"
@@ -19599,6 +19609,7 @@ function renderCharacterInventoryRow(row) {
         }
       </div>
       <label class="character-inventory__field">
+        <span class="character-mobile-field-label">${escapeHtml(isEnglishInterface() ? "Size" : "Tamaño")}</span>
         <select
           class="filter-input character-inventory__input"
           data-character-inventory-field="size"
@@ -19611,6 +19622,7 @@ function renderCharacterInventoryRow(row) {
         </select>
       </label>
       <label class="character-inventory__field">
+        <span class="character-mobile-field-label">${escapeHtml(isEnglishInterface() ? "Quantity" : "Cantidad")}</span>
         <input
           class="filter-input character-inventory__input"
           type="number"
