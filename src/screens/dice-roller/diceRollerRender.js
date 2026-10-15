@@ -81,6 +81,7 @@ export function renderDiceRollerDock({
           : `<div class="dice-roller-log__empty"><strong>${escapeHtml(isEnglish ? "Ready to roll" : "Listo para lanzar")}</strong><p>${escapeHtml(isEnglish ? "Try 2d20+5 or (6d6+2d4*2+6)." : "Prueba 2d20+5 o (6d6+2d4*2+6).")}</p></div>`}
       </div>
       <form class="dice-roller-form" data-dice-roller-form>
+        ${diceTrayOpen ? renderDiceTray(isEnglish) : ""}
         <div class="dice-roller-form__controls">
           <button
             class="dice-roller-control dice-roller-control--icon${diceTrayOpen ? " is-active" : ""}"
@@ -127,7 +128,6 @@ export function renderDiceRollerDock({
             />
           </label>
         </div>
-        ${diceTrayOpen ? renderDiceTray(isEnglish) : ""}
         <div class="dice-roller-form__formula-row">
           <label class="sr-only" for="dice-roller-formula${isPopout ? "-popout" : ""}">${escapeHtml(isEnglish ? "Dice formula" : "Formula de dados")}</label>
           <input
