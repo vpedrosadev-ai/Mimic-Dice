@@ -13526,7 +13526,7 @@ function renderCombatTurnToken(combatant, isActive) {
   const initials = getCombatantInitials(combatant);
   const statusNames = getCombatantStatusNames(combatant).slice(0, 3);
   const isFallenAlly = side === "allies" && toNumber(combatant.pgAct) < 1;
-  const isHiddenFromInitiative = combatant.hiddenFromInitiative === true;
+  const isHiddenFromInitiative = combatant.hiddenFromInitiative === true || isCombatantInvisible(combatant);
   const maxHp = Math.max(1, getEffectivePgMax(combatant));
   const hpFill = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
   const hpVisualFill = getCombatHealthVisualFill(hpFill);
@@ -13618,7 +13618,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
             <input type="checkbox" data-combat-turn-quick-flying="${escapeHtml(combatant.id)}" ${combatant.isFlying === true ? "checked" : ""} />
             <span>Volando</span>
           </label>
-          <label class="combat-turn-quick-menu__flight-height"><span>Altura</span><input type="number" min="0" step="5" value="${Math.max(0, Math.round(toNumber(combatant.flyingHeight)))}" data-combat-turn-quick-flight-height="${escapeHtml(combatant.id)}" ${combatant.isFlying === true ? "" : "disabled"} /><span>pies</span></label>
+          <label class="combat-turn-quick-menu__flight-height"><span>Altura</span><input type="number" min="0" step="5" value="${Math.max(0, Math.round(toNumber(combatant.flyingHeight)))}" data-combat-turn-quick-flight-height="${escapeHtml(combatant.id)}" /><span>pies</span></label>
         </div>
         <div class="resource-cell__actions-row combat-turn-quick-menu__actions-row">
           <div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls">
@@ -16826,6 +16826,12 @@ function renderCombatStatusChip(combatantId, statusName) {
 function getCombatantStatusNames(combatant) {
   const rawStatuses = splitList(combatant?.condiciones ?? "", /[,;|]/);
   return [...new Set(rawStatuses.map((value) => cleanText(value)).filter(Boolean))];
+}
+
+function isCombatantInvisible(combatant) {
+  return getCombatantStatusNames(combatant).some((statusName) => (
+    normalizeTranslationKey(getCanonicalCombatStatusName(statusName).toLowerCase()) === "invisible"
+  ));
 }
 
 function getExhaustionLevelFromStatusNames(statusNames) {

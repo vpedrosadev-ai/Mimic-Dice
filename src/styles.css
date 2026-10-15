@@ -486,6 +486,12 @@ body.has-compendium-reference-popup {
   letter-spacing: 0.08em;
 }
 
+.dice-roll-entry__mode--disadvantage {
+  border-color: rgba(218, 104, 112, 0.55);
+  color: #f2a5ad;
+  background: rgba(151, 43, 55, 0.16);
+}
+
 .dice-roll-entry > header strong {
   flex: 0 0 auto;
   color: var(--accent-soft);
@@ -553,6 +559,11 @@ body.has-compendium-reference-popup {
   filter: drop-shadow(0 0 6px rgba(105, 183, 137, 0.42));
 }
 
+.dice-result.is-kept.is-disadvantage {
+  color: #f07c86;
+  filter: drop-shadow(0 0 6px rgba(207, 95, 105, 0.48));
+}
+
 .dice-result.is-discarded {
   opacity: 0.38;
   filter: grayscale(0.65);
@@ -582,6 +593,12 @@ body.has-compendium-reference-popup {
   font-style: normal;
   letter-spacing: 0.05em;
   transform: translateX(-50%);
+}
+
+.dice-result.is-disadvantage .dice-result__kept {
+  border-color: rgba(240, 124, 134, 0.62);
+  color: #ffe0e3;
+  background: #4a1d24;
 }
 
 .dice-result svg {
@@ -777,11 +794,13 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roller-tray button {
+  position: relative;
   display: grid;
   place-items: center;
   min-width: 0;
   height: 2.7rem;
-  padding: 0.08rem;
+  padding: 0;
+  overflow: hidden;
   cursor: pointer;
   border: 1px solid rgba(215, 171, 103, 0.2);
   border-radius: 8px;
@@ -796,9 +815,9 @@ body.has-compendium-reference-popup {
   outline: none;
 }
 
-.dice-roller-die-icon {
-  width: min(100%, 2.5rem);
-  height: min(100%, 2.5rem);
+.dice-roller-tray .dice-roller-die-icon {
+  width: 100%;
+  height: 100%;
   overflow: visible;
 }
 
@@ -815,15 +834,25 @@ body.has-compendium-reference-popup {
   opacity: 0.35;
 }
 
-.dice-roller-die-icon text {
-  fill: currentColor;
+.dice-roller-die-label {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #fff2d8;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 15px;
+  font-size: 1.3rem;
   font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 2px #100904, 0 0 4px #100904;
+  pointer-events: none;
 }
 
-.dice-roller-die-icon.dice-result--d100 text {
-  font-size: 11px;
+.dice-roller-tray button[title="d100"] .dice-roller-die-label {
+  font-size: 1rem;
+  letter-spacing: -0.05em;
 }
 
 .dice-roller-form__error {
@@ -4885,6 +4914,7 @@ button.is-cloud-busy:disabled {
   gap: .5rem;
 }
 
+.combat-map-token-number-visibility,
 .combat-map-token-load-initiative {
   display: flex;
   align-items: center;
@@ -4897,6 +4927,7 @@ button.is-cloud-busy:disabled {
   cursor: pointer;
 }
 
+.combat-map-token-number-visibility input,
 .combat-map-token-load-initiative input {
   margin: 0;
   accent-color: var(--accent);

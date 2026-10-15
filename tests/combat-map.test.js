@@ -6,6 +6,9 @@ import {
   getGridCoordinateForPosition,
   getMapKeyboardPanDelta,
   getMapLayoutKey,
+  hasInvisibleCondition,
+  isMapTokenConcealed,
+  isMapTokenVisibleToPlayer,
   getTokenFeedbackPosition,
   normalizeMapEditorState,
   getPortableMapReference,
@@ -56,7 +59,23 @@ test("map zoom reaches 500 percent and player notifications default off", () => 
   const defaults = normalizeMapEditorState({});
   const enlarged = normalizeMapEditorState({ viewport: { zoom: 99 } });
   assert.equal(defaults.playerNotifications.visible, false);
+  assert.equal(defaults.showTokenNumbers, true);
+  assert.equal(normalizeMapEditorState({ showTokenNumbers: false }).showTokenNumbers, false);
   assert.equal(enlarged.viewport.zoom, 5);
+});
+
+test("invisible tokens follow Hide visibility except allied tokens remain visible to players", () => {
+  const invisibleEnemy = { tag: "ENEMIGO", condiciones: "Invisible" };
+  const hiddenEnemy = { tag: "ENEMIGO", hiddenFromInitiative: true };
+  const invisibleAlly = { tag: "ALIADO", condiciones: "Paralizado, invisible" };
+  const hiddenAlly = { tag: "ALIADO", hiddenFromInitiative: true };
+
+  assert.equal(hasInvisibleCondition(invisibleEnemy), true);
+  assert.equal(isMapTokenConcealed(invisibleEnemy), true);
+  assert.equal(isMapTokenVisibleToPlayer(invisibleEnemy), false);
+  assert.equal(isMapTokenVisibleToPlayer(hiddenEnemy), false);
+  assert.equal(isMapTokenVisibleToPlayer(invisibleAlly), true);
+  assert.equal(isMapTokenVisibleToPlayer(hiddenAlly), true);
 });
 
 test("accepts image files created in a different window realm", () => {

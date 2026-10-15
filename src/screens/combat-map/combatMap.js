@@ -616,6 +616,7 @@ export function normalizeMapEditorState(value) {
       y: Number(point?.y) || 0
     }]).filter(([id]) => id)),
     tokenVisibility: Object.fromEntries(Object.entries(visibility).map(([id, enabled]) => [clean(id), enabled === true]).filter(([id]) => id)),
+    showTokenNumbers: source.showTokenNumbers !== false,
     tokenStackOrder,
     fog: {
       enabled: source.fog?.enabled === true,
@@ -777,6 +778,20 @@ function getInitials(name) {
 
 function getConditions(combatant) {
   return clean(combatant?.condiciones).split(/[,;|]/).map(clean).filter(Boolean);
+}
+
+export function hasInvisibleCondition(combatant) {
+  return getConditions(combatant).some((condition) => (
+    condition.toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "") === "invisible"
+  ));
+}
+
+export function isMapTokenConcealed(combatant) {
+  return combatant?.hiddenFromInitiative === true || hasInvisibleCondition(combatant);
+}
+
+export function isMapTokenVisibleToPlayer(combatant) {
+  return getSide(combatant) === "allies" || !isMapTokenConcealed(combatant);
 }
 
 function isAlive(combatant) {
@@ -1621,7 +1636,7 @@ export function createCombatMapController(options = {}) {
         <strong class="combat-map-token-checklist__number">${escapeHtml(stand)}</strong>
       </label>`;
     }).join("");
-    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${panel === "tokens" ? "" : "hidden"}><h2>Peanas</h2>${renderOpacityControl("tokens")}<label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
+    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${panel === "tokens" ? "" : "hidden"}><h2>Peanas</h2>${renderOpacityControl("tokens")}<label class="combat-map-token-number-visibility"><input type="checkbox" data-map-token-numbers ${state.showTokenNumbers ? "checked" : ""}><span>Mostrar número de peana en el mapa</span></label><label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
   }
 
   function getSelectedPaintIcon() {
@@ -1700,10 +1715,10 @@ export function createCombatMapController(options = {}) {
     const master = behavior.master === true;
     const player = behavior.player === true;
     return getCombatants().map((combatant, index) => ({ combatant, index })).filter(({ combatant }) => (
-      getTokenEnabled(combatant) && !(player && combatant.hiddenFromInitiative === true)
+      getTokenEnabled(combatant) && (!player || isMapTokenVisibleToPlayer(combatant))
     )).map(({ combatant, index }) => {
       const side = getSide(combatant);
-      const hidden = combatant.hiddenFromInitiative === true;
+      const concealed = isMapTokenConcealed(combatant);
       if (master ? layer === "covered" : (layer === "allies" ? side !== "allies" : layer === "covered" && side === "allies")) return "";
       const position = getTokenPosition(combatant, index);
       const maxHp = Math.max(1, Number(combatant.pgMax) || 1);
@@ -1717,9 +1732,10 @@ export function createCombatMapController(options = {}) {
       const stackIndex = getTokenStackIndex(combatant.id, index);
       const teamColor = /^#[0-9a-f]{6}$/i.test(clean(combatant.teamColor)) ? clean(combatant.teamColor) : "";
       const dead = !isAlive(combatant);
-      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${master && hidden ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
-        ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt=""><span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
-        <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span><strong>${escapeHtml(combatant.numPeana || "—")}</strong>
+      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
+        ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt="">` : ""}
+        ${flyingHeight > 0 ? `<span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
+        <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span>${state.showTokenNumbers ? `<strong>${escapeHtml(combatant.numPeana || "—")}</strong>` : ""}
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
         ${showHealth(combatant) ? `<span class="combat-map-token__health" style="opacity:${normalizeOpacity(state.opacity.health)}"><i style="width:${(hp / maxHp) * 100}%"></i></span>` : ""}
         ${conditionMeta.length ? `<span class="combat-map-token__statuses">${conditionMeta.map((meta) => `<em class="${escapeHtml(meta.tone)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : ""}<span>${escapeHtml(meta.label)}</span></em>`).join("")}</span>` : ""}
@@ -2678,6 +2694,7 @@ export function createCombatMapController(options = {}) {
         resnapTokensWithoutOverlap();
       }
     }
+    else if (target.matches("[data-map-token-numbers]")) state.showTokenNumbers = target.checked;
     else if (target.matches("[data-map-health]")) state.healthMode = target.value;
     else if (target.matches("[data-map-player-notifications]")) state.playerNotifications.visible = target.checked;
     else if (target.matches("[data-map-initiative]")) {

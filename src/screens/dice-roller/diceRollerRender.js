@@ -91,7 +91,7 @@ export function renderDiceRollerDock({
             aria-label="${escapeHtml(isEnglish ? "Choose a die" : "Elegir un dado")}"
             title="${escapeHtml(isEnglish ? "Quick dice" : "Dados rápidos")}"
           >
-            ${renderDieIcon(20, "")}
+            ${renderDieIcon(20)}
           </button>
           <button
             class="dice-roller-control dice-roller-hit-dice${hitDiceMode ? " is-active" : ""}"
@@ -179,19 +179,18 @@ function renderDiceTray(isEnglish) {
           data-dice-formula="d${sides}"
           aria-label="${escapeHtml(isEnglish ? `Roll d${sides}` : `Lanzar d${sides}`)}"
           title="d${sides}"
-        >${renderDieIcon(sides, `d${sides}`)}</button>
+        >${renderDieIcon(sides)}<span class="dice-roller-die-label">d${sides}</span></button>
       `).join("")}
     </div>
   `;
 }
 
-function renderDieIcon(sides, label) {
+function renderDieIcon(sides) {
   const shape = getDieShape(sides);
   return `
     <svg class="dice-roller-die-icon dice-result--d${escapeHtml(String(shape.classSides))}" viewBox="0 0 48 48" aria-hidden="true">
       <polygon points="${shape.points}" />
       ${shape.lines}
-      ${label ? `<text x="24" y="27" text-anchor="middle">${escapeHtml(label)}</text>` : ""}
     </svg>
   `;
 }
@@ -243,6 +242,7 @@ function renderDiceRollEntry(entry, language) {
               ${(group.rolls || []).map((value, index) => renderDie(group.sides, value, group.rawRolls?.[index], {
                 kept: group.keptRollIndex === index,
                 discarded: group.keptRollIndex !== null && group.keptRollIndex !== undefined && group.keptRollIndex !== index,
+                rollMode: group.rollMode || entry.rollMode,
                 language
               })).join("")}
             </div>
@@ -266,7 +266,7 @@ function formatRollTime(value, language) {
   }).format(date);
 }
 
-function renderDie(sides, value, rawValue = value, { kept = false, discarded = false, language = "es" } = {}) {
+function renderDie(sides, value, rawValue = value, { kept = false, discarded = false, rollMode = "", language = "es" } = {}) {
   const shape = getDieShape(sides);
   const adjusted = Number(rawValue) !== Number(value);
   const selectionLabel = kept
@@ -277,7 +277,7 @@ function renderDie(sides, value, rawValue = value, { kept = false, discarded = f
   const valueLabel = adjusted ? `d${sides}: ${rawValue} → ${value}` : `d${sides}: ${value}`;
   const title = selectionLabel ? `${valueLabel} (${selectionLabel})` : valueLabel;
   return `
-    <span class="dice-result dice-result--d${escapeHtml(String(shape.classSides))}${adjusted ? " is-adjusted" : ""}${kept ? " is-kept" : ""}${discarded ? " is-discarded" : ""}" title="${escapeHtml(title)}">
+    <span class="dice-result dice-result--d${escapeHtml(String(shape.classSides))}${adjusted ? " is-adjusted" : ""}${kept ? " is-kept" : ""}${discarded ? " is-discarded" : ""}${rollMode === "disadvantage" ? " is-disadvantage" : ""}" title="${escapeHtml(title)}">
       <svg viewBox="0 0 48 48" aria-hidden="true">
         <polygon points="${shape.points}" />
         ${shape.lines}
