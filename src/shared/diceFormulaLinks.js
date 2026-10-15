@@ -1,4 +1,4 @@
-import { findDiceFormulaMatches } from "./diceFormula.js";
+import { findDiceFormulaMatches, findDiceModifierMatches } from "./diceFormula.js";
 
 const SKIP_SELECTOR = [
   "a",
@@ -25,7 +25,7 @@ export function enhanceDiceFormulaLinks(root) {
   let node = walker.nextNode();
 
   while (node) {
-    if (node.parentElement && !node.parentElement.closest(SKIP_SELECTOR) && /\d*d\d+/i.test(node.nodeValue || "")) {
+    if (node.parentElement && !node.parentElement.closest(SKIP_SELECTOR) && /(?:\d*d\d+|[+\-]\d+)/i.test(node.nodeValue || "")) {
       nodes.push(node);
     }
     node = walker.nextNode();
@@ -34,7 +34,12 @@ export function enhanceDiceFormulaLinks(root) {
   let linkedCount = 0;
   for (const textNode of nodes) {
     const text = textNode.nodeValue || "";
-    const matches = findDiceFormulaMatches(text);
+    const formulaMatches = findDiceFormulaMatches(text);
+    const occupiedRanges = formulaMatches.map(({ start, end }) => ({ start, end }));
+    const modifierMatches = findDiceModifierMatches(text).filter(({ start, end }) => (
+      !occupiedRanges.some((range) => start < range.end && end > range.start)
+    ));
+    const matches = [...formulaMatches, ...modifierMatches].sort((left, right) => left.start - right.start);
     if (matches.length === 0) continue;
 
     const fragment = documentRef.createDocumentFragment();
@@ -46,7 +51,7 @@ export function enhanceDiceFormulaLinks(root) {
       button.className = "dice-formula-link";
       button.dataset.action = "roll-dice-formula";
       button.dataset.diceFormula = match.formula;
-      button.textContent = match.formula;
+      button.textContent = match.label || match.formula;
       fragment.append(button);
       cursor = match.end;
       linkedCount += 1;

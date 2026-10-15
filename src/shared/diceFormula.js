@@ -11,12 +11,17 @@ export class DiceFormulaError extends Error {
   }
 }
 
-export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = false } = {}) {
+export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = false, rollMode = "" } = {}) {
   const source = String(formula ?? "").trim();
   if (!source) throw new DiceFormulaError("empty", "Formula is empty.");
   if (source.length > MAX_FORMULA_LENGTH) throw new DiceFormulaError("too-long", "Formula is too long.");
 
   const tokens = tokenize(source);
+  const normalizedRollMode = rollMode === "advantage" || rollMode === "disadvantage" ? rollMode : "";
+  const diceTokens = tokens.filter((token) => token.type === "dice");
+  if (normalizedRollMode && (diceTokens.length !== 1 || diceTokens[0].count !== 1)) {
+    throw new DiceFormulaError("roll-mode-single-die", "Advantage and disadvantage require exactly one die.");
+  }
   const groups = [];
   let totalDice = 0;
   let position = 0;
@@ -54,7 +59,7 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
       }
 
       const minimum = Math.floor(token.sides / 2) + 1;
-      const rawRolls = Array.from({ length: token.count }, () => {
+      const rawRolls = Array.from({ length: normalizedRollMode ? 2 : token.count }, () => {
         const sample = Number(random());
         const safeSample = Number.isFinite(sample) ? Math.max(0, Math.min(0.9999999999999999, sample)) : 0;
         return Math.floor(safeSample * token.sides) + 1;
@@ -62,7 +67,17 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
       const rolls = hitDiceMode
         ? rawRolls.map((value) => Math.max(value, minimum))
         : rawRolls;
-      const subtotal = rolls.reduce((sum, value) => sum + value, 0);
+      const keptRollIndex = normalizedRollMode
+        ? rolls.reduce((bestIndex, value, index) => {
+            const bestValue = rolls[bestIndex];
+            return normalizedRollMode === "advantage"
+              ? (value > bestValue ? index : bestIndex)
+              : (value < bestValue ? index : bestIndex);
+          }, 0)
+        : null;
+      const subtotal = keptRollIndex === null
+        ? rolls.reduce((sum, value) => sum + value, 0)
+        : rolls[keptRollIndex];
       groups.push({
         id: `dice-group-${groups.length + 1}`,
         notation: `${token.count}d${token.sides}`,
@@ -72,7 +87,9 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
         rolls,
         subtotal,
         hitDiceMode: Boolean(hitDiceMode),
-        minimum: hitDiceMode ? minimum : null
+        minimum: hitDiceMode ? minimum : null,
+        rollMode: normalizedRollMode,
+        keptRollIndex
       });
       return subtotal;
     }
@@ -127,7 +144,8 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
     normalizedFormula: tokens.map((token) => token.normalized).join(""),
     total,
     groups,
-    hitDiceMode: Boolean(hitDiceMode && groups.length > 0)
+    hitDiceMode: Boolean(hitDiceMode && groups.length > 0),
+    rollMode: groups.length > 0 ? normalizedRollMode : ""
   };
 }
 
@@ -153,6 +171,29 @@ export function findDiceFormulaMatches(text) {
     const after = source[end] ?? "";
     if (!/[dD]/.test(formula) || /[\w]/.test(before) || /[\w]/.test(after) || !isValidDiceFormula(formula)) continue;
     matches.push({ formula, start, end });
+  }
+
+  return matches;
+}
+
+export function findDiceModifierMatches(text) {
+  const source = String(text ?? "");
+  const matches = [];
+  const candidatePattern = /[+\-]\d+/g;
+
+  for (const match of source.matchAll(candidatePattern)) {
+    const modifier = match[0];
+    const start = match.index ?? 0;
+    const end = start + modifier.length;
+    const before = source[start - 1] ?? "";
+    const after = source[end] ?? "";
+    if (/[\w)]/.test(before) || /[\w(]/.test(after)) continue;
+    matches.push({
+      formula: `d20${modifier}`,
+      label: modifier,
+      start,
+      end
+    });
   }
 
   return matches;

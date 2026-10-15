@@ -836,6 +836,9 @@ state = {
   diceRollerError: "",
   diceRollerHelpOpen: false,
   diceRollerHitDiceMode: false,
+  diceRollerRollMode: "",
+  diceRollerModifier: "+0",
+  diceRollerDiceTrayOpen: false,
   diceRollHistory: [],
   diceRollerRect: null,
   autosaveProblemDialogOpen: false,
@@ -1930,6 +1933,24 @@ async function handleClick(event) {
   if (action === "toggle-dice-roller-hit-dice") {
     state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
     render();
+    return;
+  }
+
+  if (action === "toggle-dice-roller-tray") {
+    state.diceRollerDiceTrayOpen = !state.diceRollerDiceTrayOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-dice-roller-roll-mode") {
+    const mode = actionButton.dataset.diceRollMode;
+    state.diceRollerRollMode = state.diceRollerRollMode === mode ? "" : mode;
+    render();
+    return;
+  }
+
+  if (action === "reroll-last-dice-formula") {
+    rerollLastDiceFormula();
     return;
   }
 
@@ -4940,6 +4961,12 @@ function handleInput(event) {
 
   if (target.matches("[data-dice-roller-input]")) {
     state.diceRollerDraft = target.value;
+    state.diceRollerError = "";
+    return;
+  }
+
+  if (target.matches("[data-dice-roller-modifier]")) {
+    state.diceRollerModifier = target.value;
     state.diceRollerError = "";
     return;
   }
@@ -8766,7 +8793,10 @@ function render(focusState = null) {
         appIconUrl,
         language: state.appLanguage,
         helpOpen: state.diceRollerHelpOpen,
-        hitDiceMode: state.diceRollerHitDiceMode
+        hitDiceMode: state.diceRollerHitDiceMode,
+        rollMode: state.diceRollerRollMode,
+        modifier: state.diceRollerModifier,
+        diceTrayOpen: state.diceRollerDiceTrayOpen
       })}
     </div>
   `;
@@ -12172,11 +12202,18 @@ function closeDiceRoller() {
   render();
 }
 
-function submitDiceFormula(formula) {
+function submitDiceFormula(formula, {
+  applyModifier = true,
+  hitDiceMode = state.diceRollerHitDiceMode,
+  rollMode = state.diceRollerRollMode
+} = {}) {
   const source = cleanText(formula);
 
   try {
-    rollAndRecordDiceFormula(source, { hitDiceMode: state.diceRollerHitDiceMode });
+    const resolvedFormula = applyModifier ? appendDiceRollerModifier(source, state.diceRollerModifier) : source;
+    rollAndRecordDiceFormula(resolvedFormula, { hitDiceMode, rollMode });
+    state.diceRollerRollMode = "";
+    state.diceRollerModifier = "+0";
     render({ focusSelector: state.diceRollerOpen ? "[data-dice-roller-input]" : "" });
 
     if (isDiceRollerPopoutOpen()) {
@@ -12190,6 +12227,35 @@ function submitDiceFormula(formula) {
   }
 }
 
+function appendDiceRollerModifier(formula, modifierSource) {
+  const modifierText = cleanText(modifierSource) || "+0";
+  if (!/^[+-]?\d+$/.test(modifierText)) {
+    throw new DiceFormulaError("invalid-modifier", "Modifier must be a signed integer.");
+  }
+
+  const modifier = Number(modifierText);
+  if (!Number.isSafeInteger(modifier)) {
+    throw new DiceFormulaError("invalid-modifier", "Modifier must be a safe integer.");
+  }
+
+  if (modifier === 0) {
+    return formula;
+  }
+
+  return `(${formula})${modifier > 0 ? `+${modifier}` : modifier}`;
+}
+
+function rerollLastDiceFormula() {
+  const lastRoll = state.diceRollHistory.at(-1);
+  if (!lastRoll) return;
+
+  submitDiceFormula(lastRoll.formula, {
+    applyModifier: false,
+    hitDiceMode: lastRoll.hitDiceMode,
+    rollMode: lastRoll.rollMode
+  });
+}
+
 function rollAndRecordDiceFormula(formula, options = {}) {
   const result = rollDiceFormula(formula, options);
   state.diceRollHistory = [
@@ -12200,6 +12266,7 @@ function rollAndRecordDiceFormula(formula, options = {}) {
       total: result.total,
       groups: result.groups,
       hitDiceMode: result.hitDiceMode,
+      rollMode: result.rollMode,
       rolledAt: Date.now()
     }
   ].slice(-DICE_ROLLER_MAX_HISTORY);
@@ -12293,6 +12360,8 @@ function formatDiceFormulaError(error) {
         "too-many-dice": "That formula contains too many dice.",
         "invalid-sides": "Dice must have between 2 and 1000 sides.",
         "invalid-count": "The dice count must be positive.",
+        "invalid-modifier": "The modifier must be a whole number, such as +3 or -2.",
+        "roll-mode-single-die": "Advantage and disadvantage require exactly one die, such as 1d20+5.",
         syntax: "Invalid formula. Try 2d6+3 or 20+5."
       }
     : {
@@ -12302,6 +12371,8 @@ function formatDiceFormulaError(error) {
         "too-many-dice": "La formula contiene demasiados dados.",
         "invalid-sides": "Los dados deben tener entre 2 y 1000 caras.",
         "invalid-count": "La cantidad de dados debe ser positiva.",
+        "invalid-modifier": "El modificador debe ser un numero entero, como +3 o -2.",
+        "roll-mode-single-die": "Ventaja y desventaja requieren exactamente un dado, como 1d20+5.",
         syntax: "Formula no valida. Prueba 2d6+3 o 20+5."
       };
 
@@ -12460,7 +12531,10 @@ function syncDiceRollerPopout() {
     language: state.appLanguage,
     isPopout: true,
     helpOpen: state.diceRollerHelpOpen,
-    hitDiceMode: state.diceRollerHitDiceMode
+    hitDiceMode: state.diceRollerHitDiceMode,
+    rollMode: state.diceRollerRollMode,
+    modifier: state.diceRollerModifier,
+    diceTrayOpen: state.diceRollerDiceTrayOpen
   });
   applyInterfaceTranslations(root);
   scrollDiceRollerLogToBottom(root);
@@ -12496,6 +12570,17 @@ function handleDiceRollerPopoutClick(event) {
     state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
     syncDiceRollerPopout();
     render();
+  } else if (action === "toggle-dice-roller-tray") {
+    state.diceRollerDiceTrayOpen = !state.diceRollerDiceTrayOpen;
+    syncDiceRollerPopout();
+    render();
+  } else if (action === "toggle-dice-roller-roll-mode") {
+    const mode = actionButton.dataset.diceRollMode;
+    state.diceRollerRollMode = state.diceRollerRollMode === mode ? "" : mode;
+    syncDiceRollerPopout();
+    render();
+  } else if (action === "reroll-last-dice-formula") {
+    rerollLastDiceFormula();
   } else if (action === "roll-dice-formula") {
     submitDiceFormula(actionButton.dataset.diceFormula);
   } else if (action === "submit-dice-formula") {
@@ -12505,12 +12590,13 @@ function handleDiceRollerPopoutClick(event) {
 }
 
 function handleDiceRollerPopoutInput(event) {
-  if (!event.target.matches("[data-dice-roller-input]")) {
-    return;
+  if (event.target.matches("[data-dice-roller-input]")) {
+    state.diceRollerDraft = event.target.value;
+    state.diceRollerError = "";
+  } else if (event.target.matches("[data-dice-roller-modifier]")) {
+    state.diceRollerModifier = event.target.value;
+    state.diceRollerError = "";
   }
-
-  state.diceRollerDraft = event.target.value;
-  state.diceRollerError = "";
 }
 
 function handleDiceRollerPopoutSubmit(event) {
@@ -17253,7 +17339,13 @@ function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, e
   return `
     <article class="character-stat-block">
       <div class="character-stat-block__score character-stat-block__score--readonly">
-        <span class="character-stat-block__modifier">${escapeHtml(formatModifier(modifier))}</span>
+        <button
+          class="character-stat-block__modifier character-stat-block__modifier--roll"
+          type="button"
+          data-action="roll-dice-formula"
+          data-dice-formula="d20${escapeHtml(formatModifier(modifier))}"
+          aria-label="${escapeHtml(`Lanzar d20${formatModifier(modifier)} para ${meta.label}`)}"
+        >${escapeHtml(formatModifier(modifier))}</button>
         <strong class="character-stat-block__score-value">${escapeHtml(String(score))}</strong>
         <strong>${escapeHtml(meta.label)}</strong>
       </div>
@@ -19835,8 +19927,14 @@ function renderCharacterStatBlock(character, key, proficientKeys, expertiseKeys,
 
   return `
     <article class="character-stat-block">
-      <label class="character-stat-block__score">
-        <span class="character-stat-block__modifier">${escapeHtml(formatModifier(modifier))}</span>
+      <div class="character-stat-block__score">
+        <button
+          class="character-stat-block__modifier character-stat-block__modifier--roll"
+          type="button"
+          data-action="roll-dice-formula"
+          data-dice-formula="d20${escapeHtml(formatModifier(modifier))}"
+          aria-label="${escapeHtml(`Lanzar d20${formatModifier(modifier)} para ${meta.label}`)}"
+        >${escapeHtml(formatModifier(modifier))}</button>
         <input
           type="number"
           inputmode="numeric"
@@ -19845,7 +19943,7 @@ function renderCharacterStatBlock(character, key, proficientKeys, expertiseKeys,
           aria-label="${escapeHtml(meta.label)}"
         />
         <strong>${escapeHtml(meta.label)}</strong>
-      </label>
+      </div>
       <div class="character-stat-block__checks">
         ${renderCharacterCheckRow("save", "Salvacion", modifier, proficiencyBonus, saveKey, proficientKeys.has(saveKey), expertiseKeys.has(saveKey))}
         ${meta.skills.map((skill) => {

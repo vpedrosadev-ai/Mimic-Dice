@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { DiceFormulaError, findDiceFormulaMatches, isValidDiceFormula, rollDiceFormula } from "../src/shared/diceFormula.js";
+import { DiceFormulaError, findDiceFormulaMatches, findDiceModifierMatches, isValidDiceFormula, rollDiceFormula } from "../src/shared/diceFormula.js";
 
 const samples = [0, 0.5, 0.999, 0.25, 0.75, 0.1, 0.9, 0.4];
 let sampleIndex = 0;
@@ -16,6 +16,26 @@ assert.deepEqual(result.groups.map((group) => group.subtotal), [19, 6]);
 assert.equal(result.normalizedFormula, "(6d6+2d4*2+6)");
 
 assert.equal(rollDiceFormula("d20+3", { random: () => 0.999 }).total, 23);
+
+let advantageSampleIndex = 0;
+const advantageResult = rollDiceFormula("d20+3", {
+  random: () => [0.1, 0.8][advantageSampleIndex++],
+  rollMode: "advantage"
+});
+assert.deepEqual(advantageResult.groups[0].rolls, [3, 17]);
+assert.equal(advantageResult.groups[0].keptRollIndex, 1);
+assert.equal(advantageResult.total, 20);
+assert.equal(advantageResult.rollMode, "advantage");
+
+let disadvantageSampleIndex = 0;
+const disadvantageResult = rollDiceFormula("1d20-2", {
+  random: () => [0.9, 0.2][disadvantageSampleIndex++],
+  rollMode: "disadvantage"
+});
+assert.deepEqual(disadvantageResult.groups[0].rolls, [19, 5]);
+assert.equal(disadvantageResult.groups[0].keptRollIndex, 1);
+assert.equal(disadvantageResult.total, 3);
+assert.equal(disadvantageResult.rollMode, "disadvantage");
 assert.equal(rollDiceFormula("2*(1d6+1)", { random: () => 0 }).total, 4);
 assert.equal(rollDiceFormula("-1d4+10", { random: () => 0 }).total, 9);
 
@@ -45,10 +65,16 @@ assert.deepEqual(findDiceFormulaMatches("Deal 2d4+3 damage, then roll d20."), [
 ]);
 assert.deepEqual(findDiceFormulaMatches("id20 and 2d6damage are not formulas"), []);
 assert.deepEqual(findDiceFormulaMatches("Numbers 20 + 5 stay plain text."), []);
+assert.deepEqual(findDiceModifierMatches("Attack +5, save -2, formula d20+3."), [
+  { formula: "d20+5", label: "+5", start: 7, end: 9 },
+  { formula: "d20-2", label: "-2", start: 16, end: 18 }
+]);
 
 assert.throws(() => rollDiceFormula("101d6"), (error) => error instanceof DiceFormulaError && error.code === "too-many-dice");
 assert.throws(() => rollDiceFormula("1d1"), (error) => error instanceof DiceFormulaError && error.code === "invalid-sides");
 assert.throws(() => rollDiceFormula("1d6/0"), (error) => error instanceof DiceFormulaError && error.code === "division-zero");
 assert.throws(() => rollDiceFormula("1d6+"), (error) => error instanceof DiceFormulaError && error.code === "syntax");
+assert.throws(() => rollDiceFormula("2d20+5", { rollMode: "advantage" }), (error) => error instanceof DiceFormulaError && error.code === "roll-mode-single-die");
+assert.throws(() => rollDiceFormula("1d20+1d4", { rollMode: "disadvantage" }), (error) => error instanceof DiceFormulaError && error.code === "roll-mode-single-die");
 
 console.log("Dice formula tests passed.");

@@ -10,7 +10,10 @@ export function renderDiceRollerDock({
   language = "es",
   isPopout = false,
   helpOpen = false,
-  hitDiceMode = false
+  hitDiceMode = false,
+  rollMode = "",
+  modifier = "+0",
+  diceTrayOpen = false
 } = {}) {
   const isEnglish = language === "en";
 
@@ -78,35 +81,118 @@ export function renderDiceRollerDock({
           : `<div class="dice-roller-log__empty"><strong>${escapeHtml(isEnglish ? "Ready to roll" : "Listo para lanzar")}</strong><p>${escapeHtml(isEnglish ? "Try 2d20+5 or (6d6+2d4*2+6)." : "Prueba 2d20+5 o (6d6+2d4*2+6).")}</p></div>`}
       </div>
       <form class="dice-roller-form" data-dice-roller-form>
-        <button
-          class="dice-roller-hit-dice${hitDiceMode ? " is-active" : ""}"
-          type="button"
-          data-action="toggle-dice-roller-hit-dice"
-          aria-pressed="${hitDiceMode}"
-          title="${escapeHtml(isEnglish ? "Apply the fixed hit-die average as a minimum to every die" : "Aplica la media fija del dado de golpe como mínimo a cada dado")}"
-        >
-          <span aria-hidden="true">HP</span>
-          <strong>${escapeHtml(isEnglish ? "Hit dice" : "Dados de vida")}</strong>
-          <small>${escapeHtml(hitDiceMode ? (isEnglish ? "Minimum active" : "Mínimo activo") : (isEnglish ? "Normal roll" : "Tirada normal"))}</small>
-        </button>
-        <label class="sr-only" for="dice-roller-formula${isPopout ? "-popout" : ""}">${escapeHtml(isEnglish ? "Dice formula" : "Formula de dados")}</label>
-        <input
-          id="dice-roller-formula${isPopout ? "-popout" : ""}"
-          type="text"
-          inputmode="text"
-          autocomplete="off"
-          spellcheck="false"
-          value="${escapeHtml(draft)}"
-          placeholder="2d20+5"
-          data-dice-roller-input
-        />
-        <button type="submit" data-action="submit-dice-formula" aria-label="${escapeHtml(isEnglish ? "Roll dice" : "Lanzar dados")}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 20.3 3c.8-.4 1.6.4 1.2 1.2L13.3 21c-.4.8-1.6.6-1.7-.3l-.7-6.5-6.5-.7c-.9-.1-1.1-1.3-.3-1.7l6.1-3.1 1.1 1.1-4.1 2 5.1.6.6 5.1 5.8-11.8-11.8 5.8L3 11.2Z" /></svg>
-        </button>
+        <div class="dice-roller-form__controls">
+          <button
+            class="dice-roller-control dice-roller-control--icon${diceTrayOpen ? " is-active" : ""}"
+            type="button"
+            data-action="toggle-dice-roller-tray"
+            aria-expanded="${diceTrayOpen}"
+            aria-label="${escapeHtml(isEnglish ? "Choose a die" : "Elegir un dado")}"
+            title="${escapeHtml(isEnglish ? "Quick dice" : "Dados rápidos")}"
+          >
+            ${renderDieIcon(20, "")}
+          </button>
+          <button
+            class="dice-roller-control dice-roller-hit-dice${hitDiceMode ? " is-active" : ""}"
+            type="button"
+            data-action="toggle-dice-roller-hit-dice"
+            aria-pressed="${hitDiceMode}"
+            title="${escapeHtml(isEnglish ? "Apply the fixed hit-die average as a minimum to every die" : "Aplica la media fija del dado de golpe como mínimo a cada dado")}"
+          >
+            <span aria-hidden="true">HP</span>
+            <strong>${escapeHtml(isEnglish ? "Hit dice" : "Dados de vida")}</strong>
+          </button>
+          ${renderRollModeButton("advantage", rollMode, isEnglish)}
+          ${renderRollModeButton("disadvantage", rollMode, isEnglish)}
+          <button
+            class="dice-roller-control dice-roller-control--icon"
+            type="button"
+            data-action="reroll-last-dice-formula"
+            aria-label="${escapeHtml(isEnglish ? "Reroll last formula" : "Repetir última fórmula")}"
+            title="${escapeHtml(isEnglish ? "Reroll last formula" : "Repetir última fórmula")}"
+            ${history.length > 0 ? "" : "disabled"}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.3L13 11h8V3l-3.3 3.3Z" /></svg>
+          </button>
+          <label class="dice-roller-modifier" title="${escapeHtml(isEnglish ? "Roll modifier" : "Modificador de tirada")}">
+            <span class="sr-only">${escapeHtml(isEnglish ? "Modifier" : "Modificador")}</span>
+            <input
+              type="text"
+              inputmode="numeric"
+              autocomplete="off"
+              spellcheck="false"
+              value="${escapeHtml(modifier)}"
+              data-dice-roller-modifier
+              aria-label="${escapeHtml(isEnglish ? "Modifier" : "Modificador")}"
+            />
+          </label>
+        </div>
+        ${diceTrayOpen ? renderDiceTray(isEnglish) : ""}
+        <div class="dice-roller-form__formula-row">
+          <label class="sr-only" for="dice-roller-formula${isPopout ? "-popout" : ""}">${escapeHtml(isEnglish ? "Dice formula" : "Formula de dados")}</label>
+          <input
+            id="dice-roller-formula${isPopout ? "-popout" : ""}"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            spellcheck="false"
+            value="${escapeHtml(draft)}"
+            placeholder="2d20+5"
+            data-dice-roller-input
+          />
+          <button type="submit" data-action="submit-dice-formula" aria-label="${escapeHtml(isEnglish ? "Roll dice" : "Lanzar dados")}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 20.3 3c.8-.4 1.6.4 1.2 1.2L13.3 21c-.4.8-1.6.6-1.7-.3l-.7-6.5-6.5-.7c-.9-.1-1.1-1.3-.3-1.7l6.1-3.1 1.1 1.1-4.1 2 5.1.6.6 5.1 5.8-11.8-11.8 5.8L3 11.2Z" /></svg>
+          </button>
+        </div>
       </form>
       ${error ? `<p class="dice-roller-form__error" role="alert">${escapeHtml(error)}</p>` : ""}
       ${!isPopout ? renderResizeHandles() : ""}
     </section>
+  `;
+}
+
+function renderRollModeButton(mode, activeMode, isEnglish) {
+  const active = mode === activeMode;
+  const label = mode === "advantage"
+    ? (isEnglish ? "Advantage" : "Ventaja")
+    : (isEnglish ? "Disadvantage" : "Desventaja");
+
+  return `
+    <button
+      class="dice-roller-control dice-roller-roll-mode${active ? " is-active" : ""}"
+      type="button"
+      data-action="toggle-dice-roller-roll-mode"
+      data-dice-roll-mode="${mode}"
+      aria-pressed="${active}"
+      title="${escapeHtml(isEnglish ? `${label}: roll twice and keep one` : `${label}: lanza dos veces y conserva uno`)}"
+    >${escapeHtml(label)}</button>
+  `;
+}
+
+function renderDiceTray(isEnglish) {
+  return `
+    <div class="dice-roller-tray" role="group" aria-label="${escapeHtml(isEnglish ? "Quick dice" : "Dados rápidos")}">
+      ${[4, 6, 8, 10, 12, 20, 100].map((sides) => `
+        <button
+          type="button"
+          data-action="roll-dice-formula"
+          data-dice-formula="d${sides}"
+          aria-label="${escapeHtml(isEnglish ? `Roll d${sides}` : `Lanzar d${sides}`)}"
+          title="d${sides}"
+        >${renderDieIcon(sides, `d${sides}`)}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderDieIcon(sides, label) {
+  const shape = getDieShape(sides);
+  return `
+    <svg class="dice-roller-die-icon dice-result--d${escapeHtml(String(shape.classSides))}" viewBox="0 0 48 48" aria-hidden="true">
+      <polygon points="${shape.points}" />
+      ${shape.lines}
+      ${label ? `<text x="24" y="27" text-anchor="middle">${escapeHtml(label)}</text>` : ""}
+    </svg>
   `;
 }
 
@@ -145,6 +231,7 @@ function renderDiceRollEntry(entry, language) {
           ${timeLabel ? `<time datetime="${escapeHtml(new Date(entry.rolledAt).toISOString())}">${escapeHtml(timeLabel)}</time>` : ""}
           <code>${escapeHtml(entry.formula)}</code>
           ${entry.hitDiceMode ? `<span class="dice-roll-entry__mode">${escapeHtml(language === "en" ? "HIT DICE" : "DADOS DE VIDA")}</span>` : ""}
+          ${entry.rollMode ? `<span class="dice-roll-entry__mode dice-roll-entry__mode--${escapeHtml(entry.rollMode)}">${escapeHtml(entry.rollMode === "advantage" ? (language === "en" ? "ADVANTAGE" : "VENTAJA") : (language === "en" ? "DISADVANTAGE" : "DESVENTAJA"))}</span>` : ""}
         </div>
         <strong>= ${escapeHtml(formatTotal(entry.total))}</strong>
       </header>
@@ -153,7 +240,11 @@ function renderDiceRollEntry(entry, language) {
           <section class="dice-roll-group">
             <span class="dice-roll-group__notation">${escapeHtml(group.notation)}</span>
             <div class="dice-roll-group__dice">
-              ${(group.rolls || []).map((value, index) => renderDie(group.sides, value, group.rawRolls?.[index])).join("")}
+              ${(group.rolls || []).map((value, index) => renderDie(group.sides, value, group.rawRolls?.[index], {
+                kept: group.keptRollIndex === index,
+                discarded: group.keptRollIndex !== null && group.keptRollIndex !== undefined && group.keptRollIndex !== index,
+                language
+              })).join("")}
             </div>
             <strong class="dice-roll-group__subtotal">= ${escapeHtml(formatTotal(group.subtotal))}</strong>
           </section>
@@ -175,18 +266,25 @@ function formatRollTime(value, language) {
   }).format(date);
 }
 
-function renderDie(sides, value, rawValue = value) {
+function renderDie(sides, value, rawValue = value, { kept = false, discarded = false, language = "es" } = {}) {
   const shape = getDieShape(sides);
   const adjusted = Number(rawValue) !== Number(value);
-  const title = adjusted ? `d${sides}: ${rawValue} → ${value}` : `d${sides}: ${value}`;
+  const selectionLabel = kept
+    ? (language === "en" ? "kept" : "elegido")
+    : discarded
+      ? (language === "en" ? "discarded" : "descartado")
+      : "";
+  const valueLabel = adjusted ? `d${sides}: ${rawValue} → ${value}` : `d${sides}: ${value}`;
+  const title = selectionLabel ? `${valueLabel} (${selectionLabel})` : valueLabel;
   return `
-    <span class="dice-result dice-result--d${escapeHtml(String(shape.classSides))}${adjusted ? " is-adjusted" : ""}" title="${escapeHtml(title)}">
+    <span class="dice-result dice-result--d${escapeHtml(String(shape.classSides))}${adjusted ? " is-adjusted" : ""}${kept ? " is-kept" : ""}${discarded ? " is-discarded" : ""}" title="${escapeHtml(title)}">
       <svg viewBox="0 0 48 48" aria-hidden="true">
         <polygon points="${shape.points}" />
         ${shape.lines}
         <text x="24" y="27" text-anchor="middle">${escapeHtml(String(value))}</text>
       </svg>
       ${adjusted ? `<small aria-hidden="true">${escapeHtml(String(rawValue))}→${escapeHtml(String(value))}</small>` : ""}
+      ${kept ? `<em class="dice-result__kept">${escapeHtml(language === "en" ? "KEPT" : "ELEGIDO")}</em>` : ""}
       <span class="sr-only">${escapeHtml(title)}</span>
     </span>
   `;
