@@ -1,6 +1,6 @@
 import { cleanText, normalizeSearchText } from "../shared/text.js";
 
-export const MONSTERS_LEAGUE_SCHEMA_VERSION = 1;
+export const MONSTERS_LEAGUE_SCHEMA_VERSION = 2;
 export const MONSTERS_LEAGUE_STARTING_GOLD = 100;
 
 export const MONSTERS_LEAGUE_TEAM_COLORS = Object.freeze([
@@ -66,6 +66,7 @@ export function createMonstersLeagueRoom({
     nominationDeadlineAt: 0,
     availableMonsterIds: [],
     combatState: {},
+    mapProjection: { open: false, editorState: null, combatants: [], activeCombatantId: "" },
     currentLot: null,
     history: [],
     createdAt: now,
@@ -452,9 +453,24 @@ export function getMonstersLeagueRoomSummary(room) {
     nominationDeadlineAt: room.nominationDeadlineAt,
     availableMonsterIds: [...room.availableMonsterIds],
     combatState: cloneCombatState(room.combatState),
+    mapProjection: cloneMapProjection(room.mapProjection),
     currentLot: room.currentLot ? { ...room.currentLot, monster: { ...room.currentLot.monster } } : null,
     history: room.history.map((entry) => ({ ...entry, monster: { ...entry.monster } })),
     completedAt: room.completedAt
+  };
+}
+
+function cloneMapProjection(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    open: source.open === true,
+    editorState: source.editorState && typeof source.editorState === "object"
+      ? JSON.parse(JSON.stringify(source.editorState))
+      : null,
+    combatants: Array.isArray(source.combatants)
+      ? source.combatants.map((combatant) => ({ ...combatant }))
+      : [],
+    activeCombatantId: cleanText(source.activeCombatantId)
   };
 }
 

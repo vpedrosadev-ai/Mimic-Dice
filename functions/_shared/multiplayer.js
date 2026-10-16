@@ -42,6 +42,13 @@ export async function handleMultiplayerRoomRequest(context) {
       return await finalizeRoomCampaign(context, roomId, user);
     }
 
+    if (roomId && pathParts.length === 3 && pathParts[1] === "assets") {
+      if (!["GET", "HEAD"].includes(method)) {
+        return methodNotAllowed(["GET", "HEAD"]);
+      }
+      return await serveRoomAsset(context, roomId, cleanText(pathParts[2], 120), user, method === "HEAD");
+    }
+
     if (!roomId || pathParts.length !== 2 || pathParts[1] !== "socket") {
       throw new HttpError(404, "room_not_found", "Multiplayer room not found.");
     }
@@ -184,6 +191,58 @@ async function connectRoomSocket(context, roomId, user) {
     method: "GET",
     headers
   }));
+}
+
+async function serveRoomAsset(context, roomId, assetId, user, headOnly = false) {
+  if (!context.env?.CLOUD_ASSETS || !assetId) {
+    throw new HttpError(404, "asset_not_found", "Map asset not found.");
+  }
+
+  const record = await context.env.DB.prepare(`
+    SELECT "hostUserId", "expiresAt"
+    FROM "multiplayer_rooms"
+    WHERE "id" = ?
+    LIMIT 1
+  `).bind(roomId).first();
+
+  if (!record || Date.parse(record.expiresAt) <= Date.now()) {
+    throw new HttpError(404, "room_not_found", "Multiplayer room not found.");
+  }
+
+  const objectId = context.env.MONSTERS_LEAGUE_ROOMS.idFromName(roomId);
+  const stub = context.env.MONSTERS_LEAGUE_ROOMS.get(objectId);
+  const authorizationResponse = await stub.fetch("https://monsters-league.internal/authorize", {
+    method: "GET",
+    headers: buildTrustedHeaders(user)
+  });
+  const authorization = authorizationResponse.ok ? await authorizationResponse.json() : null;
+  if (authorization?.authorized !== true) {
+    throw new HttpError(403, "room_membership_required", "Only room participants can view its map.");
+  }
+
+  const asset = await context.env.DB.prepare(`
+    SELECT "objectKey", "mimeType"
+    FROM "cloud_assets"
+    WHERE "id" = ? AND "ownerId" = ?
+    LIMIT 1
+  `).bind(assetId, record.hostUserId).first();
+  if (!asset) {
+    throw new HttpError(404, "asset_not_found", "Map asset not found.");
+  }
+
+  const object = await context.env.CLOUD_ASSETS.get(asset.objectKey);
+  if (!object) {
+    throw new HttpError(404, "asset_not_found", "Map asset not found.");
+  }
+
+  const headers = new Headers({
+    "Content-Type": cleanText(asset.mimeType, 120) || "application/octet-stream",
+    "Cache-Control": "private, max-age=60",
+    "X-Content-Type-Options": "nosniff"
+  });
+  object.writeHttpMetadata?.(headers);
+  if (object.httpEtag) headers.set("ETag", object.httpEtag);
+  return new Response(headOnly ? null : object.body, { headers });
 }
 
 function buildTrustedHeaders(user, extra = {}) {

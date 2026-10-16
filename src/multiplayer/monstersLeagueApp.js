@@ -7,6 +7,7 @@ import { createCompendiumDetailRenderers } from "../screens/compendiums/detailRe
 import { parseBestiarySpellcasting } from "../shared/bestiarySpellcasting.js";
 import { createSpellReferenceMatcher } from "../shared/spellReferences.js";
 import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
+import { createCombatMapController } from "../screens/combat-map/combatMap.js";
 import { fetchAuthSession } from "../cloud/cloudClient.js";
 import {
   connectMonstersLeagueRoom,
@@ -178,7 +179,10 @@ const state = {
   draftFlashTimer: 0,
   draftObservation: null,
   lastCountdownBeep: "",
-  audioContext: null
+  audioContext: null,
+  lastActiveCombatantId: "",
+  turnFlash: null,
+  turnFlashTimer: 0
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -188,6 +192,12 @@ const detailRenderers = createCompendiumDetailRenderers({
   getItemAttunementLabel: () => "",
   getItemSourceDescription: () => "",
   isItemTypeTokenFilterActive: () => false
+});
+const playerMapController = createCombatMapController({
+  storageKey: "mimic-dice:monsters-league-player-map:v1",
+  getCombatants: () => state.room?.mapProjection?.combatants || [],
+  getActiveCombatantId: () => cleanText(state.room?.mapProjection?.activeCombatantId),
+  renderInitiativeOrder: renderProjectedInitiativeOrder
 });
 
 app.addEventListener("click", handleClick);
@@ -199,6 +209,7 @@ window.addEventListener("beforeunload", () => {
   persistTestRoom();
   state.connection?.close();
 });
+window.addEventListener("resize", () => syncPlayerMapProjection());
 
 initialize();
 
@@ -287,6 +298,7 @@ async function initializeOnlineRoom(hostName) {
     onSnapshot(room) {
       const previousStatus = state.room?.status;
       observeDraftEvents(room);
+      observeCombatTurn(room);
       state.room = room;
       state.loading = false;
       state.loadError = "";
@@ -391,7 +403,9 @@ function render() {
       ${stage}
     </div>
     ${renderSpellDialog()}
+    ${renderTurnFlash()}
   `;
+  syncPlayerMapProjection();
   persistTestRoom();
 }
 
@@ -703,6 +717,7 @@ function renderTeamScreen() {
           ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button ml-button--primary" type="button" data-ml-action="enter-combat">${room.status === "combat" ? "Combate en vivo" : "Iniciar combate"}</button>` : `<span class="ml-live-dot">${room.status === "combat" ? "LIVE" : "ESPERANDO AL HOST"}</span>`}
         </div>
       </section>
+      ${renderCombatMapBroadcast()}
       <div class="ml-team-layout">
         <aside class="ml-panel ml-team-roster">
           <div class="ml-panel-heading"><div><p class="ml-eyebrow">PLANTILLA</p><h2>Criaturas</h2></div></div>
@@ -717,6 +732,71 @@ function renderTeamScreen() {
       </div>
     </main>
   `;
+}
+
+function renderCombatMapBroadcast() {
+  const projection = state.room?.mapProjection;
+  const open = projection?.open === true && projection.editorState;
+  const waitingLabel = language === "en" ? "Waiting for host" : "Esperando al anfitri\u00f3n";
+  return `
+    <section class="ml-map-broadcast ${open ? "is-live" : "is-waiting"}">
+      <header><div><p class="ml-eyebrow">MAPA DE COMBATE</p><h2>${language === "en" ? "Player view" : "Vista de jugador"}</h2></div>${open ? `<span class="ml-live-dot">LIVE</span>` : ""}</header>
+      ${open
+        ? `<div class="ml-map-projection" data-ml-map-projection></div>`
+        : `<div class="ml-map-waiting" role="status"><i></i><strong>${waitingLabel}</strong></div>`}
+    </section>
+  `;
+}
+
+function syncPlayerMapProjection() {
+  const host = app.querySelector("[data-ml-map-projection]");
+  const projection = state.room?.mapProjection;
+  if (!host || projection?.open !== true || !projection.editorState) return;
+  playerMapController.applySave(projection.editorState);
+  playerMapController.syncPlayerProjection(host);
+}
+
+function renderProjectedInitiativeOrder(_viewportWindow, layout = {}) {
+  const projection = state.room?.mapProjection;
+  const activeId = cleanText(projection?.activeCombatantId);
+  const combatants = [...(projection?.combatants || [])]
+    .filter((combatant) => combatant.hiddenFromInitiative !== true && combatant.iniactiva !== "")
+    .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0));
+  const scale = layout.count === combatants.length ? layout.scale : 1;
+  const columns = layout.count === combatants.length ? layout.columns : 1;
+  return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${combatants.length}">${combatants.map((combatant) => {
+    const teamColor = /^#[0-9a-f]{6}$/i.test(cleanText(combatant.teamColor)) ? cleanText(combatant.teamColor) : "";
+    const maxHp = Math.max(1, Number(combatant.pgMax) || 1);
+    const hpFill = Math.max(0, Math.min(100, Math.round((Number(combatant.pgAct) || 0) / maxHp * 100)));
+    const side = ["allies", "enemies", "neutral"].includes(combatant.side) ? combatant.side : "enemies";
+    return `<div class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${combatant.id === activeId ? "is-active" : ""}" style="--turn-hp-fill:${hpFill}%;--turn-hp-color:#54a065${teamColor ? `;--team-color:${teamColor}` : ""}"><span class="combat-turn-token__initiative">${escapeHtml(String(combatant.iniactiva || "-"))}</span><div class="combat-turn-token combat-turn-token--${side}">${combatant.tokenUrl ? `<img src="${escapeHtml(combatant.tokenUrl)}" alt="">` : `<span class="combat-turn-token__placeholder">${escapeHtml(getInitials(combatant.nombre || "M"))}</span>`}</div><small>${escapeHtml(combatant.nombre || "")}</small></div>`;
+  }).join("")}</div></div>`;
+}
+
+function observeCombatTurn(room) {
+  const projection = room?.mapProjection;
+  const activeId = cleanText(projection?.activeCombatantId);
+  if (activeId === state.lastActiveCombatantId) return;
+  state.lastActiveCombatantId = activeId;
+  if (!activeId || projection?.open !== true) return;
+  const combatant = (projection.combatants || []).find((entry) => cleanText(entry.id) === activeId);
+  const currentUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
+  const currentPlayer = room.players?.find((player) => player.userId === currentUserId || player.id === currentUserId);
+  if (!combatant || (combatant.teamOwnerUserId !== currentUserId && combatant.teamId !== currentPlayer?.id)) return;
+  state.turnFlash = {
+    name: cleanText(combatant.nombre) || (language === "en" ? "Your creature" : "Tu criatura"),
+    tokenUrl: cleanText(combatant.tokenUrl)
+  };
+  window.clearTimeout(state.turnFlashTimer);
+  state.turnFlashTimer = window.setTimeout(() => {
+    state.turnFlash = null;
+    render();
+  }, 2800);
+}
+
+function renderTurnFlash() {
+  if (!state.turnFlash) return "";
+  return `<div class="ml-turn-alert" role="status" aria-live="assertive">${state.turnFlash.tokenUrl ? `<img src="${escapeHtml(state.turnFlash.tokenUrl)}" alt="">` : ""}<span>${language === "en" ? "Your turn" : "Tu turno"}</span><strong>${escapeHtml(state.turnFlash.name)}</strong></div>`;
 }
 
 function renderTeamMonsterCard(player, award) {

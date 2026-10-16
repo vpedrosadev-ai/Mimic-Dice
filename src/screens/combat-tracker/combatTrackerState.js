@@ -202,6 +202,7 @@ function normalizeStoredCombatant(combatant) {
     tokenUrl: cleanText(combatant.tokenUrl),
     sourceEncounterId: cleanText(combatant.sourceEncounterId),
     multiplayerRoomId: cleanText(combatant.multiplayerRoomId),
+    multiplayerMonsterId: cleanText(combatant.multiplayerMonsterId),
     teamId: cleanText(combatant.teamId),
     teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
     teamOwnerName: cleanText(combatant.teamOwnerName),

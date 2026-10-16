@@ -1,6 +1,6 @@
 const connections = new Map();
 
-export function startMonstersLeagueCombatSync(getCombatants) {
+export function startMonstersLeagueCombatSync(getCombatants, getMapProjection = null) {
   if (typeof window === "undefined" || typeof WebSocket === "undefined") return () => {};
 
   const sync = () => {
@@ -12,7 +12,10 @@ export function startMonstersLeagueCombatSync(getCombatants) {
         connection = createRoomConnection(roomId);
         connections.set(roomId, connection);
       }
-      connection.publish(combatState);
+      connection.publish({
+        combatState,
+        mapProjection: typeof getMapProjection === "function" ? getMapProjection(roomId) : null
+      });
     }
 
     for (const [roomId, connection] of connections) {
@@ -32,13 +35,13 @@ export function startMonstersLeagueCombatSync(getCombatants) {
   };
 }
 
-function groupCombatantsByRoom(combatants) {
+export function groupCombatantsByRoom(combatants) {
   const rooms = new Map();
 
   for (const combatant of Array.isArray(combatants) ? combatants : []) {
     const roomId = clean(combatant?.multiplayerRoomId);
     const teamId = clean(combatant?.teamId);
-    const monsterId = clean(combatant?.entryId || combatant?.entryKey);
+    const monsterId = clean(combatant?.multiplayerMonsterId || combatant?.entryId || combatant?.entryKey);
     if (!combatant?.multiplayerOnline || !roomId || !teamId || !monsterId) continue;
 
     if (!rooms.has(roomId)) rooms.set(roomId, {});
@@ -61,34 +64,53 @@ function createRoomConnection(roomId) {
   const url = `${protocol}//${window.location.host}/api/multiplayer/rooms/${encodeURIComponent(roomId)}/socket`;
   let socket = null;
   let retryTimer = 0;
+  let sendRetryTimer = 0;
   let retry = 0;
   let closed = false;
   let pending = null;
   let lastSent = "";
+  let inflight = null;
 
   const connect = () => {
     if (closed) return;
     socket = new WebSocket(url);
     socket.addEventListener("open", () => {
       retry = 0;
+      inflight = null;
       flush();
+    });
+    socket.addEventListener("message", (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message?.type === "ack" && inflight?.commandId === message.commandId) {
+        lastSent = inflight.serialized;
+        inflight = null;
+        flush();
+      } else if (message?.type === "error" && inflight?.commandId === message.commandId) {
+        inflight = null;
+        window.clearTimeout(sendRetryTimer);
+        sendRetryTimer = window.setTimeout(flush, 800);
+      }
     });
     socket.addEventListener("close", () => {
       if (closed) return;
+      inflight = null;
       retryTimer = window.setTimeout(connect, Math.min(10000, 500 * 2 ** retry++));
     });
   };
 
   const flush = () => {
-    if (!pending || socket?.readyState !== WebSocket.OPEN) return;
+    if (!pending || inflight || socket?.readyState !== WebSocket.OPEN) return;
     const serialized = JSON.stringify(pending);
     if (serialized === lastSent) return;
+    const commandId = crypto.randomUUID();
     socket.send(JSON.stringify({
       type: "combat-update",
-      commandId: crypto.randomUUID(),
-      combatState: pending
+      commandId,
+      combatState: pending.combatState,
+      mapProjection: pending.mapProjection
     }));
-    lastSent = serialized;
+    inflight = { commandId, serialized };
   };
 
   connect();
@@ -100,6 +122,7 @@ function createRoomConnection(roomId) {
     close() {
       closed = true;
       window.clearTimeout(retryTimer);
+      window.clearTimeout(sendRetryTimer);
       socket?.close(1000, "combat sync ended");
     }
   };

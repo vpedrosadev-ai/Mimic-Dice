@@ -60,6 +60,13 @@ export class MonstersLeagueRoom extends DurableObject {
       return Response.json({ room: getMonstersLeagueRoomSummary(this.room) });
     }
 
+    if (url.pathname === "/authorize" && request.method === "GET") {
+      if (!this.room) return new Response("Room not found", { status: 404 });
+      const user = getTrustedUser(request);
+      const authorized = this.room.players.some((entry) => entry.userId === user.id || entry.id === user.id);
+      return Response.json({ authorized, hostPlayerId: this.room.hostPlayerId });
+    }
+
     if (url.pathname.startsWith("/socket/") && request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       return await this.connectSocket(request);
     }
@@ -167,10 +174,13 @@ export class MonstersLeagueRoom extends DurableObject {
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "combat-update") {
-      if (playerId !== this.room.hostPlayerId || this.room.status !== "combat") {
-        throw Object.assign(new Error("Only host can update live combat."), { code: "host_required" });
+      if (playerId !== this.room.hostPlayerId || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("Only host can update live combat after draft."), { code: "host_required" });
       }
       this.room.combatState = sanitizeCombatState(command.combatState, this.room);
+      if (Object.prototype.hasOwnProperty.call(command, "mapProjection")) {
+        this.room.mapProjection = sanitizeMapProjection(command.mapProjection, this.room);
+      }
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else {
@@ -307,4 +317,81 @@ function sanitizeCombatState(value, room) {
 function clampLiveNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, Math.min(999999, number)) : 0;
+}
+
+function sanitizeMapProjection(value, room) {
+  if (!value || typeof value !== "object" || value.open !== true) {
+    return { open: false, editorState: null, combatants: [], activeCombatantId: "" };
+  }
+
+  let editorState = null;
+  try {
+    const serialized = JSON.stringify(value.editorState && typeof value.editorState === "object" ? value.editorState : {});
+    if (serialized.length > 2_000_000) {
+      throw Object.assign(new Error("Map projection is too large."), { code: "map_projection_too_large" });
+    }
+    editorState = JSON.parse(serialized);
+  } catch (error) {
+    if (error?.code) throw error;
+    throw Object.assign(new Error("Map projection is invalid."), { code: "invalid_map_projection" });
+  }
+
+  editorState.savedMapLayouts = [];
+  editorState.map = sanitizeProjectedMap(editorState.map, room.id);
+  const combatants = (Array.isArray(value.combatants) ? value.combatants : []).slice(0, 300).map((entry) => ({
+    id: safeText(entry?.id).slice(0, 120),
+    side: ["allies", "enemies", "neutral"].includes(entry?.side) ? entry.side : "enemies",
+    tag: safeText(entry?.tag).slice(0, 30),
+    nombre: safeText(entry?.nombre).slice(0, 160),
+    numPeana: safeText(entry?.numPeana).slice(0, 30),
+    pgMax: clampLiveNumber(entry?.pgMax),
+    pgAct: clampLiveNumber(entry?.pgAct),
+    pgTemp: clampLiveNumber(entry?.pgTemp),
+    necrotic: clampLiveNumber(entry?.necrotic),
+    condiciones: safeText(entry?.condiciones).slice(0, 600),
+    hiddenFromInitiative: entry?.hiddenFromInitiative === true,
+    iniactiva: Number.isFinite(Number(entry?.iniactiva)) ? Number(entry.iniactiva) : "",
+    tokenUrl: sanitizeProjectedUrl(entry?.tokenUrl, room.id),
+    tamano: safeText(entry?.tamano).slice(0, 40),
+    movimiento: safeText(entry?.movimiento).slice(0, 120),
+    isFlying: entry?.isFlying === true,
+    flyingHeight: clampLiveNumber(entry?.flyingHeight),
+    teamId: safeText(entry?.teamId).slice(0, 120),
+    teamOwnerUserId: safeText(entry?.teamOwnerUserId).slice(0, 120),
+    teamColor: /^#[0-9a-f]{6}$/i.test(safeText(entry?.teamColor)) ? safeText(entry.teamColor).toLowerCase() : "",
+    multiplayerMonsterId: safeText(entry?.multiplayerMonsterId).slice(0, 160)
+  })).filter((entry) => entry.id);
+  const validIds = new Set(combatants.map((entry) => entry.id));
+  const activeCombatantId = safeText(value.activeCombatantId);
+
+  return {
+    open: true,
+    editorState,
+    combatants,
+    activeCombatantId: validIds.has(activeCombatantId) ? activeCombatantId : ""
+  };
+}
+
+function sanitizeProjectedMap(value, roomId) {
+  if (!value || typeof value !== "object") return null;
+  const imageUrl = sanitizeProjectedUrl(value.imageUrl, roomId);
+  const cloudEntryId = safeText(value.cloudEntryId).slice(0, 120);
+  if (!imageUrl && !cloudEntryId) return null;
+  return {
+    name: safeText(value.name).slice(0, 160) || "Mapa",
+    imageUrl,
+    width: Math.max(1, Math.min(8192, Math.round(Number(value.width) || 1600))),
+    height: Math.max(1, Math.min(8192, Math.round(Number(value.height) || 900))),
+    cloudEntryId,
+    isPrivate: false,
+    isAnimated: value.isAnimated === true
+  };
+}
+
+function sanitizeProjectedUrl(value, roomId) {
+  const url = String(value ?? "").trim().slice(0, 1200);
+  if (!url || /^(?:data|blob|javascript):/i.test(url)) return "";
+  if (/^https:\/\//i.test(url) || /^\/images\//i.test(url) || /^\/data\//i.test(url) || /^\/api\/assets\/[a-z0-9-]+$/i.test(url)) return url;
+  const roomAssetPrefix = `/api/multiplayer/rooms/${encodeURIComponent(roomId)}/assets/`;
+  return url.startsWith(roomAssetPrefix) && /^[a-z0-9-]+$/i.test(url.slice(roomAssetPrefix.length)) ? url : "";
 }

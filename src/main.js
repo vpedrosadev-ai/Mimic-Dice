@@ -1379,7 +1379,78 @@ render();
 queueCompendiumLoad("arcanum");
 queueInitialDataLoad();
 initializeCloudAccount();
-startMonstersLeagueCombatSync(() => state.combatants);
+startMonstersLeagueCombatSync(
+  () => state.combatants,
+  (roomId) => getMonstersLeagueMapProjection(roomId)
+);
+
+function getMonstersLeagueMapProjection(roomId) {
+  const normalizedRoomId = cleanText(roomId);
+  if (!normalizedRoomId || !combatMapController.isOpen()) {
+    return { open: false, editorState: null, combatants: [], activeCombatantId: "" };
+  }
+
+  const editorState = combatMapController.getSaveData();
+  editorState.savedMapLayouts = [];
+  editorState.map = rewriteMonstersLeagueMapAssets(editorState.map, normalizedRoomId);
+
+  return {
+    open: true,
+    editorState,
+    activeCombatantId: state.isCombatActive ? cleanText(state.activeTurnCombatantId) : "",
+    combatants: state.combatants.filter(Boolean).map((combatant) => {
+      const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+      const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+      return {
+        id: cleanText(combatant.id),
+        side: cleanText(combatant.side),
+        tag: cleanText(combatant.tag),
+        nombre: cleanText(combatant.nombre),
+        numPeana: cleanText(combatant.numPeana),
+        pgMax: Math.max(0, toNumber(combatant.pgMax)),
+        pgAct: Math.max(0, toNumber(combatant.pgAct)),
+        pgTemp: Math.max(0, toNumber(combatant.pgTemp)),
+        necrotic: Math.max(0, toNumber(combatant.necrotic)),
+        condiciones: cleanText(combatant.condiciones),
+        hiddenFromInitiative: combatant.hiddenFromInitiative === true,
+        iniactiva: combatant.iniactiva,
+        tokenUrl: rewriteMonstersLeagueAssetUrl(getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry), normalizedRoomId),
+        tamano: cleanText(combatant.mapTokenSize || linkedCharacter?.size || bestiaryEntry?.size || combatant.tamano) || "Mediano",
+        movimiento: cleanText(combatant.movimiento),
+        isFlying: combatant.isFlying === true,
+        flyingHeight: Math.max(0, toNumber(combatant.flyingHeight)),
+        teamId: cleanText(combatant.teamId),
+        teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
+        teamColor: normalizeTeamColor(combatant.teamColor),
+        multiplayerMonsterId: cleanText(combatant.multiplayerMonsterId || combatant.entryId || combatant.entryKey)
+      };
+    })
+  };
+}
+
+function rewriteMonstersLeagueMapAssets(map, roomId) {
+  if (!map || typeof map !== "object") return null;
+  const rewrite = (entry) => {
+    return {
+      ...entry,
+      imageUrl: entry?.isPrivate === true
+        ? rewriteMonstersLeagueAssetUrl(entry?.imageUrl, roomId)
+        : cleanText(entry?.imageUrl)
+    };
+  };
+  const rewritten = rewrite(map);
+  rewritten.associatedMaps = Array.isArray(map.associatedMaps) ? map.associatedMaps.map(rewrite) : [];
+  return rewritten;
+}
+
+function rewriteMonstersLeagueAssetUrl(value, roomId) {
+  const url = cleanText(value);
+  if (/^(?:data|blob|mimic-assets):/i.test(url)) return "";
+  const match = url.match(/^\/api\/assets\/([^/?#]+)/i);
+  return match
+    ? `/api/multiplayer/rooms/${encodeURIComponent(roomId)}/assets/${encodeURIComponent(match[1])}`
+    : url;
+}
 
 function handleAppImageError(event) {
   const image = event.target?.closest?.("[data-cloud-catalog-image]");
@@ -24666,6 +24737,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
       ubicacion: encounterName,
       sourceEncounterId: encounterId,
       multiplayerRoomId: cleanText(teamMeta.roomId),
+      multiplayerMonsterId: cleanText(row.entryId || row.entryKey),
       teamId: cleanText(teamMeta.teamId || row.teamId),
       teamOwnerUserId: cleanText(teamMeta.ownerUserId),
       teamOwnerName: cleanText(teamMeta.ownerName),
@@ -24695,6 +24767,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
     ubicacion: encounterName,
     sourceEncounterId: encounterId,
     multiplayerRoomId: cleanText(teamMeta.roomId),
+    multiplayerMonsterId: cleanText(row.entryId || row.entryKey),
     teamId: cleanText(teamMeta.teamId || row.teamId),
     teamOwnerUserId: cleanText(teamMeta.ownerUserId),
     teamOwnerName: cleanText(teamMeta.ownerName),
@@ -24755,10 +24828,12 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     ubicacion: existingCombatant.ubicacion ?? "",
     sourceEncounterId: cleanText(existingCombatant.sourceEncounterId),
     multiplayerRoomId: cleanText(existingCombatant.multiplayerRoomId),
+    multiplayerMonsterId: cleanText(existingCombatant.multiplayerMonsterId),
     teamId: cleanText(existingCombatant.teamId),
     teamOwnerUserId: cleanText(existingCombatant.teamOwnerUserId),
     teamOwnerName: cleanText(existingCombatant.teamOwnerName),
     teamColor: normalizeTeamColor(existingCombatant.teamColor),
+    multiplayerOnline: existingCombatant.multiplayerOnline === true,
     iniactiva: existingCombatant.iniactiva ?? "",
     nombre: entry.name,
     source: entry.source ?? "",
@@ -26068,6 +26143,7 @@ function normalizeCombatant(combatant, changedKey = "") {
     hitDice,
     necrotic,
     multiplayerRoomId: cleanText(combatant.multiplayerRoomId),
+    multiplayerMonsterId: cleanText(combatant.multiplayerMonsterId),
     teamId: cleanText(combatant.teamId),
     teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
     teamOwnerName: cleanText(combatant.teamOwnerName),

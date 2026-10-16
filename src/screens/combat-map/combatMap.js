@@ -927,6 +927,7 @@ export function createCombatMapController(options = {}) {
   let iconPickerSurface = "";
   let fogPolygonCursor = null;
   let masterHost = null;
+  let playerProjectionHost = null;
   let pendingConfirmation = null;
   let detachedConfirmationElement = null;
   let tokenFeedbackSequence = 0;
@@ -1926,6 +1927,11 @@ export function createCombatMapController(options = {}) {
     return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
+  function renderPlayerProjection(viewportWindow = window) {
+    const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
+    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}</div></div>`;
+  }
+
   function sync() {
     if (isOpen()) {
       const root = editorWindow.document.querySelector("[data-combat-map-root]");
@@ -1942,6 +1948,7 @@ export function createCombatMapController(options = {}) {
       }
     }
     if (masterHost?.isConnected) syncMasterSurface(masterHost);
+    if (playerProjectionHost?.isConnected) syncPlayerProjection(playerProjectionHost);
     lastCombatantFingerprint = getCombatantFingerprint();
   }
 
@@ -1965,6 +1972,29 @@ export function createCombatMapController(options = {}) {
     frame.style.width = `${totalWidth * effectiveScale}px`;
     frame.style.height = `${totalHeight * effectiveScale}px`;
     frame.dataset.mapScale = String(effectiveScale);
+    viewport.scrollLeft = state.playerViewport.scrollLeft;
+    viewport.scrollTop = state.playerViewport.scrollTop;
+  }
+
+  function updatePlayerProjectionScale(host) {
+    if (!host) return;
+    const viewport = host.querySelector(".combat-map-viewport");
+    const frame = host.querySelector("[data-map-frame]");
+    const scaleLayer = host.querySelector("[data-map-scale-layer]");
+    const board = host.querySelector("[data-map-board]");
+    if (!viewport || !frame || !scaleLayer || !board) return;
+    const width = Number(board.dataset.displayWidth) || Number(board.dataset.mapWidth) || DEFAULT_WIDTH;
+    const height = Number(board.dataset.displayHeight) || Number(board.dataset.mapHeight) || DEFAULT_HEIGHT;
+    const gutter = (state.grid.visible ? GRID_LABEL_GUTTER : 0) + (state.shapes.items.some((shape) => shape.type === "text") ? getTextShapeGutter(width, height) : 0);
+    const totalWidth = width + gutter * 2;
+    const totalHeight = height + gutter * 2;
+    const availableWidth = Math.max(1, viewport.clientWidth - 24);
+    const availableHeight = Math.max(1, viewport.clientHeight - 24);
+    const scale = Math.max(.03, Math.min(availableWidth / totalWidth, availableHeight / totalHeight)) * state.playerViewport.zoom;
+    scaleLayer.style.transform = `scale(${scale})`;
+    frame.style.width = `${totalWidth * scale}px`;
+    frame.style.height = `${totalHeight * scale}px`;
+    frame.dataset.mapScale = String(scale);
     viewport.scrollLeft = state.playerViewport.scrollLeft;
     viewport.scrollTop = state.playerViewport.scrollTop;
   }
@@ -3484,5 +3514,18 @@ export function createCombatMapController(options = {}) {
     syncMasterSurface(masterHost);
   }
 
-  return { open, sync, syncMirror, syncNotifications, showTokenFeedback, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  function syncPlayerProjection(host) {
+    playerProjectionHost = host || null;
+    if (!playerProjectionHost) return;
+    playerProjectionHost.dataset.combatMapPlayerRoot = "";
+    playerProjectionHost.innerHTML = renderPlayerProjection(playerProjectionHost.ownerDocument?.defaultView || window);
+    updatePlayerProjectionScale(playerProjectionHost);
+    fitInitiativeOrder(playerProjectionHost);
+    drawGridCoordinates(playerProjectionHost);
+    drawGridLabels(playerProjectionHost);
+    drawPaint(playerProjectionHost);
+    drawFog(playerProjectionHost);
+  }
+
+  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }
