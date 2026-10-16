@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
   getAreaShapeMetrics,
   getGridCoordinateForPosition,
+  getGridMovementDistanceFeet,
   getMapKeyboardPanDelta,
   getMapLayoutKey,
+  getMovementSpeedFeet,
   hasInvisibleCondition,
   isMapTokenConcealed,
   isMapTokenVisibleToPlayer,
@@ -53,6 +55,23 @@ test("map arrow keys pan consistently and Shift accelerates movement", () => {
   assert.deepEqual(getMapKeyboardPanDelta("ArrowLeft"), { left: -56, top: 0 });
   assert.deepEqual(getMapKeyboardPanDelta("ArrowDown", true), { left: 0, top: 168 });
   assert.equal(getMapKeyboardPanDelta("Enter"), null);
+});
+
+test("token movement reads feet from combatant speed and defaults unclear values to thirty", () => {
+  assert.equal(getMovementSpeedFeet("30 ft., fly 60 ft."), 30);
+  assert.equal(getMovementSpeedFeet("40 pies"), 40);
+  assert.equal(getMovementSpeedFeet("varía"), 30);
+  assert.equal(getMovementSpeedFeet("Especial (consulta rasgo 1)"), 30);
+  assert.equal(getMovementSpeedFeet("0 ft."), 0);
+});
+
+test("token movement counts every square or hex step as five feet", () => {
+  const square = { type: "square", size: 80, offsetX: 0, offsetY: 0 };
+  assert.equal(getGridMovementDistanceFeet({ x: 40, y: 40 }, { x: 280, y: 200 }, square), 15);
+  const hex = { type: "hex", size: 80, offsetX: 0, offsetY: 0 };
+  const start = snapTokenPosition({ x: 40, y: 45 }, hex);
+  const adjacent = snapTokenPosition({ x: 120, y: 45 }, hex);
+  assert.equal(getGridMovementDistanceFeet(start, adjacent, hex), 5);
 });
 
 test("map zoom reaches 500 percent and player notifications default off", () => {

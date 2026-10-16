@@ -5052,6 +5052,7 @@ button.is-cloud-busy:disabled {
 .combat-map-paint,
 .combat-map-shape-layer,
 .combat-map-fog,
+.combat-map-movement-range,
 .combat-map-token-layer,
 .combat-map-empty {
   position: absolute;
@@ -5320,6 +5321,21 @@ button.is-cloud-busy:disabled {
 .combat-map-token-layer--covered { z-index: 3; }
 .combat-map-token-layer--allies { z-index: 6; }
 
+.combat-map-token-layer.has-active-token-drag {
+  z-index: 8;
+}
+
+.combat-map-movement-range {
+  z-index: 7;
+  display: none;
+  pointer-events: none;
+  filter: drop-shadow(0 0 .3rem rgba(249, 214, 117, .72));
+}
+
+.combat-map-movement-range.is-visible {
+  display: block;
+}
+
 .combat-map-token {
   position: absolute;
   z-index: 5;
@@ -5338,6 +5354,11 @@ button.is-cloud-busy:disabled {
 
 .combat-map-token:active {
   cursor: grabbing;
+}
+
+.combat-map-token.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 .25rem .9rem rgba(0, 0, 0, .8), 0 0 0 max(2px, calc(var(--token-size) * .04)) rgba(249, 214, 117, .88);
 }
 
 .combat-map-token.is-dead {
@@ -5540,6 +5561,30 @@ button.is-cloud-busy:disabled {
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
+}
+
+.combat-map-token__move-distance {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + .16rem);
+  left: 50%;
+  padding: .12rem .34rem;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, .75);
+  border-radius: 999px;
+  background: #15191f;
+  color: #fff;
+  font-size: max(.62rem, calc(var(--token-size) * .14));
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.combat-map-token__move-distance.is-over-range {
+  border-color: #ff9b9b;
+  background: #681f28;
+  color: #fff1f1;
 }
 
 .combat-map-token__health i {

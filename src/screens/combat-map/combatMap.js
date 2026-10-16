@@ -325,6 +325,57 @@ function getHexMetrics(size) {
   return { height, halfHeight: height / 2, rowStep: height * .75 };
 }
 
+export function getMovementSpeedFeet(value, fallback = 30) {
+  const parsedFallback = Number(fallback);
+  const fallbackFeet = Number.isFinite(parsedFallback) && parsedFallback >= 0 ? parsedFallback : 30;
+  const text = clean(value);
+  if (!text) return fallbackFeet;
+  const explicitFeet = text.match(/(?:^|[^\d])(\d+(?:[.,]\d+)?)\s*(?:ft\.?|feet|foot|pies?|')/i)?.[1];
+  const firstNumber = explicitFeet || text.match(/^\s*(\d+(?:[.,]\d+)?)/)?.[1];
+  if (firstNumber === undefined) return fallbackFeet;
+  const feet = Number(String(firstNumber || "").replace(",", "."));
+  return Number.isFinite(feet) && feet >= 0 ? feet : fallbackFeet;
+}
+
+function getHexCellCoordinates(point, grid) {
+  const size = clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const offsetX = Number(grid?.offsetX) || 0;
+  const offsetY = Number(grid?.offsetY) || 0;
+  const { halfHeight, rowStep } = getHexMetrics(size);
+  const row = Math.round(((Number(point?.y) || 0) - offsetY - halfHeight) / rowStep);
+  const parity = Math.abs(row) % 2;
+  const column = Math.round(((Number(point?.x) || 0) - offsetX - parity * size / 2 - size / 2) / size);
+  const q = column - (row - parity) / 2;
+  return { q, r: row, s: -q - row };
+}
+
+function getHexCellCenter(q, r, grid) {
+  const size = clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const offsetX = Number(grid?.offsetX) || 0;
+  const offsetY = Number(grid?.offsetY) || 0;
+  const { halfHeight, rowStep } = getHexMetrics(size);
+  const parity = Math.abs(r) % 2;
+  const column = q + (r - parity) / 2;
+  return {
+    x: offsetX + parity * size / 2 + column * size + size / 2,
+    y: offsetY + r * rowStep + halfHeight
+  };
+}
+
+export function getGridMovementDistanceFeet(start, end, grid, sizeMultiplier = 1) {
+  const size = clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const snappedStart = snapCreaturePosition(start, grid, sizeMultiplier);
+  const snappedEnd = snapCreaturePosition(end, grid, sizeMultiplier);
+  if (grid?.type === "hex") {
+    const from = getHexCellCoordinates(snappedStart, grid);
+    const to = getHexCellCoordinates(snappedEnd, grid);
+    return Math.max(Math.abs(to.q - from.q), Math.abs(to.r - from.r), Math.abs(to.s - from.s)) * 5;
+  }
+  const columns = Math.abs(Math.round((snappedEnd.x - snappedStart.x) / size));
+  const rows = Math.abs(Math.round((snappedEnd.y - snappedStart.y) / size));
+  return Math.max(columns, rows) * 5;
+}
+
 function concatBytes(parts) {
   const length = parts.reduce((total, part) => total + part.length, 0);
   const output = new Uint8Array(length);
@@ -903,7 +954,7 @@ export function createCombatMapController(options = {}) {
     return JSON.stringify(getCombatants().map((combatant) => [
       combatant.id, combatant.nombre, combatant.numPeana, combatant.pgAct, combatant.pgMax,
       combatant.condiciones, combatant.hiddenFromInitiative, combatant.iniactiva,
-      combatant.tokenUrl, combatant.tamano, combatant.isFlying, combatant.flyingHeight
+      combatant.tokenUrl, combatant.tamano, combatant.movimiento, combatant.isFlying, combatant.flyingHeight
     ]));
   }
 
@@ -1735,6 +1786,7 @@ export function createCombatMapController(options = {}) {
       return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
         ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt="">` : ""}
         ${flyingHeight > 0 ? `<span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
+        <span class="combat-map-token__move-distance" data-map-token-move-distance hidden>0 pies</span>
         <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span>${state.showTokenNumbers ? `<strong>${escapeHtml(combatant.numPeana || "—")}</strong>` : ""}
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
         ${showHealth(combatant) ? `<span class="combat-map-token__health" style="opacity:${normalizeOpacity(state.opacity.health)}"><i style="width:${(hp / maxHp) * 100}%"></i></span>` : ""}
@@ -1806,6 +1858,7 @@ export function createCombatMapController(options = {}) {
         <div class="combat-map-token-layer combat-map-token-layer--covered" style="opacity:${layerOpacity("tokens")}">${renderTokens("covered", { master, player })}</div>
         <canvas class="combat-map-fog ${state.fog.enabled ? "is-visible" : ""} ${editable && state.fog.enabled && panel === "fog" ? "is-editing" : ""}" data-map-fog width="${width}" height="${height}" style="opacity:${player ? 1 : layerOpacity("fog")}"></canvas>
         <div class="combat-map-token-layer combat-map-token-layer--allies" style="opacity:${layerOpacity("tokens")}">${renderTokens("allies", { master, player })}</div>
+        <canvas class="combat-map-movement-range" data-map-movement-range width="${width}" height="${height}"></canvas>
         <div class="combat-map-brush-cursor" data-map-brush-cursor></div>
       </div>
       </div>
@@ -1884,6 +1937,7 @@ export function createCombatMapController(options = {}) {
         drawGridLabels(root);
         drawPaint(root);
         drawFog(root);
+        restoreActiveTokenDragFeedback(root);
         mountTokenFeedbacks(root);
       }
     }
@@ -1961,6 +2015,7 @@ export function createCombatMapController(options = {}) {
     drawGridLabels(root);
     drawPaint(root);
     drawFog(root);
+    restoreActiveTokenDragFeedback(root);
     const input = root?.querySelector("[data-map-zoom]");
     if (input) {
       input.value = String(Math.round(viewportState.zoom * 100));
@@ -3019,6 +3074,112 @@ export function createCombatMapController(options = {}) {
     cursor.classList.add("is-visible");
   }
 
+  function getMovementRangeHexEdges(origin, rangeCells) {
+    const edges = new Map();
+    const size = state.grid.size;
+    const { halfHeight } = getHexMetrics(size);
+    const addEdge = (from, to) => {
+      const pointKey = (point) => `${point.x.toFixed(3)},${point.y.toFixed(3)}`;
+      const fromKey = pointKey(from);
+      const toKey = pointKey(to);
+      const key = fromKey < toKey ? `${fromKey}|${toKey}` : `${toKey}|${fromKey}`;
+      const current = edges.get(key);
+      if (current) current.count += 1;
+      else edges.set(key, { from, to, count: 1 });
+    };
+    for (let deltaQ = -rangeCells; deltaQ <= rangeCells; deltaQ += 1) {
+      const minR = Math.max(-rangeCells, -deltaQ - rangeCells);
+      const maxR = Math.min(rangeCells, -deltaQ + rangeCells);
+      for (let deltaR = minR; deltaR <= maxR; deltaR += 1) {
+        const center = getHexCellCenter(origin.q + deltaQ, origin.r + deltaR, state.grid);
+        const vertices = [
+          { x: center.x, y: center.y - halfHeight },
+          { x: center.x + size / 2, y: center.y - halfHeight / 2 },
+          { x: center.x + size / 2, y: center.y + halfHeight / 2 },
+          { x: center.x, y: center.y + halfHeight },
+          { x: center.x - size / 2, y: center.y + halfHeight / 2 },
+          { x: center.x - size / 2, y: center.y - halfHeight / 2 }
+        ];
+        vertices.forEach((vertex, index) => addEdge(vertex, vertices[(index + 1) % vertices.length]));
+      }
+    }
+    return [...edges.values()].filter((edge) => edge.count === 1);
+  }
+
+  function drawTokenMovementRange(root, drag = activeDrag) {
+    const canvas = root?.querySelector?.("[data-map-movement-range]");
+    if (!canvas) return;
+    const board = root.querySelector("[data-map-board]");
+    const width = Number(board?.dataset.mapWidth) || DEFAULT_WIDTH;
+    const height = Number(board?.dataset.mapHeight) || DEFAULT_HEIGHT;
+    const context = prepareCanvas(canvas, width, height);
+    const visible = drag?.type === "token" && drag.surface === root;
+    canvas.classList.toggle("is-visible", visible);
+    if (!visible) return;
+    const rangeCells = Math.max(0, Math.floor(getMovementSpeedFeet(drag.speedFeet) / 5));
+    const size = state.grid.size;
+    context.save();
+    context.lineWidth = Math.max(3, size * .055);
+    context.strokeStyle = "rgba(249, 214, 117, .98)";
+    context.fillStyle = "rgba(249, 214, 117, .07)";
+    context.lineJoin = "round";
+    context.setLineDash([Math.max(7, size * .16), Math.max(5, size * .1)]);
+    if (state.grid.type !== "hex") {
+      const halfExtent = (rangeCells + Math.max(.5, drag.sizeMultiplier / 2)) * size;
+      const left = clamp(drag.startPosition.x - halfExtent, 0, width);
+      const top = clamp(drag.startPosition.y - halfExtent, 0, height);
+      const right = clamp(drag.startPosition.x + halfExtent, 0, width);
+      const bottom = clamp(drag.startPosition.y + halfExtent, 0, height);
+      context.fillRect(left, top, right - left, bottom - top);
+      const inset = context.lineWidth / 2;
+      context.strokeRect(left + inset, top + inset, Math.max(0, right - left - inset * 2), Math.max(0, bottom - top - inset * 2));
+    } else {
+      const origin = getHexCellCoordinates(drag.startPosition, state.grid);
+      const edges = getMovementRangeHexEdges(origin, rangeCells);
+      context.beginPath();
+      edges.forEach((edge) => {
+        context.moveTo(edge.from.x, edge.from.y);
+        context.lineTo(edge.to.x, edge.to.y);
+      });
+      context.stroke();
+    }
+    context.restore();
+  }
+
+  function updateTokenDragFeedback(root, drag, position) {
+    const token = root?.querySelector?.(`[data-map-token="${CSS.escape(drag.id)}"]`);
+    if (!token) return;
+    token.classList.add("is-dragging");
+    token.parentElement?.classList.add("has-active-token-drag");
+    const badge = token.querySelector("[data-map-token-move-distance]");
+    if (!badge) return;
+    const distanceFeet = getGridMovementDistanceFeet(drag.startPosition, position, state.grid, drag.sizeMultiplier);
+    badge.hidden = false;
+    badge.textContent = `${distanceFeet} pies`;
+    badge.classList.toggle("is-over-range", distanceFeet > drag.speedFeet);
+  }
+
+  function clearTokenDragFeedback(root, tokenId) {
+    root?.querySelectorAll?.(".combat-map-token-layer.has-active-token-drag").forEach((layer) => layer.classList.remove("has-active-token-drag"));
+    const token = root?.querySelector?.(`[data-map-token="${CSS.escape(tokenId)}"]`);
+    token?.classList.remove("is-dragging");
+    const badge = token?.querySelector?.("[data-map-token-move-distance]");
+    if (badge) {
+      badge.hidden = true;
+      badge.classList.remove("is-over-range");
+    }
+    drawTokenMovementRange(root, null);
+  }
+
+  function restoreActiveTokenDragFeedback(root) {
+    if (activeDrag?.type !== "token" || activeDrag.surface !== root) {
+      drawTokenMovementRange(root, null);
+      return;
+    }
+    drawTokenMovementRange(root, activeDrag);
+    updateTokenDragFeedback(root, activeDrag, state.tokenPositions[activeDrag.id] || activeDrag.startPosition);
+  }
+
   function handlePointerDown(event) {
     const surface = getEventSurface(event);
     if (!surface) return;
@@ -3045,9 +3206,24 @@ export function createCombatMapController(options = {}) {
     const point = boardPoint(event);
     if (!point) return;
     if (token) {
+      const combatants = getCombatants();
+      const combatantIndex = combatants.findIndex((entry) => entry.id === token.dataset.mapToken);
+      const combatant = combatants[combatantIndex];
+      const sizeMultiplier = getCreatureSizeMultiplier(combatant);
+      const startPosition = { ...getTokenPosition(combatant, combatantIndex) };
       bringTokenToFront(token.dataset.mapToken);
       token.style.zIndex = String(5 + getTokenStackIndex(token.dataset.mapToken));
-      activeDrag = { type: "token", id: token.dataset.mapToken, pointerId: event.pointerId, surface };
+      activeDrag = {
+        type: "token",
+        id: token.dataset.mapToken,
+        pointerId: event.pointerId,
+        surface,
+        startPosition,
+        sizeMultiplier,
+        speedFeet: getMovementSpeedFeet(combatant?.movimiento)
+      };
+      drawTokenMovementRange(surface, activeDrag);
+      updateTokenDragFeedback(surface, activeDrag, startPosition);
       token.setPointerCapture?.(event.pointerId);
       event.preventDefault();
       return;
@@ -3163,6 +3339,7 @@ export function createCombatMapController(options = {}) {
       state.tokenPositions[activeDrag.id] = { x: clamp(point.x, 0, point.width), y: clamp(point.y, 0, point.height) };
       const token = surface?.querySelector(`[data-map-token="${CSS.escape(activeDrag.id)}"]`);
       if (token) { token.style.left = `${state.tokenPositions[activeDrag.id].x}px`; token.style.top = `${state.tokenPositions[activeDrag.id].y}px`; }
+      updateTokenDragFeedback(surface, activeDrag, state.tokenPositions[activeDrag.id]);
     } else if (activeDrag.type === "paint-icon") {
       const icon = state.paint.strokes.find((stroke) => stroke.id === activeDrag.id);
       if (icon?.points?.[0]) {
@@ -3235,6 +3412,7 @@ export function createCombatMapController(options = {}) {
         getCreatureSizeMultiplier(combatant)
       );
       bringTokenToFront(activeDrag.id);
+      clearTokenDragFeedback(surface, activeDrag.id);
     } else if (activeDrag.type === "shape") {
       const shape = state.shapes.items.find((item) => item.id === activeDrag.id);
       if (shape && shape.type !== "text") {
@@ -3294,6 +3472,7 @@ export function createCombatMapController(options = {}) {
     drawGridLabels(host);
     drawPaint(host);
     drawFog(host);
+    restoreActiveTokenDragFeedback(host);
     mountTokenFeedbacks(host);
   }
 
