@@ -181,8 +181,11 @@ body.has-compendium-reference-popup {
 }
 
 .combat-turn-token-wrap.has-team-color .combat-turn-token {
-  border-color: var(--team-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-color) 22%, transparent), 0 12px 28px rgba(0, 0, 0, 0.36);
+  border-color: color-mix(in srgb, var(--team-color) 88%, white);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--team-color) 68%, transparent),
+    0 0 1.15rem color-mix(in srgb, var(--team-color) 52%, transparent),
+    0 12px 28px rgba(0, 0, 0, 0.46);
 }
 
 .combat-turn-token-wrap.has-team-color .combat-turn-token__initiative {
@@ -190,8 +193,53 @@ body.has-compendium-reference-popup {
 }
 
 .combat-map-token.has-team-color .combat-map-token__portrait {
-  border-color: var(--team-color);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--team-color) 28%, transparent), 0 8px 18px rgba(0, 0, 0, 0.48);
+  border: max(3px, calc(var(--token-size) * .065)) solid color-mix(in srgb, var(--team-color) 88%, white);
+  box-shadow:
+    0 0 0 max(4px, calc(var(--token-size) * .085)) color-mix(in srgb, var(--team-color) 72%, transparent),
+    0 0 max(14px, calc(var(--token-size) * .28)) color-mix(in srgb, var(--team-color) 62%, transparent),
+    0 8px 18px rgba(0, 0, 0, 0.58);
+}
+
+.combat-name-token-wrap--restricted .combat-name-token-static {
+  position: relative;
+  cursor: not-allowed;
+}
+
+.combat-name-token__lock {
+  position: absolute;
+  right: -.3rem;
+  bottom: -.25rem;
+  z-index: 3;
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 999px;
+  background: #17100c;
+  font-size: .68rem;
+  line-height: 1;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .55);
+}
+
+.combat-rival-hidden {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .38rem;
+  width: 100%;
+  min-height: 2.55rem;
+  padding: .45rem .6rem;
+  border: 1px solid color-mix(in srgb, var(--team-color, #d9ab5d) 42%, rgba(255, 255, 255, .12));
+  border-radius: .65rem;
+  background: rgba(11, 9, 9, .72);
+  color: rgba(237, 225, 204, .72);
+  font-size: .72rem;
+  letter-spacing: .08em;
+}
+
+.combat-rival-resource {
+  gap: .45rem;
 }
 
 /* Floating dice roller */

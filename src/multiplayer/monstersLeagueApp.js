@@ -9,6 +9,7 @@ import { createSpellReferenceMatcher } from "../shared/spellReferences.js";
 import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
 import { createCombatMapController } from "../screens/combat-map/combatMap.js";
 import { fetchAuthSession } from "../cloud/cloudClient.js";
+import { getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import {
   connectMonstersLeagueRoom,
   createMonstersLeagueOnlineRoom,
@@ -760,17 +761,79 @@ function renderProjectedInitiativeOrder(_viewportWindow, layout = {}) {
   const projection = state.room?.mapProjection;
   const activeId = cleanText(projection?.activeCombatantId);
   const combatants = [...(projection?.combatants || [])]
-    .filter((combatant) => combatant.hiddenFromInitiative !== true && combatant.iniactiva !== "")
-    .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0));
-  const scale = layout.count === combatants.length ? layout.scale : 1;
+    .filter((combatant) => {
+      if (cleanText(combatant.iniactiva) === "") return false;
+      return combatant.side === "allies" || Number(combatant.pgAct) > 0;
+    })
+    .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0)
+      || getProjectedStandSortValue(left) - getProjectedStandSortValue(right)
+      || cleanText(left.nombre).localeCompare(cleanText(right.nombre), "es", { numeric: true, sensitivity: "base" }));
+  const scale = layout.count === combatants.length ? layout.scale : getProjectedTurnTokenScale(combatants.length);
   const columns = layout.count === combatants.length ? layout.columns : 1;
-  return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${combatants.length}">${combatants.map((combatant) => {
-    const teamColor = /^#[0-9a-f]{6}$/i.test(cleanText(combatant.teamColor)) ? cleanText(combatant.teamColor) : "";
-    const maxHp = Math.max(1, Number(combatant.pgMax) || 1);
-    const hpFill = Math.max(0, Math.min(100, Math.round((Number(combatant.pgAct) || 0) / maxHp * 100)));
-    const side = ["allies", "enemies", "neutral"].includes(combatant.side) ? combatant.side : "enemies";
-    return `<div class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${combatant.id === activeId ? "is-active" : ""}" style="--turn-hp-fill:${hpFill}%;--turn-hp-color:#54a065${teamColor ? `;--team-color:${teamColor}` : ""}"><span class="combat-turn-token__initiative">${escapeHtml(String(combatant.iniactiva || "-"))}</span><div class="combat-turn-token combat-turn-token--${side}">${combatant.tokenUrl ? `<img src="${escapeHtml(combatant.tokenUrl)}" alt="">` : `<span class="combat-turn-token__placeholder">${escapeHtml(getInitials(combatant.nombre || "M"))}</span>`}</div><small>${escapeHtml(combatant.nombre || "")}</small></div>`;
-  }).join("")}</div></div>`;
+  return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${combatants.length}" aria-label="${language === "en" ? "Initiative order" : "Orden de iniciativa"}">${combatants.map((combatant) => renderProjectedTurnToken(combatant, combatant.id === activeId)).join("") || `<p class="combat-turn-panel__empty">${language === "en" ? "No visible creatures in initiative." : "No hay entidades visibles para el turno."}</p>`}</div></div>`;
+}
+
+function renderProjectedTurnToken(combatant, isActive) {
+  const initiativeIconUrl = getCombatToolbarActionIconUrl("initiative");
+  const teamColor = /^#[0-9a-f]{6}$/i.test(cleanText(combatant.teamColor)) ? cleanText(combatant.teamColor) : "";
+  const side = ["allies", "enemies", "neutral"].includes(combatant.side) ? combatant.side : "enemies";
+  const statusNames = getProjectedStatusNames(combatant).slice(0, 3);
+  const isFallenAlly = side === "allies" && Number(combatant.pgAct) < 1;
+  const isHidden = combatant.hiddenFromInitiative === true || statusNames.some((name) => normalizeSearchText(name) === "invisible");
+  const maxHp = Math.max(1, Number(combatant.pgMax) - Number(combatant.necrotic || 0));
+  const hpPercent = Math.max(0, Math.min(100, Math.round((Number(combatant.pgAct) || 0) / maxHp * 100)));
+  const visualFill = hpPercent <= 0 ? 0 : Math.round(100 * Math.pow(hpPercent / 100, 0.45));
+  const hpColor = hpPercent === 0
+    ? "rgba(16, 14, 14, 0.96)"
+    : hpPercent <= 25
+      ? "rgba(184, 60, 74, 0.92)"
+      : hpPercent <= 50
+        ? "rgba(201, 124, 44, 0.94)"
+        : "rgba(84, 160, 101, 0.9)";
+  const label = cleanText(combatant.nombre) || (language === "en" ? "Unnamed" : "Sin nombre");
+  const standNumber = cleanText(combatant.numPeana);
+
+  return `<div class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHidden ? "is-hidden-from-initiative" : ""}" style="--turn-hp-fill:${visualFill}%;--turn-hp-color:${hpColor}${teamColor ? `;--team-color:${teamColor}` : ""}" title="${escapeHtml(label)} | ${language === "en" ? "Init" : "Inic"} ${escapeHtml(String(combatant.iniactiva ?? ""))}">
+    <span class="combat-turn-token__initiative" data-tooltip="${language === "en" ? "Combat initiative" : "Iniciativa en el combate"}"><img class="combat-turn-token__initiative-icon" src="${escapeHtml(initiativeIconUrl)}" alt="" decoding="async" aria-hidden="true"><span>${escapeHtml(String(combatant.iniactiva ?? "-"))}</span></span>
+    <div class="combat-turn-token combat-turn-token--${side}">${combatant.tokenUrl ? `<img src="${escapeHtml(combatant.tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true">` : `<span class="combat-turn-token__placeholder" aria-hidden="true">${escapeHtml(getInitials(label))}</span>`}${side === "enemies" && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}</div>
+    <div class="combat-turn-token__statuses">${statusNames.map(renderProjectedTurnStatus).join("")}</div>
+  </div>`;
+}
+
+function renderProjectedTurnStatus(statusName) {
+  const iconUrl = getCombatStatusIconUrl(statusName);
+  const label = cleanText(statusName);
+  const fallback = label.slice(0, 2).toUpperCase() || "?";
+  return `<span class="combat-turn-token__status-wrap" tabindex="0" aria-label="${escapeHtml(label)}"><span class="combat-turn-token__status ${getProjectedStatusTone(statusName)}" aria-hidden="true">${iconUrl ? `<img class="combat-turn-token__status-icon" src="${escapeHtml(iconUrl)}" alt="" decoding="async">` : `<span class="combat-turn-token__status-fallback">${escapeHtml(fallback)}</span>`}</span><span class="combat-turn-token__status-tooltip" role="tooltip"><strong>${escapeHtml(label)}</strong></span></span>`;
+}
+
+function getProjectedStatusNames(combatant) {
+  return [...new Set(cleanText(combatant?.condiciones).split(/[,;|]/).map(cleanText).filter(Boolean))];
+}
+
+function getProjectedStatusTone(statusName) {
+  const key = normalizeSearchText(statusName).replace(/\s+\d+$/u, "");
+  const tones = {
+    agarrado: "grappled", agotamiento: "exhaustion", apresado: "restrained", asustado: "frightened",
+    aturdido: "stunned", cegado: "blinded", ciego: "blinded", concentrado: "concentrating",
+    derribado: "prone", dormido: "sleeping", ensordecido: "deafened", envenenado: "poisoned",
+    hechizado: "charmed", incapacitado: "incapacitated", inconsciente: "unconscious", invisible: "invisible",
+    paralizado: "paralyzed", petrificado: "petrified", restringido: "restrained", restrenido: "restrained",
+    ardiendo: "burning", maldito: "cursed", sangrando: "bleeding"
+  };
+  return `combat-status-chip--${tones[key] || "default"}`;
+}
+
+function getProjectedStandSortValue(combatant) {
+  const value = Number.parseFloat(cleanText(combatant.numPeana).replace(",", "."));
+  return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+function getProjectedTurnTokenScale(turnCount) {
+  if (turnCount <= 16) return 1;
+  if (turnCount <= 20) return 0.88;
+  if (turnCount <= 24) return 0.76;
+  return 0.66;
 }
 
 function observeCombatTurn(room) {

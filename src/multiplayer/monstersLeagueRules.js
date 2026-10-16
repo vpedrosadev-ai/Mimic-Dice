@@ -4,14 +4,14 @@ export const MONSTERS_LEAGUE_SCHEMA_VERSION = 2;
 export const MONSTERS_LEAGUE_STARTING_GOLD = 100;
 
 export const MONSTERS_LEAGUE_TEAM_COLORS = Object.freeze([
-  "#d9ab5d",
-  "#5eb7a6",
-  "#d87a84",
-  "#7f9edb",
-  "#b58ad9",
-  "#df8f55",
-  "#78b96b",
-  "#d16fae"
+  "#ffd21f",
+  "#00e0d0",
+  "#ff496c",
+  "#438cff",
+  "#bd63ff",
+  "#ff7a1a",
+  "#4edb68",
+  "#ff4fc3"
 ]);
 
 const DEFAULT_CONFIG = Object.freeze({
@@ -444,8 +444,9 @@ export function getMonstersLeagueRoomSummary(room) {
     language: room.language,
     hostPlayerId: room.hostPlayerId,
     config: normalizeMonstersLeagueConfig(room.config),
-    players: room.players.map((player) => ({
+    players: room.players.map((player, index) => ({
       ...player,
+      color: MONSTERS_LEAGUE_TEAM_COLORS[index % MONSTERS_LEAGUE_TEAM_COLORS.length],
       roster: player.roster.map((entry) => ({ ...entry, monster: { ...entry.monster } }))
     })),
     nominationOrder: [...room.nominationOrder],

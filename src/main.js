@@ -88,6 +88,8 @@ import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
 import { startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
+import { rewriteMonstersLeagueAssetUrl } from "./multiplayer/monstersLeagueProjection.js";
+import { shouldHideMonstersLeagueRivalStats } from "./multiplayer/monstersLeagueVisibility.js";
 import { renderDiceRollerDock } from "./screens/dice-roller/diceRollerRender.js";
 import {
   extractCrBaseLabel,
@@ -1386,7 +1388,8 @@ startMonstersLeagueCombatSync(
 
 function getMonstersLeagueMapProjection(roomId) {
   const normalizedRoomId = cleanText(roomId);
-  if (!normalizedRoomId || !combatMapController.isOpen()) {
+  const mapPresentedByHost = state.combatMapMirrorVisible === true || combatMapController.isOpen();
+  if (!normalizedRoomId || !mapPresentedByHost) {
     return { open: false, editorState: null, combatants: [], activeCombatantId: "" };
   }
 
@@ -1441,15 +1444,6 @@ function rewriteMonstersLeagueMapAssets(map, roomId) {
   const rewritten = rewrite(map);
   rewritten.associatedMaps = Array.isArray(map.associatedMaps) ? map.associatedMaps.map(rewrite) : [];
   return rewritten;
-}
-
-function rewriteMonstersLeagueAssetUrl(value, roomId) {
-  const url = cleanText(value);
-  if (/^(?:data|blob|mimic-assets):/i.test(url)) return "";
-  const match = url.match(/^\/api\/assets\/([^/?#]+)/i);
-  return match
-    ? `/api/multiplayer/rooms/${encodeURIComponent(roomId)}/assets/${encodeURIComponent(match[1])}`
-    : url;
 }
 
 function handleAppImageError(event) {
@@ -13596,12 +13590,13 @@ function renderCombatTurnToken(combatant, isActive) {
   const side = mapTagToSide(combatant.tag);
   const initials = getCombatantInitials(combatant);
   const statusNames = getCombatantStatusNames(combatant).slice(0, 3);
-  const isFallenAlly = side === "allies" && toNumber(combatant.pgAct) < 1;
+  const hidesRivalStats = isMonstersLeagueRivalCombatant(combatant);
+  const isFallenAlly = !hidesRivalStats && side === "allies" && toNumber(combatant.pgAct) < 1;
   const isHiddenFromInitiative = combatant.hiddenFromInitiative === true || isCombatantInvisible(combatant);
   const maxHp = Math.max(1, getEffectivePgMax(combatant));
-  const hpFill = Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
-  const hpVisualFill = getCombatHealthVisualFill(hpFill);
-  const hpToneColor = getCombatHealthToneColor(hpFill);
+  const hpFill = hidesRivalStats ? 0 : Math.max(0, Math.min(100, Math.round((toNumber(combatant.pgAct) / maxHp) * 100)));
+  const hpVisualFill = hidesRivalStats ? 0 : getCombatHealthVisualFill(hpFill);
+  const hpToneColor = hidesRivalStats ? "rgba(16, 14, 14, 0.96)" : getCombatHealthToneColor(hpFill);
   const teamColor = normalizeTeamColor(combatant.teamColor);
 
   return `
@@ -13647,6 +13642,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
   }
 
   const menuStyle = getCombatTurnQuickMenuStyle(viewportWindow);
+  const hidesRivalStats = isMonstersLeagueRivalCombatant(combatant);
   const effectiveMax = getEffectivePgMax(combatant);
   const tempHp = Math.max(0, toNumber(combatant.pgTemp));
   const activeStatuses = getCombatantStatusNames(combatant);
@@ -13667,7 +13663,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
       <div class="combat-turn-quick-menu__panel">
         <div class="combat-turn-quick-menu__header">
           <div class="combat-turn-quick-menu__title"><strong>${escapeHtml(cleanText(combatant.nombre) || "Entidad")}</strong><b>${escapeHtml(cleanText(combatant.numPeana) || "—")}</b></div>
-          <span>${escapeHtml(`${getCurrentHitPointLabelShort()} ${toNumber(combatant.pgAct)}/${effectiveMax} | TEMP ${tempHp}`)}</span>
+          <span>${hidesRivalStats ? "Datos de equipo rival ocultos" : escapeHtml(`${getCurrentHitPointLabelShort()} ${toNumber(combatant.pgAct)}/${effectiveMax} | TEMP ${tempHp}`)}</span>
         </div>
         <label class="combat-turn-quick-menu__hide">
           <input
@@ -13773,8 +13769,9 @@ function getCombatTurnQuickMenuStyle(viewportWindow = window) {
   const viewportWidth = viewportWindow?.innerWidth || document.documentElement.clientWidth || 1280;
   const viewportHeight = viewportWindow?.innerHeight || document.documentElement.clientHeight || 720;
   const padding = 12;
-  const menuWidth = 380;
-  const menuHeight = 430;
+  const rootFontSize = Number.parseFloat(viewportWindow?.getComputedStyle?.(viewportWindow.document.documentElement)?.fontSize) || 16;
+  const menuWidth = Math.min(20 * rootFontSize, Math.max(0, viewportWidth - padding * 2));
+  const menuHeight = Math.min(42 * rootFontSize, Math.max(0, viewportHeight - padding * 2));
   const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
   const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));
 
@@ -15685,6 +15682,14 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inlineValues = getInlineAdjustment(combatant.id);
 
+  if (isMonstersLeagueRivalCombatant(combatant) && column.key === "pgMax") {
+    return renderMonstersLeagueHiddenResourceCell();
+  }
+
+  if (isMonstersLeagueRivalCombatant(combatant) && column.key === "pgAct") {
+    return renderMonstersLeagueBlindAdjustmentCell(combatant, inlineValues);
+  }
+
   if (column.key === "iniactiva") {
     return `
       <td class="${isInitiativeNat20 ? "cell--nat20" : ""}">
@@ -16053,6 +16058,60 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
         data-edit-key="${column.key}"
         ${column.type === "number" ? "data-combat-dice-input" : ""}
       />
+    </td>
+  `;
+}
+
+function isMonstersLeagueRivalCombatant(combatant) {
+  return shouldHideMonstersLeagueRivalStats(combatant, state.accountSession?.user?.id);
+}
+
+function renderMonstersLeagueHiddenResourceCell() {
+  return `
+    <td>
+      <div class="combat-rival-hidden" aria-label="Datos de equipo rival ocultos">
+        <span aria-hidden="true">&#128274;</span>
+        <strong>OCULTO</strong>
+      </div>
+    </td>
+  `;
+}
+
+function renderMonstersLeagueBlindAdjustmentCell(combatant, inlineValues) {
+  return `
+    <td>
+      <div class="resource-cell combat-rival-resource">
+        <div class="combat-rival-hidden" aria-label="Puntos de golpe de equipo rival ocultos">
+          <span aria-hidden="true">&#128274;</span>
+          <strong>PG OCULTOS</strong>
+        </div>
+        <div class="resource-cell__actions-row">
+          <div class="inline-adjust inline-adjust--group">
+            <input
+              class="mini-input"
+              type="text"
+              inputmode="text"
+              placeholder="0"
+              value="${escapeHtml(inlineValues.pgAct)}"
+              data-adjust-id="${escapeHtml(combatant.id)}"
+              data-adjust-field="pgAct"
+              data-combat-dice-input
+              aria-label="Cantidad para ajustar recursos de ${escapeHtml(combatant.nombre)}"
+            />
+            <div class="mini-actions">
+              <button class="mini-action mini-action--damage" type="button" data-action="adjust-pg-act" data-id="${escapeHtml(combatant.id)}" data-mode="damage" data-tooltip="Daño" aria-label="Restar puntos de golpe">
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("damage")}</span>
+              </button>
+              <button class="mini-action mini-action--heal" type="button" data-action="adjust-pg-act" data-id="${escapeHtml(combatant.id)}" data-mode="heal" data-tooltip="Curación" aria-label="Sumar puntos de golpe">
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("heal")}</span>
+              </button>
+              <button class="mini-action mini-action--necrotic" type="button" data-action="adjust-necrotic" data-id="${escapeHtml(combatant.id)}" data-tooltip="Necrótico" aria-label="Ajustar daño necrótico">
+                <span class="mini-action__icon" aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </td>
   `;
 }
@@ -17123,6 +17182,21 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
   const initials = linkedCharacter
     ? getCharacterInitials(linkedCharacter)
     : getCombatantInitials(combatant);
+
+  if (isMonstersLeagueRivalCombatant(combatant)) {
+    return `
+      <span class="combat-name-token-wrap combat-name-token-wrap--restricted" title="Datos del equipo rival ocultos">
+        <span class="combat-name-token-static" aria-label="Ficha de equipo rival oculta">
+          ${
+            tokenUrl
+              ? `<img class="combat-name-token" src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true" />`
+              : `<span class="combat-name-token__placeholder">${escapeHtml(initials)}</span>`
+          }
+          <span class="combat-name-token__lock" aria-hidden="true">&#128274;</span>
+        </span>
+      </span>
+    `;
+  }
 
   if (linkedCharacter) {
     return `
