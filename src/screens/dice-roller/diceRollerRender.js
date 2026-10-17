@@ -55,6 +55,16 @@ export function renderDiceRollerDock({
         </div>
         <div class="dice-roller-panel__actions">
           <button
+            class="dice-roller-panel__icon-button"
+            type="button"
+            data-action="clear-dice-roller-history"
+            aria-label="${escapeHtml(isEnglish ? "Clear roll results" : "Limpiar resultados")}"
+            title="${escapeHtml(isEnglish ? "Clear results" : "Limpiar resultados")}"
+            ${history.length > 0 ? "" : "disabled"}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z" /></svg>
+          </button>
+          <button
             class="dice-roller-panel__icon-button${helpOpen ? " is-active" : ""}"
             type="button"
             data-action="toggle-dice-roller-help"
@@ -233,7 +243,7 @@ function renderDiceRollEntry(entry, language) {
           ${entry.hitDiceMode ? `<span class="dice-roll-entry__mode">${escapeHtml(language === "en" ? "HIT DICE" : "DADOS DE VIDA")}</span>` : ""}
           ${entry.rollMode ? `<span class="dice-roll-entry__mode dice-roll-entry__mode--${escapeHtml(entry.rollMode)}">${escapeHtml(entry.rollMode === "advantage" ? (language === "en" ? "ADVANTAGE" : "VENTAJA") : (language === "en" ? "DISADVANTAGE" : "DESVENTAJA"))}</span>` : ""}
         </div>
-        <strong>= ${escapeHtml(formatTotal(entry.total))}</strong>
+        <strong class="dice-roll-entry__total">${escapeHtml(formatTotal(entry.total))}</strong>
       </header>
       <div class="dice-roll-entry__groups">
         ${(entry.groups || []).length > 0 ? (entry.groups || []).map((group) => `

@@ -101,7 +101,7 @@ test("keeps enough starting gold to fill every roster slot", () => {
   assert.equal(room.config.startingGold, 4);
 });
 
-test("single master defaults on and can be disabled", () => {
+test("single master is always enabled", () => {
   const defaultRoom = createMonstersLeagueRoom({
     id: "single-master-room",
     host: { id: "host", userId: "host", name: "Host" }
@@ -112,10 +112,10 @@ test("single master defaults on and can be disabled", () => {
     config: { singleMaster: false }
   });
   assert.equal(defaultRoom.config.singleMaster, true);
-  assert.equal(sharedRoom.config.singleMaster, false);
+  assert.equal(sharedRoom.config.singleMaster, true);
 });
 
-test("generated encounters retain host and shared-control metadata", () => {
+test("generated encounters retain host and single-master metadata", () => {
   const room = readyRoom(1);
   room.config.singleMaster = false;
   room.status = "complete";
@@ -123,7 +123,7 @@ test("generated encounters retain host and shared-control metadata", () => {
   room.players[1].roster = [{ monster: catalog[1], price: 1 }];
   const encounters = createMonstersLeagueEncounters(room);
   assert.equal(encounters[0].multiplayer.hostUserId, "host");
-  assert.equal(encounters[0].multiplayer.singleMaster, false);
+  assert.equal(encounters[0].multiplayer.singleMaster, true);
 });
 
 test("automatically assigns the only remaining roster one creature per review", () => {
@@ -258,6 +258,24 @@ test("filters excluded creature sizes and base types", () => {
     crMax: 30,
     excludedSizes: ["large"],
     excludedTypes: ["humanoid"]
+  });
+
+  assert.deepEqual(eligible.map((monster) => monster.id), ["wolf"]);
+});
+
+test("filters to only selected creature sizes and base types", () => {
+  const filteredCatalog = [
+    { id: "wolf", name: "Wolf", crValue: 1, size: "Medium", type: "Beast" },
+    { id: "guard", name: "Guard", crValue: 1, size: "Medium", type: "Humanoid (Human)" },
+    { id: "dragon", name: "Dragon", crValue: 1, size: "Large", type: "Dragon" }
+  ];
+  const eligible = getEligibleMonsters(filteredCatalog, {
+    crMin: 0,
+    crMax: 30,
+    excludedSizes: ["medium"],
+    excludedTypes: ["beast"],
+    sizeFilterMode: "include",
+    typeFilterMode: "include"
   });
 
   assert.deepEqual(eligible.map((monster) => monster.id), ["wolf"]);

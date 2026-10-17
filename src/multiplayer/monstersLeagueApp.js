@@ -183,7 +183,8 @@ const state = {
   audioContext: null,
   lastActiveCombatantId: "",
   turnFlash: null,
-  turnFlashTimer: 0
+  turnFlashTimer: 0,
+  mapBroadcastExpanded: false
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -313,9 +314,6 @@ async function initializeOnlineRoom(hostName) {
         state.selectedMonsterId = "";
       }
       ensureTestCombatState();
-      if (["complete", "combat"].includes(room.status) && room.config?.singleMaster === false && !state.encountersSent) {
-        sendEncountersToMainApp();
-      }
       ensureCloudCampaignSaved();
       if (!state.loading) render();
     },
@@ -428,8 +426,8 @@ function renderStagePill(status, label) {
 function renderConfiguration() {
   const config = state.room.config;
   const eligibleCount = getEligibleMonsters(state.catalog, config).length;
-  const sizeOptions = getCreatureFilterOptions("size");
-  const typeOptions = getCreatureFilterOptions("type");
+  const sizeOptions = getCreatureFilterOptions("size", config.crMin, config.crMax);
+  const typeOptions = getCreatureFilterOptions("type", config.crMin, config.crMax);
 
   return `
     <main class="ml-page ml-config-page">
@@ -452,17 +450,13 @@ function renderConfiguration() {
             <label class="ml-field"><span>CR mínimo</span><input name="crMin" type="number" min="0" max="30" step="0.125" value="${config.crMin}" /></label>
             <label class="ml-field"><span>CR máximo</span><input name="crMax" type="number" min="0" max="30" step="0.125" value="${config.crMax}" /></label>
             <label class="ml-field"><span>Tiempo de puja</span><select name="bidSeconds">${renderTimeOptions(config.bidSeconds)}</select></label>
-            <label class="ml-field ml-field--wide ml-field--checkbox">
-              <input name="singleMaster" type="checkbox" ${config.singleMaster ? "checked" : ""} />
-              <span><strong>${language === "en" ? "Single Master" : "Master único"}</strong><small>${language === "en" ? "Only the host controls combat. Disable to share combat and dice control with every player." : "Solo el anfitrión controla el combate. Desmárcalo para compartir combate y dados con todos."}</small></span>
-            </label>
           </div>
           <div class="ml-exclusion-grid">
-            ${renderExclusionGroup("excludedSizes", language === "en" ? "Exclude creature sizes" : "Excluir tamaños", sizeOptions, config.excludedSizes)}
-            ${renderExclusionGroup("excludedTypes", language === "en" ? "Exclude creature types" : "Excluir tipos de criatura", typeOptions, config.excludedTypes)}
+            ${renderCreatureFilterGroup("size", language === "en" ? "Creature sizes" : "Tamaños de criatura", sizeOptions, config.excludedSizes, config.sizeFilterMode)}
+            ${renderCreatureFilterGroup("type", language === "en" ? "Creature types" : "Tipos de criatura", typeOptions, config.excludedTypes, config.typeFilterMode)}
           </div>
           <div class="ml-config-summary">
-            <article><span>Catálogo elegible</span><strong>${eligibleCount.toLocaleString(language)}</strong><small>criaturas únicas</small></article>
+            <article><span>Catálogo elegible</span><strong data-ml-eligible-count>${eligibleCount.toLocaleString(language)}</strong><small>criaturas únicas</small></article>
             <article><span>Oro inicial</span><strong>${config.startingGold}</strong><small>por jugador</small></article>
             <article><span>Lotes previstos</span><strong>${state.room.players.length * config.teamSize}</strong><small>con participantes actuales</small></article>
           </div>
@@ -485,21 +479,36 @@ function renderTimeOptions(selected) {
   return [5, 10, 15, 20, 30, 45, 60].map((seconds) => `<option value="${seconds}" ${seconds === selected ? "selected" : ""}>${seconds} ${t("seconds")}</option>`).join("");
 }
 
-function renderExclusionGroup(name, label, options, selectedValues = []) {
+function renderCreatureFilterGroup(kind, label, options, selectedValues = [], mode = "exclude") {
+  const name = kind === "size" ? "excludedSizes" : "excludedTypes";
+  const modeName = kind === "size" ? "sizeFilterMode" : "typeFilterMode";
   const selected = new Set(Array.isArray(selectedValues) ? selectedValues : []);
   return `
-    <fieldset class="ml-exclusion-group">
+    <fieldset class="ml-exclusion-group ${mode === "include" ? "is-include" : "is-exclude"}" data-ml-filter-group="${kind}">
       <legend>${escapeHtml(label)}</legend>
+      <label class="ml-exclusion-group__mode">
+        <span>${language === "en" ? "Filter mode" : "Modo de filtro"}</span>
+        <select name="${modeName}">
+          <option value="exclude" ${mode === "include" ? "" : "selected"}>${language === "en" ? "Exclude selected" : "Excluir seleccionadas"}</option>
+          <option value="include" ${mode === "include" ? "selected" : ""}>${language === "en" ? "Only selected" : "Solo seleccionadas"}</option>
+        </select>
+      </label>
       <div>${options.map((option) => `
         <label><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(option.key)}" ${selected.has(option.key) ? "checked" : ""} /><span>${escapeHtml(option.label)}</span></label>
-      `).join("")}</div>
+      `).join("") || `<small>${language === "en" ? "No creatures in this CR range." : "No hay criaturas en este rango de CR."}</small>`}</div>
     </fieldset>
   `;
 }
 
-function getCreatureFilterOptions(kind) {
+function getCreatureFilterOptions(kind, crMin = state.room?.config?.crMin, crMax = state.room?.config?.crMax) {
   const options = new Map();
+  const firstBoundary = Number(crMin);
+  const secondBoundary = Number(crMax);
+  const lower = Math.min(Number.isFinite(firstBoundary) ? firstBoundary : 0, Number.isFinite(secondBoundary) ? secondBoundary : 30);
+  const upper = Math.max(Number.isFinite(firstBoundary) ? firstBoundary : 0, Number.isFinite(secondBoundary) ? secondBoundary : 30);
   for (const monster of state.catalog) {
+    const crValue = Number(monster.crValue);
+    if (!Number.isFinite(crValue) || crValue < lower || crValue > upper) continue;
     const rawLabel = cleanText(kind === "size" ? monster.size : monster.type).split(/[,(\[]/, 1)[0];
     const key = kind === "size" ? toFilterKey(monster.size) : toTypeFilterKey(monster.type);
     if (key && rawLabel && !options.has(key)) options.set(key, rawLabel);
@@ -510,16 +519,45 @@ function getCreatureFilterOptions(kind) {
 }
 
 function formatExcludedCreatureFilters(config) {
-  const labels = [
-    ...getSelectedFilterLabels("size", config.excludedSizes),
-    ...getSelectedFilterLabels("type", config.excludedTypes)
-  ];
-  return labels.length ? labels.join(", ") : (language === "en" ? "None" : "Ninguna");
+  const groups = [
+    [config.sizeFilterMode, getSelectedFilterLabels("size", config.excludedSizes)],
+    [config.typeFilterMode, getSelectedFilterLabels("type", config.excludedTypes)]
+  ].filter(([, labels]) => labels.length > 0)
+    .map(([mode, labels]) => `${mode === "include" ? (language === "en" ? "Only" : "Solo") : (language === "en" ? "Exclude" : "Excluir")}: ${labels.join(", ")}`);
+  return groups.length ? groups.join(" · ") : (language === "en" ? "None" : "Ninguno");
 }
 
 function getSelectedFilterLabels(kind, selectedValues) {
   const labels = new Map(getCreatureFilterOptions(kind).map((option) => [option.key, option.label]));
   return (Array.isArray(selectedValues) ? selectedValues : []).map((key) => labels.get(key) || key.replace(/-/g, " "));
+}
+
+function getConfigurationDraft(form) {
+  const data = new FormData(form);
+  return {
+    ...state.room.config,
+    crMin: data.get("crMin"),
+    crMax: data.get("crMax"),
+    excludedSizes: data.getAll("excludedSizes"),
+    excludedTypes: data.getAll("excludedTypes"),
+    sizeFilterMode: data.get("sizeFilterMode"),
+    typeFilterMode: data.get("typeFilterMode")
+  };
+}
+
+function refreshConfigurationFilters(form) {
+  if (!form) return;
+  const config = getConfigurationDraft(form);
+  const grid = form.querySelector(".ml-exclusion-grid");
+  if (grid) {
+    grid.innerHTML = `${renderCreatureFilterGroup("size", language === "en" ? "Creature sizes" : "Tamaños de criatura", getCreatureFilterOptions("size", config.crMin, config.crMax), config.excludedSizes, config.sizeFilterMode)}${renderCreatureFilterGroup("type", language === "en" ? "Creature types" : "Tipos de criatura", getCreatureFilterOptions("type", config.crMin, config.crMax), config.excludedTypes, config.typeFilterMode)}`;
+  }
+  updateConfigurationEligibleCount(form);
+}
+
+function updateConfigurationEligibleCount(form) {
+  const output = form?.querySelector("[data-ml-eligible-count]");
+  if (output) output.textContent = getEligibleMonsters(state.catalog, getConfigurationDraft(form)).length.toLocaleString(language);
 }
 
 function renderLobby() {
@@ -546,7 +584,7 @@ function renderLobby() {
         <aside class="ml-panel ml-lobby-rules">
           <p class="ml-eyebrow">REGLAS DE PARTIDA</p>
           <h2>Todo listo</h2>
-          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Oro inicial</dt><dd>${room.config.startingGold}</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Control</dt><dd>${room.config.singleMaster ? "Master único" : "Compartido"}</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Exclusiones</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
+          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Oro inicial</dt><dd>${room.config.startingGold}</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Filtros</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
           ${isHost
             ? `<button class="ml-button ml-button--primary ml-button--large" type="button" data-ml-action="start-draft" ${allReady ? "" : "disabled"}>Comenzar subasta</button>`
             : `<button class="ml-button ${currentPlayer?.ready ? "" : "ml-button--primary"} ml-button--large" type="button" data-ml-action="toggle-ready">${currentPlayer?.ready ? "Dejar de estar listo" : "Estoy listo"}</button>`}
@@ -747,13 +785,14 @@ function renderTeamScreen() {
 function renderCombatMapBroadcast() {
   const projection = state.room?.mapProjection;
   const open = projection?.open === true && projection.editorState;
+  const expanded = state.mapBroadcastExpanded === true;
   const waitingLabel = language === "en" ? "Waiting for host" : "Esperando al anfitri\u00f3n";
   return `
-    <section class="ml-map-broadcast ${open ? "is-live" : "is-waiting"}">
-      <header><div><p class="ml-eyebrow">MAPA DE COMBATE</p><h2>${language === "en" ? "Player view" : "Vista de jugador"}</h2></div>${open ? `<span class="ml-live-dot">LIVE</span>` : ""}</header>
-      ${open
+    <section class="ml-map-broadcast ${open ? "is-live" : "is-waiting"} ${expanded ? "is-expanded" : "is-collapsed"}">
+      <header><div><p class="ml-eyebrow">MAPA DE COMBATE</p><h2>${language === "en" ? "Player view" : "Vista de jugador"}</h2></div><div class="ml-map-broadcast__actions">${open ? `<span class="ml-live-dot">LIVE</span>` : ""}<button class="ml-button ml-map-toggle" type="button" data-ml-action="toggle-map-broadcast" aria-expanded="${expanded}"><span>MAPA</span><i aria-hidden="true">${expanded ? "▲" : "▼"}</i></button></div></header>
+      ${expanded ? (open
         ? `<div class="ml-map-projection" data-ml-map-projection></div>`
-        : `<div class="ml-map-waiting" role="status"><i></i><strong>${waitingLabel}</strong></div>`}
+        : `<div class="ml-map-waiting" role="status"><i></i><strong>${waitingLabel}</strong></div>`) : ""}
     </section>
   `;
 }
@@ -762,7 +801,7 @@ function syncPlayerMapProjection() {
   const host = app.querySelector("[data-ml-map-projection]");
   const projection = state.room?.mapProjection;
   if (!host || projection?.open !== true || !projection.editorState) return;
-  playerMapController.applySave(projection.editorState, { preservePlayerView: state.room?.config?.singleMaster === false });
+  playerMapController.applySave(projection.editorState, { preservePlayerView: true });
   playerMapController.syncPlayerProjection(host);
 }
 
@@ -1110,6 +1149,7 @@ function handleClick(event) {
     else if (action === "select-monster") state.selectedMonsterId = target.dataset.monsterId;
     else if (action === "open-spell") state.selectedSpellId = target.dataset.spellId;
     else if (action === "close-spell") state.selectedSpellId = "";
+    else if (action === "toggle-map-broadcast") state.mapBroadcastExpanded = !state.mapBroadcastExpanded;
     else if (action === "send-encounters") sendEncountersToMainApp();
     else if (action === "enter-combat") enterCombat();
     else if (action === "adjust-hp") adjustLiveValue("currentHp", Number(target.dataset.amount));
@@ -1126,6 +1166,15 @@ function handleChange(event) {
     playerMapController.handleChange(event);
     return;
   }
+  const configForm = event.target.closest?.("[data-ml-config-form]");
+  if (configForm && event.target.matches('[name="sizeFilterMode"], [name="typeFilterMode"]')) {
+    refreshConfigurationFilters(configForm);
+    return;
+  }
+  if (configForm && event.target.matches('[name="excludedSizes"], [name="excludedTypes"]')) {
+    updateConfigurationEligibleCount(configForm);
+    return;
+  }
   if (event.target.matches("[data-ml-team-select]")) {
     state.selectedTeamPlayerId = event.target.value;
     state.selectedMonsterId = "";
@@ -1136,6 +1185,10 @@ function handleChange(event) {
 function handleInput(event) {
   if (event.target.closest?.("[data-combat-map-player-root]")) {
     playerMapController.handleInput(event);
+    return;
+  }
+  if (event.target.matches('[data-ml-config-form] [name="crMin"], [data-ml-config-form] [name="crMax"]')) {
+    refreshConfigurationFilters(event.target.closest("[data-ml-config-form]"));
     return;
   }
   if (event.target.matches("[data-ml-monster-search]")) {
@@ -1169,9 +1222,10 @@ function handleSubmit(event) {
       crMin: form.get("crMin"),
       crMax: form.get("crMax"),
       bidSeconds: form.get("bidSeconds"),
-      singleMaster: form.has("singleMaster"),
       excludedSizes: form.getAll("excludedSizes"),
-      excludedTypes: form.getAll("excludedTypes")
+      excludedTypes: form.getAll("excludedTypes"),
+      sizeFilterMode: form.get("sizeFilterMode"),
+      typeFilterMode: form.get("typeFilterMode")
     };
     if (localTestMode) {
       updateMonstersLeagueConfig(state.room, config, state.hostPlayerId);

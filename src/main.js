@@ -2083,6 +2083,12 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "clear-dice-roller-history") {
+    state.diceRollHistory = [];
+    render();
+    return;
+  }
+
   if (action === "toggle-dice-roller-hit-dice") {
     state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
     render();
@@ -12741,6 +12747,10 @@ function handleDiceRollerPopoutClick(event) {
   } else if (action === "toggle-dice-roller-help") {
     state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
     syncDiceRollerPopout();
+  } else if (action === "clear-dice-roller-history") {
+    state.diceRollHistory = [];
+    syncDiceRollerPopout();
+    render();
   } else if (action === "toggle-dice-roller-hit-dice") {
     state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
     syncDiceRollerPopout();
@@ -24926,7 +24936,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
       teamOwnerUserId: cleanText(teamMeta.ownerUserId),
       teamOwnerName: cleanText(teamMeta.ownerName),
       multiplayerHostUserId: cleanText(teamMeta.hostUserId),
-      multiplayerSingleMaster: teamMeta.singleMaster !== false,
+      multiplayerSingleMaster: true,
       teamColor: normalizeTeamColor(teamMeta.color || row.teamColor),
       multiplayerOnline: teamMeta.online === true,
       numPeana: formatStandNumber(standNumber)
@@ -24958,7 +24968,7 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
     teamOwnerUserId: cleanText(teamMeta.ownerUserId),
     teamOwnerName: cleanText(teamMeta.ownerName),
     multiplayerHostUserId: cleanText(teamMeta.hostUserId),
-    multiplayerSingleMaster: teamMeta.singleMaster !== false,
+    multiplayerSingleMaster: true,
     teamColor: normalizeTeamColor(teamMeta.color || row.teamColor),
     multiplayerOnline: teamMeta.online === true,
     numPeana: formatStandNumber(standNumber)
@@ -25021,7 +25031,7 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     teamOwnerUserId: cleanText(existingCombatant.teamOwnerUserId),
     teamOwnerName: cleanText(existingCombatant.teamOwnerName),
     multiplayerHostUserId: cleanText(existingCombatant.multiplayerHostUserId),
-    multiplayerSingleMaster: existingCombatant.multiplayerSingleMaster !== false,
+    multiplayerSingleMaster: true,
     teamColor: normalizeTeamColor(existingCombatant.teamColor),
     multiplayerOnline: existingCombatant.multiplayerOnline === true,
     iniactiva: existingCombatant.iniactiva ?? "",
@@ -26338,7 +26348,7 @@ function normalizeCombatant(combatant, changedKey = "") {
     teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
     teamOwnerName: cleanText(combatant.teamOwnerName),
     multiplayerHostUserId: cleanText(combatant.multiplayerHostUserId),
-    multiplayerSingleMaster: combatant.multiplayerSingleMaster !== false,
+    multiplayerSingleMaster: true,
     teamColor: normalizeTeamColor(combatant.teamColor),
     multiplayerOnline: combatant.multiplayerOnline === true,
     hiddenFromInitiative: combatant.hiddenFromInitiative === true,
@@ -35575,7 +35585,7 @@ function normalizeStoredEncounterMultiplayer(value) {
     ownerUserId: cleanText(value.ownerUserId),
     ownerName: cleanText(value.ownerName),
     hostUserId: cleanText(value.hostUserId),
-    singleMaster: value.singleMaster !== false,
+    singleMaster: true,
     color: normalizeTeamColor(value.color),
     online: value.online === true
   };

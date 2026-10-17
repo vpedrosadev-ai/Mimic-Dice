@@ -1,6 +1,6 @@
 import { cleanText, normalizeSearchText } from "../shared/text.js";
 
-export const MONSTERS_LEAGUE_SCHEMA_VERSION = 3;
+export const MONSTERS_LEAGUE_SCHEMA_VERSION = 4;
 export const MONSTERS_LEAGUE_STARTING_GOLD = 100;
 
 export const MONSTERS_LEAGUE_TEAM_COLORS = Object.freeze([
@@ -26,6 +26,8 @@ const DEFAULT_CONFIG = Object.freeze({
   antiSnipeSeconds: 8,
   excludedSizes: [],
   excludedTypes: [],
+  sizeFilterMode: "exclude",
+  typeFilterMode: "exclude",
   uniqueCreatures: true,
   singleMaster: true
 });
@@ -96,8 +98,10 @@ export function normalizeMonstersLeagueConfig(value = {}) {
     antiSnipeSeconds: clampInteger(source.antiSnipeSeconds, 3, 15, DEFAULT_CONFIG.antiSnipeSeconds),
     excludedSizes: normalizeFilterList(source.excludedSizes),
     excludedTypes: normalizeFilterList(source.excludedTypes),
+    sizeFilterMode: source.sizeFilterMode === "include" ? "include" : "exclude",
+    typeFilterMode: source.typeFilterMode === "include" ? "include" : "exclude",
     uniqueCreatures: source.uniqueCreatures !== false,
-    singleMaster: source.singleMaster !== false
+    singleMaster: true
   };
 }
 
@@ -227,7 +231,14 @@ export function getEligibleMonsters(catalog, config) {
       return false;
     }
 
-    if ((sizeKey && excludedSizes.has(sizeKey)) || (typeKey && excludedTypes.has(typeKey))) {
+    const sizeRejected = normalizedConfig.sizeFilterMode === "include"
+      ? excludedSizes.size > 0 && !excludedSizes.has(sizeKey)
+      : sizeKey && excludedSizes.has(sizeKey);
+    const typeRejected = normalizedConfig.typeFilterMode === "include"
+      ? excludedTypes.size > 0 && !excludedTypes.has(typeKey)
+      : typeKey && excludedTypes.has(typeKey);
+
+    if (sizeRejected || typeRejected) {
       return false;
     }
 
@@ -535,7 +546,7 @@ export function createMonstersLeagueEncounters(room) {
       ownerName: player.name,
       color: player.color,
       hostUserId: room.hostPlayerId,
-      singleMaster: room.config.singleMaster !== false
+      singleMaster: true
     },
     rows: player.roster.map((award, index) => ({
       id: `monsters-league-row-${room.id}-${player.id}-${index + 1}`,

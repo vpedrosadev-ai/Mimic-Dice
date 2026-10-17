@@ -365,43 +365,6 @@
   grid-column: 1 / -1;
 }
 
-.ml-field--checkbox {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: 0.75rem;
-  padding: 0.8rem 0.9rem;
-  border: 1px solid rgba(214, 164, 86, 0.24);
-  border-radius: 0.75rem;
-  background: rgba(72, 43, 22, 0.22);
-}
-
-.ml-field.ml-field--checkbox > input {
-  width: 1.2rem;
-  height: 1.2rem;
-  min-height: 0;
-  margin-top: 0.12rem;
-  padding: 0;
-  accent-color: #dca858;
-}
-
-.ml-field--checkbox > span {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.ml-field--checkbox strong,
-.ml-field--checkbox small {
-  color: inherit;
-}
-
-.ml-field--checkbox small {
-  color: var(--muted);
-  font-weight: 500;
-  line-height: 1.35;
-  text-transform: none;
-}
-
 .ml-field span,
 .ml-invite-box > span,
 .ml-team-header__actions label,
@@ -480,6 +443,34 @@
   overflow: auto;
 }
 
+.ml-exclusion-group__mode {
+  position: static !important;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+  cursor: default !important;
+}
+
+.ml-exclusion-group__mode > span {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  font-weight: 800;
+}
+
+.ml-exclusion-group__mode select {
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0.38rem 0.52rem;
+  border: 1px solid rgba(217, 171, 93, 0.28);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(7, 4, 3, 0.68);
+}
+
 .ml-exclusion-group label {
   position: relative;
   cursor: pointer;
@@ -506,6 +497,13 @@
   color: #ffe0e3;
   background: rgba(216, 122, 132, 0.14);
   text-decoration: line-through;
+}
+
+.ml-exclusion-group.is-include input:checked + span {
+  border-color: rgba(89, 205, 144, 0.68);
+  color: #d8ffe9;
+  background: rgba(46, 151, 96, 0.16);
+  text-decoration: none;
 }
 
 .ml-exclusion-group input:focus-visible + span {
@@ -1295,6 +1293,30 @@
 .ml-map-broadcast > header h2,
 .ml-map-broadcast > header p {
   margin: 0;
+}
+
+.ml-map-broadcast.is-collapsed > header {
+  border-bottom-color: transparent;
+}
+
+.ml-map-broadcast__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.ml-map-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 7rem;
+}
+
+.ml-map-toggle i {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-style: normal;
 }
 
 .ml-map-projection,

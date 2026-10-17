@@ -175,9 +175,7 @@ export class MonstersLeagueRoom extends DurableObject {
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "combat-update") {
-      const canShareControl = this.room.config?.singleMaster === false
-        && this.room.players.some((player) => player.id === playerId && !player.isBot);
-      if ((!canShareControl && playerId !== this.room.hostPlayerId) || !["complete", "combat"].includes(this.room.status)) {
+      if (playerId !== this.room.hostPlayerId || !["complete", "combat"].includes(this.room.status)) {
         throw Object.assign(new Error("This player cannot update live combat."), { code: "host_required" });
       }
       this.room.combatState = sanitizeCombatState(command.combatState, this.room);
@@ -188,21 +186,7 @@ export class MonstersLeagueRoom extends DurableObject {
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "dice-roll") {
-      if (this.room.config?.singleMaster !== false || !["complete", "combat"].includes(this.room.status)) {
-        throw Object.assign(new Error("Shared dice are disabled for this room."), { code: "shared_dice_disabled" });
-      }
-      if (!this.room.players.some((player) => player.id === playerId && !player.isBot)) {
-        throw Object.assign(new Error("Only room players can publish rolls."), { code: "player_required" });
-      }
-      const roll = sanitizeDiceRoll(command.roll, {
-        userId: safeText(actor.userId) || playerId,
-        userName: safeText(actor.name) || this.room.players.find((player) => player.id === playerId)?.name || "Jugador"
-      });
-      const history = Array.isArray(this.room.diceRollHistory) ? this.room.diceRollHistory : [];
-      if (!history.some((entry) => entry.id === roll.id)) history.push(roll);
-      this.room.diceRollHistory = history.slice(-100);
-      this.room.revision += 1;
-      this.room.updatedAt = now;
+      throw Object.assign(new Error("Shared dice are disabled for this room."), { code: "shared_dice_disabled" });
     } else {
       throw Object.assign(new Error("Unknown room command."), { code: "unknown_command" });
     }

@@ -555,10 +555,18 @@ body.has-compendium-reference-popup {
   background: rgba(151, 43, 55, 0.16);
 }
 
-.dice-roll-entry > header strong {
+.dice-roll-entry__total {
   flex: 0 0 auto;
-  color: var(--accent-soft);
-  font-size: 1.32rem;
+  min-width: 3.4rem;
+  padding: 0.34rem 0.62rem;
+  border: 1px solid rgba(96, 220, 159, 0.62);
+  border-radius: 0.65rem;
+  color: #a8f0c9;
+  background: linear-gradient(180deg, rgba(45, 139, 91, 0.28), rgba(22, 79, 54, 0.22));
+  box-shadow: inset 0 0 0 1px rgba(152, 240, 196, 0.08), 0 5px 14px rgba(0, 0, 0, 0.2);
+  font-size: 1.48rem;
+  line-height: 1;
+  text-align: center;
 }
 
 .dice-roll-entry__groups {
