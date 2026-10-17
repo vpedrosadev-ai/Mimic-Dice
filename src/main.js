@@ -1422,7 +1422,8 @@ function getMonstersLeagueRoomAccess(roomId) {
   return {
     combatants,
     shared: state.cloudCampaignIsShared === true,
-    host: Boolean(userId && cleanText(sample?.multiplayerHostUserId) === userId)
+    host: state.cloudCampaignCanManage === true
+      || Boolean(userId && cleanText(sample?.multiplayerHostUserId) === userId)
   };
 }
 
