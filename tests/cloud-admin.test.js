@@ -45,6 +45,24 @@ test("administrator can manage another user's campaign without listing it as own
   assert.equal(summary.canManage, true);
 });
 
+test("shared campaign editor can edit without owner-only management rights", () => {
+  const summary = getCampaignSummary({
+    id: "campaign-shared",
+    ownerId: "host",
+    memberRole: "editor",
+    memberCount: 3,
+    name: "Monster League",
+    isPublic: 0,
+    revision: 4,
+    payloadBytes: 100
+  }, "player-2", false);
+
+  assert.equal(summary.isOwner, false);
+  assert.equal(summary.isShared, true);
+  assert.equal(summary.canEdit, true);
+  assert.equal(summary.canManage, false);
+});
+
 test("admin storage classifies tracked and untracked R2 objects", () => {
   const assetRows = [
     { objectKey: "users/user-1/map.webp", ownerId: "user-1", directLibraryType: "map", mimeType: "image/webp" },

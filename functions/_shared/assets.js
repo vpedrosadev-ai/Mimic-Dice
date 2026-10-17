@@ -59,6 +59,12 @@ export async function syncCloudAssetReferences(db, ownerId, parentType, parentId
       SELECT a."id", ?, ? FROM "cloud_assets" a
       WHERE a."id" = ? AND (
         a."ownerId" = ?
+        OR (
+          ? = 'campaign' AND EXISTS (
+            SELECT 1 FROM "campaign_members" cm
+            WHERE cm."campaignId" = ? AND cm."userId" = a."ownerId"
+          )
+        )
         OR EXISTS (
           SELECT 1 FROM "cloud_asset_references" r
           INNER JOIN "campaigns" c ON r."parentType" = 'campaign' AND c."id" = r."parentId"
@@ -78,7 +84,7 @@ export async function syncCloudAssetReferences(db, ownerId, parentType, parentId
           WHERE e."imageUrl" = '/api/assets/' || a."id" AND e."ownerId" = a."ownerId" AND e."isPublic" = 1
         )
       )
-    `).bind(parentType, parentId, assetId, ownerId))
+    `).bind(parentType, parentId, assetId, ownerId, parentType, parentId))
   ];
   await db.batch(statements);
 }
@@ -233,6 +239,10 @@ async function getAsset(context, assetId, user) {
         WHERE r."assetId" = a."id" AND c."ownerId" = ?
       ) OR EXISTS (
         SELECT 1 FROM "cloud_asset_references" r
+        INNER JOIN "campaign_members" cm ON r."parentType" = 'campaign' AND cm."campaignId" = r."parentId"
+        WHERE r."assetId" = a."id" AND cm."userId" = ?
+      ) OR EXISTS (
+        SELECT 1 FROM "cloud_asset_references" r
         INNER JOIN "cloud_library_entries" e ON r."parentType" = 'library' AND e."id" = r."parentId"
         WHERE r."assetId" = a."id" AND e."ownerId" = ?
       ) OR EXISTS (
@@ -245,7 +255,7 @@ async function getAsset(context, assetId, user) {
     FROM "cloud_assets" a
     WHERE a."id" = ?
     LIMIT 1
-  `).bind(userId, userId, userId, userId, userId, assetId).first();
+  `).bind(userId, userId, userId, userId, userId, userId, assetId).first();
 
   if (!asset || (asset.canAccess !== 1 && asset.isPublic !== 1 && !isAdministrator(user))) {
     throw new HttpError(404, "asset_not_found", "Cloud image not found.");

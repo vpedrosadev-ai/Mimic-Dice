@@ -63,6 +63,8 @@ function splitCampaign(serialized) {
 
 export function getCampaignSummary(row, currentUserId = "", administrator = false) {
   const isOwner = Boolean(currentUserId && row.ownerId === currentUserId);
+  const isMember = Boolean(currentUserId && row.memberRole === "editor");
+  const memberCount = Math.max(0, Number(row.memberCount) || 0);
 
   return {
     id: row.id,
@@ -74,18 +76,47 @@ export function getCampaignSummary(row, currentUserId = "", administrator = fals
     updatedAt: row.updatedAt,
     ownerName: row.ownerName || "Usuario de Mimic Dice",
     isOwner,
+    isShared: memberCount > 0,
+    memberCount,
+    canEdit: Boolean(isOwner || isMember || administrator),
     canManage: Boolean(isOwner || administrator)
   };
 }
 
-async function getCampaignRecord(db, campaignId) {
+async function getCampaignRecord(db, campaignId, currentUserId = "") {
   return db.prepare(`
-    SELECT c.*, u."name" AS "ownerName"
+    SELECT c.*, u."name" AS "ownerName",
+      (
+        SELECT cm."role" FROM "campaign_members" cm
+        WHERE cm."campaignId" = c."id" AND cm."userId" = ?
+        LIMIT 1
+      ) AS "memberRole",
+      (
+        SELECT COUNT(*) FROM "campaign_members" cm
+        WHERE cm."campaignId" = c."id"
+      ) AS "memberCount"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
     WHERE c."id" = ?
     LIMIT 1
-  `).bind(campaignId).first();
+  `).bind(currentUserId, campaignId).first();
+}
+
+function canReadCampaign(campaign, user, administrator = false) {
+  return Boolean(campaign && (
+    campaign.ownerId === user?.id
+    || campaign.memberRole === "editor"
+    || campaign.isPublic === 1
+    || administrator
+  ));
+}
+
+function canEditCampaign(campaign, user, administrator = false) {
+  return Boolean(campaign && (
+    campaign.ownerId === user?.id
+    || campaign.memberRole === "editor"
+    || administrator
+  ));
 }
 
 async function readCampaignPayload(db, campaign) {
@@ -115,22 +146,25 @@ function createChunkStatements(db, campaignId, payloadVersion, chunks) {
   `).bind(campaignId, payloadVersion, chunkIndex, chunk));
 }
 
-async function listOwnedCampaigns(context, user) {
+async function listAccessibleCampaigns(context, user) {
   const administrator = isAdministrator(user);
   const result = await context.env.DB.prepare(`
-    SELECT c.*, u."name" AS "ownerName"
+    SELECT c.*, u."name" AS "ownerName", cm."role" AS "memberRole",
+      (SELECT COUNT(*) FROM "campaign_members" members WHERE members."campaignId" = c."id") AS "memberCount"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
-    WHERE c."ownerId" = ?
+    LEFT JOIN "campaign_members" cm ON cm."campaignId" = c."id" AND cm."userId" = ?
+    WHERE c."ownerId" = ? OR cm."userId" = ?
     ORDER BY c."updatedAt" DESC
     LIMIT ?
-  `).bind(user.id, MAX_CAMPAIGNS_PER_USER).all();
+  `).bind(user.id, user.id, user.id, MAX_CAMPAIGNS_PER_USER * 2).all();
   return jsonResponse({ campaigns: result.results.map((row) => getCampaignSummary(row, user.id, administrator)) });
 }
 
 async function listPublicCampaigns(context, user) {
   const result = await context.env.DB.prepare(`
-    SELECT c.*, u."name" AS "ownerName"
+    SELECT c.*, u."name" AS "ownerName",
+      (SELECT COUNT(*) FROM "campaign_members" members WHERE members."campaignId" = c."id") AS "memberCount"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
     WHERE c."isPublic" = 1
@@ -236,21 +270,33 @@ export async function replaceOwnedCloudCampaignPayload(context, user, campaignId
 }
 
 async function getCampaign(context, campaignId, user) {
-  const campaign = await getCampaignRecord(context.env.DB, campaignId);
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user?.id || "");
+  const administrator = isAdministrator(user);
 
-  if (!campaign || (campaign.ownerId !== user?.id && campaign.isPublic !== 1 && !isAdministrator(user))) {
+  if (!canReadCampaign(campaign, user, administrator)) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
 
   const payload = await readCampaignPayload(context.env.DB, campaign);
-  return jsonResponse({ campaign: getCampaignSummary(campaign, user?.id || "", isAdministrator(user)), payload });
+  return jsonResponse({ campaign: getCampaignSummary(campaign, user?.id || "", administrator), payload });
+}
+
+async function getCampaignStatus(context, campaignId, user) {
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user?.id || "");
+  const administrator = isAdministrator(user);
+
+  if (!canReadCampaign(campaign, user, administrator)) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
+
+  return jsonResponse({ campaign: getCampaignSummary(campaign, user?.id || "", administrator) });
 }
 
 async function updateCampaign(context, campaignId, user) {
-  const campaign = await getCampaignRecord(context.env.DB, campaignId);
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
 
   const administrator = isAdministrator(user);
-  if (!campaign || (campaign.ownerId !== user.id && !administrator)) {
+  if (!canEditCampaign(campaign, user, administrator)) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
 
@@ -262,7 +308,8 @@ async function updateCampaign(context, campaignId, user) {
   }
 
   const name = cleanText(body.name || body.payload?.campaign?.name || campaign.name, 120) || campaign.name;
-  const isPublic = body.isPublic === true ? 1 : 0;
+  const canManage = campaign.ownerId === user.id || administrator;
+  const isPublic = canManage ? (body.isPublic === true ? 1 : 0) : campaign.isPublic;
   const { serialized, payloadBytes } = serializeCampaign(body.payload);
   const storage = await context.env.DB.prepare(
     'SELECT COALESCE(SUM("payloadBytes"), 0) AS "bytes" FROM "campaigns" WHERE "ownerId" = ?'
@@ -315,7 +362,7 @@ async function updateCampaign(context, campaignId, user) {
     forceVisibility: wasPublic === willBePublic ? null : willBePublic
   });
 
-  const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
+  const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
   return jsonResponse({ campaign: getCampaignSummary(updatedCampaign, user.id, administrator) });
 }
 
@@ -352,7 +399,7 @@ async function updateCampaignVisibility(context, campaignId, user) {
     forceVisibility: body.isPublic === true
   });
 
-  const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId);
+  const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
   return jsonResponse({ campaign: getCampaignSummary(updatedCampaign, user.id, administrator) });
 }
 
@@ -381,9 +428,9 @@ async function deleteCampaign(context, campaignId, user) {
 }
 
 async function cloneCampaign(context, campaignId, user) {
-  const source = await getCampaignRecord(context.env.DB, campaignId);
+  const source = await getCampaignRecord(context.env.DB, campaignId, user.id);
 
-  if (!source || (source.isPublic !== 1 && source.ownerId !== user.id)) {
+  if (!canReadCampaign(source, user)) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
 
@@ -428,7 +475,7 @@ export async function handleCampaignRequest(context) {
       const user = await requireAuthenticatedUser(context);
 
       if (method === "GET") {
-        return await listOwnedCampaigns(context, user);
+        return await listAccessibleCampaigns(context, user);
       }
       if (method === "POST") {
         return await createCampaign(context, user);
@@ -447,6 +494,13 @@ export async function handleCampaignRequest(context) {
         return methodNotAllowed(["POST"]);
       }
       return await cloneCampaign(context, campaignId, await requireAuthenticatedUser(context));
+    }
+
+    if (pathParts[1] === "status" && pathParts.length === 2) {
+      if (method !== "GET") {
+        return methodNotAllowed(["GET"]);
+      }
+      return await getCampaignStatus(context, campaignId, await getAuthenticatedUser(context));
     }
 
     if (pathParts.length !== 1) {

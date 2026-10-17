@@ -130,6 +130,10 @@ export async function getCloudCampaign(campaignId) {
   return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}`);
 }
 
+export async function getCloudCampaignStatus(campaignId) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/status`);
+}
+
 export async function createCloudCampaign({ name, isPublic = false, payload }) {
   return requestJson("/api/campaigns", {
     method: "POST",

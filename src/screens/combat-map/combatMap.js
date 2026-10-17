@@ -1049,18 +1049,27 @@ export function createCombatMapController(options = {}) {
   }
 
   function applySave(value, options = {}) {
-    const localPlayerView = options.preservePlayerView === true ? {
+    const preserveLocalView = options.preservePlayerView === true || options.preserveLocalView === true;
+    const localPlayerView = preserveLocalView ? {
+      viewport: { ...state.viewport },
       playerViewport: { ...state.playerViewport },
       playerVisible: state.initiative.playerVisible,
       initiativePosition: state.initiative.position,
-      initiativeSize: state.initiative.size
+      initiativeSize: state.initiative.size,
+      openPanel: state.openPanel,
+      windowBounds: { ...state.windowBounds }
     } : null;
     state = normalizeMapEditorState(value);
     if (localPlayerView) {
+      if (options.preserveLocalView === true) state.viewport = localPlayerView.viewport;
       state.playerViewport = localPlayerView.playerViewport;
       state.initiative.playerVisible = localPlayerView.playerVisible;
       state.initiative.position = localPlayerView.initiativePosition;
       state.initiative.size = localPlayerView.initiativeSize;
+      if (options.preserveLocalView === true) {
+        state.openPanel = localPlayerView.openPanel;
+        state.windowBounds = localPlayerView.windowBounds;
+      }
     }
     openPanel = state.openPanel;
     persist();

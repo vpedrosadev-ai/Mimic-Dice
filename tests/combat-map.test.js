@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  createCombatMapController,
   getAreaShapeMetrics,
   getGridCoordinateForPosition,
   getGridMovementDistanceFeet,
@@ -21,6 +22,39 @@ import {
   snapCreaturePosition,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
+
+test("map campaign sync preserves each user's local view controls", () => {
+  const previousStorage = globalThis.localStorage;
+  const values = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value))
+  };
+
+  try {
+    const controller = createCombatMapController({ storageKey: "shared-map-test" });
+    controller.applySave({
+      viewport: { zoom: 2, scrollLeft: 120, scrollTop: 80 },
+      playerViewport: { zoom: 1.5, scrollLeft: 30, scrollTop: 40 },
+      initiative: { position: "left", size: 420, playerVisible: false }
+    });
+    controller.applySave({
+      viewport: { zoom: 0.5, scrollLeft: 0, scrollTop: 0 },
+      playerViewport: { zoom: 0.75, scrollLeft: 0, scrollTop: 0 },
+      initiative: { position: "right", size: 180, playerVisible: true }
+    }, { preserveLocalView: true });
+
+    const saved = controller.getSaveData();
+    assert.equal(saved.viewport.zoom, 2);
+    assert.equal(saved.playerViewport.zoom, 1.5);
+    assert.equal(saved.initiative.position, "left");
+    assert.equal(saved.initiative.size, 420);
+    assert.equal(saved.initiative.playerVisible, false);
+  } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
+  }
+});
 
 test("token feedback stays inside viewport and flips below tokens near top edge", () => {
   const bounds = { left: 100, top: 60, right: 900, bottom: 660 };

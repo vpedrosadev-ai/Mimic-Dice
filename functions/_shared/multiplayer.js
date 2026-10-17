@@ -145,6 +145,21 @@ async function finalizeRoomCampaign(context, roomId, user) {
     name: campaignName,
     payload: createMonstersLeagueCampaignPayload(campaignName, encounters)
   });
+  const participantUserIds = [...new Set(
+    (Array.isArray(room.players) ? room.players : [])
+      .filter((player) => player?.isBot !== true)
+      .map((player) => cleanText(player?.userId || player?.id, 120))
+      .filter((userId) => userId && userId !== record.hostUserId)
+  )];
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      'DELETE FROM "campaign_members" WHERE "campaignId" = ?'
+    ).bind(record.campaignId),
+    ...participantUserIds.map((userId) => context.env.DB.prepare(`
+      INSERT OR IGNORE INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
+      SELECT ?, "id", 'editor', CURRENT_TIMESTAMP FROM "users" WHERE "id" = ?
+    `).bind(record.campaignId, userId))
+  ]);
 
   await context.env.DB.prepare(`
     UPDATE "multiplayer_rooms"
@@ -155,7 +170,8 @@ async function finalizeRoomCampaign(context, roomId, user) {
   return jsonResponse({
     campaignId: campaign.id,
     campaignName: campaign.name,
-    encounterCount: encounters.length
+    encounterCount: encounters.length,
+    memberCount: participantUserIds.length
   });
 }
 
