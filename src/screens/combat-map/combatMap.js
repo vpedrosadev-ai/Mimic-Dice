@@ -947,6 +947,16 @@ export function createCombatMapController(options = {}) {
     options.onChange?.(getSaveData());
   }
 
+  function canLoadMap() {
+    return options.canLoadMap?.() !== false;
+  }
+
+  function rejectRestrictedMapLoad() {
+    if (canLoadMap()) return false;
+    options.onNotify?.("Mapa bloqueado", "Solo el anfitrión puede cargar o cambiar el mapa.", "warning");
+    return true;
+  }
+
   function getCombatants() {
     return (options.getCombatants?.() || []).filter(Boolean);
   }
@@ -1053,6 +1063,9 @@ export function createCombatMapController(options = {}) {
     const localPlayerView = preserveLocalView ? {
       viewport: { ...state.viewport },
       playerViewport: { ...state.playerViewport },
+      rotation: state.rotation,
+      rotationOrientation: state.rotationOrientation,
+      masterVisible: state.initiative.masterVisible,
       playerVisible: state.initiative.playerVisible,
       initiativePosition: state.initiative.position,
       initiativeSize: state.initiative.size,
@@ -1063,6 +1076,9 @@ export function createCombatMapController(options = {}) {
     if (localPlayerView) {
       if (options.preserveLocalView === true) state.viewport = localPlayerView.viewport;
       state.playerViewport = localPlayerView.playerViewport;
+      state.rotation = localPlayerView.rotation;
+      state.rotationOrientation = localPlayerView.rotationOrientation;
+      state.initiative.masterVisible = localPlayerView.masterVisible;
       state.initiative.playerVisible = localPlayerView.playerVisible;
       state.initiative.position = localPlayerView.initiativePosition;
       state.initiative.size = localPlayerView.initiativeSize;
@@ -1078,6 +1094,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function applyMapWorkspace(map, workspace = {}) {
+    if (rejectRestrictedMapLoad()) return false;
     const preserved = {
       savedMapLayouts: state.savedMapLayouts,
       windowBounds: state.windowBounds
@@ -1087,6 +1104,7 @@ export function createCombatMapController(options = {}) {
     persist();
     sync();
     if (state.map?.cloudEntryId && !state.map.imageUrl) resolveCloudMap(state.map.cloudEntryId);
+    return true;
   }
 
   function createCurrentMapWorkspace() {
@@ -1160,8 +1178,9 @@ export function createCombatMapController(options = {}) {
   }
 
   function setMap(map, behavior = {}) {
+    if (behavior.allowRestricted !== true && rejectRestrictedMapLoad()) return false;
     const next = normalizeMapReference(map);
-    if (!next) return;
+    if (!next) return false;
     const currentKey = getMapLayoutKey(state.map);
     const nextKey = getMapLayoutKey(next);
     if (state.map && currentKey !== nextKey && behavior.promptToSave !== false) {
@@ -1174,9 +1193,10 @@ export function createCombatMapController(options = {}) {
         onConfirm: () => applyMapSelection(next, behavior, true),
         onCancel: () => applyMapSelection(next, behavior, false)
       });
-      return;
+      return true;
     }
     applyMapSelection(next, behavior, false);
+    return true;
   }
 
   async function resolveCloudMap(entryId) {
@@ -1549,7 +1569,7 @@ export function createCombatMapController(options = {}) {
     if (mapLoadMenuSurface === version && panel === "map") return renderMapLoadMenu(encounterMaps, savedMaps);
     return `<section class="combat-map-popover" data-map-panel="map" ${panel === "map" ? "" : "hidden"}>
       <h2>Mapa</h2>
-      <button type="button" data-map-action="toggle-map-load-menu">Cargar imagen</button>
+      <button type="button" data-map-action="toggle-map-load-menu" ${canLoadMap() ? "" : "disabled title=\"Solo el anfitrión puede cargar o cambiar el mapa\""}>Cargar imagen</button>
       <label>Zoom <input type="range" min="25" max="500" step="5" value="${Math.round(viewport.zoom * 100)}" data-map-zoom><output>${Math.round(viewport.zoom * 100)}%</output></label>
       ${renderOpacityControl("overall", "Opacidad general de elementos")}
       <fieldset class="combat-map-notification-settings">
@@ -1626,6 +1646,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function applyCloudMapResult(result) {
+    if (rejectRestrictedMapLoad()) return null;
     const entryId = clean(result?.entry?.id || result?.payload?.map?.cloudEntryId);
     const map = normalizeMapReference({
       ...(result?.payload?.map || {}),
@@ -2687,6 +2708,13 @@ export function createCombatMapController(options = {}) {
     const encounterChoice = event.target.closest("[data-map-encounter-choice]")?.dataset.mapEncounterChoice;
     const savedLayout = event.target.closest("[data-map-saved-layout]")?.dataset.mapSavedLayout;
     const associatedChoice = event.target.closest("[data-map-associated-choice]")?.dataset.mapAssociatedChoice;
+    const mapLoadAction = new Set([
+      "toggle-map-load-menu", "toggle-blank-map-options", "toggle-encounter-map-options",
+      "toggle-recent-map-options", "toggle-associated-map-options", "create-blank-map",
+      "open-cloud-map-catalog", "refresh-cloud-map-picker"
+    ]).has(action);
+    if ((encounterChoice !== undefined || savedLayout || associatedChoice !== undefined || cloudChoice || mapLoadAction)
+      && rejectRestrictedMapLoad()) return;
     if (encounterChoice !== undefined) { selectEncounterChoice(encounterChoice, surface); return; }
     if (savedLayout) { selectSavedLayout(savedLayout, surface); return; }
     if (associatedChoice !== undefined) { selectAssociatedMap(associatedChoice, surface); return; }
@@ -2776,7 +2804,12 @@ export function createCombatMapController(options = {}) {
     const target = event.target;
     if (target.closest("[data-map-initiative-order]")) { options.handleInitiativeChange?.(event); return; }
     if (target.closest("[data-combat-turn-quick-menu]")) { options.handleContextChange?.(event); return; }
-    if (target.matches("[data-map-file], [data-map-file-hidden]")) { const file = target.files?.[0]; if (file) handleImageFile(file, getEventSurface(event)); return; }
+    if (target.matches("[data-map-file], [data-map-file-hidden]")) {
+      if (rejectRestrictedMapLoad()) { target.value = ""; return; }
+      const file = target.files?.[0];
+      if (file) handleImageFile(file, getEventSurface(event));
+      return;
+    }
     if (target.matches("[data-blank-map-ratio]")) { blankMapRatio = target.value; return; }
     if (target.matches("[data-grid-visible]")) {
       state.grid.visible = target.checked;
@@ -3486,6 +3519,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function chooseMap(callback) {
+    if (rejectRestrictedMapLoad()) return false;
     pickerCallback = typeof callback === "function" ? callback : null;
     open();
     window.setTimeout(() => {
@@ -3493,6 +3527,7 @@ export function createCombatMapController(options = {}) {
       playerOpenPanel = "map";
       sync();
     }, 0);
+    return true;
   }
 
   function updateMasterScale(host) {

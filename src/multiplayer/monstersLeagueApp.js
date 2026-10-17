@@ -9,7 +9,7 @@ import { createSpellReferenceMatcher } from "../shared/spellReferences.js";
 import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
 import { createCombatMapController } from "../screens/combat-map/combatMap.js";
 import { fetchAuthSession } from "../cloud/cloudClient.js";
-import { getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
+import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import {
   connectMonstersLeagueRoom,
   createMonstersLeagueOnlineRoom,
@@ -184,7 +184,10 @@ const state = {
   lastActiveCombatantId: "",
   turnFlash: null,
   turnFlashTimer: 0,
-  mapBroadcastExpanded: false
+  mapBroadcastExpanded: false,
+  combatFeedbackRoomId: "",
+  combatFeedbackInitialized: false,
+  seenCombatFeedbackIds: new Set()
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -315,7 +318,10 @@ async function initializeOnlineRoom(hostName) {
       }
       ensureTestCombatState();
       ensureCloudCampaignSaved();
-      if (!state.loading) render();
+      if (!state.loading) {
+        render();
+        observeCombatFeedback(room);
+      }
     },
     onError(error) {
       state.error = error.message;
@@ -803,6 +809,42 @@ function syncPlayerMapProjection() {
   if (!host || projection?.open !== true || !projection.editorState) return;
   playerMapController.applySave(projection.editorState, { preservePlayerView: true });
   playerMapController.syncPlayerProjection(host);
+}
+
+function observeCombatFeedback(room) {
+  const roomId = cleanText(room?.id);
+  if (state.combatFeedbackRoomId !== roomId) {
+    state.combatFeedbackRoomId = roomId;
+    state.combatFeedbackInitialized = false;
+    state.seenCombatFeedbackIds.clear();
+  }
+
+  const feedback = Array.isArray(room?.combatFeedback) ? room.combatFeedback : [];
+  const initialized = state.combatFeedbackInitialized;
+  state.combatFeedbackInitialized = true;
+  for (const entry of feedback) {
+    const feedbackId = cleanText(entry?.id);
+    if (!feedbackId || state.seenCombatFeedbackIds.has(feedbackId)) continue;
+    state.seenCombatFeedbackIds.add(feedbackId);
+    if (!initialized) continue;
+    const combatant = (room?.mapProjection?.combatants || []).find((candidate) => (
+      cleanText(candidate.teamId) === cleanText(entry.teamId)
+      && cleanText(candidate.multiplayerMonsterId) === cleanText(entry.monsterId)
+    ));
+    if (!combatant) continue;
+    const kind = cleanText(entry.kind) || "info";
+    playerMapController.showTokenFeedback({
+      combatantId: combatant.id,
+      kind,
+      text: cleanText(entry.text),
+      iconUrl: kind.startsWith("status-")
+        ? getCombatStatusIconUrl(cleanText(entry.statusName))
+        : getCombatMiniActionIconUrl(kind)
+    });
+  }
+  while (state.seenCombatFeedbackIds.size > 300) {
+    state.seenCombatFeedbackIds.delete(state.seenCombatFeedbackIds.values().next().value);
+  }
 }
 
 function renderProjectedInitiativeOrder(_viewportWindow, layout = {}) {

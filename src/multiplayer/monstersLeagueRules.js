@@ -70,6 +70,7 @@ export function createMonstersLeagueRoom({
     availableMonsterIds: [],
     combatState: {},
     combatMeta: { active: false, round: 1, activeMonsterKey: "" },
+    combatFeedback: [],
     diceRollHistory: [],
     mapProjection: { open: false, editorState: null, combatants: [], activeCombatantId: "" },
     currentLot: null,
@@ -470,6 +471,7 @@ export function getMonstersLeagueRoomSummary(room) {
     availableMonsterIds: [...room.availableMonsterIds],
     combatState: cloneCombatState(room.combatState),
     combatMeta: cloneCombatMeta(room.combatMeta),
+    combatFeedback: cloneCombatFeedback(room.combatFeedback),
     diceRollHistory: cloneDiceRollHistory(room.diceRollHistory),
     mapProjection: cloneMapProjection(room.mapProjection),
     currentLot: room.currentLot ? { ...room.currentLot, monster: { ...room.currentLot.monster } } : null,
@@ -525,6 +527,10 @@ function cloneCombatMeta(value) {
 
 function cloneDiceRollHistory(value) {
   return (Array.isArray(value) ? value : []).slice(-100).map((entry) => JSON.parse(JSON.stringify(entry)));
+}
+
+function cloneCombatFeedback(value) {
+  return (Array.isArray(value) ? value : []).slice(-50).map((entry) => JSON.parse(JSON.stringify(entry)));
 }
 
 export function createMonstersLeagueEncounters(room) {

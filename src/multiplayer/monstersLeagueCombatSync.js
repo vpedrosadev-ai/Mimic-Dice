@@ -27,7 +27,7 @@ export function startMonstersLeagueCombatSync(getCombatants, getMapProjection = 
     }
   };
 
-  const interval = window.setInterval(sync, 600);
+  const interval = window.setInterval(sync, 200);
   sync();
   return () => {
     window.clearInterval(interval);

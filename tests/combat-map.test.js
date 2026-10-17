@@ -36,20 +36,50 @@ test("map campaign sync preserves each user's local view controls", () => {
     controller.applySave({
       viewport: { zoom: 2, scrollLeft: 120, scrollTop: 80 },
       playerViewport: { zoom: 1.5, scrollLeft: 30, scrollTop: 40 },
-      initiative: { position: "left", size: 420, playerVisible: false }
+      rotation: 90,
+      initiative: { position: "left", size: 420, masterVisible: false, playerVisible: false }
     });
     controller.applySave({
       viewport: { zoom: 0.5, scrollLeft: 0, scrollTop: 0 },
       playerViewport: { zoom: 0.75, scrollLeft: 0, scrollTop: 0 },
-      initiative: { position: "right", size: 180, playerVisible: true }
+      rotation: 270,
+      initiative: { position: "right", size: 180, masterVisible: true, playerVisible: true }
     }, { preserveLocalView: true });
 
     const saved = controller.getSaveData();
     assert.equal(saved.viewport.zoom, 2);
     assert.equal(saved.playerViewport.zoom, 1.5);
+    assert.equal(saved.rotation, 90);
+    assert.equal(saved.initiative.masterVisible, false);
     assert.equal(saved.initiative.position, "left");
     assert.equal(saved.initiative.size, 420);
     assert.equal(saved.initiative.playerVisible, false);
+  } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
+  }
+});
+
+test("non-host campaign members can receive map sync but cannot replace map", () => {
+  const previousStorage = globalThis.localStorage;
+  const values = new Map();
+  const notifications = [];
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value))
+  };
+
+  try {
+    const controller = createCombatMapController({
+      storageKey: "restricted-map-test",
+      canLoadMap: () => false,
+      onNotify: (...args) => notifications.push(args)
+    });
+    controller.applySave({ map: { name: "Host map", imageUrl: "/host.webp" } });
+    assert.equal(controller.getMap().name, "Host map");
+    assert.equal(controller.setMap({ name: "Member map", imageUrl: "/member.webp" }), false);
+    assert.equal(controller.getMap().name, "Host map");
+    assert.equal(notifications.length, 1);
   } finally {
     if (previousStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = previousStorage;

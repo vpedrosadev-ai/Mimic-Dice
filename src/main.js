@@ -496,6 +496,7 @@ let cloudCampaignChangeRevision = 0;
 let lastCloudCampaignSavedChangeRevision = 0;
 let cloudCampaignVisibilityHandlerRegistered = false;
 let cloudCampaignSyncInProgress = false;
+const SHARED_CAMPAIGN_MAP_VIEW_STORAGE_PREFIX = "mimic-dice:shared-campaign-map-view:v1:";
 const cloudImageUploadCache = new Map();
 const cloudCatalogBaseKeysPromiseByRepository = new Map();
 const cloudCatalogBaseKeysByRepository = new Map();
@@ -1056,6 +1057,14 @@ state = {
 };
 
 const combatMapController = createCombatMapController({
+  canLoadMap: () => {
+    if (!state.cloudCampaignIsShared) return true;
+    const roomIds = [...new Set(state.combatants
+      .filter((combatant) => combatant.multiplayerOnline)
+      .map((combatant) => cleanText(combatant.multiplayerRoomId))
+      .filter(Boolean))];
+    return !roomIds.length || roomIds.some((roomId) => getMonstersLeagueRoomAccess(roomId).host);
+  },
   getCombatants: () => [...state.combatants].filter(Boolean).sort(compareCombatants).map((combatant) => {
     const linkedCharacter = getLinkedCharacterForCombatant(combatant);
     const bestiaryEntry = getCombatantBestiaryEntry(combatant);
@@ -1126,6 +1135,7 @@ const combatMapController = createCombatMapController({
     });
   },
   onChange: () => {
+    saveSharedCampaignLocalMapPreferences();
     scheduleDesktopCampaignDirtyStateSync(60);
   },
   onCloudChanged: () => {
@@ -1376,6 +1386,9 @@ window.addEventListener("message", handleMonstersLeagueWindowMessage);
 
 let monstersLeagueBroadcastChannel = null;
 let monstersLeagueCampaignActivationId = "";
+const seenMonstersLeagueFeedbackIds = new Set();
+const initializedMonstersLeagueFeedbackRooms = new Set();
+const dismissedMonstersLeagueDiceRollIds = new Set();
 
 if (typeof BroadcastChannel !== "undefined") {
   monstersLeagueBroadcastChannel = new BroadcastChannel("mimic-dice:monsters-league");
@@ -1408,7 +1421,7 @@ function getMonstersLeagueRoomAccess(roomId) {
   const userId = cleanText(state.accountSession?.user?.id);
   return {
     combatants,
-    shared: sample?.multiplayerSingleMaster === false,
+    shared: state.cloudCampaignIsShared === true,
     host: Boolean(userId && cleanText(sample?.multiplayerHostUserId) === userId)
   };
 }
@@ -1463,10 +1476,38 @@ function applyMonstersLeagueRoomSnapshot(room) {
     state.activeTurnCombatantId = nextActiveId;
   }
 
+  const remoteFeedback = Array.isArray(room.combatFeedback) ? room.combatFeedback : [];
+  const feedbackInitialized = initializedMonstersLeagueFeedbackRooms.has(roomId);
+  initializedMonstersLeagueFeedbackRooms.add(roomId);
+  for (const entry of remoteFeedback) {
+    const feedbackId = cleanText(entry?.id);
+    if (!feedbackId || seenMonstersLeagueFeedbackIds.has(feedbackId)) continue;
+    seenMonstersLeagueFeedbackIds.add(feedbackId);
+    if (!feedbackInitialized || cleanText(entry.actorUserId) === cleanText(state.accountSession?.user?.id)) continue;
+    const combatant = state.combatants.find((candidate) => cleanText(candidate.multiplayerRoomId) === roomId
+      && cleanText(candidate.teamId) === cleanText(entry.teamId)
+      && cleanText(candidate.multiplayerMonsterId || candidate.entryId || candidate.entryKey) === cleanText(entry.monsterId));
+    if (!combatant) continue;
+    const kind = cleanText(entry.kind) || "info";
+    combatMapController.showTokenFeedback({
+      combatantId: combatant.id,
+      kind,
+      text: cleanText(entry.text),
+      iconUrl: kind.startsWith("status-")
+        ? getCombatStatusIconUrl(cleanText(entry.statusName))
+        : getCombatMiniActionIconUrl(kind)
+    });
+  }
+  while (seenMonstersLeagueFeedbackIds.size > 300) {
+    seenMonstersLeagueFeedbackIds.delete(seenMonstersLeagueFeedbackIds.values().next().value);
+  }
+
   const remoteRolls = Array.isArray(room.diceRollHistory) ? room.diceRollHistory : [];
   if (access.shared && remoteRolls.length > 0) {
     const byId = new Map(state.diceRollHistory.map((entry) => [entry.id, entry]));
-    for (const entry of remoteRolls) byId.set(entry.id, entry);
+    for (const entry of remoteRolls) {
+      if (!dismissedMonstersLeagueDiceRollIds.has(entry.id)) byId.set(entry.id, entry);
+    }
     const merged = [...byId.values()].sort((left, right) => Number(left.rolledAt) - Number(right.rolledAt)).slice(-DICE_ROLLER_MAX_HISTORY);
     if (JSON.stringify(merged) !== JSON.stringify(state.diceRollHistory)) {
       state.diceRollHistory = merged;
@@ -2091,7 +2132,7 @@ async function handleClick(event) {
   }
 
   if (action === "clear-dice-roller-history") {
-    state.diceRollHistory = [];
+    clearDiceRollerHistory();
     render();
     return;
   }
@@ -3423,8 +3464,6 @@ async function handleClick(event) {
   }
 
   if (action === "open-combat-map") {
-    const sharedRoom = state.combatants.find((combatant) => combatant.multiplayerOnline && combatant.multiplayerSingleMaster === false);
-    if (sharedRoom && !getMonstersLeagueRoomAccess(sharedRoom.multiplayerRoomId).host) return;
     state.combatMapMirrorVisible = true;
     state.combatMapMirrorCollapsed = false;
     combatMapController.open();
@@ -12204,16 +12243,13 @@ function renderCombatTimerToggleButton(isActive = false) {
 }
 
 function renderCombatMapButton() {
-  const sharedRoom = state.combatants.find((combatant) => combatant.multiplayerOnline && combatant.multiplayerSingleMaster === false);
-  const mapLocked = Boolean(sharedRoom && !getMonstersLeagueRoomAccess(sharedRoom.multiplayerRoomId).host);
   return `
     <button
       class="toolbar-button toolbar-button--combat combat-overview-toggle"
       type="button"
       data-action="open-combat-map"
-      aria-label="${mapLocked ? "Solo el anfitrión puede cargar el mapa" : "Abrir mapa de combate"}"
-      title="${mapLocked ? "Solo el anfitrión puede cargar el mapa" : "Abrir mapa de combate"}"
-      ${mapLocked ? "disabled" : ""}
+      aria-label="Abrir mapa de combate"
+      title="Abrir mapa de combate"
     >
       <span class="button-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="m3 5 5-2 8 2 5-2v16l-5 2-8-2-5 2V5Zm6 .2v11.9l6 1.5V6.7L9 5.2Zm-4 1.3v11.6l2-.8V5.7l-2 .8Zm12 .2v11.6l2-.8V5.9l-2 .8Z" /></svg>
@@ -12440,6 +12476,16 @@ function rerollLastDiceFormula() {
   });
 }
 
+function clearDiceRollerHistory() {
+  for (const entry of state.diceRollHistory) {
+    if (entry?.id) dismissedMonstersLeagueDiceRollIds.add(entry.id);
+  }
+  while (dismissedMonstersLeagueDiceRollIds.size > 500) {
+    dismissedMonstersLeagueDiceRollIds.delete(dismissedMonstersLeagueDiceRollIds.values().next().value);
+  }
+  state.diceRollHistory = [];
+}
+
 function rollAndRecordDiceFormula(formula, options = {}) {
   const result = rollDiceFormula(formula, options);
   const rollEntry = {
@@ -12458,7 +12504,7 @@ function rollAndRecordDiceFormula(formula, options = {}) {
     rollEntry
   ].slice(-DICE_ROLLER_MAX_HISTORY);
   const sharedRoomIds = new Set(state.combatants
-    .filter((combatant) => combatant.multiplayerOnline && combatant.multiplayerSingleMaster === false)
+    .filter((combatant) => state.cloudCampaignIsShared && combatant.multiplayerOnline)
     .map((combatant) => cleanText(combatant.multiplayerRoomId))
     .filter(Boolean));
   for (const roomId of sharedRoomIds) publishMonstersLeagueDiceRoll(roomId, rollEntry);
@@ -12759,7 +12805,7 @@ function handleDiceRollerPopoutClick(event) {
     state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
     syncDiceRollerPopout();
   } else if (action === "clear-dice-roller-history") {
-    state.diceRollHistory = [];
+    clearDiceRollerHistory();
     syncDiceRollerPopout();
     render();
   } else if (action === "toggle-dice-roller-hit-dice") {
@@ -31692,6 +31738,9 @@ async function loadCloudCampaignById(campaignId, options = {}) {
   try {
     const result = await getCloudCampaign(normalizedId);
     const campaign = normalizeCampaignSave(result.payload);
+    if (result.campaign?.isShared === true) {
+      campaign.combatMap = restoreSharedCampaignLocalMapPreferences(campaign.combatMap, normalizedId);
+    }
     state.campaignFileName = "";
     state.campaignFilePath = "";
     applyCampaignSave(campaign);
@@ -31921,14 +31970,71 @@ function preserveSharedCampaignLocalPreferences(payload) {
       ...nextMap,
       viewport: baseMap.viewport ?? nextMap.viewport,
       playerViewport: baseMap.playerViewport ?? nextMap.playerViewport,
+      rotation: baseMap.rotation ?? nextMap.rotation,
+      rotationOrientation: baseMap.rotationOrientation ?? nextMap.rotationOrientation,
       windowBounds: baseMap.windowBounds ?? nextMap.windowBounds,
       openPanel: baseMap.openPanel ?? nextMap.openPanel,
       initiative: {
         ...nextInitiative,
+        masterVisible: baseInitiative.masterVisible ?? nextInitiative.masterVisible,
         playerVisible: baseInitiative.playerVisible ?? nextInitiative.playerVisible,
         position: baseInitiative.position ?? nextInitiative.position,
         size: baseInitiative.size ?? nextInitiative.size
       }
+    }
+  };
+}
+
+function getSharedCampaignLocalMapPreferences(campaignId) {
+  const normalizedId = cleanText(campaignId);
+  if (!normalizedId || typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(`${SHARED_CAMPAIGN_MAP_VIEW_STORAGE_PREFIX}${normalizedId}`) || "null");
+    return isPlainObject(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSharedCampaignLocalMapPreferences() {
+  if (cloudCampaignSaveSuspended || !state.cloudCampaignIsShared || !state.cloudCampaignId || typeof window === "undefined") return;
+  const map = combatMapController.getSaveData();
+  const initiative = isPlainObject(map.initiative) ? map.initiative : {};
+  const value = {
+    viewport: map.viewport,
+    playerViewport: map.playerViewport,
+    rotation: map.rotation,
+    rotationOrientation: map.rotationOrientation,
+    windowBounds: map.windowBounds,
+    openPanel: map.openPanel,
+    initiative: {
+      masterVisible: initiative.masterVisible,
+      playerVisible: initiative.playerVisible,
+      position: initiative.position,
+      size: initiative.size
+    }
+  };
+  try {
+    window.localStorage.setItem(`${SHARED_CAMPAIGN_MAP_VIEW_STORAGE_PREFIX}${state.cloudCampaignId}`, JSON.stringify(value));
+  } catch {
+    // Local view still remains independent for current session.
+  }
+}
+
+function restoreSharedCampaignLocalMapPreferences(map, campaignId) {
+  const local = getSharedCampaignLocalMapPreferences(campaignId);
+  if (!local || !isPlainObject(map)) return map;
+  return {
+    ...map,
+    viewport: local.viewport ?? map.viewport,
+    playerViewport: local.playerViewport ?? map.playerViewport,
+    rotation: local.rotation ?? map.rotation,
+    rotationOrientation: local.rotationOrientation ?? map.rotationOrientation,
+    windowBounds: local.windowBounds ?? map.windowBounds,
+    openPanel: local.openPanel ?? map.openPanel,
+    initiative: {
+      ...(isPlainObject(map.initiative) ? map.initiative : {}),
+      ...(isPlainObject(local.initiative) ? local.initiative : {})
     }
   };
 }
@@ -32142,7 +32248,7 @@ function scheduleCloudCampaignAutosave(delay = 4000, options = {}) {
     window.clearTimeout(cloudCampaignAutosaveTimer);
   }
 
-  const normalizedDelay = Math.max(1500, Number(delay) || 4000);
+  const normalizedDelay = Math.max(state.cloudCampaignIsShared ? 500 : 1500, Number(delay) || 4000);
 
   if (options.preserveStatus !== true) {
     state.cloudAutosaveStatus = "pending";
@@ -32285,7 +32391,7 @@ function startCloudCampaignAutosave() {
   if (!cloudCampaignSyncInterval) {
     cloudCampaignSyncInterval = window.setInterval(() => {
       void syncSharedCloudCampaign();
-    }, 5000);
+    }, 1000);
   }
 
   if (!cloudCampaignVisibilityHandlerRegistered) {
@@ -33310,7 +33416,7 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
     cloudCampaignChangeRevision += 1;
   }
 
-  scheduleCloudCampaignAutosave(4000);
+  scheduleCloudCampaignAutosave(state.cloudCampaignIsShared ? 1000 : 4000);
 
   if (campaignDirtyStateSyncTimer) {
     window.clearTimeout(campaignDirtyStateSyncTimer);

@@ -15,6 +15,7 @@ import {
   startMonstersLeagueDraft,
   updateMonstersLeagueConfig
 } from "../../src/multiplayer/monstersLeagueRules.js";
+import { createMonstersLeagueCombatFeedback } from "../../src/multiplayer/monstersLeagueLiveEvents.js";
 
 const ROOM_STORAGE_KEY = "room";
 const CATALOG_STORAGE_KEY = "catalog";
@@ -175,18 +176,35 @@ export class MonstersLeagueRoom extends DurableObject {
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "combat-update") {
-      if (playerId !== this.room.hostPlayerId || !["complete", "combat"].includes(this.room.status)) {
-        throw Object.assign(new Error("This player cannot update live combat."), { code: "host_required" });
+      const player = this.room.players.find((entry) => entry.id === playerId);
+      if (!player || player.isBot || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("This player cannot update live combat."), { code: "player_required" });
       }
-      this.room.combatState = sanitizeCombatState(command.combatState, this.room);
+      const nextCombatState = sanitizeCombatState(command.combatState, this.room);
+      const feedback = createMonstersLeagueCombatFeedback(this.room.combatState, nextCombatState, actor, { now });
+      this.room.combatState = nextCombatState;
       this.room.combatMeta = sanitizeCombatMeta(command.combatMeta, this.room);
+      this.room.combatFeedback = [
+        ...(Array.isArray(this.room.combatFeedback) ? this.room.combatFeedback : []),
+        ...feedback
+      ].slice(-50);
       if (playerId === this.room.hostPlayerId && Object.prototype.hasOwnProperty.call(command, "mapProjection")) {
         this.room.mapProjection = sanitizeMapProjection(command.mapProjection, this.room);
       }
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "dice-roll") {
-      throw Object.assign(new Error("Shared dice are disabled for this room."), { code: "shared_dice_disabled" });
+      const player = this.room.players.find((entry) => entry.id === playerId);
+      if (!player || player.isBot || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("This player cannot publish dice rolls."), { code: "player_required" });
+      }
+      const roll = sanitizeDiceRoll(command.roll, actor);
+      this.room.diceRollHistory = [
+        ...(Array.isArray(this.room.diceRollHistory) ? this.room.diceRollHistory : []).filter((entry) => entry.id !== roll.id),
+        roll
+      ].slice(-100);
+      this.room.revision += 1;
+      this.room.updatedAt = now;
     } else {
       throw Object.assign(new Error("Unknown room command."), { code: "unknown_command" });
     }
@@ -356,7 +374,7 @@ function sanitizeDiceRoll(value, actor) {
     rollMode: ["advantage", "disadvantage"].includes(source.rollMode) ? source.rollMode : "",
     rolledAt: Math.max(0, Number(source.rolledAt) || Date.now()),
     userId: safeText(actor.userId).slice(0, 160),
-    userName: safeText(actor.userName).slice(0, 80) || "Jugador"
+    userName: safeText(actor.userName || actor.name).slice(0, 80) || "Jugador"
   };
 }
 
