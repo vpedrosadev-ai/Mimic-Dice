@@ -206,6 +206,8 @@ app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("submit", handleSubmit);
 app.addEventListener("error", handleImageError, true);
+app.addEventListener("wheel", handleMapWheel, { passive: false });
+app.addEventListener("scroll", handleMapScroll, true);
 window.addEventListener("beforeunload", () => {
   persistTestRoom();
   state.connection?.close();
@@ -311,6 +313,9 @@ async function initializeOnlineRoom(hostName) {
         state.selectedMonsterId = "";
       }
       ensureTestCombatState();
+      if (["complete", "combat"].includes(room.status) && room.config?.singleMaster === false && !state.encountersSent) {
+        sendEncountersToMainApp();
+      }
       ensureCloudCampaignSaved();
       if (!state.loading) render();
     },
@@ -447,6 +452,10 @@ function renderConfiguration() {
             <label class="ml-field"><span>CR mínimo</span><input name="crMin" type="number" min="0" max="30" step="0.125" value="${config.crMin}" /></label>
             <label class="ml-field"><span>CR máximo</span><input name="crMax" type="number" min="0" max="30" step="0.125" value="${config.crMax}" /></label>
             <label class="ml-field"><span>Tiempo de puja</span><select name="bidSeconds">${renderTimeOptions(config.bidSeconds)}</select></label>
+            <label class="ml-field ml-field--wide ml-field--checkbox">
+              <input name="singleMaster" type="checkbox" ${config.singleMaster ? "checked" : ""} />
+              <span><strong>${language === "en" ? "Single Master" : "Master único"}</strong><small>${language === "en" ? "Only the host controls combat. Disable to share combat and dice control with every player." : "Solo el anfitrión controla el combate. Desmárcalo para compartir combate y dados con todos."}</small></span>
+            </label>
           </div>
           <div class="ml-exclusion-grid">
             ${renderExclusionGroup("excludedSizes", language === "en" ? "Exclude creature sizes" : "Excluir tamaños", sizeOptions, config.excludedSizes)}
@@ -537,7 +546,7 @@ function renderLobby() {
         <aside class="ml-panel ml-lobby-rules">
           <p class="ml-eyebrow">REGLAS DE PARTIDA</p>
           <h2>Todo listo</h2>
-          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Oro inicial</dt><dd>${room.config.startingGold}</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Exclusiones</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
+          <dl><div><dt>Equipos</dt><dd>${room.config.teamSize} criaturas</dd></div><div><dt>Oro inicial</dt><dd>${room.config.startingGold}</dd></div><div><dt>Rango</dt><dd>CR ${room.config.crMin}–${room.config.crMax}</dd></div><div><dt>Subasta</dt><dd>${room.config.bidSeconds} s</dd></div><div><dt>Control</dt><dd>${room.config.singleMaster ? "Master único" : "Compartido"}</dd></div><div><dt>Idioma</dt><dd>${room.language === "en" ? "English" : "Español"}</dd></div><div><dt>Exclusiones</dt><dd>${escapeHtml(formatExcludedCreatureFilters(room.config))}</dd></div></dl>
           ${isHost
             ? `<button class="ml-button ml-button--primary ml-button--large" type="button" data-ml-action="start-draft" ${allReady ? "" : "disabled"}>Comenzar subasta</button>`
             : `<button class="ml-button ${currentPlayer?.ready ? "" : "ml-button--primary"} ml-button--large" type="button" data-ml-action="toggle-ready">${currentPlayer?.ready ? "Dejar de estar listo" : "Estoy listo"}</button>`}
@@ -753,7 +762,7 @@ function syncPlayerMapProjection() {
   const host = app.querySelector("[data-ml-map-projection]");
   const projection = state.room?.mapProjection;
   if (!host || projection?.open !== true || !projection.editorState) return;
-  playerMapController.applySave(projection.editorState);
+  playerMapController.applySave(projection.editorState, { preservePlayerView: state.room?.config?.singleMaster === false });
   playerMapController.syncPlayerProjection(host);
 }
 
@@ -1071,6 +1080,10 @@ function renderMonsterImage(monster, loading = "lazy") {
 }
 
 function handleClick(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) {
+    playerMapController.handleClick(event);
+    return;
+  }
   const target = event.target.closest("[data-ml-action]");
 
   if (!target) {
@@ -1109,6 +1122,10 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) {
+    playerMapController.handleChange(event);
+    return;
+  }
   if (event.target.matches("[data-ml-team-select]")) {
     state.selectedTeamPlayerId = event.target.value;
     state.selectedMonsterId = "";
@@ -1117,6 +1134,10 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) {
+    playerMapController.handleInput(event);
+    return;
+  }
   if (event.target.matches("[data-ml-monster-search]")) {
     state.search = event.target.value;
     const cursor = event.target.selectionStart;
@@ -1125,6 +1146,14 @@ function handleInput(event) {
     input?.focus();
     input?.setSelectionRange(cursor, cursor);
   }
+}
+
+function handleMapWheel(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleWheel(event);
+}
+
+function handleMapScroll(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleViewportScroll(event);
 }
 
 function handleSubmit(event) {
@@ -1140,6 +1169,7 @@ function handleSubmit(event) {
       crMin: form.get("crMin"),
       crMax: form.get("crMax"),
       bidSeconds: form.get("bidSeconds"),
+      singleMaster: form.has("singleMaster"),
       excludedSizes: form.getAll("excludedSizes"),
       excludedTypes: form.getAll("excludedTypes")
     };

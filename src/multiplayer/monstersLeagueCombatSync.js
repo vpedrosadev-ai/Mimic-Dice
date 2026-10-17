@@ -1,6 +1,6 @@
 const connections = new Map();
 
-export function startMonstersLeagueCombatSync(getCombatants, getMapProjection = null) {
+export function startMonstersLeagueCombatSync(getCombatants, getMapProjection = null, options = {}) {
   if (typeof window === "undefined" || typeof WebSocket === "undefined") return () => {};
 
   const sync = () => {
@@ -9,12 +9,13 @@ export function startMonstersLeagueCombatSync(getCombatants, getMapProjection = 
     for (const [roomId, combatState] of grouped) {
       let connection = connections.get(roomId);
       if (!connection) {
-        connection = createRoomConnection(roomId);
+        connection = createRoomConnection(roomId, options.onRoomSnapshot);
         connections.set(roomId, connection);
       }
       connection.publish({
         combatState,
-        mapProjection: typeof getMapProjection === "function" ? getMapProjection(roomId) : null
+        combatMeta: typeof options.getCombatMeta === "function" ? options.getCombatMeta(roomId) : null,
+        mapProjection: typeof getMapProjection === "function" ? getMapProjection(roomId) : undefined
       });
     }
 
@@ -35,6 +36,13 @@ export function startMonstersLeagueCombatSync(getCombatants, getMapProjection = 
   };
 }
 
+export function publishMonstersLeagueDiceRoll(roomId, roll) {
+  const connection = connections.get(clean(roomId));
+  if (!connection) return false;
+  connection.publishDiceRoll(roll);
+  return true;
+}
+
 export function groupCombatantsByRoom(combatants) {
   const rooms = new Map();
 
@@ -52,14 +60,20 @@ export function groupCombatantsByRoom(combatants) {
       currentHp: nonNegative(combatant.pgAct),
       tempHp: nonNegative(combatant.pgTemp),
       necrotic: nonNegative(combatant.necrotic),
-      conditions: clean(combatant.condiciones).split(/[,;|]/).map(clean).filter(Boolean)
+      conditions: clean(combatant.condiciones).split(/[,;|]/).map(clean).filter(Boolean),
+      initiative: clean(combatant.iniactiva),
+      hiddenFromInitiative: combatant.hiddenFromInitiative === true,
+      standNumber: clean(combatant.numPeana),
+      isFlying: combatant.isFlying === true,
+      flyingHeight: nonNegative(combatant.flyingHeight),
+      mapTokenSize: clean(combatant.mapTokenSize)
     };
   }
 
   return rooms;
 }
 
-function createRoomConnection(roomId) {
+function createRoomConnection(roomId, onRoomSnapshot) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${protocol}//${window.location.host}/api/multiplayer/rooms/${encodeURIComponent(roomId)}/socket`;
   let socket = null;
@@ -70,6 +84,8 @@ function createRoomConnection(roomId) {
   let pending = null;
   let lastSent = "";
   let inflight = null;
+  let snapshotReceived = false;
+  const commandQueue = [];
 
   const connect = () => {
     if (closed) return;
@@ -77,19 +93,25 @@ function createRoomConnection(roomId) {
     socket.addEventListener("open", () => {
       retry = 0;
       inflight = null;
-      flush();
     });
     socket.addEventListener("message", (event) => {
       let message;
       try { message = JSON.parse(event.data); } catch { return; }
       if (message?.type === "ack" && inflight?.commandId === message.commandId) {
-        lastSent = inflight.serialized;
+        if (inflight.kind === "combat") lastSent = inflight.serialized;
+        if (inflight.kind === "queued") commandQueue.shift();
         inflight = null;
         flush();
       } else if (message?.type === "error" && inflight?.commandId === message.commandId) {
+        if (inflight.kind === "queued") commandQueue.shift();
         inflight = null;
         window.clearTimeout(sendRetryTimer);
         sendRetryTimer = window.setTimeout(flush, 800);
+      } else if (message?.type === "snapshot" && message.room) {
+        snapshotReceived = true;
+        if (typeof onRoomSnapshot === "function") onRoomSnapshot(message.room);
+        pending = null;
+        flush();
       }
     });
     socket.addEventListener("close", () => {
@@ -100,23 +122,37 @@ function createRoomConnection(roomId) {
   };
 
   const flush = () => {
-    if (!pending || inflight || socket?.readyState !== WebSocket.OPEN) return;
+    if (!snapshotReceived || inflight || socket?.readyState !== WebSocket.OPEN) return;
+    if (commandQueue.length > 0) {
+      const queued = commandQueue[0];
+      const commandId = crypto.randomUUID();
+      socket.send(JSON.stringify({ ...queued, commandId }));
+      inflight = { commandId, kind: "queued" };
+      return;
+    }
+    if (!pending) return;
     const serialized = JSON.stringify(pending);
     if (serialized === lastSent) return;
     const commandId = crypto.randomUUID();
-    socket.send(JSON.stringify({
+    const command = {
       type: "combat-update",
       commandId,
       combatState: pending.combatState,
-      mapProjection: pending.mapProjection
-    }));
-    inflight = { commandId, serialized };
+      combatMeta: pending.combatMeta
+    };
+    if (pending.mapProjection !== undefined) command.mapProjection = pending.mapProjection;
+    socket.send(JSON.stringify(command));
+    inflight = { commandId, serialized, kind: "combat" };
   };
 
   connect();
   return {
     publish(combatState) {
       pending = combatState;
+      flush();
+    },
+    publishDiceRoll(roll) {
+      commandQueue.push({ type: "dice-roll", roll });
       flush();
     },
     close() {

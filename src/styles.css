@@ -521,6 +521,21 @@ body.has-compendium-reference-popup {
   font-weight: 800;
 }
 
+.dice-roll-entry__user {
+  flex: 0 1 auto;
+  max-width: 9rem;
+  overflow: hidden;
+  padding: 0.16rem 0.38rem;
+  border: 1px solid rgba(224, 177, 104, 0.34);
+  border-radius: 999px;
+  color: #f0c982;
+  background: rgba(133, 82, 34, 0.18);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dice-roll-entry__mode {
   flex: 0 0 auto;
   padding: 0.18rem 0.38rem;
@@ -5849,11 +5864,24 @@ button.is-cloud-busy:disabled {
 }
 
 .combat-timer {
-  width: fit-content;
-  max-width: min(14.5rem, 100%);
+  width: auto;
+  max-width: 100%;
   justify-self: end;
   align-self: stretch;
   height: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(11rem, 14.5rem);
+  align-items: start;
+  gap: 0.55rem;
+}
+
+.combat-timer__map-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.combat-timer__map-action .combat-overview-toggle {
+  width: auto;
 }
 
 .combat-timer__card {
@@ -19776,6 +19804,15 @@ button.character-stat-block__modifier--roll:focus-visible {
   }
 
   .combat-timer {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .combat-timer__map-action {
+    justify-content: stretch;
+  }
+
+  .combat-timer__map-action .combat-overview-toggle {
     width: 100%;
   }
 

@@ -108,7 +108,7 @@ export class MonstersLeagueRoom extends DurableObject {
     let command = {};
     try {
       command = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
-      await this.applyCommand(command, attachment.playerId);
+      await this.applyCommand(command, attachment);
       socket.send(JSON.stringify({ type: "ack", commandId: command.commandId || "", revision: this.room.revision }));
       this.broadcastSnapshot();
     } catch (error) {
@@ -140,8 +140,9 @@ export class MonstersLeagueRoom extends DurableObject {
     await this.scheduleNextAlarm();
   }
 
-  async applyCommand(command, playerId) {
+  async applyCommand(command, actor = {}) {
     const type = safeText(command?.type);
+    const playerId = safeText(actor.playerId);
     const now = Date.now();
 
     if (type === "update-config") {
@@ -174,13 +175,32 @@ export class MonstersLeagueRoom extends DurableObject {
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "combat-update") {
-      if (playerId !== this.room.hostPlayerId || !["complete", "combat"].includes(this.room.status)) {
-        throw Object.assign(new Error("Only host can update live combat after draft."), { code: "host_required" });
+      const canShareControl = this.room.config?.singleMaster === false
+        && this.room.players.some((player) => player.id === playerId && !player.isBot);
+      if ((!canShareControl && playerId !== this.room.hostPlayerId) || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("This player cannot update live combat."), { code: "host_required" });
       }
       this.room.combatState = sanitizeCombatState(command.combatState, this.room);
-      if (Object.prototype.hasOwnProperty.call(command, "mapProjection")) {
+      this.room.combatMeta = sanitizeCombatMeta(command.combatMeta, this.room);
+      if (playerId === this.room.hostPlayerId && Object.prototype.hasOwnProperty.call(command, "mapProjection")) {
         this.room.mapProjection = sanitizeMapProjection(command.mapProjection, this.room);
       }
+      this.room.revision += 1;
+      this.room.updatedAt = now;
+    } else if (type === "dice-roll") {
+      if (this.room.config?.singleMaster !== false || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("Shared dice are disabled for this room."), { code: "shared_dice_disabled" });
+      }
+      if (!this.room.players.some((player) => player.id === playerId && !player.isBot)) {
+        throw Object.assign(new Error("Only room players can publish rolls."), { code: "player_required" });
+      }
+      const roll = sanitizeDiceRoll(command.roll, {
+        userId: safeText(actor.userId) || playerId,
+        userName: safeText(actor.name) || this.room.players.find((player) => player.id === playerId)?.name || "Jugador"
+      });
+      const history = Array.isArray(this.room.diceRollHistory) ? this.room.diceRollHistory : [];
+      if (!history.some((entry) => entry.id === roll.id)) history.push(roll);
+      this.room.diceRollHistory = history.slice(-100);
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else {
@@ -307,11 +327,53 @@ function sanitizeCombatState(value, room) {
         necrotic,
         conditions: Array.isArray(live?.conditions)
           ? live.conditions.map(safeText).filter(Boolean).slice(0, 30).map((condition) => condition.slice(0, 80))
-          : []
+          : [],
+        initiative: safeText(live?.initiative).slice(0, 30),
+        hiddenFromInitiative: live?.hiddenFromInitiative === true,
+        standNumber: safeText(live?.standNumber).slice(0, 30),
+        isFlying: live?.isFlying === true,
+        flyingHeight: clampLiveNumber(live?.flyingHeight),
+        mapTokenSize: safeText(live?.mapTokenSize).slice(0, 40)
       };
     }
   }
   return result;
+}
+
+function sanitizeCombatMeta(value, room) {
+  const source = value && typeof value === "object" ? value : {};
+  const validKeys = new Set();
+  for (const player of room.players) {
+    for (const award of player.roster || []) validKeys.add(`${player.id}:${safeText(award?.monster?.id)}`);
+  }
+  const activeMonsterKey = safeText(source.activeMonsterKey).slice(0, 260);
+  return {
+    active: source.active === true,
+    round: Math.max(1, Math.min(99999, Math.floor(Number(source.round) || 1))),
+    activeMonsterKey: validKeys.has(activeMonsterKey) ? activeMonsterKey : ""
+  };
+}
+
+function sanitizeDiceRoll(value, actor) {
+  const source = value && typeof value === "object" ? value : {};
+  const serializedGroups = JSON.stringify(Array.isArray(source.groups) ? source.groups : []);
+  let groups = [];
+  if (serializedGroups.length <= 100000) {
+    try { groups = JSON.parse(serializedGroups).slice(0, 100); } catch {}
+  }
+  const id = safeText(source.id).slice(0, 160);
+  if (!id) throw Object.assign(new Error("Dice roll id is required."), { code: "invalid_dice_roll" });
+  return {
+    id,
+    formula: safeText(source.formula).slice(0, 240),
+    total: Number.isFinite(Number(source.total)) ? Number(source.total) : 0,
+    groups,
+    hitDiceMode: source.hitDiceMode === true,
+    rollMode: ["advantage", "disadvantage"].includes(source.rollMode) ? source.rollMode : "",
+    rolledAt: Math.max(0, Number(source.rolledAt) || Date.now()),
+    userId: safeText(actor.userId).slice(0, 160),
+    userName: safeText(actor.userName).slice(0, 80) || "Jugador"
+  };
 }
 
 function clampLiveNumber(value) {

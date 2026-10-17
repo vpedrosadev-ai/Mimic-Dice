@@ -87,7 +87,7 @@ import { convertImageFileToWebp, createCombatMapController, getPortableMapRefere
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
-import { startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
+import { publishMonstersLeagueDiceRoll, startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
 import { rewriteMonstersLeagueAssetUrl } from "./multiplayer/monstersLeagueProjection.js";
 import { shouldHideMonstersLeagueRivalStats } from "./multiplayer/monstersLeagueVisibility.js";
 import { renderDiceRollerDock } from "./screens/dice-roller/diceRollerRender.js";
@@ -1383,11 +1383,99 @@ queueInitialDataLoad();
 initializeCloudAccount();
 startMonstersLeagueCombatSync(
   () => state.combatants,
-  (roomId) => getMonstersLeagueMapProjection(roomId)
+  (roomId) => getMonstersLeagueMapProjection(roomId),
+  {
+    getCombatMeta: (roomId) => getMonstersLeagueCombatMeta(roomId),
+    onRoomSnapshot: applyMonstersLeagueRoomSnapshot
+  }
 );
+
+function getMonstersLeagueRoomCombatants(roomId) {
+  const normalizedRoomId = cleanText(roomId);
+  return state.combatants.filter((combatant) => combatant.multiplayerOnline && cleanText(combatant.multiplayerRoomId) === normalizedRoomId);
+}
+
+function getMonstersLeagueRoomAccess(roomId) {
+  const combatants = getMonstersLeagueRoomCombatants(roomId);
+  const sample = combatants[0];
+  const userId = cleanText(state.accountSession?.user?.id);
+  return {
+    combatants,
+    shared: sample?.multiplayerSingleMaster === false,
+    host: Boolean(userId && cleanText(sample?.multiplayerHostUserId) === userId)
+  };
+}
+
+function getMonstersLeagueCombatMeta(roomId) {
+  const { combatants } = getMonstersLeagueRoomAccess(roomId);
+  const active = combatants.find((combatant) => combatant.id === state.activeTurnCombatantId);
+  return {
+    active: state.isCombatActive === true,
+    round: getCombatRound(),
+    activeMonsterKey: active ? `${cleanText(active.teamId)}:${cleanText(active.multiplayerMonsterId || active.entryId || active.entryKey)}` : ""
+  };
+}
+
+function applyMonstersLeagueRoomSnapshot(room) {
+  const roomId = cleanText(room?.id);
+  const access = getMonstersLeagueRoomAccess(roomId);
+  if (!roomId || access.combatants.length === 0) return;
+  let changed = false;
+  state.combatants = state.combatants.map((combatant) => {
+    if (cleanText(combatant.multiplayerRoomId) !== roomId) return combatant;
+    const live = room.combatState?.[cleanText(combatant.teamId)]?.[cleanText(combatant.multiplayerMonsterId || combatant.entryId || combatant.entryKey)];
+    if (!live) return combatant;
+    const next = normalizeCombatant({
+      ...combatant,
+      pgMax: live.maxHp,
+      pgAct: live.currentHp,
+      pgTemp: live.tempHp,
+      necrotic: live.necrotic,
+      condiciones: Array.isArray(live.conditions) ? live.conditions.join(", ") : "",
+      iniactiva: live.initiative,
+      hiddenFromInitiative: live.hiddenFromInitiative === true,
+      numPeana: cleanText(live.standNumber) || combatant.numPeana,
+      isFlying: live.isFlying === true,
+      flyingHeight: Math.max(0, Number(live.flyingHeight) || 0),
+      mapTokenSize: cleanText(live.mapTokenSize)
+    });
+    if (JSON.stringify(next) !== JSON.stringify(combatant)) changed = true;
+    return next;
+  });
+
+  if (access.shared && room.combatMeta) {
+    const activeKey = cleanText(room.combatMeta.activeMonsterKey);
+    const activeCombatant = state.combatants.find((combatant) => cleanText(combatant.multiplayerRoomId) === roomId
+      && `${cleanText(combatant.teamId)}:${cleanText(combatant.multiplayerMonsterId || combatant.entryId || combatant.entryKey)}` === activeKey);
+    const nextActive = room.combatMeta.active === true;
+    const nextRound = Math.max(1, Math.floor(Number(room.combatMeta.round) || 1));
+    const nextActiveId = activeCombatant?.id || "";
+    if (state.isCombatActive !== nextActive || getCombatRound() !== nextRound || cleanText(state.activeTurnCombatantId) !== nextActiveId) changed = true;
+    state.isCombatActive = nextActive;
+    state.combatRound = nextRound;
+    state.activeTurnCombatantId = nextActiveId;
+  }
+
+  const remoteRolls = Array.isArray(room.diceRollHistory) ? room.diceRollHistory : [];
+  if (access.shared && remoteRolls.length > 0) {
+    const byId = new Map(state.diceRollHistory.map((entry) => [entry.id, entry]));
+    for (const entry of remoteRolls) byId.set(entry.id, entry);
+    const merged = [...byId.values()].sort((left, right) => Number(left.rolledAt) - Number(right.rolledAt)).slice(-DICE_ROLLER_MAX_HISTORY);
+    if (JSON.stringify(merged) !== JSON.stringify(state.diceRollHistory)) {
+      state.diceRollHistory = merged;
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveCombatTrackerState();
+    render();
+  }
+}
 
 function getMonstersLeagueMapProjection(roomId) {
   const normalizedRoomId = cleanText(roomId);
+  const access = getMonstersLeagueRoomAccess(normalizedRoomId);
+  if (access.shared && !access.host) return undefined;
   const mapPresentedByHost = state.combatMapMirrorVisible === true || combatMapController.isOpen();
   if (!normalizedRoomId || !mapPresentedByHost) {
     return { open: false, editorState: null, combatants: [], activeCombatantId: "" };
@@ -3322,6 +3410,8 @@ async function handleClick(event) {
   }
 
   if (action === "open-combat-map") {
+    const sharedRoom = state.combatants.find((combatant) => combatant.multiplayerOnline && combatant.multiplayerSingleMaster === false);
+    if (sharedRoom && !getMonstersLeagueRoomAccess(sharedRoom.multiplayerRoomId).host) return;
     state.combatMapMirrorVisible = true;
     state.combatMapMirrorCollapsed = false;
     combatMapController.open();
@@ -5612,6 +5702,12 @@ function handleGlobalKeydown(event) {
 
 function handleKeydown(event) {
   const target = event.target;
+
+  if (target.matches('[role="button"][data-action="open-combatant-character"]') && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    target.click();
+    return;
+  }
 
   if (target.closest?.("[data-combat-map-master-root]")) {
     combatMapController.handleKeydown(event);
@@ -12091,12 +12187,16 @@ function renderCombatTimerToggleButton(isActive = false) {
 }
 
 function renderCombatMapButton() {
+  const sharedRoom = state.combatants.find((combatant) => combatant.multiplayerOnline && combatant.multiplayerSingleMaster === false);
+  const mapLocked = Boolean(sharedRoom && !getMonstersLeagueRoomAccess(sharedRoom.multiplayerRoomId).host);
   return `
     <button
       class="toolbar-button toolbar-button--combat combat-overview-toggle"
       type="button"
       data-action="open-combat-map"
-      aria-label="Abrir mapa de combate"
+      aria-label="${mapLocked ? "Solo el anfitrión puede cargar el mapa" : "Abrir mapa de combate"}"
+      title="${mapLocked ? "Solo el anfitrión puede cargar el mapa" : "Abrir mapa de combate"}"
+      ${mapLocked ? "disabled" : ""}
     >
       <span class="button-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="m3 5 5-2 8 2 5-2v16l-5 2-8-2-5 2V5Zm6 .2v11.9l6 1.5V6.7L9 5.2Zm-4 1.3v11.6l2-.8V5.7l-2 .8Zm12 .2v11.6l2-.8V5.9l-2 .8Z" /></svg>
@@ -12109,9 +12209,11 @@ function renderCombatMapButton() {
 function renderCombatTimerPanel(battleTimerLabel) {
   return `
     <div class="combat-timer">
+      <div class="combat-timer__map-action">
+        ${renderCombatMapButton()}
+      </div>
       <article class="combat-timer__card">
         <div class="combat-timer__toolbar">
-          ${renderCombatMapButton()}
           ${renderCombatTimerToggleButton(true)}
         </div>
         <div class="combat-timer__visual">
@@ -12323,18 +12425,26 @@ function rerollLastDiceFormula() {
 
 function rollAndRecordDiceFormula(formula, options = {}) {
   const result = rollDiceFormula(formula, options);
+  const rollEntry = {
+    id: createStableId("dice-roll"),
+    formula: result.normalizedFormula,
+    total: result.total,
+    groups: result.groups,
+    hitDiceMode: result.hitDiceMode,
+    rollMode: result.rollMode,
+    rolledAt: Date.now(),
+    userId: cleanText(state.accountSession?.user?.id),
+    userName: cleanText(state.accountSession?.user?.name) || cleanText(state.accountSession?.user?.email)
+  };
   state.diceRollHistory = [
     ...state.diceRollHistory,
-    {
-      id: createStableId("dice-roll"),
-      formula: result.normalizedFormula,
-      total: result.total,
-      groups: result.groups,
-      hitDiceMode: result.hitDiceMode,
-      rollMode: result.rollMode,
-      rolledAt: Date.now()
-    }
+    rollEntry
   ].slice(-DICE_ROLLER_MAX_HISTORY);
+  const sharedRoomIds = new Set(state.combatants
+    .filter((combatant) => combatant.multiplayerOnline && combatant.multiplayerSingleMaster === false)
+    .map((combatant) => cleanText(combatant.multiplayerRoomId))
+    .filter(Boolean));
+  for (const roomId of sharedRoomIds) publishMonstersLeagueDiceRoll(roomId, rollEntry);
   state.diceRollerDraft = "";
   state.diceRollerError = "";
   state.diceRollerOpen = !isDiceRollerPopoutOpen();
@@ -17432,10 +17542,10 @@ function renderCombatCharacterPreview(character, options = {}) {
     character.level ? `Nivel ${character.level}` : ""
   ].filter(Boolean);
   const interactive = options.interactive !== false;
-  const rootTag = interactive ? "button" : "div";
+  const rootTag = "article";
   const interactionAttributes = interactive
-    ? `type="button" data-action="open-combatant-character" data-character-id="${escapeHtml(character.id)}" aria-label="Abrir ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"`
-    : `role="article" aria-label="Ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"`;
+    ? `role="button" tabindex="0" data-action="open-combatant-character" data-character-id="${escapeHtml(character.id)}" aria-label="Abrir ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"`
+    : `aria-label="Ficha de ${escapeHtml(character.name || "Personaje sin nombre")}"`;
 
   return `
     <${rootTag}
@@ -24815,6 +24925,8 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
       teamId: cleanText(teamMeta.teamId || row.teamId),
       teamOwnerUserId: cleanText(teamMeta.ownerUserId),
       teamOwnerName: cleanText(teamMeta.ownerName),
+      multiplayerHostUserId: cleanText(teamMeta.hostUserId),
+      multiplayerSingleMaster: teamMeta.singleMaster !== false,
       teamColor: normalizeTeamColor(teamMeta.color || row.teamColor),
       multiplayerOnline: teamMeta.online === true,
       numPeana: formatStandNumber(standNumber)
@@ -24845,6 +24957,8 @@ function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "
     teamId: cleanText(teamMeta.teamId || row.teamId),
     teamOwnerUserId: cleanText(teamMeta.ownerUserId),
     teamOwnerName: cleanText(teamMeta.ownerName),
+    multiplayerHostUserId: cleanText(teamMeta.hostUserId),
+    multiplayerSingleMaster: teamMeta.singleMaster !== false,
     teamColor: normalizeTeamColor(teamMeta.color || row.teamColor),
     multiplayerOnline: teamMeta.online === true,
     numPeana: formatStandNumber(standNumber)
@@ -24906,6 +25020,8 @@ function createCombatantFromBestiaryEntry(entry, existingCombatant = {}, options
     teamId: cleanText(existingCombatant.teamId),
     teamOwnerUserId: cleanText(existingCombatant.teamOwnerUserId),
     teamOwnerName: cleanText(existingCombatant.teamOwnerName),
+    multiplayerHostUserId: cleanText(existingCombatant.multiplayerHostUserId),
+    multiplayerSingleMaster: existingCombatant.multiplayerSingleMaster !== false,
     teamColor: normalizeTeamColor(existingCombatant.teamColor),
     multiplayerOnline: existingCombatant.multiplayerOnline === true,
     iniactiva: existingCombatant.iniactiva ?? "",
@@ -26221,6 +26337,8 @@ function normalizeCombatant(combatant, changedKey = "") {
     teamId: cleanText(combatant.teamId),
     teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
     teamOwnerName: cleanText(combatant.teamOwnerName),
+    multiplayerHostUserId: cleanText(combatant.multiplayerHostUserId),
+    multiplayerSingleMaster: combatant.multiplayerSingleMaster !== false,
     teamColor: normalizeTeamColor(combatant.teamColor),
     multiplayerOnline: combatant.multiplayerOnline === true,
     hiddenFromInitiative: combatant.hiddenFromInitiative === true,
@@ -35456,6 +35574,8 @@ function normalizeStoredEncounterMultiplayer(value) {
     teamId: cleanText(value.teamId),
     ownerUserId: cleanText(value.ownerUserId),
     ownerName: cleanText(value.ownerName),
+    hostUserId: cleanText(value.hostUserId),
+    singleMaster: value.singleMaster !== false,
     color: normalizeTeamColor(value.color),
     online: value.online === true
   };

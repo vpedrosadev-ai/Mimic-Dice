@@ -228,6 +228,7 @@ function renderDiceRollEntry(entry, language) {
       <header>
         <div class="dice-roll-entry__title">
           ${timeLabel ? `<time datetime="${escapeHtml(new Date(entry.rolledAt).toISOString())}">${escapeHtml(timeLabel)}</time>` : ""}
+          ${entry.userName ? `<span class="dice-roll-entry__user">${escapeHtml(entry.userName)}</span>` : ""}
           <code>${escapeHtml(entry.formula)}</code>
           ${entry.hitDiceMode ? `<span class="dice-roll-entry__mode">${escapeHtml(language === "en" ? "HIT DICE" : "DADOS DE VIDA")}</span>` : ""}
           ${entry.rollMode ? `<span class="dice-roll-entry__mode dice-roll-entry__mode--${escapeHtml(entry.rollMode)}">${escapeHtml(entry.rollMode === "advantage" ? (language === "en" ? "ADVANTAGE" : "VENTAJA") : (language === "en" ? "DISADVANTAGE" : "DESVENTAJA"))}</span>` : ""}

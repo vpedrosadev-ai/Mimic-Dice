@@ -101,6 +101,31 @@ test("keeps enough starting gold to fill every roster slot", () => {
   assert.equal(room.config.startingGold, 4);
 });
 
+test("single master defaults on and can be disabled", () => {
+  const defaultRoom = createMonstersLeagueRoom({
+    id: "single-master-room",
+    host: { id: "host", userId: "host", name: "Host" }
+  });
+  const sharedRoom = createMonstersLeagueRoom({
+    id: "shared-room",
+    host: { id: "host", userId: "host", name: "Host" },
+    config: { singleMaster: false }
+  });
+  assert.equal(defaultRoom.config.singleMaster, true);
+  assert.equal(sharedRoom.config.singleMaster, false);
+});
+
+test("generated encounters retain host and shared-control metadata", () => {
+  const room = readyRoom(1);
+  room.config.singleMaster = false;
+  room.status = "complete";
+  room.players[0].roster = [{ monster: catalog[0], price: 1 }];
+  room.players[1].roster = [{ monster: catalog[1], price: 1 }];
+  const encounters = createMonstersLeagueEncounters(room);
+  assert.equal(encounters[0].multiplayer.hostUserId, "host");
+  assert.equal(encounters[0].multiplayer.singleMaster, false);
+});
+
 test("automatically assigns the only remaining roster one creature per review", () => {
   const room = readyRoom(3);
   const first = room.nominationOrder[0];

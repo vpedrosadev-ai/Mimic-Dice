@@ -1048,8 +1048,20 @@ export function createCombatMapController(options = {}) {
     return output;
   }
 
-  function applySave(value) {
+  function applySave(value, options = {}) {
+    const localPlayerView = options.preservePlayerView === true ? {
+      playerViewport: { ...state.playerViewport },
+      playerVisible: state.initiative.playerVisible,
+      initiativePosition: state.initiative.position,
+      initiativeSize: state.initiative.size
+    } : null;
     state = normalizeMapEditorState(value);
+    if (localPlayerView) {
+      state.playerViewport = localPlayerView.playerViewport;
+      state.initiative.playerVisible = localPlayerView.playerVisible;
+      state.initiative.position = localPlayerView.initiativePosition;
+      state.initiative.size = localPlayerView.initiativeSize;
+    }
     openPanel = state.openPanel;
     persist();
     sync();
@@ -1929,7 +1941,7 @@ export function createCombatMapController(options = {}) {
 
   function renderPlayerProjection(viewportWindow = window) {
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}</div></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}</div></div>`;
   }
 
   function sync() {
@@ -2040,6 +2052,7 @@ export function createCombatMapController(options = {}) {
     const viewportState = root === masterHost ? state.viewport : state.playerViewport;
     viewportState.zoom = clamp(value, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
     if (root === masterHost) updateMasterScale(root);
+    else if (root === playerProjectionHost) updatePlayerProjectionScale(root);
     else updateMapScale();
     drawGridCoordinates(root);
     drawGridLabels(root);

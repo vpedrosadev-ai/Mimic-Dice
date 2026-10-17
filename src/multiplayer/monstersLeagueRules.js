@@ -1,6 +1,6 @@
 import { cleanText, normalizeSearchText } from "../shared/text.js";
 
-export const MONSTERS_LEAGUE_SCHEMA_VERSION = 2;
+export const MONSTERS_LEAGUE_SCHEMA_VERSION = 3;
 export const MONSTERS_LEAGUE_STARTING_GOLD = 100;
 
 export const MONSTERS_LEAGUE_TEAM_COLORS = Object.freeze([
@@ -26,7 +26,8 @@ const DEFAULT_CONFIG = Object.freeze({
   antiSnipeSeconds: 8,
   excludedSizes: [],
   excludedTypes: [],
-  uniqueCreatures: true
+  uniqueCreatures: true,
+  singleMaster: true
 });
 
 export class MonstersLeagueRuleError extends Error {
@@ -66,6 +67,8 @@ export function createMonstersLeagueRoom({
     nominationDeadlineAt: 0,
     availableMonsterIds: [],
     combatState: {},
+    combatMeta: { active: false, round: 1, activeMonsterKey: "" },
+    diceRollHistory: [],
     mapProjection: { open: false, editorState: null, combatants: [], activeCombatantId: "" },
     currentLot: null,
     history: [],
@@ -93,7 +96,8 @@ export function normalizeMonstersLeagueConfig(value = {}) {
     antiSnipeSeconds: clampInteger(source.antiSnipeSeconds, 3, 15, DEFAULT_CONFIG.antiSnipeSeconds),
     excludedSizes: normalizeFilterList(source.excludedSizes),
     excludedTypes: normalizeFilterList(source.excludedTypes),
-    uniqueCreatures: source.uniqueCreatures !== false
+    uniqueCreatures: source.uniqueCreatures !== false,
+    singleMaster: source.singleMaster !== false
   };
 }
 
@@ -454,6 +458,8 @@ export function getMonstersLeagueRoomSummary(room) {
     nominationDeadlineAt: room.nominationDeadlineAt,
     availableMonsterIds: [...room.availableMonsterIds],
     combatState: cloneCombatState(room.combatState),
+    combatMeta: cloneCombatMeta(room.combatMeta),
+    diceRollHistory: cloneDiceRollHistory(room.diceRollHistory),
     mapProjection: cloneMapProjection(room.mapProjection),
     currentLot: room.currentLot ? { ...room.currentLot, monster: { ...room.currentLot.monster } } : null,
     history: room.history.map((entry) => ({ ...entry, monster: { ...entry.monster } })),
@@ -486,10 +492,28 @@ function cloneCombatState(value) {
         currentHp: Math.max(0, Number(live?.currentHp) || 0),
         tempHp: Math.max(0, Number(live?.tempHp) || 0),
         necrotic: Math.max(0, Number(live?.necrotic) || 0),
-        conditions: Array.isArray(live?.conditions) ? live.conditions.map(cleanText).filter(Boolean).slice(0, 30) : []
+        conditions: Array.isArray(live?.conditions) ? live.conditions.map(cleanText).filter(Boolean).slice(0, 30) : [],
+        initiative: cleanText(live?.initiative),
+        hiddenFromInitiative: live?.hiddenFromInitiative === true,
+        standNumber: cleanText(live?.standNumber).slice(0, 30),
+        isFlying: live?.isFlying === true,
+        flyingHeight: Math.max(0, Number(live?.flyingHeight) || 0),
+        mapTokenSize: cleanText(live?.mapTokenSize).slice(0, 40)
       }
     ]))
   ]));
+}
+
+function cloneCombatMeta(value) {
+  return {
+    active: value?.active === true,
+    round: Math.max(1, Math.floor(Number(value?.round) || 1)),
+    activeMonsterKey: cleanText(value?.activeMonsterKey).slice(0, 260)
+  };
+}
+
+function cloneDiceRollHistory(value) {
+  return (Array.isArray(value) ? value : []).slice(-100).map((entry) => JSON.parse(JSON.stringify(entry)));
 }
 
 export function createMonstersLeagueEncounters(room) {
@@ -509,7 +533,9 @@ export function createMonstersLeagueEncounters(room) {
       teamId: player.id,
       ownerUserId: player.userId,
       ownerName: player.name,
-      color: player.color
+      color: player.color,
+      hostUserId: room.hostPlayerId,
+      singleMaster: room.config.singleMaster !== false
     },
     rows: player.roster.map((award, index) => ({
       id: `monsters-league-row-${room.id}-${player.id}-${index + 1}`,

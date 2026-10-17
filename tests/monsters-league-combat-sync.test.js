@@ -14,7 +14,13 @@ test("groups online Monsters League combatants by stable draft monster id", () =
     pgAct: 17,
     pgTemp: 4,
     necrotic: 2,
-    condiciones: "Poisoned, Prone"
+    condiciones: "Poisoned, Prone",
+    iniactiva: 18,
+    hiddenFromInitiative: true,
+    numPeana: "4",
+    isFlying: true,
+    flyingHeight: 20,
+    mapTokenSize: "Large"
   }]);
 
   assert.deepEqual(grouped.get("room-1"), {
@@ -24,7 +30,13 @@ test("groups online Monsters League combatants by stable draft monster id", () =
         currentHp: 17,
         tempHp: 4,
         necrotic: 2,
-        conditions: ["Poisoned", "Prone"]
+        conditions: ["Poisoned", "Prone"],
+        initiative: "18",
+        hiddenFromInitiative: true,
+        standNumber: "4",
+        isFlying: true,
+        flyingHeight: 20,
+        mapTokenSize: "Large"
       }
     }
   });
