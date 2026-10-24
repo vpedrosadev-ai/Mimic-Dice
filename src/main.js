@@ -67,6 +67,12 @@ import {
 import { parseCsv } from "./shared/csv.js";
 import { DiceFormulaError, rollDiceFormula } from "./shared/diceFormula.js";
 import { enhanceDiceFormulaLinks } from "./shared/diceFormulaLinks.js";
+import {
+  COMBAT_DICE_TARGET_ATTACK,
+  COMBAT_DICE_TARGET_DAMAGE,
+  getCombatDiceTargetKind,
+  getCombatDiceTargetOutcome
+} from "./screens/combat-tracker/combatDiceTarget.js";
 import { parseBestiarySpellcasting } from "./shared/bestiarySpellcasting.js";
 import { createSpellReferenceMatcher } from "./shared/spellReferences.js";
 import { createCompendiumDetailRenderers } from "./screens/compendiums/detailRender.js";
@@ -1065,6 +1071,12 @@ state = {
   combatMapMirrorVisible: false,
   combatMapMirrorCollapsed: false,
   masterCombatWorkspaceVisible: false,
+  masterCombatDiceTargetMenu: {
+    formula: "",
+    kind: "",
+    x: 0,
+    y: 0
+  },
   encounterMapEditorId: "",
   combatTurnRoundEditorOpen: false,
   combatTurnRoundDraft: "",
@@ -1678,6 +1690,7 @@ async function handleClick(event) {
   const clickedCombatTurnRoundMenu = event.target.closest("[data-combat-turn-round-menu]");
   const clickedCombatTurnJumpMenu = event.target.closest("[data-combat-turn-jump-menu]");
   const clickedCombatAreaTargetMenu = event.target.closest("[data-combat-area-target-menu]");
+  const clickedMasterCombatDiceTargetMenu = event.target.closest("[data-master-combat-dice-target-menu]");
   const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
   const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
@@ -1692,6 +1705,15 @@ async function handleClick(event) {
   const ctrlOrMetaPressed = event.ctrlKey || event.metaKey;
   const clickedDiaryTag = event.target.closest("[data-diary-tag-filter]");
   const clickedDiaryMentionLink = event.target.closest("[data-diary-mention-link]");
+
+  if (state.masterCombatDiceTargetMenu.kind && !clickedMasterCombatDiceTargetMenu) {
+    closeMasterCombatDiceTargetMenu();
+
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
 
   if (clickedDiaryTag) {
     event.preventDefault();
@@ -2192,6 +2214,12 @@ async function handleClick(event) {
   if (action === "submit-dice-formula") {
     event.preventDefault();
     submitDiceFormula(state.diceRollerDraft);
+    return;
+  }
+
+  if (action === "resolve-master-combat-dice-target") {
+    event.preventDefault();
+    resolveMasterCombatDiceTarget(actionButton.dataset.combatantId);
     return;
   }
 
@@ -3508,6 +3536,7 @@ async function handleClick(event) {
 
   if (action === "open-master-combat-workspace") {
     state.masterCombatWorkspaceVisible = !state.masterCombatWorkspaceVisible;
+    closeMasterCombatDiceTargetMenu();
     if (state.masterCombatWorkspaceVisible) {
       state.combatMapMirrorVisible = false;
       state.combatMapMirrorCollapsed = false;
@@ -5774,6 +5803,13 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if (event.key === "Escape" && state.masterCombatDiceTargetMenu.kind) {
+    event.preventDefault();
+    closeMasterCombatDiceTargetMenu();
+    render();
+    return;
+  }
+
   if (event.key === "Escape" && state.combatTurnQuickMenu?.combatantId) {
     event.preventDefault();
     closeCombatTurnQuickMenu();
@@ -6428,6 +6464,25 @@ function handleContextMenu(event) {
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     combatMapController.handleContextMenu(event);
     return;
+  }
+
+  const masterDiceFormulaTrigger = event.target.closest?.('[data-action="roll-dice-formula"][data-dice-formula]');
+
+  if (masterDiceFormulaTrigger?.closest(".master-combat-workspace__sheet")) {
+    event.preventDefault();
+    openMasterCombatDiceTargetMenu(
+      masterDiceFormulaTrigger.dataset.diceFormula,
+      masterDiceFormulaTrigger.textContent,
+      event.clientX,
+      event.clientY
+    );
+    render();
+    return;
+  }
+
+  if (state.masterCombatDiceTargetMenu.kind) {
+    closeMasterCombatDiceTargetMenu();
+    render();
   }
 
   const diaryTag = event.target.closest("[data-diary-tag-filter]");
@@ -9096,6 +9151,7 @@ function render(focusState = null) {
         modifier: state.diceRollerModifier,
         diceTrayOpen: state.diceRollerDiceTrayOpen
       })}
+      ${renderMasterCombatDiceTargetMenu()}
     </div>
   `;
 
@@ -12377,7 +12433,7 @@ function renderMasterCombatWorkspaceButton() {
 }
 
 function renderMasterCombatWorkspacePanel() {
-  const combatants = [...state.combatants].filter(Boolean).sort(compareCombatants);
+  const combatants = getCombatTurnOrder([...state.combatants].filter(Boolean));
   const activeId = state.isCombatActive ? cleanText(state.activeTurnCombatantId) : "";
 
   if (activeId !== masterCombatWorkspaceLastActiveId) {
@@ -12421,7 +12477,7 @@ function renderMasterCombatWorkspacePanel() {
             </header>
             <div class="master-combat-workspace__entity-list" data-render-scroll-key="master-combat-entities">
               ${combatants.length
-                ? combatants.map((combatant) => renderMasterCombatWorkspaceEntityCard(combatant, combatant.id === selectedCombatant?.id, combatant.id === activeId)).join("")
+                ? combatants.map((combatant, index) => renderMasterCombatWorkspaceEntityCard(combatant, combatant.id === selectedCombatant?.id, combatant.id === activeId, index + 1)).join("")
                 : `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "No entities" : "Sin entidades")}</strong><p>${escapeHtml(isEnglishInterface() ? "Add entities from normal Combat Table view." : "Anade entidades desde la vista normal de Tabla de combate.")}</p></div>`}
             </div>
           </aside>
@@ -12461,7 +12517,170 @@ function renderMasterCombatWorkspacePanel() {
   `;
 }
 
-function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
+function getDefaultMasterCombatDiceTargetMenuState() {
+  return {
+    formula: "",
+    kind: "",
+    x: 0,
+    y: 0
+  };
+}
+
+function openMasterCombatDiceTargetMenu(formula, label, x, y) {
+  const normalizedFormula = cleanText(formula);
+
+  if (!normalizedFormula) {
+    return;
+  }
+
+  state.masterCombatDiceTargetMenu = {
+    formula: normalizedFormula,
+    kind: getCombatDiceTargetKind(label, normalizedFormula),
+    x: Math.round(toNumber(x)),
+    y: Math.round(toNumber(y))
+  };
+}
+
+function closeMasterCombatDiceTargetMenu() {
+  state.masterCombatDiceTargetMenu = getDefaultMasterCombatDiceTargetMenuState();
+}
+
+function renderMasterCombatDiceTargetMenu() {
+  const menu = state.masterCombatDiceTargetMenu;
+
+  if (
+    !state.masterCombatWorkspaceVisible
+    || state.activeScreen !== "combat-tracker"
+    || !menu?.kind
+    || !cleanText(menu.formula)
+  ) {
+    return "";
+  }
+
+  const targets = getCombatTurnOrder([...state.combatants].filter(Boolean));
+  const isAttack = menu.kind === COMBAT_DICE_TARGET_ATTACK;
+  const title = isAttack
+    ? (isEnglishInterface() ? "Choose attack target" : "Elige objetivo del ataque")
+    : (isEnglishInterface() ? "Choose damage target" : "Elige objetivo del dano");
+  const subtitle = isAttack
+    ? (isEnglishInterface() ? "Roll and compare against Armor Class" : "Lanza y compara con la Clase de Armadura")
+    : (isEnglishInterface() ? "Roll and apply damage immediately" : "Lanza y aplica el dano inmediatamente");
+
+  return `
+    <aside
+      class="master-combat-dice-target-menu"
+      style="${escapeHtml(getMasterCombatDiceTargetMenuStyle())}"
+      data-master-combat-dice-target-menu
+      role="dialog"
+      aria-label="${escapeHtml(title)}"
+    >
+      <header class="master-combat-dice-target-menu__header">
+        <div><small>${escapeHtml(isAttack ? (isEnglishInterface() ? "ATTACK" : "ATAQUE") : (isEnglishInterface() ? "DAMAGE" : "DANO"))}</small><strong>${escapeHtml(title)}</strong></div>
+        <code>${escapeHtml(menu.formula)}</code>
+        <span>${escapeHtml(subtitle)}</span>
+      </header>
+      <div class="master-combat-dice-target-menu__list">
+        ${targets.length
+          ? targets.map((combatant) => renderMasterCombatDiceTargetCard(combatant, isAttack)).join("")
+          : `<p class="master-combat-dice-target-menu__empty">${escapeHtml(isEnglishInterface() ? "No combat entities available." : "No hay entidades de combate disponibles.")}</p>`}
+      </div>
+    </aside>
+  `;
+}
+
+function renderMasterCombatDiceTargetCard(combatant, showArmorClass) {
+  const tokenUrl = getCombatantTokenUrl(combatant);
+  const name = cleanText(combatant.nombre) || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
+  const stand = cleanText(combatant.numPeana) || "-";
+  const armorClass = getCombatantArmorClassValue(combatant);
+  const armorLabel = armorClass === "" ? "-" : armorClass;
+
+  return `
+    <button
+      class="master-combat-dice-target-card"
+      type="button"
+      data-action="resolve-master-combat-dice-target"
+      data-combatant-id="${escapeHtml(combatant.id)}"
+    >
+      <span class="master-combat-dice-target-card__portrait" aria-hidden="true">
+        ${tokenUrl
+          ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">`
+          : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}
+      </span>
+      <span class="master-combat-dice-target-card__copy">
+        <strong>${escapeHtml(name)}</strong>
+        <small>${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")} ${escapeHtml(stand)}${showArmorClass ? ` · AC ${escapeHtml(String(armorLabel))}` : ""}</small>
+      </span>
+    </button>
+  `;
+}
+
+function getMasterCombatDiceTargetMenuStyle() {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1280;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+  const padding = 12;
+  const menuWidth = Math.min(368, Math.max(0, viewportWidth - padding * 2));
+  const menuHeight = Math.min(576, Math.max(0, viewportHeight - padding * 2));
+  const rawX = Math.round(toNumber(state.masterCombatDiceTargetMenu?.x));
+  const rawY = Math.round(toNumber(state.masterCombatDiceTargetMenu?.y));
+  const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
+  const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));
+
+  return `left:${left}px;top:${top}px;`;
+}
+
+function resolveMasterCombatDiceTarget(combatantId) {
+  const target = state.combatants.find((combatant) => combatant.id === cleanText(combatantId));
+  const menu = state.masterCombatDiceTargetMenu;
+  const formula = cleanText(menu?.formula);
+  const kind = cleanText(menu?.kind);
+
+  if (!target || !formula || ![COMBAT_DICE_TARGET_ATTACK, COMBAT_DICE_TARGET_DAMAGE].includes(kind)) {
+    closeMasterCombatDiceTargetMenu();
+    render();
+    return;
+  }
+
+  try {
+    const resolvedFormula = appendDiceRollerModifier(formula, state.diceRollerModifier);
+    const armorClass = getCombatantArmorClassValue(target);
+    const result = rollAndRecordDiceFormula(resolvedFormula, {
+      hitDiceMode: state.diceRollerHitDiceMode,
+      rollMode: state.diceRollerRollMode,
+      targetContext: {
+        kind,
+        combatantId: target.id,
+        name: cleanText(target.nombre),
+        stand: cleanText(target.numPeana),
+        armorClass
+      }
+    });
+    const outcome = getCombatDiceTargetOutcome(kind, result.total, armorClass);
+
+    state.diceRollerRollMode = "";
+    state.diceRollerModifier = "+0";
+    closeMasterCombatDiceTargetMenu();
+
+    if (kind === COMBAT_DICE_TARGET_DAMAGE) {
+      setInlineAdjustment(target.id, "pgAct", String(outcome.appliedDamage));
+      applyPgActAdjustment(target.id, "damage");
+      syncCombatTrackerMutation(target.id, { forceFullRender: true });
+    } else {
+      render();
+    }
+
+    if (isDiceRollerPopoutOpen()) {
+      diceRollerPopoutWindow.focus();
+      focusDiceRollerPopoutInput();
+    }
+  } catch (error) {
+    closeMasterCombatDiceTargetMenu();
+    setDiceFormulaErrorState(formula, error);
+    render();
+  }
+}
+
+function renderMasterCombatWorkspaceEntityCard(combatant, selected, active, initiativePosition) {
   const context = getCombatRowContext(combatant);
   const tokenUrl = context.tokenUrl;
   const currentHp = Math.max(0, toNumber(combatant.pgAct));
@@ -12474,14 +12693,16 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
       ? (isEnglishInterface() ? "Neutral" : "Neutral")
       : (isEnglishInterface() ? "Enemy" : "Enemigo");
   const hpLabel = isEnglishInterface() ? "HP" : "PG";
+  const statusNames = getCombatantStatusNames(combatant);
 
   return `
     <button
-      class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""}"
+      class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}"
       type="button"
       data-master-workspace-entity="${escapeHtml(combatant.id)}"
       aria-pressed="${selected}"
     >
+      <span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Initiative order" : "Orden de iniciativa")}">${escapeHtml(String(initiativePosition))}</span>
       <span class="master-combat-entity__portrait">
         ${tokenUrl
           ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">`
@@ -12493,6 +12714,16 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
         <small>${escapeHtml(`${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`)}${cleanText(combatant.iniactiva) ? ` · ${escapeHtml(isEnglishInterface() ? "Init" : "Inic")} ${escapeHtml(String(combatant.iniactiva))}` : ""}</small>
         <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
       </span>
+      ${statusNames.length ? `
+        <span class="master-combat-entity__statuses" aria-label="${escapeHtml(isEnglishInterface() ? "Conditions" : "Estados")}">
+          ${statusNames.map((statusName) => {
+            const localizedName = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
+            const iconUrl = getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName));
+            const fallback = cleanText(localizedName).slice(0, 2).toUpperCase() || "?";
+            return `<span class="master-combat-entity__status ${escapeHtml(getCombatStatusToneClass(statusName))}" title="${escapeHtml(localizedName)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : escapeHtml(fallback)}</span>`;
+          }).join("")}
+        </span>
+      ` : ""}
     </button>
   `;
 }
@@ -12552,10 +12783,14 @@ function normalizeMasterCombatWorkspaceLayout(value) {
   return normalized;
 }
 
-function saveMasterCombatWorkspaceLayout() {
+function saveMasterCombatWorkspaceLayout(options = {}) {
   try {
     localStorage.setItem(MASTER_COMBAT_WORKSPACE_LAYOUT_KEY, JSON.stringify(masterCombatWorkspaceLayout));
   } catch {}
+
+  if (options.markDirty !== false) {
+    scheduleDesktopCampaignDirtyStateSync(60);
+  }
 }
 
 function beginMasterCombatWorkspaceResize(event, handle) {
@@ -12870,6 +13105,12 @@ function clearDiceRollerHistory() {
 
 function rollAndRecordDiceFormula(formula, options = {}) {
   const result = rollDiceFormula(formula, options);
+  const targetContext = options.targetContext && typeof options.targetContext === "object"
+    ? options.targetContext
+    : null;
+  const targetOutcome = targetContext
+    ? getCombatDiceTargetOutcome(targetContext.kind, result.total, targetContext.armorClass)
+    : null;
   const rollEntry = {
     id: createStableId("dice-roll"),
     formula: result.normalizedFormula,
@@ -12880,7 +13121,16 @@ function rollAndRecordDiceFormula(formula, options = {}) {
     criticalOutcome: result.criticalOutcome,
     rolledAt: Date.now(),
     userId: cleanText(state.accountSession?.user?.id),
-    userName: cleanText(state.accountSession?.user?.name) || cleanText(state.accountSession?.user?.email)
+    userName: cleanText(state.accountSession?.user?.name) || cleanText(state.accountSession?.user?.email),
+    ...(targetContext ? {
+      targetKind: targetOutcome.kind,
+      targetCombatantId: cleanText(targetContext.combatantId),
+      targetName: cleanText(targetContext.name),
+      targetStand: cleanText(targetContext.stand),
+      targetArmorClass: targetOutcome.armorClass,
+      targetHit: targetOutcome.hit,
+      appliedDamage: targetOutcome.appliedDamage
+    } : {})
   };
   state.diceRollHistory = [
     ...state.diceRollHistory,
@@ -33482,7 +33732,8 @@ function createBlankCampaignSavePayload(name = "Campaña sin nombre") {
     ui: {
       activeScreen: "combat-tracker",
       activeEncounterId: "",
-      activeEncounterFolderId: ""
+      activeEncounterFolderId: "",
+      masterCombatWorkspaceLayout: normalizeMasterCombatWorkspaceLayout(null)
     }
   };
 }
@@ -34065,6 +34316,7 @@ function createCampaignSavePayload(options = {}) {
       activeScreen: state.activeScreen,
       activeEncounterId: state.activeEncounterId,
       activeEncounterFolderId: state.activeEncounterFolderId,
+      masterCombatWorkspaceLayout: normalizeMasterCombatWorkspaceLayout(masterCombatWorkspaceLayout),
       contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
       includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
       soundSettings: normalizeStoredSoundSettings(state.soundSettings),
@@ -34166,6 +34418,7 @@ function normalizeCampaignSave(value) {
     activeScreen: normalizeStoredActiveScreen(ui.activeScreen),
     activeEncounterId: cleanText(ui.activeEncounterId),
     activeEncounterFolderId: cleanText(ui.activeEncounterFolderId),
+    masterCombatWorkspaceLayout: normalizeMasterCombatWorkspaceLayout(ui.masterCombatWorkspaceLayout),
     contentLanguage: normalizeStoredContentLanguage(ui.contentLanguage),
     includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(ui.includeNpcInCombatExperience),
     soundSettings: normalizeStoredSoundSettings(ui.soundSettings),
@@ -34182,6 +34435,7 @@ function normalizeCampaignSave(value) {
 
 function resetTransientCampaignUiState() {
   stopActiveTableRoll();
+  closeMasterCombatDiceTargetMenu();
   state.menuHubOpen = false;
   state.fileMenuOpen = false;
   state.optionsMenuOpen = false;
@@ -34291,6 +34545,8 @@ function applyCampaignSave(campaign, fileResult = null, options = {}) {
   state.combatRound = campaign.combatTracker.combatRound;
   state.combatEncounterLoadOrder = campaign.combatTracker.combatEncounterLoadOrder;
   state.enemyHpMode = campaign.combatTracker.enemyHpMode;
+  masterCombatWorkspaceLayout = normalizeMasterCombatWorkspaceLayout(campaign.masterCombatWorkspaceLayout);
+  saveMasterCombatWorkspaceLayout({ markDirty: false });
   state.battleTimer = campaign.battleTimer;
   combatMapController.applySave(campaign.combatMap, {
     preserveLocalView: options.preserveMapView === true

@@ -161,16 +161,19 @@
 
 .master-combat-workspace__entity-list {
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: .5rem;
 }
 
 .master-combat-entity {
+  position: relative;
   display: grid;
-  grid-template-columns: 4rem minmax(0, 1fr);
+  grid-template-columns: 2rem 4rem minmax(0, 1fr);
   align-items: center;
   width: 100%;
   min-width: 0;
+  min-height: 4.9rem;
   padding: .42rem;
   overflow: hidden;
   border: 1px solid rgba(217, 171, 93, .14);
@@ -179,6 +182,61 @@
   text-align: left;
   background: rgba(255, 255, 255, .02);
   cursor: pointer;
+}
+
+.master-combat-entity.has-statuses {
+  padding-top: 1.75rem;
+}
+
+.master-combat-entity__initiative {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border: 1px solid rgba(217, 171, 93, .42);
+  border-radius: 50%;
+  color: #f5dca9;
+  background: rgba(217, 171, 93, .12);
+  font: 900 .76rem/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.master-combat-entity__statuses {
+  position: absolute;
+  top: .32rem;
+  right: .4rem;
+  left: 2.8rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: .24rem;
+  min-width: 0;
+  overflow-x: auto;
+  pointer-events: none;
+  scrollbar-width: none;
+}
+
+.master-combat-entity__statuses::-webkit-scrollbar {
+  display: none;
+}
+
+.master-combat-entity__status {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  overflow: hidden;
+  border: 1px solid rgba(232, 199, 142, .42);
+  border-radius: 50%;
+  color: #fff4dd;
+  background: rgba(40, 25, 16, .96);
+  font-size: .48rem;
+  font-weight: 900;
+}
+
+.master-combat-entity__status img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .master-combat-entity:hover,
@@ -277,6 +335,143 @@
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #9a3e46, #6ab888);
+}
+
+.master-combat-dice-target-menu {
+  position: fixed;
+  z-index: 2147483000;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: .7rem;
+  width: min(23rem, calc(100vw - 1.5rem));
+  max-height: min(36rem, calc(100vh - 1.5rem));
+  padding: .8rem;
+  overflow: hidden;
+  border: 1px solid rgba(217, 171, 93, .55);
+  border-radius: 16px;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 50% 0, rgba(217, 171, 93, .13), transparent 42%),
+    linear-gradient(180deg, rgba(35, 23, 15, .99), rgba(12, 8, 6, .99));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .62);
+}
+
+.master-combat-dice-target-menu__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .22rem .65rem;
+  padding: .15rem .15rem .65rem;
+  border-bottom: 1px solid rgba(217, 171, 93, .22);
+}
+
+.master-combat-dice-target-menu__header > div {
+  display: grid;
+  gap: .14rem;
+  min-width: 0;
+}
+
+.master-combat-dice-target-menu__header small {
+  color: var(--accent-soft);
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.master-combat-dice-target-menu__header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-combat-dice-target-menu__header code {
+  align-self: center;
+  padding: .28rem .45rem;
+  border: 1px solid rgba(217, 171, 93, .3);
+  border-radius: 8px;
+  color: #f2d49b;
+  background: rgba(0, 0, 0, .25);
+}
+
+.master-combat-dice-target-menu__header > span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.master-combat-dice-target-menu__list {
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: .45rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.master-combat-dice-target-card {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  align-items: center;
+  gap: .65rem;
+  width: 100%;
+  min-height: 4rem;
+  padding: .42rem;
+  border: 1px solid rgba(217, 171, 93, .16);
+  border-radius: 11px;
+  color: var(--text);
+  text-align: left;
+  background: rgba(255, 255, 255, .025);
+  cursor: pointer;
+}
+
+.master-combat-dice-target-card:hover,
+.master-combat-dice-target-card:focus-visible {
+  border-color: rgba(217, 171, 93, .72);
+  background: rgba(217, 171, 93, .1);
+  outline: none;
+}
+
+.master-combat-dice-target-card__portrait {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  overflow: hidden;
+  border-radius: 9px;
+  color: #f4d59e;
+  background: #140d09;
+  font-weight: 900;
+}
+
+.master-combat-dice-target-card__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.master-combat-dice-target-card__copy {
+  display: grid;
+  gap: .2rem;
+  min-width: 0;
+}
+
+.master-combat-dice-target-card__copy strong,
+.master-combat-dice-target-card__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-combat-dice-target-card__copy small {
+  color: var(--accent-soft);
+  font-size: .7rem;
+}
+
+.master-combat-dice-target-menu__empty {
+  margin: 0;
+  padding: 1.2rem;
+  color: var(--muted);
+  text-align: center;
 }
 
 .master-combat-workspace__sheet-scroll > .combat-token-preview--floating {
@@ -849,6 +1044,71 @@ body.has-compendium-reference-popup {
   gap: 0.8rem;
   padding-bottom: 0.55rem;
   border-bottom: 1px solid rgba(215, 171, 103, 0.12);
+}
+
+.dice-roll-entry__target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .18rem .5rem;
+  margin-top: .58rem;
+  padding: .5rem .58rem;
+  border: 1px solid rgba(217, 171, 93, .25);
+  border-radius: 9px;
+  background: rgba(217, 171, 93, .07);
+}
+
+.dice-roll-entry__target strong {
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: #f1d49b;
+  font-size: .68rem;
+  letter-spacing: .07em;
+}
+
+.dice-roll-entry__target span,
+.dice-roll-entry__target small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dice-roll-entry__target span {
+  color: var(--text);
+  font-size: .74rem;
+  font-weight: 800;
+}
+
+.dice-roll-entry__target small {
+  color: var(--muted);
+  font-size: .65rem;
+}
+
+.dice-roll-entry__target--hit {
+  border-color: rgba(105, 193, 141, .48);
+  background: rgba(105, 193, 141, .1);
+}
+
+.dice-roll-entry__target--hit strong {
+  color: #9be0b7;
+}
+
+.dice-roll-entry__target--miss {
+  border-color: rgba(216, 122, 132, .46);
+  background: rgba(216, 122, 132, .09);
+}
+
+.dice-roll-entry__target--miss strong {
+  color: #efabb2;
+}
+
+.dice-roll-entry__target--damage {
+  border-color: rgba(214, 116, 87, .46);
+  background: rgba(154, 62, 70, .12);
+}
+
+.dice-roll-entry__target--damage strong {
+  color: #f0a48f;
 }
 
 .dice-roll-entry code {

@@ -42,3 +42,41 @@ test("dice log labels natural d20 outcomes instead of numeric totals", () => {
   assert.match(doubleCriticalHtml, /dice-roll-entry__total--critical">DOBLE CRITICO!<\/strong>/);
   assert.match(doubleFumbleHtml, /dice-roll-entry__total--fumble">DOBLE PIFIA!<\/strong>/);
 });
+
+test("dice log shows targeted attack and applied damage outcomes", () => {
+  const html = renderDiceRollerDock({
+    open: true,
+    history: [
+      {
+        id: "attack-roll",
+        formula: "d20+7",
+        total: 18,
+        groups: [],
+        rolledAt: 1,
+        targetKind: "attack",
+        targetName: "Goblin",
+        targetStand: "3",
+        targetArmorClass: 15,
+        targetHit: true
+      },
+      {
+        id: "damage-roll",
+        formula: "2d6+3",
+        total: 9,
+        groups: [],
+        rolledAt: 2,
+        targetKind: "damage",
+        targetName: "Goblin",
+        targetStand: "3",
+        appliedDamage: 9
+      }
+    ],
+    language: "en"
+  });
+
+  assert.match(html, /HIT/);
+  assert.match(html, /Goblin · Stand 3/);
+  assert.match(html, /18 vs AC 15/);
+  assert.match(html, /DAMAGE APPLIED/);
+  assert.match(html, /9 HP removed/);
+});

@@ -256,6 +256,7 @@ function renderDiceRollEntry(entry, language) {
         </div>
         <strong class="dice-roll-entry__total${outcomeClass}">${escapeHtml(outcomeLabel)}</strong>
       </header>
+      ${renderDiceTargetOutcome(entry, language)}
       <div class="dice-roll-entry__groups">
         ${(entry.groups || []).length > 0 ? (entry.groups || []).map((group) => `
           <section class="dice-roll-group">
@@ -274,6 +275,54 @@ function renderDiceRollEntry(entry, language) {
       </div>
     </article>
   `;
+}
+
+function renderDiceTargetOutcome(entry, language) {
+  const targetKind = String(entry.targetKind || "");
+  const targetName = String(entry.targetName || "").trim();
+
+  if (!targetKind || !targetName) {
+    return "";
+  }
+
+  const isEnglish = language === "en";
+  const stand = String(entry.targetStand || "").trim();
+  const targetLabel = `${targetName}${stand ? ` · ${isEnglish ? "Stand" : "Peana"} ${stand}` : ""}`;
+
+  if (targetKind === "attack") {
+    const armorClass = entry.targetArmorClass;
+    const hasArmorClass = Number.isFinite(Number(armorClass)) && armorClass !== null && armorClass !== "";
+    const hit = entry.targetHit === true;
+    const resultLabel = hasArmorClass
+      ? (hit ? (isEnglish ? "HIT" : "ACIERTO") : (isEnglish ? "MISS" : "FALLO"))
+      : (isEnglish ? "NO AC" : "SIN CA");
+    const detail = hasArmorClass
+      ? `${entry.total} ${isEnglish ? "vs" : "contra"} ${isEnglish ? "AC" : "CA"} ${armorClass}`
+      : (isEnglish ? "Target has no Armor Class value." : "El objetivo no tiene Clase de Armadura.");
+
+    return `
+      <div class="dice-roll-entry__target dice-roll-entry__target--${hasArmorClass && hit ? "hit" : "miss"}">
+        <strong>${escapeHtml(resultLabel)}</strong>
+        <span>${escapeHtml(targetLabel)}</span>
+        <small>${escapeHtml(detail)}</small>
+      </div>
+    `;
+  }
+
+  if (targetKind === "damage") {
+    const amount = Number(entry.appliedDamage);
+    const damage = Number.isFinite(amount) ? amount : Number(entry.total) || 0;
+
+    return `
+      <div class="dice-roll-entry__target dice-roll-entry__target--damage">
+        <strong>${escapeHtml(isEnglish ? "DAMAGE APPLIED" : "DANO APLICADO")}</strong>
+        <span>${escapeHtml(targetLabel)}</span>
+        <small>${escapeHtml(`${damage} ${isEnglish ? "HP removed" : "PG restados"}`)}</small>
+      </div>
+    `;
+  }
+
+  return "";
 }
 
 function formatRollTime(value, language) {
