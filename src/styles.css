@@ -36,11 +36,12 @@
 }
 
 .master-combat-workspace {
-  --master-map-size: 50%;
-  --master-list-size: 22%;
-  --master-detail-size: 46%;
+  --master-entity-size: 50%;
+  --master-list-size: 24%;
+  --master-detail-size: 24%;
   display: grid;
-  grid-template-rows: minmax(18rem, var(--master-map-size)) .58rem minmax(24rem, 1fr);
+  grid-template-columns: minmax(15rem, var(--master-list-size)) .58rem minmax(15rem, var(--master-detail-size)) .58rem minmax(24rem, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
   height: max(48rem, calc(100vh - 3rem));
   min-height: 48rem;
@@ -53,7 +54,7 @@
 
 .master-combat-workspace__map,
 .master-combat-workspace__map-host,
-.master-combat-workspace__lower,
+.master-combat-workspace__left,
 .master-combat-workspace__entities,
 .master-combat-workspace__sheet,
 .master-combat-workspace__dice {
@@ -82,9 +83,9 @@
   padding: .45rem;
 }
 
-.master-combat-workspace__lower {
+.master-combat-workspace__left {
   display: grid;
-  grid-template-columns: minmax(11rem, var(--master-list-size)) .58rem minmax(18rem, var(--master-detail-size)) .58rem minmax(18rem, 1fr);
+  grid-template-rows: minmax(12rem, var(--master-entity-size)) .58rem minmax(16rem, 1fr);
   overflow: hidden;
 }
 
@@ -93,7 +94,6 @@
 .master-combat-workspace__dice {
   display: grid;
   overflow: hidden;
-  border-top: 1px solid rgba(217, 171, 93, .14);
   background:
     radial-gradient(circle at 50% 0, rgba(217, 171, 93, .07), transparent 45%),
     linear-gradient(180deg, rgba(34, 22, 14, .98), rgba(15, 10, 8, .99));
@@ -364,14 +364,12 @@
 }
 
 @media (max-width: 980px) {
-  .master-combat-workspace {
-    height: auto;
-    min-height: 70rem;
-    grid-template-rows: minmax(22rem, var(--master-map-size)) .58rem minmax(44rem, 1fr);
+  .master-combat-workspace-panel {
+    overflow-x: auto;
   }
 
-  .master-combat-workspace__lower {
-    overflow-x: auto;
+  .master-combat-workspace {
+    width: max(70rem, 100%);
   }
 }
 

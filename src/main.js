@@ -532,7 +532,7 @@ let activeDiceRollerResize = null;
 let masterCombatWorkspaceSelectedId = "";
 let masterCombatWorkspaceLastActiveId = "";
 let activeMasterCombatWorkspaceResize = null;
-const MASTER_COMBAT_WORKSPACE_LAYOUT_KEY = "mimic-dice:master-combat-workspace-layout:v1";
+const MASTER_COMBAT_WORKSPACE_LAYOUT_KEY = "mimic-dice:master-combat-workspace-layout:v2";
 let masterCombatWorkspaceLayout = loadMasterCombatWorkspaceLayout();
 const combatantPreviewPopoutWindows = new Map();
 let combatantPreviewPopoutPollInterval = 0;
@@ -12392,7 +12392,7 @@ function renderMasterCombatWorkspacePanel() {
   const selectedCombatant = combatants.find((combatant) => combatant.id === masterCombatWorkspaceSelectedId)
     || combatants[0]
     || null;
-  const mapSize = `${Math.round(masterCombatWorkspaceLayout.mapRatio * 10000) / 100}%`;
+  const entitySize = `${Math.round(masterCombatWorkspaceLayout.entityRatio * 10000) / 100}%`;
   const listSize = `${Math.round(masterCombatWorkspaceLayout.listRatio * 10000) / 100}%`;
   const detailSize = `${Math.round(masterCombatWorkspaceLayout.detailRatio * 10000) / 100}%`;
   const workspaceLabel = isEnglishInterface() ? "Master combat workspace" : "Espacio de combate del master";
@@ -12411,13 +12411,9 @@ function renderMasterCombatWorkspacePanel() {
       <div
         class="master-combat-workspace"
         data-master-combat-workspace
-        style="--master-map-size:${mapSize};--master-list-size:${listSize};--master-detail-size:${detailSize}"
+        style="--master-entity-size:${entitySize};--master-list-size:${listSize};--master-detail-size:${detailSize}"
       >
-        <section class="master-combat-workspace__map" aria-label="${escapeHtml(isEnglishInterface() ? "Master map editor" : "Editor de mapa del master")}">
-          <div class="combat-map-mirror-host master-combat-workspace__map-host" data-combat-map-mirror-host></div>
-        </section>
-        <div class="master-combat-workspace__splitter master-combat-workspace__splitter--horizontal" data-master-workspace-resize="map" role="separator" aria-orientation="horizontal" tabindex="0"></div>
-        <section class="master-combat-workspace__lower">
+        <section class="master-combat-workspace__left">
           <aside class="master-combat-workspace__entities">
             <header class="master-combat-workspace__panel-heading">
               <div><small>${escapeHtml(isEnglishInterface() ? "COMBAT" : "COMBATE")}</small><strong>${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}</strong></div>
@@ -12429,16 +12425,7 @@ function renderMasterCombatWorkspacePanel() {
                 : `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "No entities" : "Sin entidades")}</strong><p>${escapeHtml(isEnglishInterface() ? "Add entities from normal Combat Table view." : "Anade entidades desde la vista normal de Tabla de combate.")}</p></div>`}
             </div>
           </aside>
-          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="list" role="separator" aria-orientation="vertical" tabindex="0"></div>
-          <section class="master-combat-workspace__sheet">
-            <header class="master-combat-workspace__panel-heading">
-              <div><small>${activeId === selectedCombatant?.id ? escapeHtml(isEnglishInterface() ? "CURRENT TURN" : "TURNO ACTUAL") : escapeHtml(isEnglishInterface() ? "SELECTION" : "SELECCION")}</small><strong>${escapeHtml(selectedCombatant?.nombre || (isEnglishInterface() ? "Entity sheet" : "Ficha de entidad"))}</strong></div>
-            </header>
-            <div class="master-combat-workspace__sheet-scroll">
-              ${selectedCombatant ? renderMasterCombatWorkspaceEntityPreview(selectedCombatant) : renderMasterCombatWorkspaceEmptyPreview()}
-            </div>
-          </section>
-          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="detail" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--horizontal" data-master-workspace-resize="entities" role="separator" aria-orientation="horizontal" tabindex="0"></div>
           <aside class="master-combat-workspace__dice">
             ${renderDiceRollerDock({
               open: true,
@@ -12455,6 +12442,19 @@ function renderMasterCombatWorkspacePanel() {
               diceTrayOpen: state.diceRollerDiceTrayOpen
             })}
           </aside>
+        </section>
+        <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="list" role="separator" aria-orientation="vertical" tabindex="0"></div>
+        <section class="master-combat-workspace__sheet">
+          <header class="master-combat-workspace__panel-heading">
+            <div><small>${activeId === selectedCombatant?.id ? escapeHtml(isEnglishInterface() ? "CURRENT TURN" : "TURNO ACTUAL") : escapeHtml(isEnglishInterface() ? "SELECTION" : "SELECCION")}</small><strong>${escapeHtml(selectedCombatant?.nombre || (isEnglishInterface() ? "Entity sheet" : "Ficha de entidad"))}</strong></div>
+          </header>
+          <div class="master-combat-workspace__sheet-scroll">
+            ${selectedCombatant ? renderMasterCombatWorkspaceEntityPreview(selectedCombatant) : renderMasterCombatWorkspaceEmptyPreview()}
+          </div>
+        </section>
+        <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="detail" role="separator" aria-orientation="vertical" tabindex="0"></div>
+        <section class="master-combat-workspace__map" aria-label="${escapeHtml(isEnglishInterface() ? "Master map editor" : "Editor de mapa del master")}">
+          <div class="combat-map-mirror-host master-combat-workspace__map-host" data-combat-map-mirror-host></div>
         </section>
       </div>
     </section>
@@ -12544,11 +12544,11 @@ function loadMasterCombatWorkspaceLayout() {
 function normalizeMasterCombatWorkspaceLayout(value) {
   const source = value && typeof value === "object" ? value : {};
   const normalized = {
-    mapRatio: Math.max(0.28, Math.min(0.7, Number(source.mapRatio) || 0.5)),
-    listRatio: Math.max(0.14, Math.min(0.38, Number(source.listRatio) || 0.22)),
-    detailRatio: Math.max(0.24, Math.min(0.58, Number(source.detailRatio) || 0.46))
+    entityRatio: Math.max(0.25, Math.min(0.75, Number(source.entityRatio) || 0.5)),
+    listRatio: Math.max(0.16, Math.min(0.34, Number(source.listRatio) || 0.24)),
+    detailRatio: Math.max(0.18, Math.min(0.4, Number(source.detailRatio) || 0.24))
   };
-  normalized.detailRatio = Math.min(normalized.detailRatio, 0.86 - normalized.listRatio);
+  normalized.detailRatio = Math.min(normalized.detailRatio, 0.7 - normalized.listRatio);
   return normalized;
 }
 
@@ -12579,17 +12579,17 @@ function updateMasterCombatWorkspaceResize(event) {
   const root = resize.root;
   const rootRect = root.getBoundingClientRect();
 
-  if (resize.kind === "map") {
-    masterCombatWorkspaceLayout.mapRatio = Math.max(0.28, Math.min(0.7, (event.clientY - rootRect.top) / Math.max(1, rootRect.height)));
+  if (resize.kind === "entities") {
+    const left = root.querySelector(".master-combat-workspace__left");
+    const leftRect = left?.getBoundingClientRect();
+    if (!leftRect) return false;
+    masterCombatWorkspaceLayout.entityRatio = Math.max(0.25, Math.min(0.75, (event.clientY - leftRect.top) / Math.max(1, leftRect.height)));
   } else {
-    const lower = root.querySelector(".master-combat-workspace__lower");
-    const lowerRect = lower?.getBoundingClientRect();
-    if (!lowerRect) return false;
-    const pointerRatio = (event.clientX - lowerRect.left) / Math.max(1, lowerRect.width);
+    const pointerRatio = (event.clientX - rootRect.left) / Math.max(1, rootRect.width);
     if (resize.kind === "list") {
-      masterCombatWorkspaceLayout.listRatio = Math.max(0.14, Math.min(0.38, pointerRatio, 0.82 - masterCombatWorkspaceLayout.detailRatio));
+      masterCombatWorkspaceLayout.listRatio = Math.max(0.16, Math.min(0.34, pointerRatio, 0.7 - masterCombatWorkspaceLayout.detailRatio));
     } else if (resize.kind === "detail") {
-      masterCombatWorkspaceLayout.detailRatio = Math.max(0.24, Math.min(0.58, pointerRatio - masterCombatWorkspaceLayout.listRatio, 0.86 - masterCombatWorkspaceLayout.listRatio));
+      masterCombatWorkspaceLayout.detailRatio = Math.max(0.18, Math.min(0.4, pointerRatio - masterCombatWorkspaceLayout.listRatio, 0.7 - masterCombatWorkspaceLayout.listRatio));
     }
   }
 
@@ -12600,7 +12600,7 @@ function updateMasterCombatWorkspaceResize(event) {
 
 function applyMasterCombatWorkspaceLayout(root = app.querySelector("[data-master-combat-workspace]")) {
   if (!root) return;
-  root.style.setProperty("--master-map-size", `${masterCombatWorkspaceLayout.mapRatio * 100}%`);
+  root.style.setProperty("--master-entity-size", `${masterCombatWorkspaceLayout.entityRatio * 100}%`);
   root.style.setProperty("--master-list-size", `${masterCombatWorkspaceLayout.listRatio * 100}%`);
   root.style.setProperty("--master-detail-size", `${masterCombatWorkspaceLayout.detailRatio * 100}%`);
 }
