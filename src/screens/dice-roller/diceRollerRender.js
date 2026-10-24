@@ -293,15 +293,25 @@ function renderDiceTargetOutcome(entry, language) {
     const armorClass = entry.targetArmorClass;
     const hasArmorClass = Number.isFinite(Number(armorClass)) && armorClass !== null && armorClass !== "";
     const hit = entry.targetHit === true;
-    const resultLabel = hasArmorClass
-      ? (hit ? (isEnglish ? "HIT" : "ACIERTO") : (isEnglish ? "MISS" : "FALLO"))
-      : (isEnglish ? "NO AC" : "SIN CA");
-    const detail = hasArmorClass
-      ? `${entry.total} ${isEnglish ? "vs" : "contra"} ${isEnglish ? "AC" : "CA"} ${armorClass}`
+    const isCritical = entry.criticalOutcome === "critical" || entry.criticalOutcome === "doubleCritical";
+    const isFumble = entry.criticalOutcome === "fumble" || entry.criticalOutcome === "doubleFumble";
+    const resultLabel = isCritical
+      ? (isEnglish ? "HIT" : "ACIERTO")
+      : isFumble
+        ? (isEnglish ? "MISS" : "FALLO")
+        : hasArmorClass
+          ? (hit ? (isEnglish ? "HIT" : "ACIERTO") : (isEnglish ? "MISS" : "FALLO"))
+          : (isEnglish ? "NO AC" : "SIN CA");
+    const detail = isCritical
+      ? (isEnglish ? "Critical: automatic hit." : "Critico: impacto automatico.")
+      : isFumble
+        ? (isEnglish ? "Fumble: automatic miss." : "Pifia: fallo automatico.")
+        : hasArmorClass
+          ? `${entry.total} ${isEnglish ? "vs" : "contra"} ${isEnglish ? "AC" : "CA"} ${armorClass}`
       : (isEnglish ? "Target has no Armor Class value." : "El objetivo no tiene Clase de Armadura.");
 
     return `
-      <div class="dice-roll-entry__target dice-roll-entry__target--${hasArmorClass && hit ? "hit" : "miss"}">
+      <div class="dice-roll-entry__target dice-roll-entry__target--${hit ? "hit" : "miss"}">
         <strong>${escapeHtml(resultLabel)}</strong>
         <span>${escapeHtml(targetLabel)}</span>
         <small>${escapeHtml(detail)}</small>
@@ -315,7 +325,9 @@ function renderDiceTargetOutcome(entry, language) {
 
     return `
       <div class="dice-roll-entry__target dice-roll-entry__target--damage">
-        <strong>${escapeHtml(isEnglish ? "DAMAGE APPLIED" : "DANO APLICADO")}</strong>
+        <strong>${escapeHtml(entry.targetCriticalDamage
+          ? (isEnglish ? "CRITICAL DAMAGE" : "DANO CRITICO")
+          : (isEnglish ? "DAMAGE APPLIED" : "DANO APLICADO"))}</strong>
         <span>${escapeHtml(targetLabel)}</span>
         <small>${escapeHtml(`${damage} ${isEnglish ? "HP removed" : "PG restados"}`)}</small>
       </div>

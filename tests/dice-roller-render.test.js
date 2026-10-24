@@ -68,7 +68,8 @@ test("dice log shows targeted attack and applied damage outcomes", () => {
         targetKind: "damage",
         targetName: "Goblin",
         targetStand: "3",
-        appliedDamage: 9
+        appliedDamage: 9,
+        targetCriticalDamage: true
       }
     ],
     language: "en"
@@ -77,6 +78,42 @@ test("dice log shows targeted attack and applied damage outcomes", () => {
   assert.match(html, /HIT/);
   assert.match(html, /Goblin · Stand 3/);
   assert.match(html, /18 vs AC 15/);
-  assert.match(html, /DAMAGE APPLIED/);
+  assert.match(html, /CRITICAL DAMAGE/);
   assert.match(html, /9 HP removed/);
+});
+
+test("dice log shows critical attacks as automatic hits and fumbles as automatic misses", () => {
+  const html = renderDiceRollerDock({
+    open: true,
+    history: [
+      {
+        id: "critical",
+        formula: "1d20+5",
+        total: 20,
+        criticalOutcome: "critical",
+        targetKind: "attack",
+        targetName: "Ancient Dragon",
+        targetStand: "1",
+        targetArmorClass: 30,
+        targetHit: true,
+        groups: []
+      },
+      {
+        id: "fumble",
+        formula: "1d20+20",
+        total: 1,
+        criticalOutcome: "fumble",
+        targetKind: "attack",
+        targetName: "Goblin",
+        targetStand: "2",
+        targetArmorClass: 5,
+        targetHit: false,
+        groups: []
+      }
+    ],
+    language: "en"
+  });
+
+  assert.match(html, /Critical: automatic hit\./);
+  assert.match(html, /Fumble: automatic miss\./);
 });
