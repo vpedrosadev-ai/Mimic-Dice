@@ -529,6 +529,11 @@ let combatTurnPopoutPollInterval = 0;
 let diceRollerPopoutWindow = null;
 let diceRollerPopoutPollInterval = 0;
 let activeDiceRollerResize = null;
+let masterCombatWorkspaceSelectedId = "";
+let masterCombatWorkspaceLastActiveId = "";
+let activeMasterCombatWorkspaceResize = null;
+const MASTER_COMBAT_WORKSPACE_LAYOUT_KEY = "mimic-dice:master-combat-workspace-layout:v1";
+let masterCombatWorkspaceLayout = loadMasterCombatWorkspaceLayout();
 const combatantPreviewPopoutWindows = new Map();
 let combatantPreviewPopoutPollInterval = 0;
 const notificationTimeouts = new Map();
@@ -1059,6 +1064,7 @@ state = {
   },
   combatMapMirrorVisible: false,
   combatMapMirrorCollapsed: false,
+  masterCombatWorkspaceVisible: false,
   encounterMapEditorId: "",
   combatTurnRoundEditorOpen: false,
   combatTurnRoundDraft: "",
@@ -1609,6 +1615,14 @@ function handleAppImageError(event) {
 async function handleClick(event) {
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     combatMapController.handleClick(event);
+    return;
+  }
+
+  const masterWorkspaceEntity = event.target.closest?.("[data-master-workspace-entity]");
+
+  if (masterWorkspaceEntity) {
+    masterCombatWorkspaceSelectedId = cleanText(masterWorkspaceEntity.dataset.masterWorkspaceEntity);
+    render();
     return;
   }
 
@@ -3488,6 +3502,16 @@ async function handleClick(event) {
     state.combatMapMirrorVisible = true;
     state.combatMapMirrorCollapsed = false;
     combatMapController.open();
+    render();
+    return;
+  }
+
+  if (action === "open-master-combat-workspace") {
+    state.masterCombatWorkspaceVisible = !state.masterCombatWorkspaceVisible;
+    if (state.masterCombatWorkspaceVisible) {
+      state.combatMapMirrorVisible = false;
+      state.combatMapMirrorCollapsed = false;
+    }
     render();
     return;
   }
@@ -6333,6 +6357,13 @@ function handlePointerDown(event) {
     return;
   }
 
+  const masterWorkspaceResizeHandle = event.target.closest?.("[data-master-workspace-resize]");
+
+  if (masterWorkspaceResizeHandle) {
+    beginMasterCombatWorkspaceResize(event, masterWorkspaceResizeHandle);
+    return;
+  }
+
   const diceResizeHandle = event.target.closest("[data-dice-roller-resize]");
 
   if (diceResizeHandle) {
@@ -6445,6 +6476,11 @@ function handleContextMenu(event) {
 }
 
 function handlePointerMove(event) {
+  if (activeMasterCombatWorkspaceResize) {
+    updateMasterCombatWorkspaceResize(event);
+    return;
+  }
+
   if (event.target.closest?.("[data-combat-map-master-root]") || combatMapController.isMasterInteractionActive()) {
     combatMapController.handlePointerMove(event);
     return;
@@ -6466,6 +6502,11 @@ function handlePointerMove(event) {
 }
 
 function handlePointerUp(event) {
+  if (activeMasterCombatWorkspaceResize) {
+    finishMasterCombatWorkspaceResize(event);
+    return;
+  }
+
   if (event.target.closest?.("[data-combat-map-master-root]") || combatMapController.isMasterInteractionActive()) {
     combatMapController.handlePointerUp(event);
     return;
@@ -9041,7 +9082,7 @@ function render(focusState = null) {
       ${renderAccountDialog()}
       ${renderCloudImportUpdateDialog()}
       ${renderCompendiumReferencePopups()}
-      ${renderDiceRollerDock({
+      ${state.masterCombatWorkspaceVisible && state.activeScreen === "combat-tracker" ? "" : renderDiceRollerDock({
         open: state.diceRollerOpen,
         draft: state.diceRollerDraft,
         error: state.diceRollerError,
@@ -12105,6 +12146,10 @@ function renderCombatTracker() {
   const areaAmountValue = Number(state.areaDamage);
   const hasAreaAmount = Number.isFinite(areaAmountValue) && areaAmountValue >= 0;
 
+  if (state.masterCombatWorkspaceVisible) {
+    return renderMasterCombatWorkspacePanel();
+  }
+
   return `
     <section class="panel panel--table combat-tracker-panel">
       <div class="section-heading">
@@ -12113,6 +12158,7 @@ function renderCombatTracker() {
           ${!state.combatTimerPanelOpen
             ? `
               <div class="combat-heading__actions">
+                ${renderMasterCombatWorkspaceButton()}
                 ${renderCombatMapButton()}
                 ${renderCombatTimerToggleButton(false)}
               </div>
@@ -12311,10 +12357,271 @@ function renderCombatMapButton() {
   `;
 }
 
+function renderMasterCombatWorkspaceButton() {
+  const label = isEnglishInterface() ? "Master view" : "Vista master";
+  return `
+    <button
+      class="toolbar-button toolbar-button--combat combat-overview-toggle ${state.masterCombatWorkspaceVisible ? "is-active" : ""}"
+      type="button"
+      data-action="open-master-combat-workspace"
+      aria-pressed="${state.masterCombatWorkspaceVisible}"
+      aria-label="${escapeHtml(label)}"
+      title="${escapeHtml(isEnglishInterface() ? "Open master combat workspace" : "Abrir espacio de combate del master")}"
+    >
+      <span class="button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3V3Zm2 2v7h14V5H5Zm0 9v5h4v-5H5Zm6 0v5h4v-5h-4Zm6 0v5h2v-5h-2Z" /></svg>
+      </span>
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function renderMasterCombatWorkspacePanel() {
+  const combatants = [...state.combatants].filter(Boolean).sort(compareCombatants);
+  const activeId = state.isCombatActive ? cleanText(state.activeTurnCombatantId) : "";
+
+  if (activeId !== masterCombatWorkspaceLastActiveId) {
+    masterCombatWorkspaceLastActiveId = activeId;
+    if (activeId) masterCombatWorkspaceSelectedId = activeId;
+  }
+
+  if (!combatants.some((combatant) => combatant.id === masterCombatWorkspaceSelectedId)) {
+    masterCombatWorkspaceSelectedId = activeId || combatants[0]?.id || "";
+  }
+
+  const selectedCombatant = combatants.find((combatant) => combatant.id === masterCombatWorkspaceSelectedId)
+    || combatants[0]
+    || null;
+  const mapSize = `${Math.round(masterCombatWorkspaceLayout.mapRatio * 10000) / 100}%`;
+  const listSize = `${Math.round(masterCombatWorkspaceLayout.listRatio * 10000) / 100}%`;
+  const detailSize = `${Math.round(masterCombatWorkspaceLayout.detailRatio * 10000) / 100}%`;
+  const workspaceLabel = isEnglishInterface() ? "Master combat workspace" : "Espacio de combate del master";
+
+  return `
+    <section class="panel panel--table combat-tracker-panel master-combat-workspace-panel">
+      <div class="section-heading master-combat-workspace-panel__heading">
+        ${renderScreenHeadingIdentity("combat-tracker", "", workspaceLabel)}
+        <div class="section-heading__side">
+          <div class="combat-heading__actions">
+            ${renderMasterCombatWorkspaceButton()}
+            ${renderCombatMapButton()}
+          </div>
+        </div>
+      </div>
+      <div
+        class="master-combat-workspace"
+        data-master-combat-workspace
+        style="--master-map-size:${mapSize};--master-list-size:${listSize};--master-detail-size:${detailSize}"
+      >
+        <section class="master-combat-workspace__map" aria-label="${escapeHtml(isEnglishInterface() ? "Master map editor" : "Editor de mapa del master")}">
+          <div class="combat-map-mirror-host master-combat-workspace__map-host" data-combat-map-mirror-host></div>
+        </section>
+        <div class="master-combat-workspace__splitter master-combat-workspace__splitter--horizontal" data-master-workspace-resize="map" role="separator" aria-orientation="horizontal" tabindex="0"></div>
+        <section class="master-combat-workspace__lower">
+          <aside class="master-combat-workspace__entities">
+            <header class="master-combat-workspace__panel-heading">
+              <div><small>${escapeHtml(isEnglishInterface() ? "COMBAT" : "COMBATE")}</small><strong>${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}</strong></div>
+              <span>${combatants.length}</span>
+            </header>
+            <div class="master-combat-workspace__entity-list" data-render-scroll-key="master-combat-entities">
+              ${combatants.length
+                ? combatants.map((combatant) => renderMasterCombatWorkspaceEntityCard(combatant, combatant.id === selectedCombatant?.id, combatant.id === activeId)).join("")
+                : `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "No entities" : "Sin entidades")}</strong><p>${escapeHtml(isEnglishInterface() ? "Add entities from normal Combat Table view." : "Anade entidades desde la vista normal de Tabla de combate.")}</p></div>`}
+            </div>
+          </aside>
+          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="list" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <section class="master-combat-workspace__sheet">
+            <header class="master-combat-workspace__panel-heading">
+              <div><small>${activeId === selectedCombatant?.id ? escapeHtml(isEnglishInterface() ? "CURRENT TURN" : "TURNO ACTUAL") : escapeHtml(isEnglishInterface() ? "SELECTION" : "SELECCION")}</small><strong>${escapeHtml(selectedCombatant?.nombre || (isEnglishInterface() ? "Entity sheet" : "Ficha de entidad"))}</strong></div>
+            </header>
+            <div class="master-combat-workspace__sheet-scroll">
+              ${selectedCombatant ? renderMasterCombatWorkspaceEntityPreview(selectedCombatant) : renderMasterCombatWorkspaceEmptyPreview()}
+            </div>
+          </section>
+          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="detail" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <aside class="master-combat-workspace__dice">
+            ${renderDiceRollerDock({
+              open: true,
+              draft: state.diceRollerDraft,
+              error: state.diceRollerError,
+              history: state.diceRollHistory,
+              appIconUrl,
+              language: state.appLanguage,
+              isPopout: true,
+              helpOpen: state.diceRollerHelpOpen,
+              hitDiceMode: state.diceRollerHitDiceMode,
+              rollMode: state.diceRollerRollMode,
+              modifier: state.diceRollerModifier,
+              diceTrayOpen: state.diceRollerDiceTrayOpen
+            })}
+          </aside>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
+  const context = getCombatRowContext(combatant);
+  const tokenUrl = context.tokenUrl;
+  const currentHp = Math.max(0, toNumber(combatant.pgAct));
+  const effectiveMax = Math.max(0, toNumber(combatant.pgMax) - toNumber(combatant.necrotic));
+  const hpPercent = effectiveMax > 0 ? Math.max(0, Math.min(100, currentHp / effectiveMax * 100)) : 0;
+  const tempHp = Math.max(0, toNumber(combatant.pgTemp));
+  const sideLabel = combatant.side === "allies"
+    ? (isEnglishInterface() ? "Ally" : "Aliado")
+    : combatant.side === "neutral"
+      ? (isEnglishInterface() ? "Neutral" : "Neutral")
+      : (isEnglishInterface() ? "Enemy" : "Enemigo");
+  const hpLabel = isEnglishInterface() ? "HP" : "PG";
+
+  return `
+    <button
+      class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""}"
+      type="button"
+      data-master-workspace-entity="${escapeHtml(combatant.id)}"
+      aria-pressed="${selected}"
+    >
+      <span class="master-combat-entity__portrait">
+        ${tokenUrl
+          ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">`
+          : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}
+        ${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}
+      </span>
+      <span class="master-combat-entity__copy">
+        <span class="master-combat-entity__title"><strong>${escapeHtml(combatant.nombre || (isEnglishInterface() ? "Unnamed" : "Sin nombre"))}</strong><em>${escapeHtml(sideLabel)}</em></span>
+        <small>${escapeHtml(`${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`)}${cleanText(combatant.iniactiva) ? ` · ${escapeHtml(isEnglishInterface() ? "Init" : "Inic")} ${escapeHtml(String(combatant.iniactiva))}` : ""}</small>
+        <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
+      </span>
+    </button>
+  `;
+}
+
+function renderMasterCombatWorkspaceEntityPreview(combatant) {
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+
+  if (linkedCharacter) {
+    return renderCombatCharacterPreview(linkedCharacter, { interactive: false, linkDetails: true });
+  }
+
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+
+  if (bestiaryEntry) {
+    return renderCombatTokenPreview(bestiaryEntry, { linkDetails: true, combatant });
+  }
+
+  const sideLabel = combatant.side === "allies"
+    ? (isEnglishInterface() ? "Ally" : "Aliado")
+    : combatant.side === "neutral"
+      ? "Neutral"
+      : (isEnglishInterface() ? "Enemy" : "Enemigo");
+  const fallbackName = isEnglishInterface() ? "Unnamed" : "Sin nombre";
+  return `
+    <div class="combat-token-preview combat-token-preview--floating">
+      <div class="combat-token-preview__header"><div><strong>${escapeHtml(combatant.nombre || fallbackName)}</strong><span>${escapeHtml(sideLabel)}</span></div></div>
+      <div class="combat-token-preview__metrics">
+        ${renderBestiaryMetric("CA", combatant.ca || "-")}
+        ${renderBestiaryMetric(isEnglishInterface() ? "HP" : "PG", `${toNumber(combatant.pgAct)}/${toNumber(combatant.pgMax)}`)}
+      </div>
+      <div class="combat-token-preview__sections"><section class="detail-section"><h4>${escapeHtml(isEnglishInterface() ? "Entity" : "Entidad")}</h4><p>${escapeHtml(isEnglishInterface() ? "No linked bestiary or character sheet." : "Sin ficha enlazada de bestiario o personaje.")}</p></section></div>
+    </div>
+  `;
+}
+
+function renderMasterCombatWorkspaceEmptyPreview() {
+  return `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "Select an entity" : "Selecciona una entidad")}</strong><p>${escapeHtml(isEnglishInterface() ? "Its combat hover sheet will appear here." : "Su ficha flotante de combate aparecera aqui.")}</p></div>`;
+}
+
+function loadMasterCombatWorkspaceLayout() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(MASTER_COMBAT_WORKSPACE_LAYOUT_KEY) || "null");
+    return normalizeMasterCombatWorkspaceLayout(stored);
+  } catch {
+    return normalizeMasterCombatWorkspaceLayout(null);
+  }
+}
+
+function normalizeMasterCombatWorkspaceLayout(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const normalized = {
+    mapRatio: Math.max(0.28, Math.min(0.7, Number(source.mapRatio) || 0.5)),
+    listRatio: Math.max(0.14, Math.min(0.38, Number(source.listRatio) || 0.22)),
+    detailRatio: Math.max(0.24, Math.min(0.58, Number(source.detailRatio) || 0.46))
+  };
+  normalized.detailRatio = Math.min(normalized.detailRatio, 0.86 - normalized.listRatio);
+  return normalized;
+}
+
+function saveMasterCombatWorkspaceLayout() {
+  try {
+    localStorage.setItem(MASTER_COMBAT_WORKSPACE_LAYOUT_KEY, JSON.stringify(masterCombatWorkspaceLayout));
+  } catch {}
+}
+
+function beginMasterCombatWorkspaceResize(event, handle) {
+  if (event.button !== 0) return;
+  const root = handle.closest("[data-master-combat-workspace]");
+  if (!root) return;
+  activeMasterCombatWorkspaceResize = {
+    pointerId: event.pointerId,
+    kind: handle.dataset.masterWorkspaceResize,
+    root,
+    handle
+  };
+  handle.setPointerCapture?.(event.pointerId);
+  document.body.classList.add("is-master-combat-workspace-resizing");
+  event.preventDefault();
+}
+
+function updateMasterCombatWorkspaceResize(event) {
+  const resize = activeMasterCombatWorkspaceResize;
+  if (!resize || (event.pointerId !== undefined && event.pointerId !== resize.pointerId)) return false;
+  const root = resize.root;
+  const rootRect = root.getBoundingClientRect();
+
+  if (resize.kind === "map") {
+    masterCombatWorkspaceLayout.mapRatio = Math.max(0.28, Math.min(0.7, (event.clientY - rootRect.top) / Math.max(1, rootRect.height)));
+  } else {
+    const lower = root.querySelector(".master-combat-workspace__lower");
+    const lowerRect = lower?.getBoundingClientRect();
+    if (!lowerRect) return false;
+    const pointerRatio = (event.clientX - lowerRect.left) / Math.max(1, lowerRect.width);
+    if (resize.kind === "list") {
+      masterCombatWorkspaceLayout.listRatio = Math.max(0.14, Math.min(0.38, pointerRatio, 0.82 - masterCombatWorkspaceLayout.detailRatio));
+    } else if (resize.kind === "detail") {
+      masterCombatWorkspaceLayout.detailRatio = Math.max(0.24, Math.min(0.58, pointerRatio - masterCombatWorkspaceLayout.listRatio, 0.86 - masterCombatWorkspaceLayout.listRatio));
+    }
+  }
+
+  applyMasterCombatWorkspaceLayout(root);
+  event.preventDefault();
+  return true;
+}
+
+function applyMasterCombatWorkspaceLayout(root = app.querySelector("[data-master-combat-workspace]")) {
+  if (!root) return;
+  root.style.setProperty("--master-map-size", `${masterCombatWorkspaceLayout.mapRatio * 100}%`);
+  root.style.setProperty("--master-list-size", `${masterCombatWorkspaceLayout.listRatio * 100}%`);
+  root.style.setProperty("--master-detail-size", `${masterCombatWorkspaceLayout.detailRatio * 100}%`);
+}
+
+function finishMasterCombatWorkspaceResize(event) {
+  if (!activeMasterCombatWorkspaceResize) return false;
+  if (event.pointerId !== undefined && event.pointerId !== activeMasterCombatWorkspaceResize.pointerId) return false;
+  activeMasterCombatWorkspaceResize.handle?.releasePointerCapture?.(activeMasterCombatWorkspaceResize.pointerId);
+  activeMasterCombatWorkspaceResize = null;
+  document.body.classList.remove("is-master-combat-workspace-resizing");
+  saveMasterCombatWorkspaceLayout();
+  combatMapController.syncMirror(app);
+  event.preventDefault?.();
+  return true;
+}
+
 function renderCombatTimerPanel(battleTimerLabel) {
   return `
     <div class="combat-timer">
       <div class="combat-timer__map-action">
+        ${renderMasterCombatWorkspaceButton()}
         ${renderCombatMapButton()}
       </div>
       <article class="combat-timer__card">

@@ -11,6 +11,11 @@ import { createCombatMapController } from "../screens/combat-map/combatMap.js";
 import { fetchAuthSession } from "../cloud/cloudClient.js";
 import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import {
+  createMonstersLeagueServerClockSample,
+  getMonstersLeagueClockNow,
+  getMonstersLeagueRemainingSeconds
+} from "./monstersLeagueClock.js";
+import {
   connectMonstersLeagueRoom,
   createMonstersLeagueOnlineRoom,
   finalizeMonstersLeagueOnlineRoom
@@ -180,6 +185,7 @@ const state = {
   draftFlashTimer: 0,
   draftObservation: null,
   lastCountdownBeep: "",
+  serverClockSample: null,
   audioContext: null,
   lastActiveCombatantId: "",
   turnFlash: null,
@@ -302,7 +308,9 @@ async function initializeOnlineRoom(hostName) {
       }
       if (!state.loading) render();
     },
-    onSnapshot(room) {
+    onSnapshot(room, timing = {}) {
+      const clockSample = createMonstersLeagueServerClockSample(timing.serverNow, timing.receivedAt);
+      if (clockSample) state.serverClockSample = clockSample;
       const previousStatus = state.room?.status;
       observeDraftEvents(room);
       observeCombatTurn(room);
@@ -1383,12 +1391,12 @@ function tick() {
     return;
   }
 
-  const now = Date.now();
+  const now = getAuctionNow();
   const countdown = app.querySelector("[data-ml-countdown]");
   if (countdown) countdown.textContent = formatCountdown(getActiveDeadline(), now);
   const finalCountdown = app.querySelector("[data-ml-final-countdown]");
   if (finalCountdown) {
-    const remainingSeconds = Math.max(0, Math.ceil((getActiveDeadline() - now) / 1000));
+    const remainingSeconds = getMonstersLeagueRemainingSeconds(getActiveDeadline(), now);
     finalCountdown.textContent = remainingSeconds > 0 && remainingSeconds <= 3 ? String(remainingSeconds) : "";
     finalCountdown.classList.toggle("is-visible", remainingSeconds > 0 && remainingSeconds <= 3);
   }
@@ -1437,10 +1445,16 @@ function tick() {
 }
 
 function getActiveDeadline() {
-  return state.room.currentLot?.deadlineAt || state.room.nominationDeadlineAt || Date.now();
+  return state.room.currentLot?.deadlineAt || state.room.nominationDeadlineAt || getAuctionNow();
 }
 
-function formatCountdown(deadline, now = Date.now()) {
+function getAuctionNow() {
+  return localTestMode
+    ? Date.now()
+    : getMonstersLeagueClockNow(state.serverClockSample);
+}
+
+function formatCountdown(deadline, now = getAuctionNow()) {
   return (Math.max(0, deadline - now) / 1000).toFixed(1);
 }
 

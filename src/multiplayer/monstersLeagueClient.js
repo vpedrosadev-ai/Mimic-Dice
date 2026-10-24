@@ -66,7 +66,10 @@ export function connectMonstersLeagueRoom(roomId, handlers = {}) {
 
       if (message?.type === "snapshot" && message.room) {
         window.clearTimeout(readyTimer);
-        handlers.onSnapshot?.(message.room);
+        handlers.onSnapshot?.(message.room, {
+          serverNow: Number(message.serverNow) || 0,
+          receivedAt: Date.now()
+        });
         initialResolve?.(message.room);
         initialResolve = null;
         initialReject = null;

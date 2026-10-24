@@ -97,7 +97,11 @@ export class MonstersLeagueRoom extends DurableObject {
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ playerId: player.id, userId: user.id, name: user.name });
-    server.send(JSON.stringify({ type: "snapshot", room: getMonstersLeagueRoomSummary(this.room) }));
+    server.send(JSON.stringify({
+      type: "snapshot",
+      serverNow: Date.now(),
+      room: getMonstersLeagueRoomSummary(this.room)
+    }));
     this.broadcastSnapshot(server);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -258,7 +262,11 @@ export class MonstersLeagueRoom extends DurableObject {
 
   broadcastSnapshot(except = null) {
     if (!this.room) return;
-    const payload = JSON.stringify({ type: "snapshot", room: getMonstersLeagueRoomSummary(this.room) });
+    const payload = JSON.stringify({
+      type: "snapshot",
+      serverNow: Date.now(),
+      room: getMonstersLeagueRoomSummary(this.room)
+    });
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === except) continue;
       try { socket.send(payload); } catch {}
