@@ -232,6 +232,12 @@ function renderDiceFormulaHelp(isEnglish) {
 
 function renderDiceRollEntry(entry, language) {
   const timeLabel = formatRollTime(entry.rolledAt, language);
+  const outcomeLabel = entry.criticalOutcome === "critical"
+    ? (language === "en" ? "CRITICAL" : "CRITICO")
+    : entry.criticalOutcome === "fumble"
+      ? (language === "en" ? "FUMBLE" : "PIFIA")
+      : formatTotal(entry.total);
+  const outcomeClass = entry.criticalOutcome ? ` dice-roll-entry__total--${entry.criticalOutcome}` : "";
 
   return `
     <article class="dice-roll-entry">
@@ -243,7 +249,7 @@ function renderDiceRollEntry(entry, language) {
           ${entry.hitDiceMode ? `<span class="dice-roll-entry__mode">${escapeHtml(language === "en" ? "HIT DICE" : "DADOS DE VIDA")}</span>` : ""}
           ${entry.rollMode ? `<span class="dice-roll-entry__mode dice-roll-entry__mode--${escapeHtml(entry.rollMode)}">${escapeHtml(entry.rollMode === "advantage" ? (language === "en" ? "ADVANTAGE" : "VENTAJA") : (language === "en" ? "DISADVANTAGE" : "DESVENTAJA"))}</span>` : ""}
         </div>
-        <strong class="dice-roll-entry__total">${escapeHtml(formatTotal(entry.total))}</strong>
+        <strong class="dice-roll-entry__total${outcomeClass}">${escapeHtml(outcomeLabel)}</strong>
       </header>
       <div class="dice-roll-entry__groups">
         ${(entry.groups || []).length > 0 ? (entry.groups || []).map((group) => `

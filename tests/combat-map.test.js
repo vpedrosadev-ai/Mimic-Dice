@@ -143,7 +143,9 @@ test("map zoom reaches 500 percent and player notifications default off", () => 
   const enlarged = normalizeMapEditorState({ viewport: { zoom: 99 } });
   assert.equal(defaults.playerNotifications.visible, false);
   assert.equal(defaults.showTokenNumbers, true);
+  assert.equal(defaults.healthInInitiative, true);
   assert.equal(normalizeMapEditorState({ showTokenNumbers: false }).showTokenNumbers, false);
+  assert.equal(normalizeMapEditorState({ healthInInitiative: false }).healthInInitiative, false);
   assert.equal(enlarged.viewport.zoom, 5);
 });
 
@@ -265,6 +267,28 @@ test("area shapes use one grid cell for every five feet", () => {
     width: 288,
     height: 288
   });
+});
+
+test("straight line shapes use configured length and width in feet", () => {
+  assert.deepEqual(getAreaShapeMetrics({ type: "line", distanceFeet: 30, widthFeet: 10 }, { size: 48 }), {
+    type: "line",
+    distanceFeet: 30,
+    cells: 6,
+    distancePx: 288,
+    width: 288,
+    height: 96,
+    widthFeet: 10
+  });
+  const line = normalizeMapEditorState({
+    shapes: {
+      type: "line",
+      widthFeet: 15,
+      items: [{ id: "line-1", type: "line", distanceFeet: 40, widthFeet: 10, x: 20, y: 30 }]
+    }
+  }).shapes;
+  assert.equal(line.type, "line");
+  assert.equal(line.widthFeet, 15);
+  assert.equal(line.items[0].widthFeet, 10);
 });
 
 test("grid coordinates resolve to the same square and hex cell centers shown on the map", () => {

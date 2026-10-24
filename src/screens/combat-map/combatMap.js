@@ -210,7 +210,7 @@ function columnIndexToLabel(index) {
 function normalizeAreaShapes(value) {
   if (!Array.isArray(value)) return [];
   return value.slice(-MAX_AREA_SHAPES).map((shape, index) => {
-    const type = ["circle", "square", "cone", "text"].includes(shape?.type) ? shape.type : "circle";
+    const type = ["circle", "square", "cone", "line", "text"].includes(shape?.type) ? shape.type : "circle";
     return {
       id: clean(shape?.id) || `shape-${index + 1}`,
       type,
@@ -219,6 +219,9 @@ function normalizeAreaShapes(value) {
       x: Number(shape?.x) || 0,
       y: Number(shape?.y) || 0,
       rotation: ((Number(shape?.rotation) || 0) % 360 + 360) % 360,
+      ...(type === "line" ? {
+        widthFeet: clamp(Math.round((Number(shape?.widthFeet) || 5) / 5) * 5, 5, 500)
+      } : {}),
       ...(type === "text" ? {
         text: clean(shape?.text).slice(0, 500),
         textBoxVisible: shape?.textBoxVisible !== false,
@@ -231,19 +234,21 @@ function normalizeAreaShapes(value) {
 }
 
 export function getAreaShapeMetrics(shape, grid) {
-  const type = ["circle", "square", "cone", "text"].includes(shape?.type) ? shape.type : "circle";
+  const type = ["circle", "square", "cone", "line", "text"].includes(shape?.type) ? shape.type : "circle";
   const distanceFeet = clamp(Math.round((Number(shape?.distanceFeet) || 5) / 5) * 5, 5, 500);
   const cells = distanceFeet / 5;
   const distancePx = cells * clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE);
   const width = type === "circle" ? distancePx * 2 : distancePx;
-  const height = type === "circle" ? distancePx * 2 : distancePx;
+  const widthFeet = type === "line" ? clamp(Math.round((Number(shape?.widthFeet) || 5) / 5) * 5, 5, 500) : null;
+  const height = type === "circle" ? distancePx * 2 : type === "line" ? (widthFeet / 5) * clamp(grid?.size || 80, MIN_GRID_SIZE, MAX_GRID_SIZE) : distancePx;
   return {
     type,
     distanceFeet,
     cells,
     distancePx,
     width,
-    height
+    height,
+    ...(type === "line" ? { widthFeet } : {})
   };
 }
 
@@ -688,9 +693,10 @@ export function normalizeMapEditorState(value) {
       strokes: normalizePaintStrokes(source.paint?.strokes)
     },
     shapes: {
-      type: ["circle", "square", "cone", "text"].includes(source.shapes?.type) ? source.shapes.type : "circle",
+      type: ["circle", "square", "cone", "line", "text"].includes(source.shapes?.type) ? source.shapes.type : "circle",
       color: normalizeColor(source.shapes?.color, "#f97316"),
       distanceFeet: clamp(Math.round((Number(source.shapes?.distanceFeet) || 15) / 5) * 5, 5, 500),
+      widthFeet: clamp(Math.round((Number(source.shapes?.widthFeet) || 5) / 5) * 5, 5, 500),
       coordinate: clean(source.shapes?.coordinate).toUpperCase().replaceAll(" ", "").slice(0, 12),
       text: clean(source.shapes?.text).slice(0, 500),
       textBoxVisible: source.shapes?.textBoxVisible !== false,
@@ -702,6 +708,7 @@ export function normalizeMapEditorState(value) {
     },
     savedMapLayouts: normalizeSavedMapLayouts(source.savedMapLayouts),
     healthMode: ["all", "none", "allies", "neutral", "enemies"].includes(source.healthMode) ? source.healthMode : "all",
+    healthInInitiative: source.healthInInitiative !== false,
     initiative: {
       masterVisible: typeof source.initiative?.masterVisible === "boolean" ? source.initiative.masterVisible : legacyInitiativeVisible,
       playerVisible: typeof source.initiative?.playerVisible === "boolean" ? source.initiative.playerVisible : legacyInitiativeVisible,
@@ -709,6 +716,68 @@ export function normalizeMapEditorState(value) {
       size: clamp(source.initiative?.size || 290, 160, 650)
     }
   };
+}
+
+function getMapEditorPreferences(source) {
+  return {
+    playerNotifications: { ...source.playerNotifications },
+    opacity: { ...source.opacity },
+    rotationOrientation: source.rotationOrientation,
+    grid: {
+      visible: source.grid.visible,
+      type: source.grid.type,
+      color: source.grid.color,
+      size: source.grid.size
+    },
+    showTokenNumbers: source.showTokenNumbers,
+    fog: {
+      enabled: source.fog.enabled,
+      mode: source.fog.mode,
+      brushShape: source.fog.brushShape,
+      brushSize: source.fog.brushSize
+    },
+    paint: {
+      color: source.paint.color,
+      size: source.paint.size,
+      mode: source.paint.mode,
+      icon: source.paint.icon,
+      iconSize: source.paint.iconSize,
+      iconRotation: source.paint.iconRotation
+    },
+    shapes: {
+      type: source.shapes.type,
+      color: source.shapes.color,
+      distanceFeet: source.shapes.distanceFeet,
+      widthFeet: source.shapes.widthFeet,
+      text: source.shapes.text,
+      textBoxVisible: source.shapes.textBoxVisible,
+      textBoxColor: source.shapes.textBoxColor,
+      textColor: source.shapes.textColor,
+      fontSize: source.shapes.fontSize
+    },
+    healthMode: source.healthMode,
+    healthInInitiative: source.healthInInitiative,
+    initiative: { ...source.initiative }
+  };
+}
+
+function normalizeMapEditorStateWithPreferences(value, preferences) {
+  if (!preferences) return normalizeMapEditorState(value);
+  const source = isObject(value) ? value : {};
+  return normalizeMapEditorState({
+    ...source,
+    playerNotifications: preferences.playerNotifications,
+    opacity: preferences.opacity,
+    rotationOrientation: preferences.rotationOrientation,
+    grid: { ...(isObject(source.grid) ? source.grid : {}), ...preferences.grid },
+    showTokenNumbers: preferences.showTokenNumbers,
+    fog: { ...(isObject(source.fog) ? source.fog : {}), ...preferences.fog },
+    paint: { ...(isObject(source.paint) ? source.paint : {}), ...preferences.paint },
+    shapes: { ...(isObject(source.shapes) ? source.shapes : {}), ...preferences.shapes },
+    healthMode: preferences.healthMode,
+    healthInInitiative: preferences.healthInInitiative,
+    initiative: preferences.initiative
+  });
 }
 
 export function snapTokenPosition(point, grid) {
@@ -933,6 +1002,8 @@ export function createCombatMapController(options = {}) {
   let tokenFeedbackSequence = 0;
   let tokenFeedbacks = [];
   const tokenFeedbackTimers = new Map();
+  let turnAnnouncement = null;
+  let turnAnnouncementTimer = 0;
 
   function loadLocalState() {
     try {
@@ -1060,6 +1131,7 @@ export function createCombatMapController(options = {}) {
 
   function applySave(value, options = {}) {
     const preserveLocalView = options.preservePlayerView === true || options.preserveLocalView === true;
+    const localPreferences = preserveLocalView ? getMapEditorPreferences(state) : null;
     const localPlayerView = preserveLocalView ? {
       viewport: { ...state.viewport },
       playerViewport: { ...state.playerViewport },
@@ -1072,7 +1144,7 @@ export function createCombatMapController(options = {}) {
       openPanel: state.openPanel,
       windowBounds: { ...state.windowBounds }
     } : null;
-    state = normalizeMapEditorState(value);
+    state = normalizeMapEditorStateWithPreferences(value, localPreferences);
     if (localPlayerView) {
       if (options.preserveLocalView === true) state.viewport = localPlayerView.viewport;
       state.playerViewport = localPlayerView.playerViewport;
@@ -1099,7 +1171,7 @@ export function createCombatMapController(options = {}) {
       savedMapLayouts: state.savedMapLayouts,
       windowBounds: state.windowBounds
     };
-    state = normalizeMapEditorState({ ...workspace, ...preserved, map });
+    state = normalizeMapEditorStateWithPreferences({ ...workspace, ...preserved, map }, getMapEditorPreferences(state));
     openPanel = state.openPanel;
     persist();
     sync();
@@ -1133,7 +1205,7 @@ export function createCombatMapController(options = {}) {
       windowBounds: state.windowBounds,
       openPanel
     };
-    state = normalizeMapEditorState({ ...layout.state, ...preserved, map: next });
+    state = normalizeMapEditorStateWithPreferences({ ...layout.state, ...preserved, map: next }, getMapEditorPreferences(state));
     openPanel = state.openPanel;
     return true;
   }
@@ -1161,14 +1233,12 @@ export function createCombatMapController(options = {}) {
       return;
     }
     if (!restoreMapLayout(next)) {
-      state = normalizeMapEditorState({
+      state = normalizeMapEditorStateWithPreferences({
         map: next,
         savedMapLayouts: state.savedMapLayouts,
         windowBounds: state.windowBounds,
-        openPanel,
-        healthMode: state.healthMode,
-        initiative: state.initiative
-      });
+        openPanel
+      }, getMapEditorPreferences(state));
       openPanel = state.openPanel;
     }
     persist();
@@ -1321,6 +1391,23 @@ export function createCombatMapController(options = {}) {
     if (!root) return;
     root.style.setProperty("--map-player-notification-scale", String(state.playerNotifications.scale));
     root.innerHTML = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
+  }
+
+  function showTurnAnnouncement(combatant, durationMs = 3200) {
+    turnAnnouncement = {
+      name: clean(combatant?.nombre) || "Entidad",
+      tokenUrl: clean(combatant?.tokenUrl),
+      conditions: getConditions(combatant).slice(0, 8)
+    };
+    if (turnAnnouncementTimer && typeof window !== "undefined") window.clearTimeout(turnAnnouncementTimer);
+    sync();
+    if (typeof window !== "undefined" && durationMs > 0) {
+      turnAnnouncementTimer = window.setTimeout(() => {
+        turnAnnouncementTimer = 0;
+        turnAnnouncement = null;
+        sync();
+      }, durationMs);
+    }
   }
 
   function showTokenFeedback({ combatantId = "", kind = "info", text = "", iconUrl = "", durationMs = 2400 } = {}) {
@@ -1633,7 +1720,7 @@ export function createCombatMapController(options = {}) {
       const applyEditorState = result.payload?.editorState && typeof result.payload.editorState === "object" ? () => {
         const savedMapLayouts = state.savedMapLayouts;
         const windowBounds = state.windowBounds;
-        state = normalizeMapEditorState({ ...result.payload.editorState, map, savedMapLayouts, windowBounds, openPanel });
+        state = normalizeMapEditorStateWithPreferences({ ...result.payload.editorState, map, savedMapLayouts, windowBounds, openPanel }, getMapEditorPreferences(state));
         persist();
         sync();
       } : null;
@@ -1659,7 +1746,7 @@ export function createCombatMapController(options = {}) {
     const applyEditorState = result?.payload?.editorState && typeof result.payload.editorState === "object" ? () => {
       const savedMapLayouts = state.savedMapLayouts;
       const windowBounds = state.windowBounds;
-      state = normalizeMapEditorState({ ...result.payload.editorState, map, savedMapLayouts, windowBounds, openPanel });
+      state = normalizeMapEditorStateWithPreferences({ ...result.payload.editorState, map, savedMapLayouts, windowBounds, openPanel }, getMapEditorPreferences(state));
       persist();
       sync();
     } : null;
@@ -1680,7 +1767,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function renderHealthMenu(panel) {
-    return `<section class="combat-map-popover" data-map-panel="health" ${panel === "health" ? "" : "hidden"}><h2>Barra de vida</h2><label>Mostrar en <select data-map-health><option value="all" ${state.healthMode === "all" ? "selected" : ""}>Todas las peanas</option><option value="none" ${state.healthMode === "none" ? "selected" : ""}>Ninguna</option><option value="allies" ${state.healthMode === "allies" ? "selected" : ""}>Solo aliadas</option><option value="neutral" ${state.healthMode === "neutral" ? "selected" : ""}>Solo neutrales</option><option value="enemies" ${state.healthMode === "enemies" ? "selected" : ""}>Solo enemigas</option></select></label>${renderOpacityControl("health")}</section>`;
+    return `<section class="combat-map-popover" data-map-panel="health" ${panel === "health" ? "" : "hidden"}><h2>Barra de vida</h2><label>Mostrar en <select data-map-health><option value="all" ${state.healthMode === "all" ? "selected" : ""}>Todas las peanas</option><option value="none" ${state.healthMode === "none" ? "selected" : ""}>Ninguna</option><option value="allies" ${state.healthMode === "allies" ? "selected" : ""}>Solo aliadas</option><option value="neutral" ${state.healthMode === "neutral" ? "selected" : ""}>Solo neutrales</option><option value="enemies" ${state.healthMode === "enemies" ? "selected" : ""}>Solo enemigas</option></select></label><label><input type="checkbox" data-map-health-initiative ${state.healthInInitiative ? "checked" : ""}> Mostrar en el orden de iniciativa</label>${renderOpacityControl("health")}</section>`;
   }
 
   function renderGridMenu(panel) {
@@ -1775,25 +1862,42 @@ export function createCombatMapController(options = {}) {
     const selectedShape = getSelectedShape();
     const values = selectedShape || state.shapes;
     const isText = values.type === "text";
-    const distanceLabel = values.type === "cone" ? "Longitud" : values.type === "square" ? "Lado" : "Radio";
+    const isLine = values.type === "line";
+    const distanceLabel = values.type === "cone" || isLine ? "Longitud" : values.type === "square" ? "Lado" : "Radio";
     const selected = Boolean(selectedShape);
     return `<section class="combat-map-popover" data-map-panel="shapes" ${panel === "shapes" ? "" : "hidden"}>
       <h2>Formas de área</h2>
       <p class="combat-map-editor-mode"><strong>${selected ? "Editando forma seleccionada" : "Preparando nueva forma"}</strong><span>${selected ? "Los cambios se aplican a la forma existente." : "Configura sus propiedades y pulsa Añadir forma."}</span></p>
       ${renderOpacityControl("shapes")}
-      <label>Forma <select data-shape-type><option value="circle" ${values.type === "circle" ? "selected" : ""}>Círculo</option><option value="square" ${values.type === "square" ? "selected" : ""}>Cuadrado</option><option value="cone" ${values.type === "cone" ? "selected" : ""}>Cono</option><option value="text" ${isText ? "selected" : ""}>Texto</option></select></label>
-      ${isText ? `<label>Contenido <textarea rows="3" maxlength="500" data-shape-text>${escapeHtml(values.text)}</textarea></label><label><input type="checkbox" data-shape-text-box ${values.textBoxVisible ? "checked" : ""}> Mostrar rectángulo de fondo</label><label>Color del rectángulo <input type="color" value="${values.textBoxColor}" data-shape-text-box-color ${values.textBoxVisible ? "" : "disabled"}></label><label>Color del texto <input type="color" value="${values.textColor}" data-shape-text-color></label><label>Tamaño <input type="range" min="10" max="120" step="1" value="${values.fontSize}" data-shape-font-size><output>${Math.round(values.fontSize)} px</output></label>` : `<label>Color <input type="color" value="${values.color}" data-shape-color></label><label>${distanceLabel} <input type="number" min="5" max="500" step="5" value="${values.distanceFeet}" data-shape-distance> pies</label>${selected ? "" : `<label>Casilla inicial <input type="text" maxlength="12" placeholder="A8" value="${escapeHtml(state.shapes.coordinate)}" data-shape-coordinate></label>`}`}
+      <label>Forma <select data-shape-type><option value="circle" ${values.type === "circle" ? "selected" : ""}>Círculo</option><option value="square" ${values.type === "square" ? "selected" : ""}>Cuadrado</option><option value="cone" ${values.type === "cone" ? "selected" : ""}>Cono</option><option value="line" ${isLine ? "selected" : ""}>Línea recta</option><option value="text" ${isText ? "selected" : ""}>Texto</option></select></label>
+      ${isText ? `<label>Contenido <textarea rows="3" maxlength="500" data-shape-text>${escapeHtml(values.text)}</textarea></label><label><input type="checkbox" data-shape-text-box ${values.textBoxVisible ? "checked" : ""}> Mostrar rectángulo de fondo</label><label>Color del rectángulo <input type="color" value="${values.textBoxColor}" data-shape-text-box-color ${values.textBoxVisible ? "" : "disabled"}></label><label>Color del texto <input type="color" value="${values.textColor}" data-shape-text-color></label><label>Tamaño <input type="range" min="10" max="120" step="1" value="${values.fontSize}" data-shape-font-size><output>${Math.round(values.fontSize)} px</output></label>` : `<label>Color <input type="color" value="${values.color}" data-shape-color></label><label>${distanceLabel} <input type="number" min="5" max="500" step="5" value="${values.distanceFeet}" data-shape-distance> pies</label>${isLine ? `<label>Ancho <input type="number" min="5" max="500" step="5" value="${values.widthFeet || 5}" data-shape-width> pies</label>` : ""}${selected ? "" : `<label>Casilla inicial <input type="text" maxlength="12" placeholder="A8" value="${escapeHtml(state.shapes.coordinate)}" data-shape-coordinate></label>`}`}
       ${shapeCoordinateError ? `<p class="combat-map-error" role="alert">${escapeHtml(shapeCoordinateError)}</p>` : ""}
       ${selected ? `<button type="button" data-map-action="new-shape">Preparar nueva forma</button>` : `<button type="button" data-map-action="add-shape">Añadir forma</button>`}
       <div class="combat-map-tool-actions"><button type="button" data-map-action="rotate-shape-left" ${selected ? "" : "disabled"}>Girar −15°</button><button type="button" data-map-action="rotate-shape-right" ${selected ? "" : "disabled"}>Girar +15°</button><button type="button" data-map-action="delete-shape" ${selected ? "" : "disabled"}>Eliminar</button></div>
-      <p class="combat-map-help">${isText ? "El texto puede arrastrarse fuera de la imagen, dentro del espacio del editor." : "La casilla es opcional: centra círculos y cuadrados; en conos coloca el origen."}</p>
+      <p class="combat-map-help">${isText ? "El texto puede arrastrarse fuera de la imagen, dentro del espacio del editor." : "La casilla es opcional: centra círculos y cuadrados; en conos y líneas coloca el origen."}</p>
     </section>`;
   }
 
   function renderInitiative(viewportWindow = window, version = "master") {
     if (!isInitiativeVisible(version)) return "";
-    const content = options.renderInitiativeOrder?.(viewportWindow, initiativeLayout) || "<p>Sin iniciativa.</p>";
+    const content = options.renderInitiativeOrder?.(viewportWindow, {
+      ...initiativeLayout,
+      position: state.initiative.position,
+      showHealth: state.healthInInitiative,
+      version
+    }) || "<p>Sin iniciativa.</p>";
     return `<aside class="combat-map-initiative combat-tracker-panel" data-map-initiative-order style="opacity:${layerOpacity("initiative")}">${content}</aside><div class="combat-map-initiative-resizer" data-map-initiative-resizer title="Arrastrar para cambiar el tamaño"></div>`;
+  }
+
+  function renderTurnAnnouncement() {
+    if (!turnAnnouncement) return "";
+    const portrait = turnAnnouncement.tokenUrl
+      ? `<img src="${escapeHtml(turnAnnouncement.tokenUrl)}" alt="" aria-hidden="true">`
+      : `<span aria-hidden="true">${escapeHtml(getInitials(turnAnnouncement.name))}</span>`;
+    const conditions = turnAnnouncement.conditions.length
+      ? `<p><strong>Estados:</strong> ${escapeHtml(turnAnnouncement.conditions.join(" · "))}</p>`
+      : "";
+    return `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait">${portrait}</div><div><small>AHORA ES EL TURNO DE</small><strong>${escapeHtml(turnAnnouncement.name)}</strong>${conditions}</div></div>`;
   }
 
   function renderPortrait(combatant) {
@@ -1844,11 +1948,11 @@ export function createCombatMapController(options = {}) {
       const selected = shape.id === state.shapes.selectedId;
       const geometry = shape.type === "circle"
         ? `<circle cx="100" cy="100" r="96"></circle>`
-        : shape.type === "square"
+        : shape.type === "square" || shape.type === "line"
           ? `<rect x="4" y="4" width="192" height="192" rx="4"></rect>`
           : `<polygon points="0,100 196,4 196,196"></polygon>`;
       const labelCounterRotation = state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0;
-      const anchorX = shape.type === "cone" ? "0%" : "-50%";
+      const anchorX = shape.type === "cone" || shape.type === "line" ? "0%" : "-50%";
       return `<div class="combat-map-area-shape combat-map-area-shape--${shape.type} ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" style="--shape-color:${shape.color};--shape-size:${metrics.distancePx}px;--shape-width:${metrics.width}px;--shape-height:${metrics.height}px;--shape-anchor-x:${anchorX};--shape-label-counter-rotation:${labelCounterRotation}deg;left:${shape.x}px;top:${shape.y}px;transform:translate(${anchorX},-50%) rotate(${shape.rotation}deg)">
         <svg viewBox="0 0 200 200" aria-hidden="true">${geometry}</svg>
         <button type="button" class="combat-map-area-shape__rotate" data-map-shape-rotate="${escapeHtml(shape.id)}" title="Arrastrar para rotar" aria-label="Rotar forma"></button>
@@ -1959,19 +2063,19 @@ export function createCombatMapController(options = {}) {
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
     const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
     const notifications = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayerProjection(viewportWindow = window) {
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}</div></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderTurnAnnouncement()}</div></div>`;
   }
 
   function sync() {
@@ -2438,12 +2542,14 @@ export function createCombatMapController(options = {}) {
   }
 
   function togglePanel(name, surface = masterHost) {
+    const wasPaintOpen = getSurfacePanel(surface) === "paint";
     if (getSurfaceKind(surface) === "player") {
       playerOpenPanel = playerOpenPanel === name ? "" : name;
     } else {
       openPanel = openPanel === name ? "" : name;
       state.openPanel = openPanel;
     }
+    if (wasPaintOpen && getSurfacePanel(surface) !== "paint") state.paint.selectedIconId = "";
     persist();
     sync();
   }
@@ -2620,6 +2726,7 @@ export function createCombatMapController(options = {}) {
       type: state.shapes.type,
       color: state.shapes.color,
       distanceFeet: state.shapes.distanceFeet,
+      ...(state.shapes.type === "line" ? { widthFeet: state.shapes.widthFeet } : {}),
       text: state.shapes.text || "Texto",
       textBoxVisible: state.shapes.textBoxVisible,
       textBoxColor: state.shapes.textBoxColor,
@@ -2670,6 +2777,7 @@ export function createCombatMapController(options = {}) {
           windowBounds: state.windowBounds,
           openPanel: getSurfaceKind(root) === "master" ? "map" : openPanel,
           healthMode: state.healthMode,
+          healthInInitiative: state.healthInInitiative,
           initiative: state.initiative
         });
         if (getSurfaceKind(root) === "player") playerOpenPanel = "map";
@@ -2836,6 +2944,7 @@ export function createCombatMapController(options = {}) {
     }
     else if (target.matches("[data-map-token-numbers]")) state.showTokenNumbers = target.checked;
     else if (target.matches("[data-map-health]")) state.healthMode = target.value;
+    else if (target.matches("[data-map-health-initiative]")) state.healthInInitiative = target.checked;
     else if (target.matches("[data-map-player-notifications]")) state.playerNotifications.visible = target.checked;
     else if (target.matches("[data-map-initiative]")) {
       const version = getSurfaceKind(getEventSurface(event));
@@ -2851,7 +2960,7 @@ export function createCombatMapController(options = {}) {
     }
     else if (target.matches("[data-map-cloud-tags]")) cloudPickerSelectedTags = new Set([...target.selectedOptions].map((option) => option.value));
     else if (target.matches("[data-shape-type]")) {
-      const value = ["circle", "square", "cone", "text"].includes(target.value) ? target.value : "circle";
+      const value = ["circle", "square", "cone", "line", "text"].includes(target.value) ? target.value : "circle";
       const shape = getSelectedShape();
       if (shape) shape.type = value;
       else state.shapes.type = value;
@@ -2865,6 +2974,11 @@ export function createCombatMapController(options = {}) {
       const shape = getSelectedShape();
       if (shape) shape.distanceFeet = value;
       else state.shapes.distanceFeet = value;
+    } else if (target.matches("[data-shape-width]")) {
+      const value = clamp(Math.round((Number(target.value) || 5) / 5) * 5, 5, 500);
+      const shape = getSelectedShape();
+      if (shape?.type === "line") shape.widthFeet = value;
+      else state.shapes.widthFeet = value;
     } else if (target.matches("[data-shape-text-box]")) {
       const shape = getSelectedShape();
       if (shape?.type === "text") shape.textBoxVisible = target.checked;
@@ -3078,7 +3192,7 @@ export function createCombatMapController(options = {}) {
     }
     element.style.left = `${shape.x}px`;
     element.style.top = `${shape.y}px`;
-    element.style.transform = `translate(${shape.type === "cone" ? "0%" : "-50%"},-50%) rotate(${shape.rotation}deg)`;
+    element.style.transform = `translate(${shape.type === "cone" || shape.type === "line" ? "0%" : "-50%"},-50%) rotate(${shape.rotation}deg)`;
     element.style.setProperty("--shape-label-counter-rotation", `${state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0}deg`);
   }
 
@@ -3109,6 +3223,7 @@ export function createCombatMapController(options = {}) {
       const typeInput = root?.querySelector("[data-shape-type]");
       const colorInput = root?.querySelector("[data-shape-color]");
       const distanceInput = root?.querySelector("[data-shape-distance]");
+      const widthInput = root?.querySelector("[data-shape-width]");
       const textInput = root?.querySelector("[data-shape-text]");
       const boxInput = root?.querySelector("[data-shape-text-box]");
       const boxColorInput = root?.querySelector("[data-shape-text-box-color]");
@@ -3117,6 +3232,7 @@ export function createCombatMapController(options = {}) {
       if (typeInput) typeInput.value = shape.type;
       if (colorInput) colorInput.value = shape.color;
       if (distanceInput) distanceInput.value = String(shape.distanceFeet);
+      if (widthInput) widthInput.value = String(shape.widthFeet || 5);
       if (textInput) textInput.value = shape.text || "";
       if (boxInput) boxInput.checked = shape.textBoxVisible !== false;
       if (boxColorInput) boxColorInput.value = shape.textBoxColor;
@@ -3584,5 +3700,5 @@ export function createCombatMapController(options = {}) {
     drawFog(playerProjectionHost);
   }
 
-  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }

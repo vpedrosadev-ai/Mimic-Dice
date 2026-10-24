@@ -15,7 +15,14 @@ assert.equal(result.total, 37);
 assert.deepEqual(result.groups.map((group) => group.subtotal), [19, 6]);
 assert.equal(result.normalizedFormula, "(6d6+2d4*2+6)");
 
-assert.equal(rollDiceFormula("d20+3", { random: () => 0.999 }).total, 23);
+const naturalTwenty = rollDiceFormula("d20+3", { random: () => 0.999 });
+assert.equal(naturalTwenty.total, 20);
+assert.equal(naturalTwenty.criticalOutcome, "critical");
+const naturalOne = rollDiceFormula("d20-3", { random: () => 0 });
+assert.equal(naturalOne.total, 1);
+assert.equal(naturalOne.criticalOutcome, "fumble");
+assert.equal(rollDiceFormula("d20+12", { random: () => 0, hitDiceMode: true }).groups[0].rolls[0], 1);
+assert.equal(rollDiceFormula("d20+3", { random: () => 0.5 }).criticalOutcome, "");
 
 let advantageSampleIndex = 0;
 const advantageResult = rollDiceFormula("d20+3", {
@@ -27,6 +34,14 @@ assert.equal(advantageResult.groups[0].keptRollIndex, 1);
 assert.equal(advantageResult.total, 20);
 assert.equal(advantageResult.rollMode, "advantage");
 
+let criticalAdvantageIndex = 0;
+const criticalAdvantage = rollDiceFormula("d20+9", {
+  random: () => [0.2, 0.999][criticalAdvantageIndex++],
+  rollMode: "advantage"
+});
+assert.equal(criticalAdvantage.total, 20);
+assert.equal(criticalAdvantage.criticalOutcome, "critical");
+
 let disadvantageSampleIndex = 0;
 const disadvantageResult = rollDiceFormula("1d20-2", {
   random: () => [0.9, 0.2][disadvantageSampleIndex++],
@@ -36,6 +51,13 @@ assert.deepEqual(disadvantageResult.groups[0].rolls, [19, 5]);
 assert.equal(disadvantageResult.groups[0].keptRollIndex, 1);
 assert.equal(disadvantageResult.total, 3);
 assert.equal(disadvantageResult.rollMode, "disadvantage");
+let fumbleDisadvantageIndex = 0;
+const fumbleDisadvantage = rollDiceFormula("d20+9", {
+  random: () => [0.9, 0][fumbleDisadvantageIndex++],
+  rollMode: "disadvantage"
+});
+assert.equal(fumbleDisadvantage.total, 1);
+assert.equal(fumbleDisadvantage.criticalOutcome, "fumble");
 assert.equal(rollDiceFormula("2*(1d6+1)", { random: () => 0 }).total, 4);
 assert.equal(rollDiceFormula("-1d4+10", { random: () => 0 }).total, 9);
 

@@ -68,8 +68,8 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
         ? rawRolls.map((value) => Math.max(value, minimum))
         : rawRolls;
       const keptRollIndex = normalizedRollMode
-        ? rolls.reduce((bestIndex, value, index) => {
-            const bestValue = rolls[bestIndex];
+        ? rawRolls.reduce((bestIndex, value, index) => {
+            const bestValue = rawRolls[bestIndex];
             return normalizedRollMode === "advantage"
               ? (value > bestValue ? index : bestIndex)
               : (value < bestValue ? index : bestIndex);
@@ -135,9 +135,21 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
     return value;
   };
 
-  const total = parseExpression();
+  const calculatedTotal = parseExpression();
   if (position !== tokens.length) throw new DiceFormulaError("syntax", `Unexpected token ${peek()?.raw || ""}.`);
-  if (!Number.isFinite(total)) throw new DiceFormulaError("invalid-result", "Formula result is not finite.");
+  if (!Number.isFinite(calculatedTotal)) throw new DiceFormulaError("invalid-result", "Formula result is not finite.");
+
+  const d20Group = diceTokens.length === 1 && diceTokens[0].count === 1 && diceTokens[0].sides === 20
+    ? groups[0]
+    : null;
+  const selectedRollIndex = d20Group?.keptRollIndex ?? 0;
+  const naturalD20 = Number(d20Group?.rawRolls?.[selectedRollIndex]);
+  const criticalOutcome = naturalD20 === 20 ? "critical" : naturalD20 === 1 ? "fumble" : "";
+  if (criticalOutcome && d20Group) {
+    d20Group.rolls[selectedRollIndex] = naturalD20;
+    d20Group.subtotal = naturalD20;
+  }
+  const total = criticalOutcome ? naturalD20 : calculatedTotal;
 
   return {
     formula: source,
@@ -145,7 +157,8 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
     total,
     groups,
     hitDiceMode: Boolean(hitDiceMode && groups.length > 0),
-    rollMode: groups.length > 0 ? normalizedRollMode : ""
+    rollMode: groups.length > 0 ? normalizedRollMode : "",
+    criticalOutcome
   };
 }
 

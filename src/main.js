@@ -1098,10 +1098,12 @@ const combatMapController = createCombatMapController({
   },
   renderInitiativeOrder: (_viewportWindow, layout = {}) => {
     const turnOrder = getCombatTurnDisplayParticipants(getCombatTurnOrder());
-    const activeId = state.isCombatActive ? getActiveTurnCombatantId(getCombatTurnParticipants(turnOrder)) : "";
+    const turnParticipants = getCombatTurnParticipants(turnOrder);
+    const activeId = state.isCombatActive ? getActiveTurnCombatantId(turnParticipants) : "";
     const scale = layout.count === turnOrder.length ? layout.scale : getCombatTurnTokenScale(turnOrder.length);
     const columns = layout.count === turnOrder.length ? layout.columns : 1;
-    return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId)).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
+    const position = ["top", "bottom", "left", "right"].includes(layout.position) ? layout.position : "top";
+    return `<div class="combat-map-initiative-order-inner combat-map-initiative-order-inner--${position}">${renderMapInitiativeControls(turnParticipants, activeId)}<div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId, { showHealth: layout.showHealth !== false })).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
   },
   renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
   renderNotifications,
@@ -3218,6 +3220,13 @@ async function handleClick(event) {
     toggleCombatantStatus(combatantId, actionButton.dataset.combatStatus);
     state.activeCombatStatusMenuId = "";
     syncCombatTrackerMutation(combatantId);
+    return;
+  }
+
+  if (action === "add-custom-combat-status") {
+    const combatantId = cleanText(actionButton.dataset.combatantId || state.combatTurnQuickMenu?.combatantId);
+    const input = actionButton.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-combat-turn-custom-status]");
+    if (addCustomCombatantStatus(combatantId, input?.value)) syncCombatTrackerMutation(combatantId);
     return;
   }
 
@@ -5809,6 +5818,13 @@ function handleKeydown(event) {
   ) {
     event.preventDefault();
     target.click();
+    return;
+  }
+
+  if (target.matches("[data-combat-turn-custom-status]") && event.key === "Enter") {
+    event.preventDefault();
+    const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
+    if (addCustomCombatantStatus(combatantId, target.value)) syncCombatTrackerMutation(combatantId);
     return;
   }
 
@@ -12311,6 +12327,29 @@ function renderCombatTimerPanel(battleTimerLabel) {
   `;
 }
 
+function renderMapInitiativeControls(turnParticipants, activeTurnCombatantId) {
+  const disabled = !state.isCombatActive || turnParticipants.length === 0;
+  return `
+    <div class="combat-map-initiative-controls" aria-label="Controles de turno">
+      <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${disabled ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg>
+      </button>
+      <div class="combat-turn-panel__menu-wrap" data-combat-turn-jump-menu>
+        <button class="combat-map-initiative-control" type="button" data-action="toggle-combat-turn-jump-menu" aria-label="${escapeHtml(t("jump_turn_to"))}" title="${escapeHtml(t("jump_turn_to"))}" aria-expanded="${state.combatTurnJumpMenuOpen}" ${disabled ? "disabled" : ""}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h2v14H4V5Zm4 7 6-6v4h6v4h-6v4l-6-6Z" /></svg>
+        </button>
+        ${state.combatTurnJumpMenuOpen && !disabled ? renderCombatTurnJumpMenu(turnParticipants, activeTurnCombatantId) : ""}
+      </div>
+      <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
+        <button class="round-chip round-chip--button combat-map-initiative-round" type="button" data-action="toggle-combat-turn-round-editor" aria-expanded="${state.combatTurnRoundEditorOpen}" title="${escapeHtml(t("round_label"))}">
+          R${escapeHtml(String(getCombatRound()))}
+        </button>
+        ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
+      </div>
+    </div>
+  `;
+}
+
 function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
   if (turnOrder.length === 0) {
     return `
@@ -12496,6 +12535,7 @@ function rollAndRecordDiceFormula(formula, options = {}) {
     groups: result.groups,
     hitDiceMode: result.hitDiceMode,
     rollMode: result.rollMode,
+    criticalOutcome: result.criticalOutcome,
     rolledAt: Date.now(),
     userId: cleanText(state.accountSession?.user?.id),
     userName: cleanText(state.accountSession?.user?.name) || cleanText(state.accountSession?.user?.email)
@@ -13170,6 +13210,14 @@ function handleCombatTurnPopoutClick(event) {
     saveCombatTrackerState();
     combatMapController.sync();
     syncCombatTurnPopout();
+  } else if (action === "add-custom-combat-status") {
+    const combatantId = cleanText(actionButton.dataset.combatantId || state.combatTurnQuickMenu?.combatantId);
+    const input = actionButton.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-combat-turn-custom-status]");
+    if (addCustomCombatantStatus(combatantId, input?.value)) {
+      saveCombatTrackerState();
+      combatMapController.sync();
+      syncCombatTurnPopout();
+    }
   }
 }
 
@@ -13224,6 +13272,17 @@ function handleCombatTurnPopoutChange(event) {
 }
 
 function handleCombatTurnPopoutKeydown(event) {
+  if (event.target.matches("[data-combat-turn-custom-status]") && event.key === "Enter") {
+    event.preventDefault();
+    const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
+    if (addCustomCombatantStatus(combatantId, event.target.value)) {
+      saveCombatTrackerState();
+      combatMapController.sync();
+      syncCombatTurnPopout();
+    }
+    return;
+  }
+
   if (event.target.matches("[data-combat-dice-input]") && event.key === "Enter") {
     event.preventDefault();
     event.target.blur();
@@ -13760,7 +13819,7 @@ function getCombatTurnTokenScale(turnCount) {
   return 0.66;
 }
 
-function renderCombatTurnToken(combatant, isActive) {
+function renderCombatTurnToken(combatant, isActive, options = {}) {
   const tokenUrl = getCombatantTokenUrl(combatant);
   const initiativeIconUrl = getCombatToolbarActionIconUrl("initiative");
   const standNumber = cleanText(combatant.numPeana);
@@ -13779,7 +13838,7 @@ function renderCombatTurnToken(combatant, isActive) {
 
   return `
     <div
-      class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""}"
+      class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""} ${options.showHealth === false ? "is-health-hidden" : ""}"
       style="--turn-hp-fill:${hpVisualFill}%;--turn-hp-color:${hpToneColor}${teamColor ? `;--team-color:${teamColor}` : ""}"
       role="button"
       tabindex="0"
@@ -13903,6 +13962,10 @@ function renderCombatTurnQuickMenu(viewportWindow = window) {
               const iconUrl = getCombatStatusIconUrl(canonicalName);
               return `<button class="combat-turn-quick-menu__status ${getCombatStatusToneClass(canonicalName)} ${isActive ? "is-active" : ""}" type="button" data-action="toggle-combat-status" data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(canonicalName)}" title="${escapeHtml(isActive ? `Quitar ${localizedName}` : `Añadir ${localizedName}`)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}<span>${escapeHtml(localizedName)}</span></button>`;
             }).join("")}
+          </div>
+          <div class="combat-turn-quick-menu__custom-status">
+            <input type="text" maxlength="80" data-combat-turn-custom-status placeholder="Nombre personalizado" aria-label="Nombre de estado personalizado">
+            <button type="button" data-action="add-custom-combat-status" data-combatant-id="${escapeHtml(combatant.id)}">Añadir</button>
           </div>
         </section>
       </div>
@@ -25478,6 +25541,16 @@ function isEnemyCombatant(combatant) {
   return combatant.tag === "ENEMIGO" || combatant.side === "enemies";
 }
 
+function announceCombatantTurn(combatant) {
+  if (!combatant) return;
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  combatMapController.showTurnAnnouncement({
+    ...combatant,
+    tokenUrl: getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry)
+  });
+}
+
 function startCombatTurns() {
   const turnOrder = getCombatTurnParticipants();
 
@@ -25492,6 +25565,7 @@ function startCombatTurns() {
   resetBattleTimer();
   startBattleTimer();
   saveCombatTrackerState();
+  announceCombatantTurn(turnOrder[0]);
 }
 
 function endCombatTurns() {
@@ -25529,6 +25603,7 @@ function advanceCombatTurn() {
   }
 
   saveCombatTrackerState();
+  announceCombatantTurn(turnOrder[nextIndex]);
 }
 
 function setCombatTurnRound(value) {
@@ -25550,6 +25625,7 @@ function jumpCombatTurnTo(combatantId) {
   state.activeTurnCombatantId = normalizedCombatantId;
   state.combatTurnJumpMenuOpen = false;
   saveCombatTrackerState();
+  announceCombatantTurn(turnOrder.find((combatant) => combatant.id === normalizedCombatantId));
 }
 
 function getCombatRound() {
@@ -25581,6 +25657,14 @@ function setCombatantTag(combatantId, tag) {
       tag: normalizedTag
     }, "tag")
     : combatant);
+}
+
+function addCustomCombatantStatus(combatantId, statusName) {
+  const normalizedCombatantId = cleanText(combatantId);
+  const normalizedStatus = cleanText(statusName).slice(0, 80);
+  if (!normalizedCombatantId || !normalizedStatus) return false;
+  toggleCombatantStatus(normalizedCombatantId, normalizedStatus);
+  return true;
 }
 
 function toggleCombatantStatus(combatantId, statusName) {
@@ -31971,10 +32055,58 @@ function preserveSharedCampaignLocalPreferences(payload) {
       ...nextMap,
       viewport: baseMap.viewport ?? nextMap.viewport,
       playerViewport: baseMap.playerViewport ?? nextMap.playerViewport,
+      playerNotifications: baseMap.playerNotifications ?? nextMap.playerNotifications,
+      opacity: baseMap.opacity ?? nextMap.opacity,
       rotation: baseMap.rotation ?? nextMap.rotation,
       rotationOrientation: baseMap.rotationOrientation ?? nextMap.rotationOrientation,
       windowBounds: baseMap.windowBounds ?? nextMap.windowBounds,
       openPanel: baseMap.openPanel ?? nextMap.openPanel,
+      showTokenNumbers: baseMap.showTokenNumbers ?? nextMap.showTokenNumbers,
+      healthMode: baseMap.healthMode ?? nextMap.healthMode,
+      healthInInitiative: baseMap.healthInInitiative ?? nextMap.healthInInitiative,
+      grid: {
+        ...(isPlainObject(nextMap.grid) ? nextMap.grid : {}),
+        ...(isPlainObject(baseMap.grid) ? {
+          visible: baseMap.grid.visible,
+          type: baseMap.grid.type,
+          color: baseMap.grid.color,
+          size: baseMap.grid.size
+        } : {})
+      },
+      fog: {
+        ...(isPlainObject(nextMap.fog) ? nextMap.fog : {}),
+        ...(isPlainObject(baseMap.fog) ? {
+          enabled: baseMap.fog.enabled,
+          mode: baseMap.fog.mode,
+          brushShape: baseMap.fog.brushShape,
+          brushSize: baseMap.fog.brushSize
+        } : {})
+      },
+      paint: {
+        ...(isPlainObject(nextMap.paint) ? nextMap.paint : {}),
+        ...(isPlainObject(baseMap.paint) ? {
+          color: baseMap.paint.color,
+          size: baseMap.paint.size,
+          mode: baseMap.paint.mode,
+          icon: baseMap.paint.icon,
+          iconSize: baseMap.paint.iconSize,
+          iconRotation: baseMap.paint.iconRotation
+        } : {})
+      },
+      shapes: {
+        ...(isPlainObject(nextMap.shapes) ? nextMap.shapes : {}),
+        ...(isPlainObject(baseMap.shapes) ? {
+          type: baseMap.shapes.type,
+          color: baseMap.shapes.color,
+          distanceFeet: baseMap.shapes.distanceFeet,
+          widthFeet: baseMap.shapes.widthFeet,
+          text: baseMap.shapes.text,
+          textBoxVisible: baseMap.shapes.textBoxVisible,
+          textBoxColor: baseMap.shapes.textBoxColor,
+          textColor: baseMap.shapes.textColor,
+          fontSize: baseMap.shapes.fontSize
+        } : {})
+      },
       initiative: {
         ...nextInitiative,
         masterVisible: baseInitiative.masterVisible ?? nextInitiative.masterVisible,
@@ -32004,10 +32136,46 @@ function saveSharedCampaignLocalMapPreferences() {
   const value = {
     viewport: map.viewport,
     playerViewport: map.playerViewport,
+    playerNotifications: map.playerNotifications,
+    opacity: map.opacity,
     rotation: map.rotation,
     rotationOrientation: map.rotationOrientation,
     windowBounds: map.windowBounds,
     openPanel: map.openPanel,
+    showTokenNumbers: map.showTokenNumbers,
+    healthMode: map.healthMode,
+    healthInInitiative: map.healthInInitiative,
+    grid: isPlainObject(map.grid) ? {
+      visible: map.grid.visible,
+      type: map.grid.type,
+      color: map.grid.color,
+      size: map.grid.size
+    } : {},
+    fog: isPlainObject(map.fog) ? {
+      enabled: map.fog.enabled,
+      mode: map.fog.mode,
+      brushShape: map.fog.brushShape,
+      brushSize: map.fog.brushSize
+    } : {},
+    paint: isPlainObject(map.paint) ? {
+      color: map.paint.color,
+      size: map.paint.size,
+      mode: map.paint.mode,
+      icon: map.paint.icon,
+      iconSize: map.paint.iconSize,
+      iconRotation: map.paint.iconRotation
+    } : {},
+    shapes: isPlainObject(map.shapes) ? {
+      type: map.shapes.type,
+      color: map.shapes.color,
+      distanceFeet: map.shapes.distanceFeet,
+      widthFeet: map.shapes.widthFeet,
+      text: map.shapes.text,
+      textBoxVisible: map.shapes.textBoxVisible,
+      textBoxColor: map.shapes.textBoxColor,
+      textColor: map.shapes.textColor,
+      fontSize: map.shapes.fontSize
+    } : {},
     initiative: {
       masterVisible: initiative.masterVisible,
       playerVisible: initiative.playerVisible,
@@ -32029,10 +32197,31 @@ function restoreSharedCampaignLocalMapPreferences(map, campaignId) {
     ...map,
     viewport: local.viewport ?? map.viewport,
     playerViewport: local.playerViewport ?? map.playerViewport,
+    playerNotifications: local.playerNotifications ?? map.playerNotifications,
+    opacity: local.opacity ?? map.opacity,
     rotation: local.rotation ?? map.rotation,
     rotationOrientation: local.rotationOrientation ?? map.rotationOrientation,
     windowBounds: local.windowBounds ?? map.windowBounds,
     openPanel: local.openPanel ?? map.openPanel,
+    showTokenNumbers: local.showTokenNumbers ?? map.showTokenNumbers,
+    healthMode: local.healthMode ?? map.healthMode,
+    healthInInitiative: local.healthInInitiative ?? map.healthInInitiative,
+    grid: {
+      ...(isPlainObject(map.grid) ? map.grid : {}),
+      ...(isPlainObject(local.grid) ? local.grid : {})
+    },
+    fog: {
+      ...(isPlainObject(map.fog) ? map.fog : {}),
+      ...(isPlainObject(local.fog) ? local.fog : {})
+    },
+    paint: {
+      ...(isPlainObject(map.paint) ? map.paint : {}),
+      ...(isPlainObject(local.paint) ? local.paint : {})
+    },
+    shapes: {
+      ...(isPlainObject(map.shapes) ? map.shapes : {}),
+      ...(isPlainObject(local.shapes) ? local.shapes : {})
+    },
     initiative: {
       ...(isPlainObject(map.initiative) ? map.initiative : {}),
       ...(isPlainObject(local.initiative) ? local.initiative : {})
