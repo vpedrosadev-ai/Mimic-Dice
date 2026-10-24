@@ -350,6 +350,7 @@
 .master-combat-entity:hover > .combat-turn-token__status-summary,
 .master-combat-entity:focus-visible > .combat-turn-token__status-summary,
 .master-combat-entity.is-player-hover > .combat-turn-token__status-summary {
+  z-index: 2147483000;
   opacity: 1;
   transform: translate(-50%, 0);
 }
@@ -560,6 +561,7 @@
 .master-combat-workspace__sheet-scroll > .combat-token-preview--floating {
   position: relative;
   inset: auto;
+  z-index: 0;
   width: 100%;
   max-height: none;
   overflow: visible;
@@ -567,6 +569,10 @@
   pointer-events: auto;
   transform: none;
   transition: none;
+}
+
+.master-combat-workspace > .combat-turn-quick-menu {
+  z-index: 2147483001;
 }
 
 .master-combat-workspace__sheet-scroll {
