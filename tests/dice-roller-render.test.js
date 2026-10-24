@@ -26,7 +26,19 @@ test("dice log labels natural d20 outcomes instead of numeric totals", () => {
     history: [{ id: "roll-1", formula: "d20-3", total: 1, criticalOutcome: "fumble", groups: [], rolledAt: 1 }],
     language: "es"
   });
+  const doubleCriticalHtml = renderDiceRollerDock({
+    open: true,
+    history: [{ id: "roll-double-20", formula: "d20", total: 20, criticalOutcome: "doubleCritical", groups: [], rolledAt: 1 }],
+    language: "es"
+  });
+  const doubleFumbleHtml = renderDiceRollerDock({
+    open: true,
+    history: [{ id: "roll-double-1", formula: "d20", total: 1, criticalOutcome: "doubleFumble", groups: [], rolledAt: 1 }],
+    language: "es"
+  });
 
-  assert.match(criticalHtml, /dice-roll-entry__total--critical">CRITICO<\/strong>/);
-  assert.match(fumbleHtml, /dice-roll-entry__total--fumble">PIFIA<\/strong>/);
+  assert.match(criticalHtml, /dice-roll-entry__total--critical">CRITICO!<\/strong>/);
+  assert.match(fumbleHtml, /dice-roll-entry__total--fumble">PIFIA!<\/strong>/);
+  assert.match(doubleCriticalHtml, /dice-roll-entry__total--critical">DOBLE CRITICO!<\/strong>/);
+  assert.match(doubleFumbleHtml, /dice-roll-entry__total--fumble">DOBLE PIFIA!<\/strong>/);
 });

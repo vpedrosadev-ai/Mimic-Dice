@@ -58,6 +58,20 @@ const fumbleDisadvantage = rollDiceFormula("d20+9", {
 });
 assert.equal(fumbleDisadvantage.total, 1);
 assert.equal(fumbleDisadvantage.criticalOutcome, "fumble");
+let doubleCriticalIndex = 0;
+const doubleCritical = rollDiceFormula("d20+30", {
+  random: () => [0.999, 0.999][doubleCriticalIndex++],
+  rollMode: "advantage"
+});
+assert.equal(doubleCritical.total, 20);
+assert.equal(doubleCritical.criticalOutcome, "doubleCritical");
+let doubleFumbleIndex = 0;
+const doubleFumble = rollDiceFormula("d20-30", {
+  random: () => [0, 0][doubleFumbleIndex++],
+  rollMode: "disadvantage"
+});
+assert.equal(doubleFumble.total, 1);
+assert.equal(doubleFumble.criticalOutcome, "doubleFumble");
 assert.equal(rollDiceFormula("2*(1d6+1)", { random: () => 0 }).total, 4);
 assert.equal(rollDiceFormula("-1d4+10", { random: () => 0 }).total, 9);
 

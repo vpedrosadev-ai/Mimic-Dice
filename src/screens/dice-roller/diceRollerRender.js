@@ -232,12 +232,17 @@ function renderDiceFormulaHelp(isEnglish) {
 
 function renderDiceRollEntry(entry, language) {
   const timeLabel = formatRollTime(entry.rolledAt, language);
-  const outcomeLabel = entry.criticalOutcome === "critical"
-    ? (language === "en" ? "CRITICAL" : "CRITICO")
-    : entry.criticalOutcome === "fumble"
-      ? (language === "en" ? "FUMBLE" : "PIFIA")
-      : formatTotal(entry.total);
-  const outcomeClass = entry.criticalOutcome ? ` dice-roll-entry__total--${entry.criticalOutcome}` : "";
+  const outcomeLabel = entry.criticalOutcome === "doubleCritical"
+    ? (language === "en" ? "DOUBLE CRITICAL!" : "DOBLE CRITICO!")
+    : entry.criticalOutcome === "doubleFumble"
+      ? (language === "en" ? "DOUBLE FUMBLE!" : "DOBLE PIFIA!")
+      : entry.criticalOutcome === "critical"
+        ? (language === "en" ? "CRITICAL!" : "CRITICO!")
+        : entry.criticalOutcome === "fumble"
+          ? (language === "en" ? "FUMBLE!" : "PIFIA!")
+          : formatTotal(entry.total);
+  const outcomeTone = entry.criticalOutcome === "doubleCritical" ? "critical" : entry.criticalOutcome === "doubleFumble" ? "fumble" : entry.criticalOutcome;
+  const outcomeClass = outcomeTone ? ` dice-roll-entry__total--${outcomeTone}` : "";
 
   return `
     <article class="dice-roll-entry">

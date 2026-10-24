@@ -713,7 +713,9 @@ export function normalizeMapEditorState(value) {
       masterVisible: typeof source.initiative?.masterVisible === "boolean" ? source.initiative.masterVisible : legacyInitiativeVisible,
       playerVisible: typeof source.initiative?.playerVisible === "boolean" ? source.initiative.playerVisible : legacyInitiativeVisible,
       position: ["top", "bottom", "left", "right"].includes(source.initiative?.position) ? source.initiative.position : "top",
-      size: clamp(source.initiative?.size || 290, 160, 650)
+      size: clamp(source.initiative?.size || 290, 160, 650),
+      showValue: source.initiative?.showValue !== false,
+      statusIconSize: clamp(source.initiative?.statusIconSize || 36, 20, 64)
     }
   };
 }
@@ -1397,6 +1399,7 @@ export function createCombatMapController(options = {}) {
     turnAnnouncement = {
       name: clean(combatant?.nombre) || "Entidad",
       tokenUrl: clean(combatant?.tokenUrl),
+      standNumber: clean(combatant?.numPeana),
       conditions: getConditions(combatant).slice(0, 8)
     };
     if (turnAnnouncementTimer && typeof window !== "undefined") window.clearTimeout(turnAnnouncementTimer);
@@ -1796,6 +1799,8 @@ export function createCombatMapController(options = {}) {
       <h2>Orden de iniciativa</h2>
       <label><input type="checkbox" data-map-initiative ${visible ? "checked" : ""}> Mostrar junto al mapa</label>
       <label>Posición <select data-map-initiative-position ${visible ? "" : "disabled"}><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select></label>
+      <label><input type="checkbox" data-map-initiative-value ${state.initiative.showValue ? "checked" : ""}> Mostrar valor de iniciativa</label>
+      <label>Tamaño de iconos de estado <input type="range" min="20" max="64" step="2" value="${state.initiative.statusIconSize}" data-map-initiative-status-size><output>${Math.round(state.initiative.statusIconSize)} px</output></label>
       <label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size><output>${Math.round(state.initiative.size)} px</output></label>
       ${renderOpacityControl("initiative")}
       <p class="combat-map-help">También puedes arrastrar el separador entre el mapa y la iniciativa.</p>
@@ -1884,6 +1889,8 @@ export function createCombatMapController(options = {}) {
       ...initiativeLayout,
       position: state.initiative.position,
       showHealth: state.healthInInitiative,
+      showInitiativeValue: state.initiative.showValue,
+      statusIconSize: state.initiative.statusIconSize,
       version
     }) || "<p>Sin iniciativa.</p>";
     return `<aside class="combat-map-initiative combat-tracker-panel" data-map-initiative-order style="opacity:${layerOpacity("initiative")}">${content}</aside><div class="combat-map-initiative-resizer" data-map-initiative-resizer title="Arrastrar para cambiar el tamaño"></div>`;
@@ -1895,9 +1902,14 @@ export function createCombatMapController(options = {}) {
       ? `<img src="${escapeHtml(turnAnnouncement.tokenUrl)}" alt="" aria-hidden="true">`
       : `<span aria-hidden="true">${escapeHtml(getInitials(turnAnnouncement.name))}</span>`;
     const conditions = turnAnnouncement.conditions.length
-      ? `<p><strong>Estados:</strong> ${escapeHtml(turnAnnouncement.conditions.join(" · "))}</p>`
+      ? `<div class="combat-map-turn-announcement__statuses">${turnAnnouncement.conditions.map((condition) => {
+          const meta = getStatusMeta(condition);
+          const fallback = clean(meta.label).slice(0, 2).toUpperCase() || "?";
+          return `<span class="combat-map-turn-announcement__status ${escapeHtml(meta.tone)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : `<i>${escapeHtml(fallback)}</i>`}<strong>${escapeHtml(meta.label)}</strong></span>`;
+        }).join("")}</div>`
       : "";
-    return `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait">${portrait}</div><div><small>AHORA ES EL TURNO DE</small><strong>${escapeHtml(turnAnnouncement.name)}</strong>${conditions}</div></div>`;
+    const standNumber = turnAnnouncement.standNumber ? `<b class="combat-map-turn-announcement__stand" title="Valor de peana">${escapeHtml(turnAnnouncement.standNumber)}</b>` : "";
+    return `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait-wrap"><div class="combat-map-turn-announcement__portrait">${portrait}</div>${standNumber}</div><div><small>AHORA ES EL TURNO DE</small><strong>${escapeHtml(turnAnnouncement.name)}</strong>${conditions}</div></div>`;
   }
 
   function renderPortrait(combatant) {
@@ -1954,7 +1966,7 @@ export function createCombatMapController(options = {}) {
       const labelCounterRotation = state.rotationOrientation === "upright" ? -(state.rotation + shape.rotation) : 0;
       const anchorX = shape.type === "cone" || shape.type === "line" ? "0%" : "-50%";
       return `<div class="combat-map-area-shape combat-map-area-shape--${shape.type} ${selected ? "is-selected" : ""}" data-map-shape="${escapeHtml(shape.id)}" style="--shape-color:${shape.color};--shape-size:${metrics.distancePx}px;--shape-width:${metrics.width}px;--shape-height:${metrics.height}px;--shape-anchor-x:${anchorX};--shape-label-counter-rotation:${labelCounterRotation}deg;left:${shape.x}px;top:${shape.y}px;transform:translate(${anchorX},-50%) rotate(${shape.rotation}deg)">
-        <svg viewBox="0 0 200 200" aria-hidden="true">${geometry}</svg>
+        <svg viewBox="0 0 200 200" ${shape.type === "line" ? 'preserveAspectRatio="none"' : ""} aria-hidden="true">${geometry}</svg>
         <button type="button" class="combat-map-area-shape__rotate" data-map-shape-rotate="${escapeHtml(shape.id)}" title="Arrastrar para rotar" aria-label="Rotar forma"></button>
       </div>`;
     }).join("");
@@ -2950,7 +2962,9 @@ export function createCombatMapController(options = {}) {
       const version = getSurfaceKind(getEventSurface(event));
       state.initiative[version === "player" ? "playerVisible" : "masterVisible"] = target.checked;
     }
+    else if (target.matches("[data-map-initiative-value]")) state.initiative.showValue = target.checked;
     else if (target.matches("[data-map-initiative-position]")) state.initiative.position = target.value;
+    else if (target.matches("[data-map-initiative-status-size]")) state.initiative.statusIconSize = clamp(target.value, 20, 64);
     else if (target.matches("[data-map-rotation-orientation]")) state.rotationOrientation = target.value === "with-map" ? "with-map" : "upright";
     else if (target.matches("[data-paint-icon]")) {
       const value = normalizeMapIcon(target.value);
@@ -3045,6 +3059,11 @@ export function createCombatMapController(options = {}) {
         applyLayerOpacityStyles(surface);
         persist();
       }
+    } else if (event.target.matches("[data-map-initiative-status-size]")) {
+      state.initiative.statusIconSize = clamp(event.target.value, 20, 64);
+      event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.initiative.statusIconSize)} px`);
+      surface?.querySelectorAll(".combat-turn-strip").forEach((strip) => strip.style.setProperty("--turn-status-icon-scale", String(state.initiative.statusIconSize / 36)));
+      persist();
     } else if (event.target.matches("[data-paint-size]")) {
       state.paint.size = clamp(event.target.value, MIN_PAINT_SIZE, MAX_PAINT_SIZE);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.paint.size)} px`);

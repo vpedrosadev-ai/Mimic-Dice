@@ -176,6 +176,10 @@ import longRestSoundUrl from "./assets/sound-effects/descanso.mp3";
 import diceRollSoundUrl from "./assets/sound-effects/dice_roll.mp3";
 import levelUpSoundUrl from "./assets/sound-effects/level_up.mp3";
 import deathSoundUrl from "./assets/sound-effects/Death.mp3";
+import criticalSoundUrl from "./assets/sound-effects/Critico.ogg";
+import fumbleSoundUrl from "./assets/sound-effects/Pifia.ogg";
+import doubleCriticalSoundUrl from "./assets/sound-effects/Doble_critico.ogg";
+import doubleFumbleSoundUrl from "./assets/sound-effects/Doble_pifia.ogg";
 import {
   APP_LANGUAGE_EN,
   APP_LANGUAGE_ES,
@@ -280,14 +284,18 @@ const OPTIONS_MENU_SECTIONS = Object.freeze([
   OPTIONS_MENU_SECTION_LANGUAGES,
   OPTIONS_MENU_SECTION_SOUND
 ]);
-const SOUND_EFFECT_KEYS = Object.freeze(["combat", "initiative", "longRest", "levelUp", "death"]);
+const SOUND_EFFECT_KEYS = Object.freeze(["combat", "initiative", "longRest", "levelUp", "death", "critical", "fumble", "doubleCritical", "doubleFumble"]);
 const defaultSoundSettings = Object.freeze({
   enabled: true,
   combat: true,
   initiative: true,
   longRest: true,
   levelUp: true,
-  death: true
+  death: true,
+  critical: true,
+  fumble: true,
+  doubleCritical: true,
+  doubleFumble: true
 });
 const blankBestiaryFilters = {
   query: "",
@@ -1103,7 +1111,8 @@ const combatMapController = createCombatMapController({
     const scale = layout.count === turnOrder.length ? layout.scale : getCombatTurnTokenScale(turnOrder.length);
     const columns = layout.count === turnOrder.length ? layout.columns : 1;
     const position = ["top", "bottom", "left", "right"].includes(layout.position) ? layout.position : "top";
-    return `<div class="combat-map-initiative-order-inner combat-map-initiative-order-inner--${position}">${renderMapInitiativeControls(turnParticipants, activeId)}<div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId, { showHealth: layout.showHealth !== false })).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
+    const statusIconScale = Math.max(20, Math.min(64, Number(layout.statusIconSize) || 36)) / 36;
+    return `<div class="combat-map-initiative-order-inner combat-map-initiative-order-inner--${position}">${renderMapInitiativeControls(turnParticipants, activeId)}<div class="combat-turn-strip" style="--turn-token-scale:${scale};--turn-status-icon-scale:${statusIconScale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId, { showHealth: layout.showHealth !== false, showInitiative: layout.showInitiativeValue !== false })).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
   },
   renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
   renderNotifications,
@@ -11347,7 +11356,11 @@ function renderOptionsDialog() {
     { key: "initiative", label: t("options_sound_initiative") },
     { key: "longRest", label: t("options_sound_long_rest") },
     { key: "levelUp", label: t("options_sound_level_up") },
-    { key: "death", label: t("options_sound_death") }
+    { key: "death", label: t("options_sound_death") },
+    { key: "critical", label: t("options_sound_critical") },
+    { key: "fumble", label: t("options_sound_fumble") },
+    { key: "doubleCritical", label: t("options_sound_double_critical") },
+    { key: "doubleFumble", label: t("options_sound_double_fumble") }
   ];
   const renderGeneralSection = () => `
     <section class="options-dialog__section">
@@ -11589,7 +11602,11 @@ function normalizeStoredSoundSettings(value) {
     initiative: source.initiative !== false,
     longRest: source.longRest !== false,
     levelUp: source.levelUp !== false,
-    death: source.death !== false
+    death: source.death !== false,
+    critical: source.critical !== false,
+    fumble: source.fumble !== false,
+    doubleCritical: source.doubleCritical !== false,
+    doubleFumble: source.doubleFumble !== false
   };
 }
 
@@ -12552,7 +12569,15 @@ function rollAndRecordDiceFormula(formula, options = {}) {
   state.diceRollerDraft = "";
   state.diceRollerError = "";
   state.diceRollerOpen = !isDiceRollerPopoutOpen();
-  playInterfaceSound(diceRollSoundUrl, 0.72);
+  const outcomeSounds = {
+    critical: { url: criticalSoundUrl, key: "critical" },
+    fumble: { url: fumbleSoundUrl, key: "fumble" },
+    doubleCritical: { url: doubleCriticalSoundUrl, key: "doubleCritical" },
+    doubleFumble: { url: doubleFumbleSoundUrl, key: "doubleFumble" }
+  };
+  const outcomeSound = outcomeSounds[result.criticalOutcome];
+  if (outcomeSound) playInterfaceSound(outcomeSound.url, 0.78, outcomeSound.key);
+  else playInterfaceSound(diceRollSoundUrl, 0.72);
   return result;
 }
 
@@ -13826,7 +13851,8 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
   const label = cleanText(combatant.nombre) || "Sin nombre";
   const side = mapTagToSide(combatant.tag);
   const initials = getCombatantInitials(combatant);
-  const statusNames = getCombatantStatusNames(combatant).slice(0, 3);
+  const allStatusNames = getCombatantStatusNames(combatant);
+  const statusNames = allStatusNames.slice(0, 3);
   const hidesRivalStats = isMonstersLeagueRivalCombatant(combatant);
   const isFallenAlly = !hidesRivalStats && side === "allies" && toNumber(combatant.pgAct) < 1;
   const isHiddenFromInitiative = combatant.hiddenFromInitiative === true || isCombatantInvisible(combatant);
@@ -13846,10 +13872,10 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
       data-combatant-id="${escapeHtml(combatant.id)}"
       title="${escapeHtml(label)} | Inic ${escapeHtml(String(combatant.iniactiva ?? ""))}"
     >
-      <span class="combat-turn-token__initiative" data-tooltip="Iniciativa en el combate">
+      ${options.showInitiative === false ? "" : `<span class="combat-turn-token__initiative" data-tooltip="Iniciativa en el combate">
         <img class="combat-turn-token__initiative-icon" src="${escapeHtml(initiativeIconUrl)}" alt="" decoding="async" aria-hidden="true" />
         <span>${escapeHtml(String(combatant.iniactiva ?? "-"))}</span>
-      </span>
+      </span>`}
       <div class="combat-turn-token combat-turn-token--${side}" data-combat-turn-token-context="${escapeHtml(combatant.id)}">
         ${
           tokenUrl
@@ -13861,8 +13887,21 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
       <div class="combat-turn-token__statuses">
         ${statusNames.map((statusName) => renderCombatTurnStatusChip(combatant.id, statusName)).join("")}
       </div>
+      ${renderCombatTurnStatusSummary(allStatusNames)}
     </div>
   `;
+}
+
+function renderCombatTurnStatusSummary(statusNames) {
+  if (!statusNames.length) return "";
+  return `<aside class="combat-turn-token__status-summary" role="tooltip"><strong>Estados</strong><div>${statusNames.map((statusName) => {
+    const label = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
+    const description = getCombatStatusDescription(statusName) || "Sin descripcion disponible.";
+    const tone = getCombatStatusToneClass(statusName);
+    const iconUrl = getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName));
+    const fallback = cleanText(label).slice(0, 2).toUpperCase() || "?";
+    return `<section class="${escapeHtml(tone)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : `<i>${escapeHtml(fallback)}</i>`}<span><b>${escapeHtml(label)}</b><small>${escapeHtml(description)}</small></span></section>`;
+  }).join("")}</div></aside>`;
 }
 
 function renderCombatTurnQuickMenu(viewportWindow = window) {
@@ -32112,7 +32151,9 @@ function preserveSharedCampaignLocalPreferences(payload) {
         masterVisible: baseInitiative.masterVisible ?? nextInitiative.masterVisible,
         playerVisible: baseInitiative.playerVisible ?? nextInitiative.playerVisible,
         position: baseInitiative.position ?? nextInitiative.position,
-        size: baseInitiative.size ?? nextInitiative.size
+        size: baseInitiative.size ?? nextInitiative.size,
+        showValue: baseInitiative.showValue ?? nextInitiative.showValue,
+        statusIconSize: baseInitiative.statusIconSize ?? nextInitiative.statusIconSize
       }
     }
   };
@@ -32180,7 +32221,9 @@ function saveSharedCampaignLocalMapPreferences() {
       masterVisible: initiative.masterVisible,
       playerVisible: initiative.playerVisible,
       position: initiative.position,
-      size: initiative.size
+      size: initiative.size,
+      showValue: initiative.showValue,
+      statusIconSize: initiative.statusIconSize
     }
   };
   try {

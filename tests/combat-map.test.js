@@ -144,8 +144,12 @@ test("map zoom reaches 500 percent and player notifications default off", () => 
   assert.equal(defaults.playerNotifications.visible, false);
   assert.equal(defaults.showTokenNumbers, true);
   assert.equal(defaults.healthInInitiative, true);
+  assert.equal(defaults.initiative.showValue, true);
+  assert.equal(defaults.initiative.statusIconSize, 36);
   assert.equal(normalizeMapEditorState({ showTokenNumbers: false }).showTokenNumbers, false);
   assert.equal(normalizeMapEditorState({ healthInInitiative: false }).healthInInitiative, false);
+  assert.equal(normalizeMapEditorState({ initiative: { showValue: false, statusIconSize: 58 } }).initiative.showValue, false);
+  assert.equal(normalizeMapEditorState({ initiative: { showValue: false, statusIconSize: 58 } }).initiative.statusIconSize, 58);
   assert.equal(enlarged.viewport.zoom, 5);
 });
 

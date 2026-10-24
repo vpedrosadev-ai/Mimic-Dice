@@ -372,7 +372,7 @@ function sanitizeDiceRoll(value, actor) {
     groups,
     hitDiceMode: source.hitDiceMode === true,
     rollMode: ["advantage", "disadvantage"].includes(source.rollMode) ? source.rollMode : "",
-    criticalOutcome: ["critical", "fumble"].includes(source.criticalOutcome) ? source.criticalOutcome : "",
+    criticalOutcome: ["critical", "fumble", "doubleCritical", "doubleFumble"].includes(source.criticalOutcome) ? source.criticalOutcome : "",
     rolledAt: Math.max(0, Number(source.rolledAt) || Date.now()),
     userId: safeText(actor.userId).slice(0, 160),
     userName: safeText(actor.userName || actor.name).slice(0, 80) || "Jugador"

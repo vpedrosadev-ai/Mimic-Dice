@@ -144,7 +144,17 @@ export function rollDiceFormula(formula, { random = Math.random, hitDiceMode = f
     : null;
   const selectedRollIndex = d20Group?.keptRollIndex ?? 0;
   const naturalD20 = Number(d20Group?.rawRolls?.[selectedRollIndex]);
-  const criticalOutcome = naturalD20 === 20 ? "critical" : naturalD20 === 1 ? "fumble" : "";
+  const isDoubleCritical = Boolean(normalizedRollMode && d20Group?.rawRolls?.every((roll) => roll === 20));
+  const isDoubleFumble = Boolean(normalizedRollMode && d20Group?.rawRolls?.every((roll) => roll === 1));
+  const criticalOutcome = isDoubleCritical
+    ? "doubleCritical"
+    : isDoubleFumble
+      ? "doubleFumble"
+      : naturalD20 === 20
+        ? "critical"
+        : naturalD20 === 1
+          ? "fumble"
+          : "";
   if (criticalOutcome && d20Group) {
     d20Group.rolls[selectedRollIndex] = naturalD20;
     d20Group.subtotal = naturalD20;
