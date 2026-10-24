@@ -1054,7 +1054,8 @@ state = {
     combatantId: "",
     x: 0,
     y: 0,
-    value: ""
+    value: "",
+    owner: ""
   },
   combatMapMirrorVisible: false,
   combatMapMirrorCollapsed: false,
@@ -1114,7 +1115,7 @@ const combatMapController = createCombatMapController({
     const statusIconScale = Math.max(20, Math.min(64, Number(layout.statusIconSize) || 36)) / 36;
     return `<div class="combat-map-initiative-order-inner combat-map-initiative-order-inner--${position}">${renderMapInitiativeControls(turnParticipants, activeId)}<div class="combat-turn-strip" style="--turn-token-scale:${scale};--turn-status-icon-scale:${statusIconScale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId, { showHealth: layout.showHealth !== false, showInitiative: layout.showInitiativeValue !== false })).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
   },
-  renderContextMenu: (viewportWindow) => renderCombatTurnQuickMenu(viewportWindow),
+  renderContextMenu: (viewportWindow, owner) => renderCombatTurnQuickMenu(viewportWindow, owner),
   renderNotifications,
   onDismissNotification: (notificationId) => {
     dismissNotification(notificationId);
@@ -1125,7 +1126,7 @@ const combatMapController = createCombatMapController({
     render();
     window.focus();
   },
-  openContextMenu: (combatantId, x, y) => openCombatTurnQuickMenu(combatantId, x, y),
+  openContextMenu: (combatantId, x, y, owner) => openCombatTurnQuickMenu(combatantId, x, y, owner),
   closeContextMenu: closeCombatTurnQuickMenu,
   handleContextClick: handleCombatTurnPopoutClick,
   handleContextInput: handleCombatTurnPopoutInput,
@@ -1136,6 +1137,7 @@ const combatMapController = createCombatMapController({
   handleInitiativeChange: handleCombatTurnPopoutChange,
   handleInitiativeKeydown: handleCombatTurnPopoutKeydown,
   handleInitiativeContextMenu: handleCombatTurnPopoutContextMenu,
+  handleTurnShortcutKeydown: handleCombatTurnShortcutKeydown,
   onGridVisibilityChange: () => {
     if (state.activeScreen === "combat-tracker") render();
   },
@@ -5697,6 +5699,8 @@ function handleInput(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (handleCombatTurnShortcutKeydown(event)) return;
+
   if (event.key === "Escape" && state.compendiumDetailPopups.length > 0) {
     event.preventDefault();
     state.compendiumDetailPopups = state.compendiumDetailPopups.slice(0, -1);
@@ -6024,6 +6028,8 @@ function handleWindowResize() {
 }
 
 function handleMouseOver(event) {
+  syncMainCombatantHoverToPlayer(event, true);
+
   const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
 
   if (overviewTooltipTrigger) {
@@ -6065,6 +6071,8 @@ function handleMouseOver(event) {
 }
 
 function handleMouseOut(event) {
+  syncMainCombatantHoverToPlayer(event, false);
+
   const overviewTooltipTrigger = event.target.closest("[data-character-overview-tooltip]");
 
   if (overviewTooltipTrigger) {
@@ -6112,6 +6120,16 @@ function handleMouseOut(event) {
   }
 
   scheduleActiveCombatPreviewClose();
+}
+
+function syncMainCombatantHoverToPlayer(event, hovered) {
+  if (state.activeScreen !== "combat-tracker") return;
+  const target = event.target.closest?.(
+    ".combat-turn-token-wrap[data-combatant-id], [data-combat-map-master-root] [data-map-token]"
+  );
+  if (!target || (event.relatedTarget && target.contains(event.relatedTarget))) return;
+  const combatantId = cleanText(target.dataset.combatantId || target.dataset.mapToken);
+  if (combatantId) combatMapController.setPlayerCombatantHover(combatantId, hovered);
 }
 
 function handleFocusIn(event) {
@@ -6420,7 +6438,7 @@ function handleContextMenu(event) {
   }
 
   event.preventDefault();
-  openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY);
+  openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY, "main");
   render({
     focusSelector: "[data-combat-turn-quick-value]"
   });
@@ -12430,7 +12448,7 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
         </div>
       </div>
     </section>
-    ${renderCombatTurnQuickMenu(options.viewportWindow)}
+    ${renderCombatTurnQuickMenu(options.viewportWindow, options.menuOwner || "main")}
   `;
 }
 
@@ -13165,7 +13183,10 @@ function syncCombatTurnPopout() {
 
   popout.document.documentElement.lang = state.appLanguage || APP_LANGUAGE_ES;
   popout.document.title = `${isEnglishInterface() ? "Initiative order" : "Orden de iniciativa"} - Mimic Dice`;
-  root.innerHTML = renderCombatTurnPanel(turnParticipants, activeTurnCombatantId, { viewportWindow: popout });
+  root.innerHTML = renderCombatTurnPanel(turnParticipants, activeTurnCombatantId, {
+    viewportWindow: popout,
+    menuOwner: "initiative-popout"
+  });
   applyInterfaceTranslations(root);
 
   const nextStrip = root.querySelector(".combat-turn-strip");
@@ -13297,6 +13318,8 @@ function handleCombatTurnPopoutChange(event) {
 }
 
 function handleCombatTurnPopoutKeydown(event) {
+  if (handleCombatTurnShortcutKeydown(event)) return;
+
   if (event.target.matches("[data-combat-turn-custom-status]") && event.key === "Enter") {
     event.preventDefault();
     const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
@@ -13350,7 +13373,7 @@ function handleCombatTurnPopoutPointerDown(event) {
   }
 }
 
-function handleCombatTurnPopoutContextMenu(event) {
+function handleCombatTurnPopoutContextMenu(event, menuOwner = "initiative-popout") {
   const statusToken = event.target.closest("[data-combat-turn-status-remove]");
 
   if (statusToken) {
@@ -13368,9 +13391,11 @@ function handleCombatTurnPopoutContextMenu(event) {
   }
 
   event.preventDefault();
-  openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY);
+  openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY, menuOwner);
   render();
-  focusCombatTurnPopoutSelector("[data-combat-turn-quick-value]");
+  if (menuOwner === "initiative-popout") {
+    focusCombatTurnPopoutSelector("[data-combat-turn-quick-value]");
+  }
 }
 
 function openCombatantPreviewPopout({ kind = "", key = "", combatantId = "" } = {}) {
@@ -13870,6 +13895,7 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
       tabindex="0"
       data-action="focus-combatant-row"
       data-combatant-id="${escapeHtml(combatant.id)}"
+      data-combat-turn-token-context="${escapeHtml(combatant.id)}"
       title="${escapeHtml(label)} | Inic ${escapeHtml(String(combatant.iniactiva ?? ""))}"
     >
       ${options.showInitiative === false ? "" : `<span class="combat-turn-token__initiative" data-tooltip="Iniciativa en el combate">
@@ -13904,10 +13930,11 @@ function renderCombatTurnStatusSummary(statusNames) {
   }).join("")}</div></aside>`;
 }
 
-function renderCombatTurnQuickMenu(viewportWindow = window) {
+function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
   const combatantId = cleanText(state.combatTurnQuickMenu?.combatantId);
+  const menuOwner = cleanText(state.combatTurnQuickMenu?.owner) || "main";
 
-  if (!combatantId) {
+  if (!combatantId || menuOwner !== cleanText(owner)) {
     return "";
   }
 
@@ -25645,6 +25672,37 @@ function advanceCombatTurn() {
   announceCombatantTurn(turnOrder[nextIndex]);
 }
 
+function retreatCombatTurn() {
+  if (!state.isCombatActive) return;
+  const turnOrder = getCombatTurnParticipants();
+  if (turnOrder.length === 0) {
+    state.activeTurnCombatantId = "";
+    state.combatRound = 1;
+    return;
+  }
+  const currentId = getActiveTurnCombatantId(turnOrder);
+  const currentIndex = Math.max(0, turnOrder.findIndex((combatant) => combatant.id === currentId));
+  const previousIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length;
+  state.activeTurnCombatantId = turnOrder[previousIndex].id;
+  if (currentIndex === 0 && getCombatRound() > 1) state.combatRound = getCombatRound() - 1;
+  saveCombatTrackerState();
+  announceCombatantTurn(turnOrder[previousIndex]);
+}
+
+function handleCombatTurnShortcutKeydown(event) {
+  if (event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey || !state.isCombatActive) return false;
+  const target = event.target;
+  if (target?.isContentEditable || target?.closest?.("input, textarea, select, [contenteditable], [role='textbox']")) return false;
+  const key = cleanText(event.key).toLowerCase();
+  if (key !== "a" && key !== "d") return false;
+  if (getCombatTurnParticipants().length === 0) return false;
+  event.preventDefault();
+  if (key === "a") retreatCombatTurn();
+  else advanceCombatTurn();
+  render();
+  return true;
+}
+
 function setCombatTurnRound(value) {
   const nextRound = Math.max(1, Math.floor(toNumber(value) || 1));
   state.combatRound = nextRound;
@@ -26561,7 +26619,7 @@ function getNextTempHpValue(currentTempHp, incomingTempHp) {
   return normalizedCurrent >= normalizedIncoming ? normalizedCurrent : normalizedIncoming;
 }
 
-function openCombatTurnQuickMenu(combatantId, x, y) {
+function openCombatTurnQuickMenu(combatantId, x, y, owner = "main") {
   const normalizedCombatantId = cleanText(combatantId);
 
   if (!normalizedCombatantId) {
@@ -26572,7 +26630,8 @@ function openCombatTurnQuickMenu(combatantId, x, y) {
     combatantId: normalizedCombatantId,
     x: Math.round(toNumber(x)),
     y: Math.round(toNumber(y)),
-    value: ""
+    value: "",
+    owner: cleanText(owner) || "main"
   };
 }
 
@@ -26581,7 +26640,8 @@ function closeCombatTurnQuickMenu() {
     combatantId: "",
     x: 0,
     y: 0,
-    value: ""
+    value: "",
+    owner: ""
   };
 }
 

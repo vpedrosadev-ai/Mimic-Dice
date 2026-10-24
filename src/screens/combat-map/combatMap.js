@@ -999,6 +999,7 @@ export function createCombatMapController(options = {}) {
   let fogPolygonCursor = null;
   let masterHost = null;
   let playerProjectionHost = null;
+  let playerHoveredCombatantId = "";
   let pendingConfirmation = null;
   let detachedConfirmationElement = null;
   let tokenFeedbackSequence = 0;
@@ -2075,14 +2076,14 @@ export function createCombatMapController(options = {}) {
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
     const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
     const notifications = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow) || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayerProjection(viewportWindow = window) {
@@ -2103,6 +2104,7 @@ export function createCombatMapController(options = {}) {
         drawFog(root);
         restoreActiveTokenDragFeedback(root);
         mountTokenFeedbacks(root);
+        applyPlayerCombatantHover(root);
       }
     }
     if (masterHost?.isConnected) syncMasterSurface(masterHost);
@@ -3116,6 +3118,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function handleKeydown(event) {
+    if (options.handleTurnShortcutKeydown?.(event) === true) return;
     if (event.target.closest("[data-map-initiative-order]")) { options.handleInitiativeKeydown?.(event); return; }
     if (event.target.closest("[data-combat-turn-quick-menu]")) { options.handleContextKeydown?.(event); return; }
     const panel = getSurfacePanel(getEventSurface(event));
@@ -3145,16 +3148,17 @@ export function createCombatMapController(options = {}) {
 
   function handleContextMenu(event) {
     const surface = getEventSurface(event);
+    const menuOwner = `map-${getSurfaceKind(surface)}`;
     if (event.target.closest("[data-map-initiative-order]")) {
-      options.handleInitiativeContextMenu?.(event);
+      options.handleInitiativeContextMenu?.(event, menuOwner);
       return;
     }
     const token = event.target.closest("[data-map-token]");
     if (!token) return;
     event.preventDefault();
-    options.openContextMenu?.(token.dataset.mapToken, event.clientX, event.clientY);
+    options.openContextMenu?.(token.dataset.mapToken, event.clientX, event.clientY, menuOwner);
     sync();
-    masterHost?.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
+    surface?.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
   }
 
   function boardPoint(event) {
@@ -3717,7 +3721,26 @@ export function createCombatMapController(options = {}) {
     drawGridLabels(playerProjectionHost);
     drawPaint(playerProjectionHost);
     drawFog(playerProjectionHost);
+    applyPlayerCombatantHover(playerProjectionHost);
   }
 
-  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  function applyPlayerCombatantHover(root) {
+    root?.querySelectorAll?.(".is-player-hover").forEach((element) => element.classList.remove("is-player-hover"));
+    if (!root || !playerHoveredCombatantId) return;
+    const escapedId = CSS.escape(playerHoveredCombatantId);
+    root.querySelectorAll(
+      `.combat-turn-token-wrap[data-combatant-id="${escapedId}"], [data-map-token="${escapedId}"]`
+    ).forEach((element) => element.classList.add("is-player-hover"));
+  }
+
+  function setPlayerCombatantHover(combatantId, hovered = true) {
+    const normalizedId = clean(combatantId);
+    if (hovered) playerHoveredCombatantId = normalizedId;
+    else if (playerHoveredCombatantId === normalizedId) playerHoveredCombatantId = "";
+    const playerRoot = editorWindow?.document?.querySelector?.("[data-combat-map-player-root]");
+    if (playerRoot) applyPlayerCombatantHover(playerRoot);
+    if (playerProjectionHost?.isConnected) applyPlayerCombatantHover(playerProjectionHost);
+  }
+
+  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }
