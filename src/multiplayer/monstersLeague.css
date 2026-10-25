@@ -1271,6 +1271,128 @@
   margin-top: 1rem;
 }
 
+.ml-shared-campaign-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.45rem;
+  padding: .45rem .7rem;
+  border: 1px solid rgba(217, 171, 93, .3);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(0, 0, 0, .2);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.ml-shared-campaign-status.is-connected {
+  border-color: rgba(94, 183, 166, .55);
+  color: #a8e1d6;
+  background: rgba(43, 111, 98, .18);
+}
+
+.ml-shared-campaign-status.is-connecting::before {
+  content: "";
+  width: .45rem;
+  height: .45rem;
+  margin-right: .4rem;
+  border: 1px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ml-map-waiting-spin 1s linear infinite;
+}
+
+.ml-master-workspace {
+  display: grid;
+  grid-template-columns: minmax(15rem, .7fr) minmax(28rem, 1.35fr) minmax(24rem, 1.25fr);
+  gap: .58rem;
+  height: calc(100vh - 14rem);
+  min-height: 38rem;
+  margin-top: 1rem;
+  overflow: hidden;
+}
+
+.ml-master-workspace > .ml-panel {
+  position: static;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.ml-master-workspace__entities,
+.ml-master-workspace__sheet,
+.ml-master-workspace__map {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.ml-master-workspace .ml-panel-heading,
+.ml-master-workspace__panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4.2rem;
+  margin: 0;
+  padding: .75rem .9rem;
+  border-bottom: 1px solid rgba(217, 171, 93, .18);
+  background: rgba(7, 5, 4, .48);
+}
+
+.ml-master-workspace .ml-panel-heading .ml-eyebrow,
+.ml-master-workspace__panel-heading .ml-eyebrow {
+  margin-bottom: .18rem;
+}
+
+.ml-master-workspace .ml-panel-heading h2,
+.ml-master-workspace__panel-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  color: #f3dfba;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.08rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-master-workspace .ml-team-cards,
+.ml-master-workspace__sheet-scroll {
+  min-height: 0;
+  padding: .7rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ml-master-workspace__map .ml-map-projection,
+.ml-master-workspace__map .ml-map-waiting {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.ml-master-workspace__map .combat-map-editor {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.ml-master-live-overview {
+  display: grid;
+  gap: .65rem;
+  margin-bottom: .8rem;
+  padding: .8rem;
+  border: 1px solid color-mix(in srgb, var(--team-color) 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--team-color) 8%, rgba(0, 0, 0, .24));
+}
+
+.ml-master-live-overview .ml-live-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .ml-map-broadcast {
   margin-top: 1rem;
   overflow: hidden;
@@ -2041,6 +2163,22 @@
     grid-template-columns: minmax(14rem, 0.55fr) minmax(28rem, 1.45fr);
   }
 
+  .ml-master-workspace {
+    grid-template-columns: minmax(14rem, .55fr) minmax(28rem, 1.45fr);
+    height: auto;
+    overflow: visible;
+  }
+
+  .ml-master-workspace__entities,
+  .ml-master-workspace__sheet {
+    height: 42rem;
+  }
+
+  .ml-master-workspace__map {
+    grid-column: 1 / -1;
+    height: 38rem;
+  }
+
   .ml-live-panel {
     position: static;
     grid-column: 1 / -1;
@@ -2098,8 +2236,21 @@
   .ml-config-layout,
   .ml-lobby-grid,
   .ml-draft-page,
-  .ml-team-layout {
+  .ml-team-layout,
+  .ml-master-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .ml-master-workspace__entities,
+  .ml-master-workspace__sheet,
+  .ml-master-workspace__map {
+    grid-column: auto;
+    height: auto;
+    min-height: 28rem;
+  }
+
+  .ml-master-workspace__map {
+    height: 34rem;
   }
 
   .ml-form-grid,

@@ -8,8 +8,9 @@ import { parseBestiarySpellcasting } from "../shared/bestiarySpellcasting.js";
 import { createSpellReferenceMatcher } from "../shared/spellReferences.js";
 import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
 import { createCombatMapController } from "../screens/combat-map/combatMap.js";
-import { fetchAuthSession } from "../cloud/cloudClient.js";
+import { fetchAuthSession, getCloudCampaignStatus } from "../cloud/cloudClient.js";
 import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
+import { projectMonstersLeagueCombatantForPlayer } from "./monstersLeagueVisibility.js";
 import {
   createMonstersLeagueServerClockSample,
   getMonstersLeagueClockNow,
@@ -179,6 +180,9 @@ const state = {
   cloudCampaignSavePromise: null,
   cloudCampaignResult: null,
   campaignActivationSent: false,
+  sharedCampaignConnectStatus: "idle",
+  sharedCampaignConnectPromise: null,
+  sharedCampaignConnectRetryTimer: 0,
   connection: null,
   connectionStatus: localTestMode ? "local" : "connecting",
   draftFlash: null,
@@ -206,7 +210,7 @@ const detailRenderers = createCompendiumDetailRenderers({
 });
 const playerMapController = createCombatMapController({
   storageKey: "mimic-dice:monsters-league-player-map:v1",
-  getCombatants: () => state.room?.mapProjection?.combatants || [],
+  getCombatants: getPlayerVisibleCombatants,
   getActiveCombatantId: () => cleanText(state.room?.mapProjection?.activeCombatantId),
   renderInitiativeOrder: renderProjectedInitiativeOrder
 });
@@ -220,6 +224,7 @@ app.addEventListener("wheel", handleMapWheel, { passive: false });
 app.addEventListener("scroll", handleMapScroll, true);
 window.addEventListener("beforeunload", () => {
   persistTestRoom();
+  window.clearTimeout(state.sharedCampaignConnectRetryTimer);
   state.connection?.close();
 });
 window.addEventListener("resize", () => syncPlayerMapProjection());
@@ -325,7 +330,14 @@ async function initializeOnlineRoom(hostName) {
         state.selectedMonsterId = "";
       }
       ensureTestCombatState();
-      ensureCloudCampaignSaved();
+      const campaignSave = ensureCloudCampaignSaved();
+      if (room.hostPlayerId === state.hostPlayerId) {
+        campaignSave.then((result) => {
+          if (result) notifyMainAppCampaignActivation(result);
+        });
+      } else {
+        ensureSharedCampaignConnected();
+      }
       if (!state.loading) {
         render();
         observeCombatFeedback(room);
@@ -761,9 +773,11 @@ function renderMiniMonster(monster, price) {
 function renderTeamScreen() {
   ensureTestCombatState();
   const room = state.room;
-  const viewedPlayer = room.players.find((player) => player.id === state.selectedTeamPlayerId) || room.players[0];
+  const viewedPlayer = getViewedTeamPlayer(room);
   const selectedAward = viewedPlayer.roster.find((award) => award.monster.id === state.selectedMonsterId) || viewedPlayer.roster[0];
   const entry = selectedAward ? state.catalogById.get(selectedAward.monster.id) : null;
+  const projection = room?.mapProjection;
+  const mapOpen = projection?.open === true && projection.editorState;
 
   if (entry && state.selectedMonsterId !== entry.id) {
     state.selectedMonsterId = entry.id;
@@ -775,24 +789,52 @@ function renderTeamScreen() {
         <div><p class="ml-eyebrow">DRAFT COMPLETADO</p><h1>${t("teamOf")} ${escapeHtml(viewedPlayer.name)}</h1><p>${viewedPlayer.roster.length} criaturas · ${viewedPlayer.gold} oro restante</p></div>
         <div class="ml-team-header__actions">
           ${localTestMode ? `<label>Ver equipo<select data-ml-team-select>${room.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === viewedPlayer.id ? "selected" : ""}>${escapeHtml(player.name)}</option>`).join("")}</select></label>` : ""}
-          ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button" type="button" data-ml-action="send-encounters">${getEncounterSaveButtonLabel()}</button>` : ""}
+          ${renderSharedCampaignConnectionStatus()}
           ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button ml-button--primary" type="button" data-ml-action="enter-combat">${room.status === "combat" ? "Combate en vivo" : "Iniciar combate"}</button>` : `<span class="ml-live-dot">${room.status === "combat" ? "LIVE" : "ESPERANDO AL HOST"}</span>`}
         </div>
       </section>
-      ${renderCombatMapBroadcast()}
-      <div class="ml-team-layout">
-        <aside class="ml-panel ml-team-roster">
+      <div class="ml-master-workspace">
+        <aside class="ml-panel ml-team-roster ml-master-workspace__entities">
           <div class="ml-panel-heading"><div><p class="ml-eyebrow">PLANTILLA</p><h2>Criaturas</h2></div></div>
           <div class="ml-team-cards">${viewedPlayer.roster.map((award) => renderTeamMonsterCard(viewedPlayer, award)).join("")}</div>
         </aside>
-        <section class="ml-panel ml-monster-sheet">
-          ${entry ? renderLiveMonsterSheet(viewedPlayer, entry) : detailRenderers.renderBestiaryDetailEmpty()}
+        <section class="ml-panel ml-monster-sheet ml-master-workspace__sheet">
+          <header class="ml-master-workspace__panel-heading"><div><p class="ml-eyebrow">${language === "en" ? "YOUR CREATURE" : "TU CRIATURA"}</p><h2>${escapeHtml(entry?.name || (language === "en" ? "Creature sheet" : "Ficha de criatura"))}</h2></div></header>
+          <div class="ml-master-workspace__sheet-scroll">
+            ${entry ? `${renderMasterLiveOverview(viewedPlayer, entry)}${renderLiveMonsterSheet(viewedPlayer, entry)}` : detailRenderers.renderBestiaryDetailEmpty()}
+          </div>
         </section>
-        <aside class="ml-panel ml-live-panel">
-          ${entry ? renderLiveSummary(viewedPlayer, entry) : ""}
-        </aside>
+        <section class="ml-panel ml-master-workspace__map">
+          <header class="ml-master-workspace__panel-heading"><div><p class="ml-eyebrow">MAPA DE COMBATE</p><h2>${language === "en" ? "Player view" : "Vista de jugador"}</h2></div>${mapOpen ? `<span class="ml-live-dot">LIVE</span>` : ""}</header>
+          ${mapOpen
+            ? `<div class="ml-map-projection" data-ml-map-projection></div>`
+            : `<div class="ml-map-waiting" role="status"><i></i><strong>${language === "en" ? "Waiting for host" : "Esperando al anfitrión"}</strong></div>`}
+        </section>
       </div>
     </main>
+  `;
+}
+
+function getViewedTeamPlayer(room = state.room) {
+  const players = Array.isArray(room?.players) ? room.players : [];
+  if (localTestMode) {
+    return players.find((player) => player.id === state.selectedTeamPlayerId) || players[0];
+  }
+  const userId = cleanText(state.session?.user?.id || state.hostPlayerId);
+  return players.find((player) => cleanText(player.userId || player.id) === userId) || players[0];
+}
+
+function renderMasterLiveOverview(player, entry) {
+  const live = getLiveMonster(player.id, entry);
+  const effectiveMax = Math.max(0, live.maxHp - live.necrotic);
+  const hpPercent = effectiveMax > 0 ? Math.max(0, Math.min(100, live.currentHp / effectiveMax * 100)) : 0;
+  return `
+    <section class="ml-master-live-overview">
+      <div class="ml-health-numbers"><strong>${live.currentHp}</strong><span>/ ${effectiveMax} PV</span>${live.tempHp ? `<b>+${live.tempHp} temp</b>` : ""}</div>
+      <div class="ml-health-bar"><i style="width:${hpPercent}%"></i></div>
+      <div class="ml-live-metrics"><article><span>CA</span><strong>${entry.acValue || "—"}</strong></article><article><span>${language === "en" ? "Initiative" : "Iniciativa"}</span><strong>${escapeHtml(String(live.initiative || "—"))}</strong></article><article><span>${language === "en" ? "Stand" : "Peana"}</span><strong>${escapeHtml(String(live.standNumber || "—"))}</strong></article></div>
+      <section class="ml-condition-list"><span>${language === "en" ? "Conditions" : "Estados"}</span><div>${live.conditions.length ? live.conditions.map((condition) => `<b>${escapeHtml(condition)}</b>`).join("") : `<small>${language === "en" ? "No active conditions" : "Sin estados activos"}</small>`}</div></section>
+    </section>
   `;
 }
 
@@ -855,10 +897,22 @@ function observeCombatFeedback(room) {
   }
 }
 
+function getPlayerVisibleCombatants() {
+  const combatants = state.room?.mapProjection?.combatants || [];
+  const viewerUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
+  const viewerPlayer = getViewedTeamPlayer(state.room);
+
+  return combatants.map((combatant) => projectMonstersLeagueCombatantForPlayer(
+    combatant,
+    viewerUserId,
+    viewerPlayer?.id
+  ));
+}
+
 function renderProjectedInitiativeOrder(_viewportWindow, layout = {}) {
   const projection = state.room?.mapProjection;
   const activeId = cleanText(projection?.activeCombatantId);
-  const combatants = [...(projection?.combatants || [])]
+  const combatants = getPlayerVisibleCombatants()
     .filter((combatant) => {
       if (cleanText(combatant.iniactiva) === "") return false;
       return combatant.side === "allies" || Number(combatant.pgAct) > 0;
@@ -875,11 +929,12 @@ function renderProjectedTurnToken(combatant, isActive) {
   const initiativeIconUrl = getCombatToolbarActionIconUrl("initiative");
   const teamColor = /^#[0-9a-f]{6}$/i.test(cleanText(combatant.teamColor)) ? cleanText(combatant.teamColor) : "";
   const side = ["allies", "enemies", "neutral"].includes(combatant.side) ? combatant.side : "enemies";
-  const statusNames = getProjectedStatusNames(combatant).slice(0, 3);
+  const hidesRivalStats = combatant.hideHealth === true;
+  const statusNames = hidesRivalStats ? [] : getProjectedStatusNames(combatant).slice(0, 3);
   const isFallenAlly = side === "allies" && Number(combatant.pgAct) < 1;
   const isHidden = combatant.hiddenFromInitiative === true || statusNames.some((name) => normalizeSearchText(name) === "invisible");
   const maxHp = Math.max(1, Number(combatant.pgMax) - Number(combatant.necrotic || 0));
-  const hpPercent = Math.max(0, Math.min(100, Math.round((Number(combatant.pgAct) || 0) / maxHp * 100)));
+  const hpPercent = hidesRivalStats ? 0 : Math.max(0, Math.min(100, Math.round((Number(combatant.pgAct) || 0) / maxHp * 100)));
   const visualFill = hpPercent <= 0 ? 0 : Math.round(100 * Math.pow(hpPercent / 100, 0.45));
   const hpColor = hpPercent === 0
     ? "rgba(16, 14, 14, 0.96)"
@@ -891,7 +946,7 @@ function renderProjectedTurnToken(combatant, isActive) {
   const label = cleanText(combatant.nombre) || (language === "en" ? "Unnamed" : "Sin nombre");
   const standNumber = cleanText(combatant.numPeana);
 
-  return `<div class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHidden ? "is-hidden-from-initiative" : ""}" style="--turn-hp-fill:${visualFill}%;--turn-hp-color:${hpColor}${teamColor ? `;--team-color:${teamColor}` : ""}" title="${escapeHtml(label)} | ${language === "en" ? "Init" : "Inic"} ${escapeHtml(String(combatant.iniactiva ?? ""))}">
+  return `<div class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHidden ? "is-hidden-from-initiative" : ""} ${hidesRivalStats ? "is-health-hidden" : ""}" style="--turn-hp-fill:${visualFill}%;--turn-hp-color:${hpColor}${teamColor ? `;--team-color:${teamColor}` : ""}" title="${escapeHtml(label)} | ${language === "en" ? "Init" : "Inic"} ${escapeHtml(String(combatant.iniactiva ?? ""))}">
     <span class="combat-turn-token__initiative" data-tooltip="${language === "en" ? "Combat initiative" : "Iniciativa en el combate"}"><img class="combat-turn-token__initiative-icon" src="${escapeHtml(initiativeIconUrl)}" alt="" decoding="async" aria-hidden="true"><span>${escapeHtml(String(combatant.iniactiva ?? "-"))}</span></span>
     <div class="combat-turn-token combat-turn-token--${side}">${combatant.tokenUrl ? `<img src="${escapeHtml(combatant.tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true">` : `<span class="combat-turn-token__placeholder" aria-hidden="true">${escapeHtml(getInitials(label))}</span>`}${side === "enemies" && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}</div>
     <div class="combat-turn-token__statuses">${statusNames.map(renderProjectedTurnStatus).join("")}</div>
@@ -1502,11 +1557,11 @@ function adjustLiveValue(field, amount) {
 function enterCombat() {
   if (localTestMode) {
     state.room.status = "combat";
+    if (!state.encountersSent) sendEncountersToMainApp();
   } else {
     sendOnlineCommand("enter-combat");
   }
   ensureTestCombatState();
-  if (!state.encountersSent) sendEncountersToMainApp();
   ensureCloudCampaignSaved().then(notifyMainAppCampaignActivation);
   state.notice = localTestMode
     ? "Combate de prueba iniciado. Los controles laterales simulan actualizaciones del host."
@@ -1539,6 +1594,46 @@ function getEncounterSaveButtonLabel() {
   if (state.cloudCampaignSaveStatus === "saved" && state.encountersSent) return "Equipos guardados ✓";
   if (state.cloudCampaignSaveStatus === "saved") return "Campaña cloud guardada ✓";
   return state.encountersSent ? "Equipos enviados ✓" : "Guardar encuentros";
+}
+
+function renderSharedCampaignConnectionStatus() {
+  if (localTestMode) {
+    return `<span class="ml-shared-campaign-status">${language === "en" ? "LOCAL SAVE" : "GUARDADO LOCAL"}</span>`;
+  }
+  const connected = state.sharedCampaignConnectStatus === "connected" || state.campaignActivationSent;
+  return `<span class="ml-shared-campaign-status ${connected ? "is-connected" : "is-connecting"}">${connected
+    ? (language === "en" ? "SHARED SAVE CONNECTED" : "GUARDADO COMPARTIDO CONECTADO")
+    : (language === "en" ? "CONNECTING SHARED SAVE" : "CONECTANDO GUARDADO COMPARTIDO")}</span>`;
+}
+
+function ensureSharedCampaignConnected() {
+  const room = state.room;
+  const campaignId = cleanText(room?.campaignId);
+  if (localTestMode || !campaignId || !["complete", "combat"].includes(room?.status) || state.campaignActivationSent) {
+    return state.sharedCampaignConnectPromise || Promise.resolve(null);
+  }
+  if (state.sharedCampaignConnectPromise) return state.sharedCampaignConnectPromise;
+
+  window.clearTimeout(state.sharedCampaignConnectRetryTimer);
+  state.sharedCampaignConnectStatus = "connecting";
+  state.sharedCampaignConnectPromise = getCloudCampaignStatus(campaignId)
+    .then((result) => {
+      const campaign = result?.campaign;
+      if (!campaign?.id) throw new Error("Shared campaign is not ready.");
+      state.sharedCampaignConnectStatus = "connected";
+      notifyMainAppCampaignActivation({ campaignId: campaign.id, campaignName: campaign.name });
+      if (!state.loading) render();
+      return campaign;
+    })
+    .catch(() => {
+      state.sharedCampaignConnectStatus = "waiting";
+      state.sharedCampaignConnectRetryTimer = window.setTimeout(ensureSharedCampaignConnected, 1500);
+      return null;
+    })
+    .finally(() => {
+      state.sharedCampaignConnectPromise = null;
+    });
+  return state.sharedCampaignConnectPromise;
 }
 
 function ensureCloudCampaignSaved() {
@@ -1580,6 +1675,7 @@ function ensureCloudCampaignSaved() {
 function notifyMainAppCampaignActivation(result) {
   if (!result?.campaignId || state.campaignActivationSent) return;
   state.campaignActivationSent = true;
+  state.sharedCampaignConnectStatus = "connected";
   notifyMainApp({
     type: "mimic-dice:monsters-league-campaign",
     payload: {

@@ -539,6 +539,7 @@ let activeDiceRollerResize = null;
 let masterCombatWorkspaceSelectedId = "";
 let masterCombatWorkspaceLastActiveId = "";
 let masterCombatWorkspaceLastCenteredActiveId = "";
+const masterCombatWorkspaceSheetScrollPositions = new Map();
 let activeMasterCombatWorkspaceResize = null;
 const MASTER_COMBAT_WORKSPACE_LAYOUT_KEY = "mimic-dice:master-combat-workspace-layout:v2";
 let masterCombatWorkspaceLayout = loadMasterCombatWorkspaceLayout();
@@ -3370,6 +3371,12 @@ async function handleClick(event) {
 
   if (action === "advance-combat-turn") {
     advanceCombatTurn();
+    render();
+    return;
+  }
+
+  if (action === "retreat-combat-turn") {
+    retreatCombatTurn();
     render();
     return;
   }
@@ -9085,6 +9092,7 @@ function render(focusState = null) {
   cancelScheduledRender();
   cancelRenderViewportRestore();
   captureCompendiumReferencePopupScrollPositions();
+  captureMasterCombatWorkspaceSheetScroll();
   const viewportState = captureRenderViewportState();
 
   app.innerHTML = `
@@ -9188,6 +9196,7 @@ function render(focusState = null) {
   syncTopbarNavigationMetrics();
   lastRenderedScreen = state.activeScreen;
   restoreRenderViewportState(viewportState);
+  restoreMasterCombatWorkspaceSheetScroll();
   restoreRenderFocus(focusState);
 
   if (!focusState?.scrollIntoView) {
@@ -12498,6 +12507,7 @@ function renderMasterCombatWorkspacePanel() {
   const listSize = `${Math.round(masterCombatWorkspaceLayout.listRatio * 10000) / 100}%`;
   const detailSize = `${Math.round(masterCombatWorkspaceLayout.detailRatio * 10000) / 100}%`;
   const workspaceLabel = isEnglishInterface() ? "Master combat workspace" : "Espacio de combate del master";
+  const sheetScrollKey = selectedCombatant ? getMasterCombatWorkspaceSheetScrollKey(selectedCombatant) : "";
 
   return `
     <section class="panel panel--table combat-tracker-panel master-combat-workspace-panel">
@@ -12519,7 +12529,19 @@ function renderMasterCombatWorkspacePanel() {
           <aside class="master-combat-workspace__entities">
             <header class="master-combat-workspace__panel-heading">
               <div><small>${escapeHtml(isEnglishInterface() ? "COMBAT" : "COMBATE")}</small><strong>${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}</strong></div>
-              <span>${combatants.length}</span>
+              <div class="master-combat-workspace__turn-controls" aria-label="${escapeHtml(isEnglishInterface() ? "Turn controls" : "Controles de turno")}">
+                <span class="master-combat-workspace__entity-count" title="${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}">${combatants.length}</span>
+                <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${!state.isCombatActive || combatants.length === 0 ? "disabled" : ""}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg>
+                </button>
+                <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
+                  <button class="round-chip round-chip--button combat-map-initiative-round" type="button" data-action="toggle-combat-turn-round-editor" aria-expanded="${state.combatTurnRoundEditorOpen}" title="${escapeHtml(t("round_label"))}">R${escapeHtml(String(getCombatRound()))}</button>
+                  ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
+                </div>
+                <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${!state.isCombatActive || combatants.length === 0 ? "disabled" : ""}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg>
+                </button>
+              </div>
             </header>
             <div class="master-combat-workspace__entity-list" data-render-scroll-key="master-combat-entities">
               ${combatants.length
@@ -12550,7 +12572,7 @@ function renderMasterCombatWorkspacePanel() {
           <header class="master-combat-workspace__panel-heading">
             <div><small>${activeId === selectedCombatant?.id ? escapeHtml(isEnglishInterface() ? "CURRENT TURN" : "TURNO ACTUAL") : escapeHtml(isEnglishInterface() ? "SELECTION" : "SELECCION")}</small><strong>${escapeHtml(selectedCombatant?.nombre || (isEnglishInterface() ? "Entity sheet" : "Ficha de entidad"))}</strong></div>
           </header>
-          <div class="master-combat-workspace__sheet-scroll">
+          <div class="master-combat-workspace__sheet-scroll" data-master-combat-sheet-scroll data-master-combat-sheet-key="${escapeHtml(sheetScrollKey)}">
             ${selectedCombatant ? renderMasterCombatWorkspaceEntityPreview(selectedCombatant) : renderMasterCombatWorkspaceEmptyPreview()}
           </div>
         </section>
@@ -12847,6 +12869,34 @@ function renderMasterCombatWorkspaceEntityPreview(combatant) {
 
 function renderMasterCombatWorkspaceEmptyPreview() {
   return `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "Select an entity" : "Selecciona una entidad")}</strong><p>${escapeHtml(isEnglishInterface() ? "Its combat hover sheet will appear here." : "Su ficha flotante de combate aparecera aqui.")}</p></div>`;
+}
+
+function getMasterCombatWorkspaceSheetScrollKey(combatant) {
+  const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+  if (linkedCharacter?.id) return `character:${cleanText(linkedCharacter.id)}`;
+
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  const bestiaryKey = bestiaryEntry
+    ? cleanText(getCompendiumEntryIdentityKey(bestiaryEntry) || bestiaryEntry.id)
+    : cleanText(combatant.entryKey || combatant.entryId);
+  if (bestiaryKey) return `bestiary:${bestiaryKey}`;
+
+  return `combatant:${cleanText(combatant.id)}`;
+}
+
+function captureMasterCombatWorkspaceSheetScroll() {
+  const sheet = app.querySelector?.("[data-master-combat-sheet-scroll]");
+  const key = cleanText(sheet?.dataset.masterCombatSheetKey);
+  if (!sheet || !key) return;
+  masterCombatWorkspaceSheetScrollPositions.set(key, Math.max(0, sheet.scrollTop));
+}
+
+function restoreMasterCombatWorkspaceSheetScroll() {
+  const sheet = app.querySelector?.("[data-master-combat-sheet-scroll]");
+  const key = cleanText(sheet?.dataset.masterCombatSheetKey);
+  if (!sheet || !key) return;
+  const scrollTop = masterCombatWorkspaceSheetScrollPositions.get(key);
+  sheet.scrollTop = Number.isFinite(scrollTop) ? scrollTop : 0;
 }
 
 function loadMasterCombatWorkspaceLayout() {
@@ -13871,6 +13921,9 @@ function handleCombatTurnPopoutClick(event) {
     toggleCombatTurnPopout();
   } else if (action === "advance-combat-turn") {
     advanceCombatTurn();
+    render();
+  } else if (action === "retreat-combat-turn") {
+    retreatCombatTurn();
     render();
   } else if (action === "toggle-combat-turn-jump-menu") {
     state.combatTurnJumpMenuOpen = !state.combatTurnJumpMenuOpen;

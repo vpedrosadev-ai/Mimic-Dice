@@ -151,6 +151,42 @@
   font-weight: 800;
 }
 
+.master-combat-workspace__panel-heading > .master-combat-workspace__turn-controls {
+  position: relative;
+  z-index: 60;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .28rem;
+}
+
+.master-combat-workspace__turn-controls .combat-map-initiative-control,
+.master-combat-workspace__turn-controls .combat-map-initiative-round {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  min-height: 1.85rem;
+  padding: .25rem;
+}
+
+.master-combat-workspace__turn-controls .combat-turn-panel__popover--round {
+  right: 0;
+  left: auto;
+}
+
+.master-combat-workspace__entity-count {
+  display: grid;
+  place-items: center;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid rgba(217, 171, 93, .32);
+  border-radius: 999px;
+  color: #f1d49d;
+  background: rgba(217, 171, 93, .09);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
 .master-combat-workspace__entity-list,
 .master-combat-workspace__sheet-scroll {
   min-height: 0;
@@ -1462,6 +1498,7 @@ body.has-compendium-reference-popup {
   padding: 0.75rem;
   border-top: 1px solid rgba(215, 171, 103, 0.22);
   background: rgba(7, 4, 3, 0.5);
+  container-type: inline-size;
 }
 
 .dice-roller-form__formula-row {
@@ -1509,10 +1546,11 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roller-form__controls {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 2rem minmax(2.5rem, 1fr) minmax(2.5rem, .85fr) minmax(3rem, 1fr) 2rem minmax(2.5rem, .72fr);
   align-items: center;
-  gap: 0.35rem;
+  gap: clamp(.14rem, .8cqw, .35rem);
+  min-width: 0;
 }
 
 .dice-roller-control {
@@ -1531,8 +1569,17 @@ body.has-compendium-reference-popup {
   color: var(--muted);
   background: rgba(255, 255, 255, 0.025);
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.64rem;
+  overflow: hidden;
+  font-size: clamp(.46rem, 2.2cqw, .64rem);
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dice-roller-form__controls > .dice-roller-control {
+  width: 100%;
+  padding-right: clamp(.16rem, 1.2cqw, .55rem);
+  padding-left: clamp(.16rem, 1.2cqw, .55rem);
 }
 
 .dice-roller-control:hover,
@@ -1594,11 +1641,13 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roller-modifier {
-  margin-left: auto;
+  min-width: 0;
+  margin-left: 0;
 }
 
 .dice-roller-modifier input {
-  width: 3.6rem;
+  width: 100%;
+  min-width: 0;
   height: 2.2rem;
   padding: 0 0.4rem;
   text-align: center;

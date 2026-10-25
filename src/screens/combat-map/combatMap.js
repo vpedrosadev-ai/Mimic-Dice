@@ -899,6 +899,7 @@ function getInitials(name) {
 }
 
 function getConditions(combatant) {
+  if (combatant?.hideConditions === true) return [];
   return clean(combatant?.condiciones).split(/[,;|]/).map(clean).filter(Boolean);
 }
 
@@ -1039,7 +1040,8 @@ export function createCombatMapController(options = {}) {
     return JSON.stringify(getCombatants().map((combatant) => [
       combatant.id, combatant.nombre, combatant.numPeana, combatant.pgAct, combatant.pgMax,
       combatant.condiciones, combatant.hiddenFromInitiative, combatant.iniactiva,
-      combatant.tokenUrl, combatant.tamano, combatant.movimiento, combatant.isFlying, combatant.flyingHeight
+      combatant.tokenUrl, combatant.tamano, combatant.movimiento, combatant.isFlying, combatant.flyingHeight,
+      combatant.hideHealth, combatant.hideConditions
     ]));
   }
 
@@ -1919,7 +1921,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function showHealth(combatant) {
-    return state.healthMode === "all" || state.healthMode === getSide(combatant);
+    return combatant?.hideHealth !== true && (state.healthMode === "all" || state.healthMode === getSide(combatant));
   }
 
   function renderTokens(layer = "all", behavior = {}) {

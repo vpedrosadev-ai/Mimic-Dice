@@ -206,6 +206,8 @@ function normalizeStoredCombatant(combatant) {
     teamId: cleanText(combatant.teamId),
     teamOwnerUserId: cleanText(combatant.teamOwnerUserId),
     teamOwnerName: cleanText(combatant.teamOwnerName),
+    multiplayerHostUserId: cleanText(combatant.multiplayerHostUserId),
+    multiplayerSingleMaster: combatant.multiplayerSingleMaster === true,
     teamColor: normalizeStoredTeamColor(combatant.teamColor),
     multiplayerOnline: combatant.multiplayerOnline === true,
     ubicacion: cleanText(combatant.ubicacion),
