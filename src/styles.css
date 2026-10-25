@@ -1546,6 +1546,8 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roller-form__controls {
+  --dice-control-font-size: clamp(.42rem, 2.2cqw, .64rem);
+  --dice-control-icon-size: clamp(.78rem, 4.2cqw, 1.22rem);
   display: grid;
   grid-template-columns: 2rem minmax(2.5rem, 1fr) minmax(2.5rem, .85fr) minmax(3rem, 1fr) 2rem minmax(2.5rem, .72fr);
   align-items: center;
@@ -1570,7 +1572,7 @@ body.has-compendium-reference-popup {
   background: rgba(255, 255, 255, 0.025);
   font-family: ui-sans-serif, system-ui, sans-serif;
   overflow: hidden;
-  font-size: clamp(.46rem, 2.2cqw, .64rem);
+  font-size: var(--dice-control-font-size);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1601,29 +1603,35 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roller-control--icon > svg {
-  width: 1.22rem;
-  height: 1.22rem;
+  width: var(--dice-control-icon-size);
+  height: var(--dice-control-icon-size);
 }
 
 .dice-roller-form .dice-roller-hit-dice {
-  gap: 0.35rem;
+  gap: clamp(.12rem, 1cqw, .35rem);
 }
 
 .dice-roller-form .dice-roller-hit-dice > span {
   display: grid;
-  width: 1.24rem;
-  height: 1.24rem;
+  width: var(--dice-control-icon-size);
+  height: var(--dice-control-icon-size);
+  flex: 0 0 var(--dice-control-icon-size);
   place-items: center;
   border: 1px solid currentColor;
   border-radius: 50%;
   color: var(--accent-soft);
-  font-size: 0.58rem;
+  font-size: clamp(.38rem, 1.8cqw, .58rem);
   font-weight: 900;
 }
 
 .dice-roller-form .dice-roller-hit-dice strong {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
-  font-size: 0.64rem;
+  font-size: inherit;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dice-roller-control.is-active {
@@ -1650,6 +1658,7 @@ body.has-compendium-reference-popup {
   min-width: 0;
   height: 2.2rem;
   padding: 0 0.4rem;
+  font-size: var(--dice-control-font-size);
   text-align: center;
 }
 
