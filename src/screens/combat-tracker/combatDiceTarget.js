@@ -41,8 +41,24 @@ export function getCombatDiceTargetOutcome(kind, total, armorClass, options = {}
     kind: COMBAT_DICE_TARGET_DAMAGE,
     armorClass: null,
     hit: null,
-    appliedDamage: Math.max(0, normalizedTotal)
+    appliedDamage: getCombatDiceTargetAppliedDamage(normalizedTotal, options)
   };
+}
+
+export function getCombatDiceTargetAppliedDamage(total, options = {}) {
+  const normalizedTotal = Math.max(0, Number(total));
+
+  if (!Number.isFinite(normalizedTotal)) {
+    throw new TypeError("Combat dice target damage must be finite.");
+  }
+
+  if (options.halfDamage !== true) {
+    return normalizedTotal;
+  }
+
+  return options.isAlly === true
+    ? Math.floor(normalizedTotal / 2)
+    : Math.ceil(normalizedTotal / 2);
 }
 
 export function doubleDiceInFormula(formula) {

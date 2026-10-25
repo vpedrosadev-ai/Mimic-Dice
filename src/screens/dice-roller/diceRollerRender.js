@@ -322,12 +322,17 @@ function renderDiceTargetOutcome(entry, language) {
   if (targetKind === "damage") {
     const amount = Number(entry.appliedDamage);
     const damage = Number.isFinite(amount) ? amount : Number(entry.total) || 0;
+    const damageLabel = entry.targetNecroticDamage
+      ? (isEnglish ? "NECROTIC DAMAGE" : "DANO NECROTICO")
+      : entry.targetHalfDamage
+        ? (isEnglish ? "HALF DAMAGE" : "MITAD DE DANO")
+        : entry.targetCriticalDamage
+          ? (isEnglish ? "CRITICAL DAMAGE" : "DANO CRITICO")
+          : (isEnglish ? "DAMAGE APPLIED" : "DANO APLICADO");
 
     return `
       <div class="dice-roll-entry__target dice-roll-entry__target--damage">
-        <strong>${escapeHtml(entry.targetCriticalDamage
-          ? (isEnglish ? "CRITICAL DAMAGE" : "DANO CRITICO")
-          : (isEnglish ? "DAMAGE APPLIED" : "DANO APLICADO"))}</strong>
+        <strong>${escapeHtml(damageLabel)}</strong>
         <span>${escapeHtml(targetLabel)}</span>
         <small>${escapeHtml(`${damage} ${isEnglish ? "HP removed" : "PG restados"}`)}</small>
       </div>

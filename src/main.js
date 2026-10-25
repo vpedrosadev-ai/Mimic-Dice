@@ -2223,7 +2223,9 @@ async function handleClick(event) {
     event.preventDefault();
     resolveMasterCombatDiceTarget(actionButton.dataset.combatantId, {
       rollMode: actionButton.dataset.targetRollMode,
-      critical: actionButton.dataset.targetCritical === "true"
+      critical: actionButton.dataset.targetCritical === "true",
+      halfDamage: actionButton.dataset.targetHalfDamage === "true",
+      necroticDamage: actionButton.dataset.targetNecroticDamage === "true"
     });
     return;
   }
@@ -12658,12 +12660,14 @@ function renderMasterCombatDiceTargetCard(combatant, showArmorClass) {
           <small>${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")} ${escapeHtml(stand)}${showArmorClass ? ` · AC ${escapeHtml(String(armorLabel))}` : ""}</small>
         </span>
       </button>
-      <span class="master-combat-dice-target-card__controls">
+      <span class="master-combat-dice-target-card__controls ${showArmorClass ? "" : "master-combat-dice-target-card__controls--damage"}">
         ${showArmorClass ? `
           <button class="master-combat-dice-target-card__mode master-combat-dice-target-card__mode--advantage" type="button" data-action="resolve-master-combat-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" data-target-roll-mode="advantage">${escapeHtml(isEnglishInterface() ? "Advantage" : "Ventaja")}</button>
           <button class="master-combat-dice-target-card__mode master-combat-dice-target-card__mode--disadvantage" type="button" data-action="resolve-master-combat-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" data-target-roll-mode="disadvantage">${escapeHtml(isEnglishInterface() ? "Disadvantage" : "Desventaja")}</button>
         ` : `
-          <button class="master-combat-dice-target-card__mode master-combat-dice-target-card__mode--critical" type="button" data-action="resolve-master-combat-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" data-target-critical="true">${escapeHtml(isEnglishInterface() ? "Critical" : "Critico")}</button>
+          <button class="master-combat-dice-target-card__mode master-combat-dice-target-card__mode--critical" type="button" data-action="resolve-master-combat-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" data-target-critical="true" aria-label="${escapeHtml(isEnglishInterface() ? "Double damage dice" : "Duplicar dados de dano")}" title="${escapeHtml(isEnglishInterface() ? "Double damage dice" : "Duplicar dados de dano")}">x2</button>
+          <button class="master-combat-dice-target-card__mode master-combat-dice-target-card__mode--half" type="button" data-action="resolve-master-combat-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" data-target-half-damage="true" aria-label="${escapeHtml(isEnglishInterface() ? "Half damage" : "Mitad de dano")}" title="${escapeHtml(isEnglishInterface() ? "Half damage" : "Mitad de dano")}">1/2</button>
+          <button class="master-combat-dice-target-card__mode master-combat-dice-target-card__mode--necrotic" type="button" data-action="resolve-master-combat-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" data-target-necrotic-damage="true" aria-label="${escapeHtml(isEnglishInterface() ? "Necrotic damage" : "Dano necrotico")}" title="${escapeHtml(isEnglishInterface() ? "Necrotic damage" : "Dano necrotico")}"><span aria-hidden="true">${renderCombatMiniActionIcon("necrotic")}</span></button>
         `}
       </span>
     </article>
@@ -12706,6 +12710,9 @@ function resolveMasterCombatDiceTarget(combatantId, options = {}) {
 
   try {
     const isCriticalDamage = kind === COMBAT_DICE_TARGET_DAMAGE && options.critical === true;
+    const isHalfDamage = kind === COMBAT_DICE_TARGET_DAMAGE && options.halfDamage === true;
+    const isNecroticDamage = kind === COMBAT_DICE_TARGET_DAMAGE && options.necroticDamage === true;
+    const isAllyTarget = cleanText(target.tag).toUpperCase() === "ALIADO" || target.side === "allies";
     const targetFormula = isCriticalDamage ? doubleDiceInFormula(formula) : formula;
     const resolvedFormula = appendDiceRollerModifier(targetFormula, state.diceRollerModifier);
     const requestedRollMode = cleanText(options.rollMode);
@@ -12722,11 +12729,16 @@ function resolveMasterCombatDiceTarget(combatantId, options = {}) {
         name: cleanText(target.nombre),
         stand: cleanText(target.numPeana),
         armorClass,
-        criticalDamage: isCriticalDamage
+        criticalDamage: isCriticalDamage,
+        halfDamage: isHalfDamage,
+        necroticDamage: isNecroticDamage,
+        isAlly: isAllyTarget
       }
     });
     const outcome = getCombatDiceTargetOutcome(kind, result.total, armorClass, {
-      criticalOutcome: result.criticalOutcome
+      criticalOutcome: result.criticalOutcome,
+      halfDamage: isHalfDamage,
+      isAlly: isAllyTarget
     });
 
     state.diceRollerRollMode = "";
@@ -12735,7 +12747,11 @@ function resolveMasterCombatDiceTarget(combatantId, options = {}) {
 
     if (kind === COMBAT_DICE_TARGET_DAMAGE) {
       setInlineAdjustment(target.id, "pgAct", String(outcome.appliedDamage));
-      applyPgActAdjustment(target.id, "damage");
+      if (isNecroticDamage) {
+        applyNecroticAdjustment(target.id);
+      } else {
+        applyPgActAdjustment(target.id, "damage");
+      }
       syncCombatTrackerMutation(target.id, { forceFullRender: true });
     } else {
       render();
@@ -12793,7 +12809,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active, init
           }).join("")}
         </span>
       ` : ""}
-      ${renderCombatTurnStatusSummary(statusNames)}
+      ${renderCombatTurnStatusSummary(combatant, statusNames)}
     </button>
   `;
 }
@@ -13180,7 +13196,9 @@ function rollAndRecordDiceFormula(formula, options = {}) {
     : null;
   const targetOutcome = targetContext
     ? getCombatDiceTargetOutcome(targetContext.kind, result.total, targetContext.armorClass, {
-        criticalOutcome: result.criticalOutcome
+        criticalOutcome: result.criticalOutcome,
+        halfDamage: targetContext.halfDamage === true,
+        isAlly: targetContext.isAlly === true
       })
     : null;
   const rollEntry = {
@@ -13202,7 +13220,9 @@ function rollAndRecordDiceFormula(formula, options = {}) {
       targetArmorClass: targetOutcome.armorClass,
       targetHit: targetOutcome.hit,
       appliedDamage: targetOutcome.appliedDamage,
-      targetCriticalDamage: targetContext.criticalDamage === true
+      targetCriticalDamage: targetContext.criticalDamage === true,
+      targetHalfDamage: targetContext.halfDamage === true,
+      targetNecroticDamage: targetContext.necroticDamage === true
     } : {})
   };
   state.diceRollHistory = [
@@ -14543,14 +14563,17 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
       <div class="combat-turn-token__statuses">
         ${statusNames.map((statusName) => renderCombatTurnStatusChip(combatant.id, statusName)).join("")}
       </div>
-      ${renderCombatTurnStatusSummary(allStatusNames)}
+      ${renderCombatTurnStatusSummary(combatant, allStatusNames)}
     </div>
   `;
 }
 
-function renderCombatTurnStatusSummary(statusNames) {
+function renderCombatTurnStatusSummary(combatant, statusNames) {
   if (!statusNames.length) return "";
-  return `<aside class="combat-turn-token__status-summary" role="tooltip"><strong>Estados</strong><div>${statusNames.map((statusName) => {
+  const tokenUrl = getCombatantTokenUrl(combatant);
+  const name = cleanText(combatant.nombre) || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
+  const stand = cleanText(combatant.numPeana) || "-";
+  return `<aside class="combat-turn-token__status-summary" role="tooltip"><header class="combat-turn-token__status-summary-identity"><span class="combat-turn-token__status-summary-portrait" aria-hidden="true">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<i>${escapeHtml(getCombatantInitials(combatant))}</i>`}</span><span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")} ${escapeHtml(stand)}</small></span></header><strong>${escapeHtml(isEnglishInterface() ? "Conditions" : "Estados")}</strong><div>${statusNames.map((statusName) => {
     const label = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
     const description = getCombatStatusDescription(statusName) || "Sin descripcion disponible.";
     const tone = getCombatStatusToneClass(statusName);

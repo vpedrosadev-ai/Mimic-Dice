@@ -5,6 +5,7 @@ import {
   COMBAT_DICE_TARGET_ATTACK,
   COMBAT_DICE_TARGET_DAMAGE,
   doubleDiceInFormula,
+  getCombatDiceTargetAppliedDamage,
   getCombatDiceTargetKind,
   getCombatDiceTargetOutcome
 } from "../src/screens/combat-tracker/combatDiceTarget.js";
@@ -35,6 +36,16 @@ test("critical attacks always hit and fumbles always miss", () => {
 test("damage outcome clamps negative totals before applying HP loss", () => {
   assert.equal(getCombatDiceTargetOutcome(COMBAT_DICE_TARGET_DAMAGE, 12, 18).appliedDamage, 12);
   assert.equal(getCombatDiceTargetOutcome(COMBAT_DICE_TARGET_DAMAGE, -3, 18).appliedDamage, 0);
+});
+
+test("half damage rounds down for allies and up for every other target", () => {
+  assert.equal(getCombatDiceTargetAppliedDamage(9, { halfDamage: true, isAlly: true }), 4);
+  assert.equal(getCombatDiceTargetAppliedDamage(9, { halfDamage: true, isAlly: false }), 5);
+  assert.equal(getCombatDiceTargetAppliedDamage(8, { halfDamage: true, isAlly: true }), 4);
+  assert.equal(getCombatDiceTargetOutcome(COMBAT_DICE_TARGET_DAMAGE, 9, null, {
+    halfDamage: true,
+    isAlly: false
+  }).appliedDamage, 5);
 });
 
 test("critical damage doubles every dice count but never modifiers", () => {
