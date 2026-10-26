@@ -636,11 +636,15 @@ export function normalizeMapEditorState(value) {
     viewport: {
       scrollLeft: Math.max(0, Number(source.viewport?.scrollLeft) || 0),
       scrollTop: Math.max(0, Number(source.viewport?.scrollTop) || 0),
+      offsetX: Number(source.viewport?.offsetX) || 0,
+      offsetY: Number(source.viewport?.offsetY) || 0,
       zoom: clamp(source.viewport?.zoom || 1, MIN_MAP_ZOOM, MAX_MAP_ZOOM)
     },
     playerViewport: {
       scrollLeft: Math.max(0, Number(source.playerViewport?.scrollLeft) || 0),
       scrollTop: Math.max(0, Number(source.playerViewport?.scrollTop) || 0),
+      offsetX: Number(source.playerViewport?.offsetX) || 0,
+      offsetY: Number(source.playerViewport?.offsetY) || 0,
       zoom: clamp(source.playerViewport?.zoom || 1, MIN_MAP_ZOOM, MAX_MAP_ZOOM)
     },
     playerNotifications: {
@@ -2134,6 +2138,7 @@ export function createCombatMapController(options = {}) {
     frame.style.width = `${totalWidth * effectiveScale}px`;
     frame.style.height = `${totalHeight * effectiveScale}px`;
     frame.dataset.mapScale = String(effectiveScale);
+    applyViewportOffset(frame, state.playerViewport);
     viewport.scrollLeft = state.playerViewport.scrollLeft;
     viewport.scrollTop = state.playerViewport.scrollTop;
   }
@@ -2157,8 +2162,22 @@ export function createCombatMapController(options = {}) {
     frame.style.width = `${totalWidth * scale}px`;
     frame.style.height = `${totalHeight * scale}px`;
     frame.dataset.mapScale = String(scale);
+    applyViewportOffset(frame, state.playerViewport);
     viewport.scrollLeft = state.playerViewport.scrollLeft;
     viewport.scrollTop = state.playerViewport.scrollTop;
+  }
+
+  function applyViewportOffset(frame, viewportState) {
+    if (!frame) return;
+    frame.style.transform = `translate(${Number(viewportState?.offsetX) || 0}px, ${Number(viewportState?.offsetY) || 0}px)`;
+  }
+
+  function scheduleViewportPersist() {
+    if (viewportPersistTimer) window.clearTimeout(viewportPersistTimer);
+    viewportPersistTimer = window.setTimeout(() => {
+      viewportPersistTimer = 0;
+      persist();
+    }, 180);
   }
 
   function fitInitiativeOrder(root = editorWindow?.document) {
@@ -2191,11 +2210,7 @@ export function createCombatMapController(options = {}) {
     const viewportState = surface === masterHost ? state.viewport : state.playerViewport;
     viewportState.scrollLeft = event.target.scrollLeft;
     viewportState.scrollTop = event.target.scrollTop;
-    if (viewportPersistTimer) window.clearTimeout(viewportPersistTimer);
-    viewportPersistTimer = window.setTimeout(() => {
-      viewportPersistTimer = 0;
-      persist();
-    }, 180);
+    scheduleViewportPersist();
   }
 
   function setMapZoom(value, root = masterHost || editorWindow?.document) {
@@ -3133,8 +3148,14 @@ export function createCombatMapController(options = {}) {
       const viewport = surface?.querySelector(".combat-map-viewport");
       if (viewport) {
         event.preventDefault();
-        viewport.scrollLeft += panDelta.left;
-        viewport.scrollTop += panDelta.top;
+        const viewportState = surface === masterHost ? state.viewport : state.playerViewport;
+        const frame = viewport.querySelector("[data-map-frame]");
+        const maximumX = Math.max(MAP_KEYBOARD_PAN_STEP, (viewport.clientWidth + (frame?.offsetWidth || 0)) / 2 - MAP_KEYBOARD_PAN_STEP);
+        const maximumY = Math.max(MAP_KEYBOARD_PAN_STEP, (viewport.clientHeight + (frame?.offsetHeight || 0)) / 2 - MAP_KEYBOARD_PAN_STEP);
+        viewportState.offsetX = clamp(viewportState.offsetX + panDelta.left, -maximumX, maximumX);
+        viewportState.offsetY = clamp(viewportState.offsetY + panDelta.top, -maximumY, maximumY);
+        applyViewportOffset(frame, viewportState);
+        scheduleViewportPersist();
       }
     } else if ((event.key === "Delete" || event.key === "Backspace") && panel === "shapes" && !isTextControl) {
       event.preventDefault();
@@ -3687,6 +3708,7 @@ export function createCombatMapController(options = {}) {
     frame.style.width = `${totalWidth * scale}px`;
     frame.style.height = `${totalHeight * scale}px`;
     frame.dataset.mapScale = String(scale);
+    applyViewportOffset(frame, state.viewport);
     viewport.scrollLeft = state.viewport.scrollLeft;
     viewport.scrollTop = state.viewport.scrollTop;
   }

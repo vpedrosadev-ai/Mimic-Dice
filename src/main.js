@@ -1634,8 +1634,9 @@ async function handleClick(event) {
   }
 
   const masterWorkspaceEntity = event.target.closest?.("[data-master-workspace-entity]");
+  const masterWorkspaceInteractiveControl = event.target.closest?.("button, input, select, textarea, [contenteditable='true']");
 
-  if (masterWorkspaceEntity) {
+  if (masterWorkspaceEntity && !masterWorkspaceInteractiveControl) {
     masterCombatWorkspaceSelectedId = cleanText(masterWorkspaceEntity.dataset.masterWorkspaceEntity);
     render();
     return;
@@ -3252,6 +3253,8 @@ async function handleClick(event) {
 
   if (action === "add-blank-combatant") {
     const combatantId = addBlankCombatant();
+    if (state.masterCombatWorkspaceVisible) masterCombatWorkspaceSelectedId = combatantId;
+    queueCompendiumLoad("bestiary");
     state.filters = { ...blankFilters };
     state.combatFilterDrafts = { ...blankCombatFilterDrafts };
     state.activeFilterKey = "";
@@ -5851,6 +5854,13 @@ function handleGlobalKeydown(event) {
 
 function handleKeydown(event) {
   const target = event.target;
+
+  if (target.matches?.("[data-master-workspace-entity]") && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    masterCombatWorkspaceSelectedId = cleanText(target.dataset.masterWorkspaceEntity);
+    render();
+    return;
+  }
 
   if (target.matches('[role="button"][data-action="open-combatant-character"]') && (event.key === "Enter" || event.key === " ")) {
     event.preventDefault();
@@ -12488,7 +12498,8 @@ function renderMasterCombatWorkspaceButton() {
 }
 
 function renderMasterCombatWorkspacePanel() {
-  const combatants = getCombatTurnOrder([...state.combatants].filter((combatant) => combatant && cleanText(combatant.iniactiva) !== ""));
+  const combatants = getCombatTurnOrder([...state.combatants].filter(shouldShowMasterCombatWorkspaceEntity));
+  const turnCombatants = getCombatTurnParticipants(combatants);
   const activeId = state.isCombatActive ? cleanText(state.activeTurnCombatantId) : "";
 
   if (activeId !== masterCombatWorkspaceLastActiveId) {
@@ -12530,15 +12541,15 @@ function renderMasterCombatWorkspacePanel() {
             <header class="master-combat-workspace__panel-heading">
               <div><small>${escapeHtml(isEnglishInterface() ? "COMBAT" : "COMBATE")}</small><strong>${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}</strong></div>
               <div class="master-combat-workspace__turn-controls" aria-label="${escapeHtml(isEnglishInterface() ? "Turn controls" : "Controles de turno")}">
-                <span class="master-combat-workspace__entity-count" title="${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}">${combatants.length}</span>
-                <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${!state.isCombatActive || combatants.length === 0 ? "disabled" : ""}>
+                <button class="master-combat-workspace__entity-add" type="button" data-action="add-blank-combatant" aria-label="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}" title="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}">+</button>
+                <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${!state.isCombatActive || turnCombatants.length === 0 ? "disabled" : ""}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg>
                 </button>
                 <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
                   <button class="round-chip round-chip--button combat-map-initiative-round" type="button" data-action="toggle-combat-turn-round-editor" aria-expanded="${state.combatTurnRoundEditorOpen}" title="${escapeHtml(t("round_label"))}">R${escapeHtml(String(getCombatRound()))}</button>
                   ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
                 </div>
-                <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${!state.isCombatActive || combatants.length === 0 ? "disabled" : ""}>
+                <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${!state.isCombatActive || turnCombatants.length === 0 ? "disabled" : ""}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg>
                 </button>
               </div>
@@ -12546,7 +12557,7 @@ function renderMasterCombatWorkspacePanel() {
             <div class="master-combat-workspace__entity-list" data-render-scroll-key="master-combat-entities">
               ${combatants.length
                 ? combatants.map((combatant) => renderMasterCombatWorkspaceEntityCard(combatant, combatant.id === selectedCombatant?.id, combatant.id === activeId)).join("")
-                : `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "No entities" : "Sin entidades")}</strong><p>${escapeHtml(isEnglishInterface() ? "Add entities from normal Combat Table view." : "Anade entidades desde la vista normal de Tabla de combate.")}</p></div>`}
+                : `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "No entities" : "Sin entidades")}</strong><p>${escapeHtml(isEnglishInterface() ? "Use + to add one." : "Usa + para anadir una.")}</p></div>`}
             </div>
           </aside>
           <div class="master-combat-workspace__splitter master-combat-workspace__splitter--horizontal" data-master-workspace-resize="entities" role="separator" aria-orientation="horizontal" tabindex="0"></div>
@@ -12584,6 +12595,12 @@ function renderMasterCombatWorkspacePanel() {
       ${renderCombatTurnQuickMenu()}
     </section>
   `;
+}
+
+function shouldShowMasterCombatWorkspaceEntity(combatant) {
+  if (!combatant) return false;
+  const unfinishedManualEntity = toNumber(combatant.pgMax) === 0 && combatant.pgAct === "";
+  return unfinishedManualEntity || !isCombatantDead(combatant);
 }
 
 function getDefaultMasterCombatDiceTargetMenuState() {
@@ -12800,17 +12817,26 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
   const hpLabel = isEnglishInterface() ? "HP" : "PG";
   const statusNames = getCombatantStatusNames(combatant);
   const standNumber = cleanText(combatant.numPeana) || "-";
+  const isEditingName = state.activeCombatNameSearchId === combatant.id;
+  const nameSuggestions = isEditingName ? getCombatNameSuggestions(combatant) : [];
+  const displayName = combatant.nombre || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
 
   return `
-    <button
-      class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}"
-      type="button"
+    <article
+      class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""} ${isEditingName ? "is-editing-name" : ""}"
       data-master-workspace-entity="${escapeHtml(combatant.id)}"
+      data-combat-name-search-menu
       data-combatant-id="${escapeHtml(combatant.id)}"
       data-combat-turn-token-context="${escapeHtml(combatant.id)}"
+      role="button"
+      tabindex="0"
       aria-pressed="${selected}"
+      aria-label="${escapeHtml(displayName)}"
     >
-      <span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span>
+      <span class="master-combat-entity__rail">
+        <span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span>
+        <button class="master-combat-entity__remove" type="button" data-action="delete-combatant-row" data-combatant-id="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(isEnglishInterface() ? `Remove ${displayName}` : `Quitar ${displayName}`)}" title="${escapeHtml(isEnglishInterface() ? "Remove entity" : "Quitar entidad")}"><span aria-hidden="true">×</span></button>
+      </span>
       <span class="master-combat-entity__portrait">
         ${tokenUrl
           ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">`
@@ -12818,7 +12844,9 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
         ${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}
       </span>
       <span class="master-combat-entity__copy">
-        <span class="master-combat-entity__title"><strong>${escapeHtml(combatant.nombre || (isEnglishInterface() ? "Unnamed" : "Sin nombre"))}</strong></span>
+        ${isEditingName ? `
+          <input class="master-combat-entity__name-input" type="text" inputmode="text" value="${escapeHtml(String(combatant.nombre || ""))}" data-edit-id="${escapeHtml(combatant.id)}" data-edit-key="nombre" data-master-combat-name-input="${escapeHtml(combatant.id)}" autocomplete="off" aria-label="${escapeHtml(isEnglishInterface() ? "Entity name" : "Nombre de entidad")}">
+        ` : `<span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span>`}
         <strong class="master-combat-entity__hp-label">${escapeHtml(`${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`)}</strong>
         <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
       </span>
@@ -12833,7 +12861,8 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
         </span>
       ` : ""}
       ${renderCombatTurnStatusSummary(combatant, statusNames)}
-    </button>
+      ${isEditingName && nameSuggestions.length ? `<div class="combat-name-suggestions master-combat-entity__name-suggestions" role="listbox" aria-label="${escapeHtml(isEnglishInterface() ? "Combat suggestions" : "Sugerencias de combate")}">${nameSuggestions.map((entry) => renderCombatNameSuggestion(combatant.id, entry)).join("")}</div>` : ""}
+    </article>
   `;
 }
 
@@ -12841,7 +12870,7 @@ function renderMasterCombatWorkspaceEntityPreview(combatant) {
   const linkedCharacter = getLinkedCharacterForCombatant(combatant);
 
   if (linkedCharacter) {
-    return renderCombatCharacterPreview(linkedCharacter, { interactive: false, linkDetails: true });
+    return renderCombatCharacterPreview(linkedCharacter, { interactive: false, linkDetails: true, compactAbilityLabels: true });
   }
 
   const bestiaryEntry = getCombatantBestiaryEntry(combatant);
@@ -18464,7 +18493,7 @@ function renderCombatCharacterPreview(character, options = {}) {
         <small>PB ${escapeHtml(formatModifier(getCharacterProficiencyBonus(character)))}</small>
       </div>
       <div class="combat-token-preview__sections">
-        ${renderCombatCharacterStatsPreview(character)}
+        ${renderCombatCharacterStatsPreview(character, options)}
         ${renderCombatCharacterSkillChipsSection(character)}
         ${renderCombatCharacterCurrencySection(character, options)}
       </div>
@@ -18472,7 +18501,7 @@ function renderCombatCharacterPreview(character, options = {}) {
   `;
 }
 
-function renderCombatCharacterStatsPreview(character) {
+function renderCombatCharacterStatsPreview(character, options = {}) {
   const proficiencyBonus = getCharacterProficiencyBonus(character);
   const proficientKeys = getCharacterProficiencySet(character);
   const expertiseKeys = getCharacterExpertiseSet(character);
@@ -18485,7 +18514,7 @@ function renderCombatCharacterStatsPreview(character) {
         <strong>Bonus competencia</strong>
       </div>
       <div class="character-stat-sheet__blocks">
-        ${characterAbilityKeys.map((key) => renderCombatCharacterStatBlockPreview(character, key, proficientKeys, expertiseKeys, proficiencyBonus)).join("")}
+        ${characterAbilityKeys.map((key) => renderCombatCharacterStatBlockPreview(character, key, proficientKeys, expertiseKeys, proficiencyBonus, options)).join("")}
       </div>
       <div class="character-stat-sheet__passive">
         <span>${escapeHtml(String(passivePerception))}</span>
@@ -18495,11 +18524,14 @@ function renderCombatCharacterStatsPreview(character) {
   `;
 }
 
-function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, expertiseKeys, proficiencyBonus) {
+function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, expertiseKeys, proficiencyBonus, options = {}) {
   const score = character.abilities[key] ?? 10;
   const modifier = getAbilityModifier(score);
   const meta = characterStatBlocks[key];
   const saveKey = `save:${key}`;
+  const visibleLabel = options.compactAbilityLabels
+    ? [...cleanText(meta.label)].slice(0, 3).join("").toLocaleUpperCase(isEnglishInterface() ? "en" : "es")
+    : meta.label;
 
   return `
     <article class="character-stat-block">
@@ -18512,7 +18544,7 @@ function renderCombatCharacterStatBlockPreview(character, key, proficientKeys, e
           aria-label="${escapeHtml(`Lanzar d20${formatModifier(modifier)} para ${meta.label}`)}"
         >${escapeHtml(formatModifier(modifier))}</button>
         <strong class="character-stat-block__score-value">${escapeHtml(String(score))}</strong>
-        <strong>${escapeHtml(meta.label)}</strong>
+        <strong title="${escapeHtml(meta.label)}">${escapeHtml(visibleLabel)}</strong>
       </div>
       <div class="character-stat-block__checks">
         ${renderCombatCharacterCheckRowPreview("save", "Salvacion", modifier, proficiencyBonus, proficientKeys.has(saveKey), expertiseKeys.has(saveKey))}
