@@ -286,10 +286,12 @@ const APP_VERSION = RELEASE_NOTES[0]?.version || "v1.0";
 const OPTIONS_MENU_SECTION_GENERAL = "general";
 const OPTIONS_MENU_SECTION_LANGUAGES = "languages";
 const OPTIONS_MENU_SECTION_SOUND = "sound";
+const OPTIONS_MENU_SECTION_NOTIFICATIONS = "notifications";
 const OPTIONS_MENU_SECTIONS = Object.freeze([
   OPTIONS_MENU_SECTION_GENERAL,
   OPTIONS_MENU_SECTION_LANGUAGES,
-  OPTIONS_MENU_SECTION_SOUND
+  OPTIONS_MENU_SECTION_SOUND,
+  OPTIONS_MENU_SECTION_NOTIFICATIONS
 ]);
 const SOUND_EFFECT_KEYS = Object.freeze(["combat", "initiative", "longRest", "levelUp", "death", "critical", "fumble", "doubleCritical", "doubleFumble"]);
 const defaultSoundSettings = Object.freeze({
@@ -304,6 +306,8 @@ const defaultSoundSettings = Object.freeze({
   doubleCritical: true,
   doubleFumble: true
 });
+const NOTIFICATION_SETTING_KEYS = Object.freeze(["damage", "healing", "experience", "turn", "round", "status", "initiative", "system"]);
+const defaultNotificationSettings = Object.freeze(Object.fromEntries(NOTIFICATION_SETTING_KEYS.map((key) => [key, true])));
 const blankBestiaryFilters = {
   query: "",
   source: [],
@@ -526,6 +530,7 @@ const combatLookupCache = {
   charactersByName: new Map()
 };
 let activeTableColumnResize = null;
+let activeCombatColumnResize = null;
 let activeCombatSpellbookPopoverSyncFrame = 0;
 let activeCombatSpellPreviewSyncFrame = 0;
 let activeCombatSpellPreviewTriggerElement = null;
@@ -804,6 +809,7 @@ state = {
   contentLanguage: normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage),
   includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(initialCampaignMeta.includeNpcInCombatExperience),
   soundSettings: normalizeStoredSoundSettings(initialCampaignMeta.soundSettings),
+  notificationSettings: normalizeStoredNotificationSettings(initialCampaignMeta.notificationSettings),
   repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(initialCampaignMeta.repositoryCsvPaths),
   repositoryCsvUploads: { ...blankRepositoryCsvUploads },
   customBestiaryImageMap: {},
@@ -1031,6 +1037,15 @@ state = {
   masterCombatAddDialogOpen: false,
   masterCombatManualQuery: "",
   masterCombatManualSelectedId: "",
+  masterCombatCustomDraft: {
+    nombre: "",
+    pgMax: "",
+    ca: "",
+    tamano: "Mediano"
+  },
+  combatColumnMenuOpen: false,
+  combatColumnVisibility: normalizeStoredCombatColumnVisibility(initialCampaignMeta.combatColumnVisibility),
+  combatColumnWidths: normalizeStoredCombatColumnWidths(initialCampaignMeta.combatColumnWidths),
   tableFolders: initialTablesState.folders,
   systemTableFolderExpanded: initialTablesState.systemFolderExpanded,
   tables: initialTablesState.tables,
@@ -1707,6 +1722,7 @@ async function handleClick(event) {
   const clickedCombatSourceMenu = event.target.closest("[data-combat-source-menu]");
   const clickedCombatStatusMenu = event.target.closest("[data-combat-status-menu]");
   const clickedCombatFilterMenu = event.target.closest("[data-combat-filter-menu]");
+  const clickedCombatColumnPicker = event.target.closest("[data-combat-column-picker]");
   const clickedCombatSpellbookMenu = event.target.closest("[data-combat-spellbook-menu]");
   const clickedCombatInlineMenu = event.target.closest(".combat-inline-menu");
   const clickedFileMenu = event.target.closest("[data-file-menu]");
@@ -1715,6 +1731,14 @@ async function handleClick(event) {
   const ctrlOrMetaPressed = event.ctrlKey || event.metaKey;
   const clickedDiaryTag = event.target.closest("[data-diary-tag-filter]");
   const clickedDiaryMentionLink = event.target.closest("[data-diary-mention-link]");
+
+  if (state.combatColumnMenuOpen && !clickedCombatColumnPicker) {
+    state.combatColumnMenuOpen = false;
+    if (!actionButton) {
+      render();
+      return;
+    }
+  }
 
   if (state.masterCombatDiceTargetMenu.kind && !clickedMasterCombatDiceTargetMenu) {
     closeMasterCombatDiceTargetMenu();
@@ -2879,8 +2903,13 @@ async function handleClick(event) {
       state.masterCombatManualSelectedId = "";
       queueCompendiumLoad("bestiary");
     }
+    if (state.combatAddPickerMode === "custom") {
+      state.masterCombatCustomDraft = { nombre: "", pgMax: "", ca: "", tamano: "Mediano" };
+    }
     render({
-      focusSelector: state.combatAddPickerMode === "manual" ? "[data-master-combat-manual-query]" : null
+      focusSelector: state.combatAddPickerMode === "manual"
+        ? "[data-master-combat-manual-query]"
+        : state.combatAddPickerMode === "custom" ? '[data-master-combat-custom-field="nombre"]' : null
     });
     return;
   }
@@ -2919,6 +2948,18 @@ async function handleClick(event) {
 
   if (action === "confirm-master-combat-manual-entry") {
     confirmMasterCombatManualEntity();
+    render();
+    return;
+  }
+
+  if (action === "confirm-master-combat-custom-entity") {
+    confirmMasterCombatCustomEntity();
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-column-menu") {
+    state.combatColumnMenuOpen = !state.combatColumnMenuOpen;
     render();
     return;
   }
@@ -3328,6 +3369,11 @@ async function handleClick(event) {
     const combatantId = actionButton.dataset.combatantId;
     toggleCombatantStatus(combatantId, actionButton.dataset.combatStatus);
     state.activeCombatStatusMenuId = "";
+    if (actionButton.closest("[data-combat-turn-quick-menu]")) {
+      saveCombatTrackerState();
+      render();
+      return;
+    }
     syncCombatTrackerMutation(combatantId);
     return;
   }
@@ -3335,7 +3381,10 @@ async function handleClick(event) {
   if (action === "add-custom-combat-status") {
     const combatantId = cleanText(actionButton.dataset.combatantId || state.combatTurnQuickMenu?.combatantId);
     const input = actionButton.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-combat-turn-custom-status]");
-    if (addCombatTurnQuickStatus(combatantId, input?.value)) syncCombatTrackerMutation(combatantId);
+    if (addCombatTurnQuickStatus(combatantId, input?.value)) {
+      saveCombatTrackerState();
+      render();
+    }
     return;
   }
 
@@ -5251,6 +5300,38 @@ async function handleChange(event) {
     return;
   }
 
+  if (target.matches("[data-notification-setting-key]")) {
+    const notificationKey = cleanText(target.dataset.notificationSettingKey);
+    if (!NOTIFICATION_SETTING_KEYS.includes(notificationKey)) return;
+    state.notificationSettings = {
+      ...normalizeStoredNotificationSettings(state.notificationSettings),
+      [notificationKey]: target.checked
+    };
+    saveCampaignMeta();
+    render();
+    return;
+  }
+
+  if (target.matches("[data-combat-column-visible]")) {
+    const columnKey = cleanText(target.dataset.combatColumnVisible);
+    if (!columns.some((column) => column.key === columnKey)) return;
+    const nextVisibility = { ...normalizeStoredCombatColumnVisibility(state.combatColumnVisibility), [columnKey]: target.checked };
+    if (!Object.values(nextVisibility).some(Boolean)) {
+      target.checked = true;
+      return;
+    }
+    state.combatColumnVisibility = nextVisibility;
+    if (!target.checked && state.activeFilterKey === columnKey) state.activeFilterKey = "";
+    saveCampaignMeta();
+    render();
+    return;
+  }
+
+  if (target.matches('[data-master-combat-custom-field="tamano"]')) {
+    state.masterCombatCustomDraft = { ...state.masterCombatCustomDraft, tamano: target.value };
+    return;
+  }
+
   if (target.matches("[data-area-damage]")) {
     state.areaDamage = target.value;
     saveCombatTrackerState();
@@ -5732,6 +5813,21 @@ function handleInput(event) {
       selectionStart: target.selectionStart,
       selectionEnd: target.selectionEnd
     });
+    return;
+  }
+
+  if (target.matches("[data-master-combat-custom-field]")) {
+    const key = cleanText(target.dataset.masterCombatCustomField);
+    if (["nombre", "pgMax", "ca", "tamano"].includes(key)) {
+      state.masterCombatCustomDraft = { ...state.masterCombatCustomDraft, [key]: target.value };
+      if (key === "nombre") {
+        scheduleRender({
+          focusSelector: '[data-master-combat-custom-field="nombre"]',
+          selectionStart: target.selectionStart,
+          selectionEnd: target.selectionEnd
+        });
+      }
+    }
     return;
   }
 
@@ -6580,6 +6676,24 @@ function handlePointerDown(event) {
     return;
   }
 
+  const combatResizeHandle = event.target.closest("[data-combat-column-resize]");
+
+  if (combatResizeHandle) {
+    const columnKey = cleanText(combatResizeHandle.dataset.combatColumnResize);
+    const headerCell = combatResizeHandle.closest("th");
+    const startWidth = Math.max(72, Math.round(headerCell?.getBoundingClientRect().width || 0));
+    if (!columnKey || !startWidth) return;
+    activeCombatColumnResize = {
+      pointerId: event.pointerId,
+      columnKey,
+      startX: event.clientX,
+      startWidth
+    };
+    document.body.classList.add("is-table-resizing");
+    event.preventDefault();
+    return;
+  }
+
   const resizeHandle = event.target.closest("[data-table-resize-handle]");
 
   if (!resizeHandle) {
@@ -6614,7 +6728,7 @@ function handleContextMenu(event) {
 
   const masterDiceFormulaTrigger = event.target.closest?.('[data-action="roll-dice-formula"][data-dice-formula]');
 
-  if (masterDiceFormulaTrigger?.closest(".master-combat-workspace__sheet")) {
+  if (masterDiceFormulaTrigger?.closest(".master-combat-workspace__sheet, [data-combat-spell-preview-overlay]")) {
     event.preventDefault();
     openMasterCombatDiceTargetMenu(
       masterDiceFormulaTrigger.dataset.diceFormula,
@@ -6622,6 +6736,15 @@ function handleContextMenu(event) {
       event.clientX,
       event.clientY
     );
+    render();
+    return;
+  }
+
+  const masterRoundCounter = event.target.closest?.("[data-master-combat-round-reset]");
+
+  if (masterRoundCounter) {
+    event.preventDefault();
+    setCombatTurnRound(1, { notify: true });
     render();
     return;
   }
@@ -6692,6 +6815,18 @@ function handlePointerMove(event) {
     return;
   }
 
+  if (activeCombatColumnResize && event.pointerId === activeCombatColumnResize.pointerId) {
+    const nextWidth = Math.max(72, Math.round(activeCombatColumnResize.startWidth + (event.clientX - activeCombatColumnResize.startX)));
+    state.combatColumnWidths = {
+      ...normalizeStoredCombatColumnWidths(state.combatColumnWidths),
+      [activeCombatColumnResize.columnKey]: nextWidth
+    };
+    const columnElement = app.querySelector(`[data-combat-column-col="${activeCombatColumnResize.columnKey}"]`);
+    if (columnElement) columnElement.style.width = `${nextWidth}px`;
+    event.preventDefault();
+    return;
+  }
+
   if (!activeTableColumnResize || event.pointerId !== activeTableColumnResize.pointerId) {
     return;
   }
@@ -6715,6 +6850,14 @@ function handlePointerUp(event) {
 
   if (activeDiceRollerResize && (event.pointerId === undefined || event.pointerId === activeDiceRollerResize.pointerId)) {
     finishDiceRollerResize(event);
+    return;
+  }
+
+  if (activeCombatColumnResize && (event.pointerId === undefined || event.pointerId === activeCombatColumnResize.pointerId)) {
+    activeCombatColumnResize = null;
+    document.body.classList.remove("is-table-resizing");
+    saveCampaignMeta();
+    render();
     return;
   }
 
@@ -11648,10 +11791,12 @@ function renderOptionsDialog() {
   const usesVariableHp = state.enemyHpMode === ENEMY_HP_MODE_VARIABLE;
   const includesNpcExperience = state.includeNpcInCombatExperience === true;
   const soundSettings = normalizeStoredSoundSettings(state.soundSettings);
+  const notificationSettings = normalizeStoredNotificationSettings(state.notificationSettings);
   const optionSections = [
     { key: OPTIONS_MENU_SECTION_GENERAL, label: t("options_section_general") },
     { key: OPTIONS_MENU_SECTION_LANGUAGES, label: t("options_section_languages") },
-    { key: OPTIONS_MENU_SECTION_SOUND, label: t("options_section_sound") }
+    { key: OPTIONS_MENU_SECTION_SOUND, label: t("options_section_sound") },
+    { key: OPTIONS_MENU_SECTION_NOTIFICATIONS, label: isEnglishInterface() ? "Notifications" : "Notificaciones" }
   ];
   const soundOptions = [
     { key: "combat", label: t("options_sound_combat") },
@@ -11663,6 +11808,16 @@ function renderOptionsDialog() {
     { key: "fumble", label: t("options_sound_fumble") },
     { key: "doubleCritical", label: t("options_sound_double_critical") },
     { key: "doubleFumble", label: t("options_sound_double_fumble") }
+  ];
+  const notificationOptions = [
+    { key: "damage", es: "Dano y dano necrotico", en: "Damage and necrotic damage" },
+    { key: "healing", es: "Curacion y vida temporal", en: "Healing and temporary HP" },
+    { key: "experience", es: "Experiencia y subidas de nivel", en: "Experience and level ups" },
+    { key: "turn", es: "Turnos", en: "Turns" },
+    { key: "round", es: "Rondas", en: "Rounds" },
+    { key: "status", es: "Estados", en: "Conditions" },
+    { key: "initiative", es: "Iniciativa", en: "Initiative" },
+    { key: "system", es: "Sistema, guardado y resto", en: "System, saving and other" }
   ];
   const renderGeneralSection = () => `
     <section class="options-dialog__section">
@@ -11795,11 +11950,29 @@ function renderOptionsDialog() {
       </div>
     </section>
   `;
+  const renderNotificationSection = () => `
+    <section class="options-dialog__section">
+      <div class="options-dialog__section-heading">
+        <strong>${escapeHtml(isEnglishInterface() ? "On-screen notifications" : "Notificaciones en pantalla")}</strong>
+        <small>${escapeHtml(isEnglishInterface() ? "Choose which alerts appear in the upper-right corner." : "Elige que avisos aparecen arriba a la derecha.")}</small>
+      </div>
+      <div class="options-dialog__sound-list">
+        ${notificationOptions.map((option) => `
+          <label class="options-dialog__sound-option${notificationSettings[option.key] ? " is-selected" : ""}">
+            <input class="options-dialog__sound-checkbox" type="checkbox" data-notification-setting-key="${escapeHtml(option.key)}" ${notificationSettings[option.key] ? "checked" : ""}>
+            <span>${escapeHtml(isEnglishInterface() ? option.en : option.es)}</span>
+          </label>
+        `).join("")}
+      </div>
+    </section>
+  `;
   const sectionContent = activeSection === OPTIONS_MENU_SECTION_LANGUAGES
     ? renderLanguageSection()
     : activeSection === OPTIONS_MENU_SECTION_SOUND
       ? renderSoundSection()
-      : renderGeneralSection();
+      : activeSection === OPTIONS_MENU_SECTION_NOTIFICATIONS
+        ? renderNotificationSection()
+        : renderGeneralSection();
 
   return `
     <div class="options-dialog" data-options-menu>
@@ -11910,6 +12083,26 @@ function normalizeStoredSoundSettings(value) {
     doubleCritical: source.doubleCritical !== false,
     doubleFumble: source.doubleFumble !== false
   };
+}
+
+function normalizeStoredNotificationSettings(value) {
+  const source = isPlainObject(value) ? value : {};
+  return Object.fromEntries(NOTIFICATION_SETTING_KEYS.map((key) => [key, source[key] !== false]));
+}
+
+function normalizeStoredCombatColumnVisibility(value) {
+  const source = isPlainObject(value) ? value : {};
+  const normalized = Object.fromEntries(columns.map((column) => [column.key, source[column.key] !== false]));
+  if (!Object.values(normalized).some(Boolean) && columns[0]) normalized[columns[0].key] = true;
+  return normalized;
+}
+
+function normalizeStoredCombatColumnWidths(value) {
+  const source = isPlainObject(value) ? value : {};
+  return Object.fromEntries(columns.map((column) => {
+    const width = Math.round(toNumber(source[column.key]));
+    return [column.key, width >= 72 ? width : 0];
+  }));
 }
 
 function normalizeStoredOptionsMenuSection(value) {
@@ -12388,6 +12581,7 @@ function renderCombatTracker() {
   const hasVisibleCombatants = visibleCombatants.length > 0;
   const areaAmountValue = Number(state.areaDamage);
   const hasAreaAmount = Number.isFinite(areaAmountValue) && areaAmountValue >= 0;
+  const visibleColumns = getVisibleCombatColumns();
 
   if (state.masterCombatWorkspaceVisible) {
     return renderMasterCombatWorkspacePanel();
@@ -12438,6 +12632,7 @@ function renderCombatTracker() {
         </div>
         <div class="table-toolbar__group combat-toolbar__action-row">
           ${renderCombatEncounterPicker()}
+          ${renderCombatColumnPicker()}
           <button
             class="toolbar-button toolbar-button--danger"
             type="button"
@@ -12493,10 +12688,10 @@ function renderCombatTracker() {
       </div>
 
       <div class="table-wrap" role="region" aria-label="Combat tracker" tabindex="0" data-render-scroll-key="combat-table">
-        <table class="combat-table">
+        <table class="combat-table combat-table--configurable" style="min-width:${Math.max(560, visibleColumns.length * 120 + 64)}px">
           <colgroup>
             <col style="width: 2.4rem" />
-            ${columns.map((column) => `<col style="width: ${column.width}" />`).join("")}
+            ${visibleColumns.map((column) => `<col data-combat-column-col="${escapeHtml(column.key)}" style="width:${escapeHtml(getCombatColumnRenderWidth(column, visibleColumns))}" />`).join("")}
           </colgroup>
           <thead>
             <tr>
@@ -12510,17 +12705,17 @@ function renderCombatTracker() {
                   />
                 </span>
               </th>
-              ${columns.map(renderHeaderCell).join("")}
+              ${visibleColumns.map(renderHeaderCell).join("")}
             </tr>
           </thead>
           <tbody>
             ${visibleCombatants.length > 0
-              ? visibleCombatants.map((combatant) => renderCombatRow(combatant, activeTurnCombatantId)).join("")
-              : renderEmptyRow()}
+              ? visibleCombatants.map((combatant) => renderCombatRow(combatant, activeTurnCombatantId, visibleColumns)).join("")
+              : renderEmptyRow(visibleColumns.length)}
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="${columns.length + 1}">
+              <td colspan="${visibleColumns.length + 1}">
                 <div class="add-row-cell">
                   <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--side-right" data-tooltip="Añadir fila">
                     <button
@@ -12540,6 +12735,30 @@ function renderCombatTracker() {
       </div>
       ${renderCombatMaxHpRestoreMenu()}
     </section>
+  `;
+}
+
+function getVisibleCombatColumns() {
+  const visibility = normalizeStoredCombatColumnVisibility(state.combatColumnVisibility);
+  return columns.filter((column) => visibility[column.key] !== false);
+}
+
+function getCombatColumnRenderWidth(column, visibleColumns = getVisibleCombatColumns()) {
+  const savedWidths = normalizeStoredCombatColumnWidths(state.combatColumnWidths);
+  const getWeight = (entry) => savedWidths[entry.key] || Math.max(72, (parseFloat(entry.width) || 6) * 16);
+  const weights = visibleColumns.map(getWeight);
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+  const columnWeight = getWeight(column);
+  return `${(columnWeight / totalWeight * 100).toFixed(3)}%`;
+}
+
+function renderCombatColumnPicker() {
+  const visibility = normalizeStoredCombatColumnVisibility(state.combatColumnVisibility);
+  return `
+    <div class="combat-column-picker" data-combat-column-picker>
+      <button class="toolbar-button toolbar-button--ghost" type="button" data-action="toggle-combat-column-menu" aria-expanded="${state.combatColumnMenuOpen}" title="${escapeHtml(isEnglishInterface() ? "Choose table columns" : "Elegir columnas de la tabla")}">${escapeHtml(isEnglishInterface() ? "Columns" : "Columnas")}</button>
+      ${state.combatColumnMenuOpen ? `<div class="combat-column-picker__menu" role="group" aria-label="${escapeHtml(isEnglishInterface() ? "Visible columns" : "Columnas visibles")}">${columns.map((column) => `<label><input type="checkbox" data-combat-column-visible="${escapeHtml(column.key)}" ${visibility[column.key] !== false ? "checked" : ""}><span>${escapeHtml(column.label)}</span></label>`).join("")}</div>` : ""}
+    </div>
   `;
 }
 
@@ -12668,7 +12887,7 @@ function renderMasterCombatWorkspacePanel() {
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg>
                 </button>
                 <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
-                  <button class="round-chip round-chip--button combat-map-initiative-round" type="button" data-action="toggle-combat-turn-round-editor" aria-expanded="${state.combatTurnRoundEditorOpen}" title="${escapeHtml(t("round_label"))}">R${escapeHtml(String(getCombatRound()))}</button>
+                  <button class="round-chip round-chip--button combat-map-initiative-round" type="button" data-action="toggle-combat-turn-round-editor" data-master-combat-round-reset aria-expanded="${state.combatTurnRoundEditorOpen}" title="${escapeHtml(t("round_label"))}">R${escapeHtml(String(getCombatRound()))}</button>
                   ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
                 </div>
                 <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${!state.isCombatActive || turnCombatants.length === 0 ? "disabled" : ""}>
@@ -12731,6 +12950,7 @@ function closeMasterCombatAddDialog() {
   state.combatAddPickerMode = "";
   state.masterCombatManualQuery = "";
   state.masterCombatManualSelectedId = "";
+  state.masterCombatCustomDraft = { nombre: "", pgMax: "", ca: "", tamano: "Mediano" };
 }
 
 function renderMasterCombatEntityAddDialog() {
@@ -12744,7 +12964,9 @@ function renderMasterCombatEntityAddDialog() {
     : mode === "encounters"
       ? (isEnglishInterface() ? "Choose encounter" : "Elegir encuentro")
       : mode === "manual"
-        ? (isEnglishInterface() ? "Add creature manually" : "Anadir criatura manualmente")
+        ? (isEnglishInterface() ? "Custom search" : "Busqueda personal")
+        : mode === "custom"
+          ? (isEnglishInterface() ? "Create custom entity" : "Crear entidad personalizada")
         : (isEnglishInterface() ? "Add combat entity" : "Anadir entidad de combate");
 
   return `
@@ -12759,6 +12981,7 @@ function renderMasterCombatEntityAddDialog() {
         <div class="campaign-save-dialog__actions">
           <button class="toolbar-button" type="button" data-action="dismiss-master-combat-add-dialog">${escapeHtml(isEnglishInterface() ? "Cancel" : "Cancelar")}</button>
           ${mode === "manual" ? `<button class="toolbar-button toolbar-button--accent" type="button" data-action="confirm-master-combat-manual-entry" ${state.masterCombatManualSelectedId ? "" : "disabled"}>${escapeHtml(isEnglishInterface() ? "Add creature" : "Anadir criatura")}</button>` : ""}
+          ${mode === "custom" ? `<button class="toolbar-button toolbar-button--accent" type="button" data-action="confirm-master-combat-custom-entity" ${cleanText(state.masterCombatCustomDraft?.nombre) ? "" : "disabled"}>${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}</button>` : ""}
         </div>
       </section>
     </div>
@@ -12769,6 +12992,7 @@ function renderMasterCombatEntityAddDialogContent({ mode, hasCharacters, hasEnco
   if (mode === "characters") return renderCombatCharacterPicker(hasCharacters);
   if (mode === "encounters") return renderCombatEncounterPickerContent(hasEncounters);
   if (mode === "manual") return renderMasterCombatManualPicker();
+  if (mode === "custom") return renderMasterCombatCustomEntityForm();
 
   return `
     <div class="master-combat-add-dialog__choices">
@@ -12781,9 +13005,26 @@ function renderMasterCombatEntityAddDialogContent({ mode, hasCharacters, hasEnco
         <span>${escapeHtml(isEnglishInterface() ? `${state.encounters.length} saved encounters` : `${state.encounters.length} encuentros guardados`)}</span>
       </button>
       <button class="combat-encounter-picker__option combat-encounter-picker__option--accent" type="button" data-action="select-combat-add-source" data-add-source="manual">
-        <strong>${escapeHtml(isEnglishInterface() ? "Manual" : "Manual")}</strong>
+        <strong>${escapeHtml(isEnglishInterface() ? "Custom search" : "Busqueda personal")}</strong>
         <span>${escapeHtml(isEnglishInterface() ? "Search bestiary creatures" : "Buscar criaturas del bestiario")}</span>
       </button>
+      <button class="combat-encounter-picker__option combat-encounter-picker__option--accent" type="button" data-action="select-combat-add-source" data-add-source="custom">
+        <strong>${escapeHtml(isEnglishInterface() ? "Custom entity" : "Entidad personalizada")}</strong>
+        <span>${escapeHtml(isEnglishInterface() ? "Set name, max HP, Armor Class and size" : "Indicar nombre, vida maxima, armadura y tamano")}</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderMasterCombatCustomEntityForm() {
+  const draft = isPlainObject(state.masterCombatCustomDraft) ? state.masterCombatCustomDraft : {};
+  return `
+    ${renderCombatAddPickerBackButton()}
+    <div class="master-combat-add-dialog__custom-grid">
+      <label class="master-combat-add-dialog__search"><span>${escapeHtml(isEnglishInterface() ? "Creature name" : "Nombre de criatura")}</span><input class="campaign-save-dialog__input" type="text" maxlength="120" value="${escapeHtml(draft.nombre || "")}" data-master-combat-custom-field="nombre" autocomplete="off"></label>
+      <label class="master-combat-add-dialog__search"><span>${escapeHtml(isEnglishInterface() ? "Maximum HP" : "Vida maxima")}</span><input class="campaign-save-dialog__input" type="number" min="0" step="1" value="${escapeHtml(draft.pgMax || "")}" data-master-combat-custom-field="pgMax"></label>
+      <label class="master-combat-add-dialog__search"><span>${escapeHtml(isEnglishInterface() ? "Armor Class" : "Armadura")}</span><input class="campaign-save-dialog__input" type="number" min="0" step="1" value="${escapeHtml(draft.ca || "")}" data-master-combat-custom-field="ca"></label>
+      <label class="master-combat-add-dialog__search"><span>${escapeHtml(isEnglishInterface() ? "Size" : "Tamano")}</span><select class="campaign-save-dialog__input" data-master-combat-custom-field="tamano">${CHARACTER_SIZE_OPTIONS.map((size) => `<option value="${escapeHtml(size)}" ${draft.tamano === size ? "selected" : ""}>${escapeHtml(size)}</option>`).join("")}</select></label>
     </div>
   `;
 }
@@ -12834,6 +13075,24 @@ function confirmMasterCombatManualEntity() {
   if (!entryId || !findCompendiumEntryByReference(state.bestiary, { entryId })) return;
   const combatantId = addBlankCombatant();
   fillCombatantFromBestiary(combatantId, entryId);
+  masterCombatWorkspaceSelectedId = combatantId;
+  closeMasterCombatAddDialog();
+  saveCombatTrackerState();
+}
+
+function confirmMasterCombatCustomEntity() {
+  const draft = isPlainObject(state.masterCombatCustomDraft) ? state.masterCombatCustomDraft : {};
+  const name = cleanText(draft.nombre).slice(0, 120);
+  if (!name) return;
+  const combatantId = addBlankCombatant();
+  const maxHp = Math.max(0, Math.round(toNumber(draft.pgMax)));
+  updateCombatantField(combatantId, "nombre", name, false);
+  updateCombatantField(combatantId, "pgMax", String(maxHp), false);
+  updateCombatantField(combatantId, "pgAct", String(maxHp), false);
+  updateCombatantField(combatantId, "ca", String(Math.max(0, Math.round(toNumber(draft.ca)))), false);
+  state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
+    ? normalizeCombatant({ ...combatant, tamano: CHARACTER_SIZE_OPTIONS.includes(draft.tamano) ? draft.tamano : "Mediano" })
+    : combatant);
   masterCombatWorkspaceSelectedId = combatantId;
   closeMasterCombatAddDialog();
   saveCombatTrackerState();
@@ -15038,6 +15297,12 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
         </div>
         <section class="combat-turn-quick-menu__statuses">
           <strong>Estados</strong>
+          ${activeStatuses.length ? `<div class="combat-turn-quick-menu__active-statuses" aria-label="${escapeHtml(isEnglishInterface() ? "Active conditions; click to remove" : "Estados activos; pulsa para retirar")}">${activeStatuses.map((statusName) => {
+            const canonicalName = getCanonicalCombatStatusName(statusName);
+            const label = translateCombatStatusNameForLanguage(canonicalName, state.appLanguage);
+            const iconUrl = getCombatStatusIconUrl(canonicalName);
+            return `<button class="combat-turn-quick-menu__status is-active ${getCombatStatusToneClass(canonicalName)}" type="button" data-action="toggle-combat-status" data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(canonicalName)}" title="${escapeHtml(isEnglishInterface() ? `Remove ${label}` : `Retirar ${label}`)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}<span>${escapeHtml(label)}</span><b aria-hidden="true">×</b></button>`;
+          }).join("")}</div>` : ""}
           <div class="combat-turn-quick-menu__custom-status">
             <input type="search" maxlength="80" value="${escapeHtml(statusQuery)}" data-combat-turn-custom-status placeholder="${escapeHtml(isEnglishInterface() ? "Search or type a condition" : "Buscar o escribir un estado")}" aria-label="${escapeHtml(isEnglishInterface() ? "Condition search" : "Buscador de estado")}">
             <button type="button" data-action="add-custom-combat-status" data-combatant-id="${escapeHtml(combatant.id)}">Añadir</button>
@@ -16719,7 +16984,7 @@ function renderHeaderCell(column) {
         : "Off";
 
   return `
-    <th scope="col">
+    <th scope="col" data-combat-column-header="${escapeHtml(column.key)}">
       <div class="th-stack">
         <div class="th-content">
           <span>${column.label}</span>
@@ -16789,11 +17054,12 @@ function renderHeaderCell(column) {
           }
         </div>
       </div>
+      <button class="combat-column-resize-handle" type="button" data-combat-column-resize="${escapeHtml(column.key)}" aria-label="${escapeHtml(isEnglishInterface() ? `Resize ${column.label}` : `Redimensionar ${column.label}`)}" tabindex="-1"></button>
     </th>
   `;
 }
 
-function renderCombatRow(combatant, activeTurnCombatantId = "") {
+function renderCombatRow(combatant, activeTurnCombatantId = "", visibleColumns = getVisibleCombatColumns()) {
   const isDead = isCombatantDead(combatant);
   const isActiveTurn = combatant.id === activeTurnCombatantId;
   const rowContext = getCombatRowContext(combatant);
@@ -16829,7 +17095,7 @@ function renderCombatRow(combatant, activeTurnCombatantId = "") {
           </span>
         </div>
       </td>
-      ${columns.map((column) => renderDataCell(combatant, column, isDead, rowContext)).join("")}
+      ${visibleColumns.map((column) => renderDataCell(combatant, column, isDead, rowContext)).join("")}
     </tr>
   `;
 }
@@ -16879,6 +17145,7 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
   const activeTurnCombatantId = state.isCombatActive
     ? getActiveTurnCombatantId(turnParticipants)
     : "";
+  const visibleColumns = getVisibleCombatColumns();
 
   for (const combatantId of targetIds) {
     const currentRow = rowById.get(combatantId);
@@ -16888,7 +17155,7 @@ function syncCombatTrackerMutation(combatantIds, options = {}) {
       continue;
     }
 
-    const nextRow = createTranslatedMarkupElement(renderCombatRow(combatant, activeTurnCombatantId));
+    const nextRow = createTranslatedMarkupElement(renderCombatRow(combatant, activeTurnCombatantId, visibleColumns));
 
     if (nextRow) {
       currentRow.replaceWith(nextRow);
@@ -19013,10 +19280,10 @@ function renderCombatantSourceChip(combatant, bestiaryEntry = getCombatantBestia
   `;
 }
 
-function renderEmptyRow() {
+function renderEmptyRow(visibleColumnCount = getVisibleCombatColumns().length) {
   return `
     <tr>
-      <td colspan="${columns.length + 1}">
+      <td colspan="${visibleColumnCount + 1}">
         <div class="empty-state">
           No hay entidades que coincidan con los filtros actuales.
         </div>
@@ -26654,6 +26921,7 @@ function isEnemyCombatant(combatant) {
 
 function announceCombatantTurn(combatant) {
   if (!combatant) return;
+  if (normalizeStoredNotificationSettings(state.notificationSettings).turn === false) return;
   const linkedCharacter = getLinkedCharacterForCombatant(combatant);
   const bestiaryEntry = getCombatantBestiaryEntry(combatant);
   combatMapController.showTurnAnnouncement({
@@ -26709,11 +26977,11 @@ function advanceCombatTurn() {
 
   state.activeTurnCombatantId = turnOrder[nextIndex].id;
 
-  if (nextIndex === 0) {
-    state.combatRound = getCombatRound() + 1;
-  }
+  const changedRound = nextIndex === 0;
+  if (changedRound) state.combatRound = getCombatRound() + 1;
 
   saveCombatTrackerState();
+  if (changedRound) queueCombatRoundNotification();
   announceCombatantTurn(turnOrder[nextIndex]);
 }
 
@@ -26729,8 +26997,10 @@ function retreatCombatTurn() {
   const currentIndex = Math.max(0, turnOrder.findIndex((combatant) => combatant.id === currentId));
   const previousIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length;
   state.activeTurnCombatantId = turnOrder[previousIndex].id;
-  if (currentIndex === 0 && getCombatRound() > 1) state.combatRound = getCombatRound() - 1;
+  const changedRound = currentIndex === 0 && getCombatRound() > 1;
+  if (changedRound) state.combatRound = getCombatRound() - 1;
   saveCombatTrackerState();
+  if (changedRound) queueCombatRoundNotification();
   announceCombatantTurn(turnOrder[previousIndex]);
 }
 
@@ -26748,12 +27018,25 @@ function handleCombatTurnShortcutKeydown(event) {
   return true;
 }
 
-function setCombatTurnRound(value) {
+function setCombatTurnRound(value, options = {}) {
+  const previousRound = getCombatRound();
   const nextRound = Math.max(1, Math.floor(toNumber(value) || 1));
   state.combatRound = nextRound;
   state.combatTurnRoundDraft = String(nextRound);
   state.combatTurnRoundEditorOpen = false;
   saveCombatTrackerState();
+  if (options.notify === true || previousRound !== nextRound) queueCombatRoundNotification();
+}
+
+function queueCombatRoundNotification() {
+  const round = getCombatRound();
+  pushNotification({
+    title: isEnglishInterface() ? `Round ${round}` : `Ronda ${round}`,
+    message: isEnglishInterface() ? "A new combat round has begun." : "Ha comenzado una nueva ronda de combate.",
+    tone: "info",
+    category: "round",
+    dedupeKey: "combat-round"
+  });
 }
 
 function jumpCombatTurnTo(combatantId) {
@@ -34833,6 +35116,9 @@ function createCampaignSavePayload(options = {}) {
       contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
       includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
       soundSettings: normalizeStoredSoundSettings(state.soundSettings),
+      notificationSettings: normalizeStoredNotificationSettings(state.notificationSettings),
+      combatColumnVisibility: normalizeStoredCombatColumnVisibility(state.combatColumnVisibility),
+      combatColumnWidths: normalizeStoredCombatColumnWidths(state.combatColumnWidths),
       repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
     }
   };
@@ -34935,6 +35221,9 @@ function normalizeCampaignSave(value) {
     contentLanguage: normalizeStoredContentLanguage(ui.contentLanguage),
     includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(ui.includeNpcInCombatExperience),
     soundSettings: normalizeStoredSoundSettings(ui.soundSettings),
+    notificationSettings: normalizeStoredNotificationSettings(ui.notificationSettings),
+    combatColumnVisibility: normalizeStoredCombatColumnVisibility(ui.combatColumnVisibility),
+    combatColumnWidths: normalizeStoredCombatColumnWidths(ui.combatColumnWidths),
     repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(ui.repositoryCsvPaths),
     repositoryCsvOverrides: normalizeStoredRepositoryCsvOverrides(value.repositoryCsvOverrides),
     cloudImportedEntries,
@@ -35017,6 +35306,9 @@ function applyCampaignSave(campaign, fileResult = null, options = {}) {
   state.contentLanguage = campaign.contentLanguage;
   state.includeNpcInCombatExperience = campaign.includeNpcInCombatExperience;
   state.soundSettings = campaign.soundSettings;
+  state.notificationSettings = campaign.notificationSettings;
+  state.combatColumnVisibility = campaign.combatColumnVisibility;
+  state.combatColumnWidths = campaign.combatColumnWidths;
   state.repositoryCsvPaths = campaign.repositoryCsvPaths;
   state.cloudImportedEntries = normalizeCloudImportedEntries(campaign.cloudImportedEntries);
   state.cloudCatalogSelectedIds = new Set();
@@ -35286,11 +35578,11 @@ function getFileNameFromPath(filePath) {
 
 function loadCampaignMeta() {
   if (typeof window === "undefined") {
-    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, soundSettings: { ...defaultSoundSettings }, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, soundSettings: { ...defaultSoundSettings }, notificationSettings: { ...defaultNotificationSettings }, combatColumnVisibility: normalizeStoredCombatColumnVisibility(), combatColumnWidths: normalizeStoredCombatColumnWidths(), repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   if (usesDesktopFileOnlyPersistence()) {
-    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, soundSettings: { ...defaultSoundSettings }, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, soundSettings: { ...defaultSoundSettings }, notificationSettings: { ...defaultNotificationSettings }, combatColumnVisibility: normalizeStoredCombatColumnVisibility(), combatColumnWidths: normalizeStoredCombatColumnWidths(), repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 
   try {
@@ -35307,10 +35599,13 @@ function loadCampaignMeta() {
       contentLanguage: normalizeStoredContentLanguage(parsedValue.contentLanguage),
       includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(parsedValue.includeNpcInCombatExperience),
       soundSettings: normalizeStoredSoundSettings(parsedValue.soundSettings),
+      notificationSettings: normalizeStoredNotificationSettings(parsedValue.notificationSettings),
+      combatColumnVisibility: normalizeStoredCombatColumnVisibility(parsedValue.combatColumnVisibility),
+      combatColumnWidths: normalizeStoredCombatColumnWidths(parsedValue.combatColumnWidths),
       repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(parsedValue.repositoryCsvPaths)
     };
   } catch {
-    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, soundSettings: { ...defaultSoundSettings }, repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
+    return { name: "", fileName: "", filePath: "", savedAt: "", language: APP_LANGUAGE_ES, contentLanguage: CONTENT_LANGUAGE_ES, includeNpcInCombatExperience: false, soundSettings: { ...defaultSoundSettings }, notificationSettings: { ...defaultNotificationSettings }, combatColumnVisibility: normalizeStoredCombatColumnVisibility(), combatColumnWidths: normalizeStoredCombatColumnWidths(), repositoryCsvPaths: { ...defaultRepositoryCsvPaths } };
   }
 }
 
@@ -35330,6 +35625,9 @@ function saveCampaignMeta() {
         contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
         includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
         soundSettings: normalizeStoredSoundSettings(state.soundSettings),
+        notificationSettings: normalizeStoredNotificationSettings(state.notificationSettings),
+        combatColumnVisibility: normalizeStoredCombatColumnVisibility(state.combatColumnVisibility),
+        combatColumnWidths: normalizeStoredCombatColumnWidths(state.combatColumnWidths),
         repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(state.repositoryCsvPaths)
       }));
     } catch {
@@ -35559,12 +35857,15 @@ function pushNotification({
   detailTitle = "",
   detailText = "",
   actionLabel = "",
-  dedupeKey = ""
+  dedupeKey = "",
+  category = ""
 } = {}) {
   const normalizedTitle = cleanText(title) || "Notificación";
   const normalizedMessage = cleanText(message);
   const normalizedEffectKind = cleanText(effectKind);
   const normalizedDedupeKey = cleanText(dedupeKey);
+  const normalizedCategory = getNotificationCategory({ title: normalizedTitle, message: normalizedMessage, tone, effectKind: normalizedEffectKind, category });
+  if (normalizeStoredNotificationSettings(state.notificationSettings)[normalizedCategory] === false) return "";
   const localizedTitle = isEnglishInterface() ? translateUiString(normalizedTitle) : normalizedTitle;
   const localizedMessage = isEnglishInterface() ? translateUiString(normalizedMessage) : normalizedMessage;
   const existingNotification = normalizedDedupeKey
@@ -35614,6 +35915,23 @@ function pushNotification({
 
   syncMapNotificationUi();
   return id;
+}
+
+function getNotificationCategory({ title = "", message = "", tone = "", effectKind = "", category = "" } = {}) {
+  const explicitCategory = cleanText(category).toLowerCase();
+  if (NOTIFICATION_SETTING_KEYS.includes(explicitCategory)) return explicitCategory;
+  if (["damage", "necrotic"].includes(effectKind)) return "damage";
+  if (["heal", "temp"].includes(effectKind)) return "healing";
+  if (tone === "xp") return "experience";
+  const searchable = normalizeSearchText(`${title} ${message}`);
+  if (/experiencia|experience|nivel|level up/.test(searchable)) return "experience";
+  if (/iniciativa|initiative/.test(searchable)) return "initiative";
+  if (/estado|condition|stunned|poisoned|prone|grappled/.test(searchable)) return "status";
+  if (/ronda|round/.test(searchable)) return "round";
+  if (/turno|turn/.test(searchable)) return "turn";
+  if (/cura|curacion|healing|vida temporal|temporary hp/.test(searchable)) return "healing";
+  if (/dano|damage|necrotic/.test(searchable)) return "damage";
+  return "system";
 }
 
 function openNotificationDetail(notificationId) {
