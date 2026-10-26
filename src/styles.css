@@ -8090,6 +8090,30 @@ button.is-cloud-busy:disabled {
   color: var(--text);
 }
 
+.combat-turn-quick-menu__identity-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+}
+
+.combat-turn-quick-menu__identity-fields label {
+  display: grid;
+  gap: .3rem;
+  min-width: 0;
+  color: var(--muted);
+  font: 700 .76rem/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.combat-turn-quick-menu__identity-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: .4rem .48rem;
+  border: 1px solid rgba(240, 200, 121, .28);
+  border-radius: .36rem;
+  background: rgba(12, 15, 19, .86);
+  color: var(--text);
+}
+
 .combat-turn-quick-menu__actions-row {
   display: block;
 }
@@ -8124,6 +8148,13 @@ button.is-cloud-busy:disabled {
   gap: .36rem;
 }
 
+.combat-turn-quick-menu__status-results {
+  display: grid;
+  gap: .36rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+
 .combat-turn-quick-menu__status {
   display: grid;
   grid-template-columns: 1.4rem minmax(0, 1fr);
@@ -8139,7 +8170,8 @@ button.is-cloud-busy:disabled {
   cursor: pointer;
 }
 
-.combat-turn-quick-menu__status.is-active {
+.combat-turn-quick-menu__status.is-active,
+.combat-turn-quick-menu__status.is-selected {
   border-color: var(--combat-status-hover-border, #f1cc91);
   background: var(--combat-status-hover-bg, rgba(240, 200, 121, .22));
   color: #fff3cf;
@@ -8172,6 +8204,10 @@ button.is-cloud-busy:disabled {
   border-radius: .42rem;
   background: rgba(12, 15, 19, .86);
   color: var(--text);
+}
+
+.combat-turn-quick-menu__custom-status input {
+  width: 100%;
 }
 
 .combat-turn-quick-menu__custom-status button {
