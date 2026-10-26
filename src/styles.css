@@ -242,10 +242,6 @@
   overflow: visible;
 }
 
-.master-combat-entity.has-statuses {
-  padding-top: 1.75rem;
-}
-
 .master-combat-entity__initiative {
   display: grid;
   place-items: center;
@@ -290,16 +286,17 @@
 
 .master-combat-entity__statuses {
   position: absolute;
-  top: .32rem;
-  right: .4rem;
-  left: 2.8rem;
+  z-index: 2;
+  top: 50%;
+  right: 0;
   display: flex;
   justify-content: flex-end;
   gap: .24rem;
-  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   pointer-events: auto;
   scrollbar-width: none;
+  transform: translateY(-50%);
 }
 
 .master-combat-entity__statuses::-webkit-scrollbar {
@@ -378,6 +375,14 @@
   padding: 0 .55rem;
 }
 
+.master-combat-entity__name-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 1.85rem;
+}
+
 .master-combat-entity__name-input {
   width: 100%;
   min-width: 0;
@@ -408,6 +413,7 @@
   justify-content: space-between;
   gap: .4rem;
   min-width: 0;
+  width: 100%;
 }
 
 .master-combat-entity__title strong {
@@ -2330,6 +2336,50 @@ table {
   outline: none;
   border-color: rgba(240, 200, 121, 0.45);
   box-shadow: 0 0 0 3px rgba(240, 200, 121, 0.14);
+}
+
+.master-combat-add-dialog {
+  z-index: 2147483001;
+}
+
+.master-combat-add-dialog__panel {
+  width: min(34rem, 100%);
+  max-height: min(86vh, 44rem);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.master-combat-add-dialog__content,
+.master-combat-add-dialog__choices {
+  display: grid;
+  min-height: 0;
+  gap: .55rem;
+}
+
+.master-combat-add-dialog__content {
+  overflow: auto;
+}
+
+.master-combat-add-dialog__search {
+  display: grid;
+  gap: .38rem;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.master-combat-add-dialog__results {
+  display: grid;
+  align-content: start;
+  gap: .4rem;
+  min-height: 8rem;
+  max-height: 21rem;
+  overflow: auto;
+}
+
+.master-combat-add-dialog__result.is-selected {
+  border-color: rgba(240, 200, 121, .72);
+  background: rgba(240, 200, 121, .16);
+  box-shadow: 0 0 0 2px rgba(240, 200, 121, .1);
 }
 
 .data-exchange-dialog__panel {

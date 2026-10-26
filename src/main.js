@@ -1028,6 +1028,9 @@ state = {
   showEncounterSearchSuggestions: false,
   combatEncounterPickerOpen: false,
   combatAddPickerMode: "",
+  masterCombatAddDialogOpen: false,
+  masterCombatManualQuery: "",
+  masterCombatManualSelectedId: "",
   tableFolders: initialTablesState.folders,
   systemTableFolderExpanded: initialTablesState.systemFolderExpanded,
   tables: initialTablesState.tables,
@@ -1634,7 +1637,7 @@ async function handleClick(event) {
   }
 
   const masterWorkspaceEntity = event.target.closest?.("[data-master-workspace-entity]");
-  const masterWorkspaceInteractiveControl = event.target.closest?.("button, input, select, textarea, [contenteditable='true']");
+  const masterWorkspaceInteractiveControl = event.target.closest?.("button, input, select, textarea, [contenteditable='true'], [data-combat-turn-status-remove]");
 
   if (masterWorkspaceEntity && !masterWorkspaceInteractiveControl) {
     masterCombatWorkspaceSelectedId = cleanText(masterWorkspaceEntity.dataset.masterWorkspaceEntity);
@@ -1660,6 +1663,7 @@ async function handleClick(event) {
     state.mobileCompendiumDetailOpen = "";
     state.combatEncounterPickerOpen = false;
     state.combatAddPickerMode = "";
+    closeMasterCombatAddDialog();
     queueCompendiumLoadsForScreen(state.activeScreen);
     render();
     return;
@@ -2868,12 +2872,51 @@ async function handleClick(event) {
 
   if (action === "select-combat-add-source") {
     state.combatAddPickerMode = actionButton.dataset.addSource ?? "";
-    render();
+    if (state.combatAddPickerMode === "manual") {
+      state.masterCombatManualQuery = "";
+      state.masterCombatManualSelectedId = "";
+      queueCompendiumLoad("bestiary");
+    }
+    render({
+      focusSelector: state.combatAddPickerMode === "manual" ? "[data-master-combat-manual-query]" : null
+    });
     return;
   }
 
   if (action === "back-combat-add-menu") {
     state.combatAddPickerMode = "";
+    state.masterCombatManualQuery = "";
+    state.masterCombatManualSelectedId = "";
+    render();
+    return;
+  }
+
+  if (action === "open-master-combat-add-dialog") {
+    state.masterCombatAddDialogOpen = true;
+    state.combatAddPickerMode = "";
+    state.masterCombatManualQuery = "";
+    state.masterCombatManualSelectedId = "";
+    render();
+    return;
+  }
+
+  if (action === "dismiss-master-combat-add-dialog") {
+    closeMasterCombatAddDialog();
+    render();
+    return;
+  }
+
+  if (action === "select-master-combat-manual-entry") {
+    const entryId = cleanText(actionButton.dataset.entryId);
+    const entry = findCompendiumEntryByReference(state.bestiary, { entryId });
+    state.masterCombatManualSelectedId = entry?.id ?? "";
+    if (entry) state.masterCombatManualQuery = entry.name;
+    render({ focusSelector: '[data-action="confirm-master-combat-manual-entry"]' });
+    return;
+  }
+
+  if (action === "confirm-master-combat-manual-entry") {
+    confirmMasterCombatManualEntity();
     render();
     return;
   }
@@ -5627,6 +5670,17 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-master-combat-manual-query]")) {
+    state.masterCombatManualQuery = target.value;
+    state.masterCombatManualSelectedId = "";
+    scheduleRender({
+      focusSelector: "[data-master-combat-manual-query]",
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd
+    });
+    return;
+  }
+
   if (target.matches("[data-edit-id][data-edit-key]")) {
     updateCombatantField(target.dataset.editId, target.dataset.editKey, target.value, false);
     saveCombatTrackerState();
@@ -5785,6 +5839,13 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if (event.key === "Escape" && state.masterCombatAddDialogOpen) {
+    event.preventDefault();
+    closeMasterCombatAddDialog();
+    render();
+    return;
+  }
+
   if (event.key === "Escape" && state.characterSpellbookAbilityDetailRowId) {
     event.preventDefault();
     state.characterSpellbookAbilityDetailRowId = "";
@@ -5882,6 +5943,13 @@ function handleKeydown(event) {
   if (target.matches("[data-campaign-save-name-input]") && event.key === "Enter") {
     event.preventDefault();
     submitCampaignSaveNameDialog();
+    return;
+  }
+
+  if (target.matches("[data-master-combat-manual-query]") && event.key === "Enter") {
+    event.preventDefault();
+    confirmMasterCombatManualEntity();
+    render();
     return;
   }
 
@@ -12541,7 +12609,7 @@ function renderMasterCombatWorkspacePanel() {
             <header class="master-combat-workspace__panel-heading">
               <div><small>${escapeHtml(isEnglishInterface() ? "COMBAT" : "COMBATE")}</small><strong>${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}</strong></div>
               <div class="master-combat-workspace__turn-controls" aria-label="${escapeHtml(isEnglishInterface() ? "Turn controls" : "Controles de turno")}">
-                <button class="master-combat-workspace__entity-add" type="button" data-action="add-blank-combatant" aria-label="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}" title="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}">+</button>
+                <button class="master-combat-workspace__entity-add" type="button" data-action="open-master-combat-add-dialog" aria-label="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}" title="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}">+</button>
                 <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${!state.isCombatActive || turnCombatants.length === 0 ? "disabled" : ""}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg>
                 </button>
@@ -12593,6 +12661,7 @@ function renderMasterCombatWorkspacePanel() {
         </section>
       </div>
       ${renderCombatTurnQuickMenu()}
+      ${renderMasterCombatEntityAddDialog()}
     </section>
   `;
 }
@@ -12601,6 +12670,119 @@ function shouldShowMasterCombatWorkspaceEntity(combatant) {
   if (!combatant) return false;
   const unfinishedManualEntity = toNumber(combatant.pgMax) === 0 && combatant.pgAct === "";
   return unfinishedManualEntity || !isCombatantDead(combatant);
+}
+
+function closeMasterCombatAddDialog() {
+  state.masterCombatAddDialogOpen = false;
+  state.combatAddPickerMode = "";
+  state.masterCombatManualQuery = "";
+  state.masterCombatManualSelectedId = "";
+}
+
+function renderMasterCombatEntityAddDialog() {
+  if (!state.masterCombatAddDialogOpen) return "";
+
+  const hasCharacters = Array.isArray(state.characters) && state.characters.length > 0;
+  const hasEncounters = Array.isArray(state.encounters) && state.encounters.length > 0;
+  const mode = cleanText(state.combatAddPickerMode);
+  const title = mode === "characters"
+    ? (isEnglishInterface() ? "Choose ally" : "Elegir aliado")
+    : mode === "encounters"
+      ? (isEnglishInterface() ? "Choose encounter" : "Elegir encuentro")
+      : mode === "manual"
+        ? (isEnglishInterface() ? "Add creature manually" : "Anadir criatura manualmente")
+        : (isEnglishInterface() ? "Add combat entity" : "Anadir entidad de combate");
+
+  return `
+    <div class="campaign-save-dialog master-combat-add-dialog" role="presentation">
+      <button class="campaign-save-dialog__backdrop" type="button" data-action="dismiss-master-combat-add-dialog" aria-label="${escapeHtml(isEnglishInterface() ? "Close entity picker" : "Cerrar selector de entidades")}"></button>
+      <section class="campaign-save-dialog__panel master-combat-add-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="master-combat-add-dialog-title">
+        <p class="campaign-save-dialog__eyebrow">${escapeHtml(isEnglishInterface() ? "COMBAT ENTITIES" : "COMBATE ENTIDADES")}</p>
+        <h2 class="campaign-save-dialog__title" id="master-combat-add-dialog-title">${escapeHtml(title)}</h2>
+        <div class="master-combat-add-dialog__content">
+          ${renderMasterCombatEntityAddDialogContent({ mode, hasCharacters, hasEncounters })}
+        </div>
+        <div class="campaign-save-dialog__actions">
+          <button class="toolbar-button" type="button" data-action="dismiss-master-combat-add-dialog">${escapeHtml(isEnglishInterface() ? "Cancel" : "Cancelar")}</button>
+          ${mode === "manual" ? `<button class="toolbar-button toolbar-button--accent" type="button" data-action="confirm-master-combat-manual-entry" ${state.masterCombatManualSelectedId ? "" : "disabled"}>${escapeHtml(isEnglishInterface() ? "Add creature" : "Anadir criatura")}</button>` : ""}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderMasterCombatEntityAddDialogContent({ mode, hasCharacters, hasEncounters }) {
+  if (mode === "characters") return renderCombatCharacterPicker(hasCharacters);
+  if (mode === "encounters") return renderCombatEncounterPickerContent(hasEncounters);
+  if (mode === "manual") return renderMasterCombatManualPicker();
+
+  return `
+    <div class="master-combat-add-dialog__choices">
+      <button class="combat-encounter-picker__option" type="button" data-action="select-combat-add-source" data-add-source="characters" ${hasCharacters ? "" : "disabled"}>
+        <strong>${escapeHtml(isEnglishInterface() ? "Ally" : "Aliado")}</strong>
+        <span>${escapeHtml(isEnglishInterface() ? `${state.characters.length} created allies` : `${state.characters.length} aliados creados`)}</span>
+      </button>
+      <button class="combat-encounter-picker__option" type="button" data-action="select-combat-add-source" data-add-source="encounters" ${hasEncounters ? "" : "disabled"}>
+        <strong>${escapeHtml(isEnglishInterface() ? "Encounter" : "Encuentro")}</strong>
+        <span>${escapeHtml(isEnglishInterface() ? `${state.encounters.length} saved encounters` : `${state.encounters.length} encuentros guardados`)}</span>
+      </button>
+      <button class="combat-encounter-picker__option combat-encounter-picker__option--accent" type="button" data-action="select-combat-add-source" data-add-source="manual">
+        <strong>${escapeHtml(isEnglishInterface() ? "Manual" : "Manual")}</strong>
+        <span>${escapeHtml(isEnglishInterface() ? "Search bestiary creatures" : "Buscar criaturas del bestiario")}</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderMasterCombatManualPicker() {
+  const query = cleanText(state.masterCombatManualQuery);
+  const matches = getMasterCombatManualMatches(query);
+  const statusText = state.bestiaryStatus === "loading"
+    ? (isEnglishInterface() ? "Loading bestiary..." : "Cargando bestiario...")
+    : query
+      ? (isEnglishInterface() ? "No matching creatures." : "No hay criaturas coincidentes.")
+      : (isEnglishInterface() ? "Type a creature name." : "Escribe el nombre de una criatura.");
+
+  return `
+    ${renderCombatAddPickerBackButton()}
+    <label class="master-combat-add-dialog__search">
+      <span>${escapeHtml(isEnglishInterface() ? "Creature name" : "Nombre de criatura")}</span>
+      <input class="campaign-save-dialog__input" type="search" value="${escapeHtml(state.masterCombatManualQuery)}" data-master-combat-manual-query autocomplete="off" placeholder="${escapeHtml(isEnglishInterface() ? "Search bestiary" : "Buscar en bestiario")}">
+    </label>
+    <div class="master-combat-add-dialog__results" role="listbox" aria-label="${escapeHtml(isEnglishInterface() ? "Matching creatures" : "Criaturas coincidentes")}">
+      ${matches.length ? matches.map(renderMasterCombatManualMatch).join("") : `<p class="bestiary-filter__empty">${escapeHtml(statusText)}</p>`}
+    </div>
+  `;
+}
+
+function renderMasterCombatManualMatch(entry) {
+  const selected = entry.id === state.masterCombatManualSelectedId;
+  return `
+    <button class="combat-encounter-picker__option master-combat-add-dialog__result ${selected ? "is-selected" : ""}" type="button" role="option" aria-selected="${selected}" data-action="select-master-combat-manual-entry" data-entry-id="${escapeHtml(entry.id)}">
+      <strong>${escapeHtml(entry.name)}</strong>
+      <span>${escapeHtml([entry.source, `CR ${formatCrNumber(entry.crBaseValue)}`, entry.type].filter(Boolean).join(" | "))}</span>
+    </button>
+  `;
+}
+
+function getMasterCombatManualMatches(queryValue) {
+  const query = normalizeSearchText(queryValue);
+  if (!query || state.bestiaryStatus !== "ready") return [];
+  return state.bestiary
+    .filter((entry) => getBestiaryEntryNameAliases(entry).some((alias) => alias.includes(query)))
+    .sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" })
+      || left.source.localeCompare(right.source, "es", { sensitivity: "base" }))
+    .slice(0, 20);
+}
+
+function confirmMasterCombatManualEntity() {
+  const entryId = cleanText(state.masterCombatManualSelectedId);
+  if (!entryId || !findCompendiumEntryByReference(state.bestiary, { entryId })) return;
+  const combatantId = addBlankCombatant();
+  fillCombatantFromBestiary(combatantId, entryId);
+  masterCombatWorkspaceSelectedId = combatantId;
+  closeMasterCombatAddDialog();
+  saveCombatTrackerState();
 }
 
 function getDefaultMasterCombatDiceTargetMenuState() {
@@ -12844,22 +13026,24 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
         ${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}
       </span>
       <span class="master-combat-entity__copy">
-        ${isEditingName ? `
-          <input class="master-combat-entity__name-input" type="text" inputmode="text" value="${escapeHtml(String(combatant.nombre || ""))}" data-edit-id="${escapeHtml(combatant.id)}" data-edit-key="nombre" data-master-combat-name-input="${escapeHtml(combatant.id)}" autocomplete="off" aria-label="${escapeHtml(isEnglishInterface() ? "Entity name" : "Nombre de entidad")}">
-        ` : `<span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span>`}
+        <span class="master-combat-entity__name-row">
+          ${isEditingName ? `
+            <input class="master-combat-entity__name-input" type="text" inputmode="text" value="${escapeHtml(String(combatant.nombre || ""))}" data-edit-id="${escapeHtml(combatant.id)}" data-edit-key="nombre" data-master-combat-name-input="${escapeHtml(combatant.id)}" autocomplete="off" aria-label="${escapeHtml(isEnglishInterface() ? "Entity name" : "Nombre de entidad")}">
+          ` : `<span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span>`}
+          ${statusNames.length ? `
+            <span class="master-combat-entity__statuses" aria-label="${escapeHtml(isEnglishInterface() ? "Conditions" : "Estados")}">
+              ${statusNames.map((statusName) => {
+                const localizedName = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
+                const iconUrl = getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName));
+                const fallback = cleanText(localizedName).slice(0, 2).toUpperCase() || "?";
+                return `<span class="master-combat-entity__status ${escapeHtml(getCombatStatusToneClass(statusName))}" title="${escapeHtml(localizedName)}" data-combat-turn-status-remove data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(statusName)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : escapeHtml(fallback)}</span>`;
+              }).join("")}
+            </span>
+          ` : ""}
+        </span>
         <strong class="master-combat-entity__hp-label">${escapeHtml(`${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`)}</strong>
         <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
       </span>
-      ${statusNames.length ? `
-        <span class="master-combat-entity__statuses" aria-label="${escapeHtml(isEnglishInterface() ? "Conditions" : "Estados")}">
-          ${statusNames.map((statusName) => {
-            const localizedName = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
-            const iconUrl = getCombatStatusIconUrl(getCanonicalCombatStatusName(statusName));
-            const fallback = cleanText(localizedName).slice(0, 2).toUpperCase() || "?";
-            return `<span class="master-combat-entity__status ${escapeHtml(getCombatStatusToneClass(statusName))}" title="${escapeHtml(localizedName)}" data-combat-turn-status-remove data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(statusName)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : escapeHtml(fallback)}</span>`;
-          }).join("")}
-        </span>
-      ` : ""}
       ${renderCombatTurnStatusSummary(combatant, statusNames)}
       ${isEditingName && nameSuggestions.length ? `<div class="combat-name-suggestions master-combat-entity__name-suggestions" role="listbox" aria-label="${escapeHtml(isEnglishInterface() ? "Combat suggestions" : "Sugerencias de combate")}">${nameSuggestions.map((entry) => renderCombatNameSuggestion(combatant.id, entry)).join("")}</div>` : ""}
     </article>
@@ -24822,6 +25006,7 @@ function addAllCharactersToCombat() {
 }
 
 function addCharactersToCombat(characters, options = {}) {
+  const openedFromMasterDialog = state.masterCombatAddDialogOpen;
   const existingCharacterIds = new Set(
     state.combatants.map((combatant) => cleanText(combatant.characterId)).filter(Boolean)
   );
@@ -24858,6 +25043,11 @@ function addCharactersToCombat(characters, options = {}) {
   if (options.closePicker !== false) {
     state.combatEncounterPickerOpen = false;
     state.combatAddPickerMode = "";
+  }
+
+  if (openedFromMasterDialog) {
+    masterCombatWorkspaceSelectedId = combatants[0]?.id || masterCombatWorkspaceSelectedId;
+    closeMasterCombatAddDialog();
   }
 
   validCharacters.forEach((character) => {
@@ -25806,6 +25996,7 @@ function toggleCombatEncounterPickerFolder(folderId) {
 }
 
 function importEncounterToCombat(encounterId) {
+  const openedFromMasterDialog = state.masterCombatAddDialogOpen;
   const encounter = state.encounters.find((item) => item.id === encounterId);
 
   if (!encounter) {
@@ -25842,6 +26033,10 @@ function importEncounterToCombat(encounterId) {
   ];
   state.combatEncounterPickerOpen = false;
   state.combatAddPickerMode = "";
+  if (openedFromMasterDialog) {
+    masterCombatWorkspaceSelectedId = combatants[0]?.id || masterCombatWorkspaceSelectedId;
+    closeMasterCombatAddDialog();
+  }
 }
 
 function createCombatantFromEncounterRow(row, id, standNumber, encounterName = "", encounterId = "", multiplayer = null) {
