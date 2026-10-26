@@ -1603,57 +1603,25 @@
   font-size: clamp(1.2rem, 3vw, 2rem);
 }
 
-.ml-turn-alert {
+.ml-combat-announcement-stack {
   position: fixed;
   top: 50%;
   left: 50%;
   z-index: 1000;
   display: grid;
+  gap: 0.7rem;
   justify-items: center;
-  width: min(25rem, calc(100vw - 2rem));
-  padding: 1.4rem;
-  border: 2px solid var(--team-color, #d9ab5d);
-  border-radius: 24px;
-  color: #fff8e8;
-  text-align: center;
-  background: radial-gradient(circle at 50% 0, rgba(217, 171, 93, 0.3), transparent 55%), rgba(13, 8, 5, 0.97);
-  box-shadow: 0 0 0 999vmax rgba(0, 0, 0, 0.55), 0 28px 80px rgba(0, 0, 0, 0.8);
+  width: min(38rem, calc(100vw - 2rem));
+  transform: translate(-50%, -50%);
   pointer-events: none;
-  animation: ml-turn-alert-life 2.8s ease both;
 }
 
-.ml-turn-alert img {
-  width: 7rem;
-  height: 7rem;
-  margin-bottom: 0.8rem;
-  object-fit: contain;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
-  background: #130c08;
-}
-
-.ml-turn-alert span {
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.ml-turn-alert strong {
-  margin-top: 0.35rem;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(1.5rem, 5vw, 2.7rem);
+.ml-combat-announcement-stack > .combat-map-turn-announcement {
+  width: 100%;
 }
 
 @keyframes ml-map-waiting-spin {
   to { transform: rotate(360deg); }
-}
-
-@keyframes ml-turn-alert-life {
-  0% { opacity: 0; transform: translate(-50%, -46%) scale(0.88); }
-  12%, 82% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -54%) scale(0.96); }
 }
 
 .ml-team-roster,

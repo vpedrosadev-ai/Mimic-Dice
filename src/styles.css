@@ -2388,6 +2388,11 @@ table {
   gap: .7rem;
 }
 
+.master-combat-add-dialog__quantity {
+  width: min(10rem, 100%);
+  margin-top: .7rem;
+}
+
 .data-exchange-dialog__panel {
   width: min(46rem, 100%);
   max-height: min(86vh, 56rem);
@@ -6801,16 +6806,24 @@ button.is-cloud-busy:disabled {
   align-self: stretch;
 }
 
-.combat-map-turn-announcement {
+.combat-map-announcement-stack {
   grid-area: map;
   z-index: 80;
   align-self: center;
   justify-self: center;
   display: grid;
+  justify-items: center;
+  gap: .7rem;
+  width: min(38rem, calc(100% - 2rem));
+  pointer-events: none;
+}
+
+.combat-map-turn-announcement {
+  display: grid;
   grid-template-columns: clamp(5rem, 10vw, 8rem) minmax(0, 1fr);
   align-items: center;
   gap: 1rem;
-  width: min(38rem, calc(100% - 2rem));
+  width: 100%;
   padding: 1rem 1.25rem;
   border: 2px solid rgba(240, 200, 121, .78);
   border-radius: 1rem;
@@ -6819,6 +6832,27 @@ button.is-cloud-busy:disabled {
   box-shadow: 0 1.3rem 3rem rgba(0, 0, 0, .62), inset 0 0 0 1px rgba(255, 255, 255, .06);
   pointer-events: none;
   animation: combat-map-turn-announcement-life 3200ms ease both;
+}
+
+.combat-map-turn-announcement--round {
+  grid-template-columns: minmax(0, 1fr);
+  width: min(24rem, 82%);
+  padding: .75rem 1rem;
+  border-color: rgba(94, 183, 166, .82);
+  text-align: center;
+  background: linear-gradient(145deg, rgba(30, 69, 63, .97), rgba(13, 10, 9, .98));
+}
+
+.combat-map-turn-announcement--round > div:last-child {
+  justify-items: center;
+}
+
+.combat-map-turn-announcement--round small {
+  color: #9de3d6;
+}
+
+.combat-map-turn-announcement--round > div > strong {
+  font-size: clamp(1.35rem, 3.5vw, 2.2rem);
 }
 
 .combat-map-turn-announcement__portrait-wrap {

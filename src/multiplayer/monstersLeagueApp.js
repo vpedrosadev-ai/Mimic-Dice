@@ -199,8 +199,11 @@ const state = {
   serverClockSample: null,
   audioContext: null,
   lastActiveCombatantId: "",
+  lastCombatRound: 0,
   turnFlash: null,
   turnFlashTimer: 0,
+  roundFlash: null,
+  roundFlashTimer: 0,
   mapBroadcastExpanded: false,
   combatFeedbackRoomId: "",
   combatFeedbackInitialized: false,
@@ -798,8 +801,11 @@ function renderTeamScreen() {
   ensureTestCombatState();
   const room = state.room;
   const viewedPlayer = getViewedTeamPlayer(room);
-  const teamCombatants = getMasterTeamCombatants(viewedPlayer);
-  const selectedAward = viewedPlayer.roster.find((award) => award.monster.id === state.selectedMonsterId) || viewedPlayer.roster[0];
+  const teamCombatants = getMasterTeamCombatants(viewedPlayer)
+    .filter(({ combatant }) => Math.max(0, Number(combatant.pgAct) || 0) > 0);
+  const visibleMonsterIds = new Set(teamCombatants.map(({ monsterId }) => monsterId));
+  const selectedAward = viewedPlayer.roster.find((award) => award.monster.id === state.selectedMonsterId && visibleMonsterIds.has(award.monster.id))
+    || viewedPlayer.roster.find((award) => visibleMonsterIds.has(award.monster.id));
   const entry = selectedAward ? state.catalogById.get(selectedAward.monster.id) || selectedAward.monster : null;
   const projection = room?.mapProjection;
   const mapOpen = projection?.open === true && projection.editorState;
@@ -834,7 +840,7 @@ function renderTeamScreen() {
               <header class="master-combat-workspace__panel-heading">
                 <div><small>${language === "en" ? "YOUR TEAM" : "TU EQUIPO"}</small><strong>${language === "en" ? "Entities" : "Entidades"}</strong></div>
                 <div class="master-combat-workspace__turn-controls">
-                  <span class="master-combat-workspace__entity-count">${teamCombatants.length}</span>
+                  <button class="master-combat-workspace__entity-add" type="button" disabled title="${language === "en" ? "Controlled by host" : "Controlado por el anfitrión"}" aria-label="${language === "en" ? "Add entity" : "Añadir entidad"}">+</button>
                   <button class="combat-map-initiative-control" type="button" disabled title="${language === "en" ? "Controlled by host" : "Controlado por el anfitrión"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg></button>
                   <span class="round-chip round-chip--button combat-map-initiative-round">R${escapeHtml(String(Math.max(1, Number(room.combatMeta?.round) || 1)))}</span>
                   <button class="combat-map-initiative-control" type="button" disabled title="${language === "en" ? "Controlled by host" : "Controlado por el anfitrión"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg></button>
@@ -1174,6 +1180,17 @@ function getProjectedTurnTokenScale(turnCount) {
 
 function observeCombatTurn(room) {
   const projection = room?.mapProjection;
+  const round = Math.max(1, Math.floor(Number(room?.combatMeta?.round) || 1));
+  const previousRound = state.lastCombatRound;
+  state.lastCombatRound = round;
+  if (previousRound && round !== previousRound && projection?.open === true) {
+    state.roundFlash = { round };
+    window.clearTimeout(state.roundFlashTimer);
+    state.roundFlashTimer = window.setTimeout(() => {
+      state.roundFlash = null;
+      render();
+    }, 3200);
+  }
   const activeId = cleanText(projection?.activeCombatantId);
   if (activeId === state.lastActiveCombatantId) return;
   state.lastActiveCombatantId = activeId;
@@ -1185,18 +1202,40 @@ function observeCombatTurn(room) {
   state.selectedMonsterId = cleanText(combatant.multiplayerMonsterId) || state.selectedMonsterId;
   state.turnFlash = {
     name: cleanText(combatant.nombre) || (language === "en" ? "Your creature" : "Tu criatura"),
-    tokenUrl: cleanText(combatant.tokenUrl)
+    tokenUrl: cleanText(combatant.tokenUrl),
+    standNumber: cleanText(combatant.numPeana),
+    conditions: getProjectedStatusNames(combatant)
   };
   window.clearTimeout(state.turnFlashTimer);
   state.turnFlashTimer = window.setTimeout(() => {
     state.turnFlash = null;
     render();
-  }, 2800);
+  }, 3200);
 }
 
 function renderTurnFlash() {
-  if (!state.turnFlash) return "";
-  return `<div class="ml-turn-alert" role="status" aria-live="assertive">${state.turnFlash.tokenUrl ? `<img src="${escapeHtml(state.turnFlash.tokenUrl)}" alt="">` : ""}<span>${language === "en" ? "Your turn" : "Tu turno"}</span><strong>${escapeHtml(state.turnFlash.name)}</strong></div>`;
+  if (!state.turnFlash && !state.roundFlash) return "";
+  const roundAnnouncement = state.roundFlash
+    ? `<div class="combat-map-turn-announcement combat-map-turn-announcement--round" role="status" aria-live="assertive"><div><small>${language === "en" ? "NEW ROUND" : "NUEVA RONDA"}</small><strong>${language === "en" ? "ROUND" : "RONDA"} ${escapeHtml(String(state.roundFlash.round))}</strong></div></div>`
+    : "";
+  let turnAnnouncement = "";
+  if (state.turnFlash) {
+    const portrait = state.turnFlash.tokenUrl
+      ? `<img src="${escapeHtml(state.turnFlash.tokenUrl)}" alt="" aria-hidden="true">`
+      : `<span aria-hidden="true">${escapeHtml(getInitials(state.turnFlash.name))}</span>`;
+    const standNumber = state.turnFlash.standNumber
+      ? `<b class="combat-map-turn-announcement__stand" title="${language === "en" ? "Stand" : "Peana"}">${escapeHtml(state.turnFlash.standNumber)}</b>`
+      : "";
+    const conditions = state.turnFlash.conditions.length
+      ? `<div class="combat-map-turn-announcement__statuses">${state.turnFlash.conditions.map((condition) => {
+          const iconUrl = getCombatStatusIconUrl(condition);
+          const fallback = cleanText(condition).slice(0, 2).toUpperCase() || "?";
+          return `<span class="combat-map-turn-announcement__status ${escapeHtml(getProjectedStatusTone(condition))}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : `<i>${escapeHtml(fallback)}</i>`}<strong>${escapeHtml(condition)}</strong></span>`;
+        }).join("")}</div>`
+      : "";
+    turnAnnouncement = `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait-wrap"><div class="combat-map-turn-announcement__portrait">${portrait}</div>${standNumber}</div><div><small>${language === "en" ? "NOW IT IS THE TURN OF" : "AHORA ES EL TURNO DE"}</small><strong>${escapeHtml(state.turnFlash.name)}</strong>${conditions}</div></div>`;
+  }
+  return `<div class="ml-combat-announcement-stack">${roundAnnouncement}${turnAnnouncement}</div>`;
 }
 
 function renderTeamMonsterCard(player, award) {

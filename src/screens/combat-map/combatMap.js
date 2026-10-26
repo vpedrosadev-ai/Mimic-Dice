@@ -1012,6 +1012,8 @@ export function createCombatMapController(options = {}) {
   const tokenFeedbackTimers = new Map();
   let turnAnnouncement = null;
   let turnAnnouncementTimer = 0;
+  let roundAnnouncement = null;
+  let roundAnnouncementTimer = 0;
 
   function loadLocalState() {
     try {
@@ -1415,6 +1417,20 @@ export function createCombatMapController(options = {}) {
       turnAnnouncementTimer = window.setTimeout(() => {
         turnAnnouncementTimer = 0;
         turnAnnouncement = null;
+        sync();
+      }, durationMs);
+    }
+  }
+
+  function showRoundAnnouncement(roundValue, durationMs = 3200) {
+    const round = Math.max(1, Math.floor(Number(roundValue) || 1));
+    roundAnnouncement = { round };
+    if (roundAnnouncementTimer && typeof window !== "undefined") window.clearTimeout(roundAnnouncementTimer);
+    sync();
+    if (typeof window !== "undefined" && durationMs > 0) {
+      roundAnnouncementTimer = window.setTimeout(() => {
+        roundAnnouncementTimer = 0;
+        roundAnnouncement = null;
         sync();
       }, durationMs);
     }
@@ -1919,6 +1935,16 @@ export function createCombatMapController(options = {}) {
     return `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait-wrap"><div class="combat-map-turn-announcement__portrait">${portrait}</div>${standNumber}</div><div><small>AHORA ES EL TURNO DE</small><strong>${escapeHtml(turnAnnouncement.name)}</strong>${conditions}</div></div>`;
   }
 
+  function renderRoundAnnouncement() {
+    if (!roundAnnouncement) return "";
+    return `<div class="combat-map-turn-announcement combat-map-turn-announcement--round" role="status" aria-live="assertive"><div><small>NUEVA RONDA</small><strong>RONDA ${escapeHtml(String(roundAnnouncement.round))}</strong></div></div>`;
+  }
+
+  function renderCombatAnnouncements() {
+    if (!roundAnnouncement && !turnAnnouncement) return "";
+    return `<div class="combat-map-announcement-stack">${renderRoundAnnouncement()}${renderTurnAnnouncement()}</div>`;
+  }
+
   function renderPortrait(combatant) {
     const url = clean(combatant.tokenUrl);
     return url ? `<img src="${escapeHtml(url)}" alt="" draggable="false">` : `<i>${escapeHtml(getInitials(combatant.nombre))}</i>`;
@@ -2082,19 +2108,19 @@ export function createCombatMapController(options = {}) {
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
     const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
     const notifications = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderTurnAnnouncement()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayerProjection(viewportWindow = window) {
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderTurnAnnouncement()}</div></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderCombatAnnouncements()}</div></div>`;
   }
 
   function sync() {
@@ -3766,5 +3792,5 @@ export function createCombatMapController(options = {}) {
     if (playerProjectionHost?.isConnected) applyPlayerCombatantHover(playerProjectionHost);
   }
 
-  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, showRoundAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }

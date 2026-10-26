@@ -1037,6 +1037,7 @@ state = {
   masterCombatAddDialogOpen: false,
   masterCombatManualQuery: "",
   masterCombatManualSelectedId: "",
+  masterCombatAddQuantity: "1",
   masterCombatCustomDraft: {
     nombre: "",
     pgMax: "",
@@ -2901,10 +2902,12 @@ async function handleClick(event) {
     if (state.combatAddPickerMode === "manual") {
       state.masterCombatManualQuery = "";
       state.masterCombatManualSelectedId = "";
+      state.masterCombatAddQuantity = "1";
       queueCompendiumLoad("bestiary");
     }
     if (state.combatAddPickerMode === "custom") {
       state.masterCombatCustomDraft = { nombre: "", pgMax: "", ca: "", tamano: "Mediano" };
+      state.masterCombatAddQuantity = "1";
     }
     render({
       focusSelector: state.combatAddPickerMode === "manual"
@@ -2927,6 +2930,7 @@ async function handleClick(event) {
     state.combatAddPickerMode = "";
     state.masterCombatManualQuery = "";
     state.masterCombatManualSelectedId = "";
+    state.masterCombatAddQuantity = "1";
     render();
     return;
   }
@@ -5828,6 +5832,11 @@ function handleInput(event) {
         });
       }
     }
+    return;
+  }
+
+  if (target.matches("[data-master-combat-add-quantity]")) {
+    state.masterCombatAddQuantity = target.value;
     return;
   }
 
@@ -12950,6 +12959,7 @@ function closeMasterCombatAddDialog() {
   state.combatAddPickerMode = "";
   state.masterCombatManualQuery = "";
   state.masterCombatManualSelectedId = "";
+  state.masterCombatAddQuantity = "1";
   state.masterCombatCustomDraft = { nombre: "", pgMax: "", ca: "", tamano: "Mediano" };
 }
 
@@ -13026,6 +13036,7 @@ function renderMasterCombatCustomEntityForm() {
       <label class="master-combat-add-dialog__search"><span>${escapeHtml(isEnglishInterface() ? "Armor Class" : "Armadura")}</span><input class="campaign-save-dialog__input" type="number" min="0" step="1" value="${escapeHtml(draft.ca || "")}" data-master-combat-custom-field="ca"></label>
       <label class="master-combat-add-dialog__search"><span>${escapeHtml(isEnglishInterface() ? "Size" : "Tamano")}</span><select class="campaign-save-dialog__input" data-master-combat-custom-field="tamano">${CHARACTER_SIZE_OPTIONS.map((size) => `<option value="${escapeHtml(size)}" ${draft.tamano === size ? "selected" : ""}>${escapeHtml(size)}</option>`).join("")}</select></label>
     </div>
+    ${renderMasterCombatAddQuantityField()}
   `;
 }
 
@@ -13047,7 +13058,16 @@ function renderMasterCombatManualPicker() {
     <div class="master-combat-add-dialog__results" role="listbox" aria-label="${escapeHtml(isEnglishInterface() ? "Matching creatures" : "Criaturas coincidentes")}">
       ${matches.length ? matches.map(renderMasterCombatManualMatch).join("") : `<p class="bestiary-filter__empty">${escapeHtml(statusText)}</p>`}
     </div>
+    ${renderMasterCombatAddQuantityField()}
   `;
+}
+
+function renderMasterCombatAddQuantityField() {
+  return `<label class="master-combat-add-dialog__search master-combat-add-dialog__quantity"><span>${escapeHtml(isEnglishInterface() ? "Quantity" : "Cantidad")}</span><input class="campaign-save-dialog__input" type="number" min="1" max="100" step="1" value="${escapeHtml(String(state.masterCombatAddQuantity || "1"))}" data-master-combat-add-quantity></label>`;
+}
+
+function getMasterCombatAddQuantity() {
+  return Math.max(1, Math.min(100, Math.floor(toNumber(state.masterCombatAddQuantity) || 1)));
 }
 
 function renderMasterCombatManualMatch(entry) {
@@ -13073,9 +13093,12 @@ function getMasterCombatManualMatches(queryValue) {
 function confirmMasterCombatManualEntity() {
   const entryId = cleanText(state.masterCombatManualSelectedId);
   if (!entryId || !findCompendiumEntryByReference(state.bestiary, { entryId })) return;
-  const combatantId = addBlankCombatant();
-  fillCombatantFromBestiary(combatantId, entryId);
-  masterCombatWorkspaceSelectedId = combatantId;
+  let lastCombatantId = "";
+  for (let index = 0; index < getMasterCombatAddQuantity(); index += 1) {
+    lastCombatantId = addBlankCombatant();
+    fillCombatantFromBestiary(lastCombatantId, entryId);
+  }
+  masterCombatWorkspaceSelectedId = lastCombatantId;
   closeMasterCombatAddDialog();
   saveCombatTrackerState();
 }
@@ -13084,16 +13107,19 @@ function confirmMasterCombatCustomEntity() {
   const draft = isPlainObject(state.masterCombatCustomDraft) ? state.masterCombatCustomDraft : {};
   const name = cleanText(draft.nombre).slice(0, 120);
   if (!name) return;
-  const combatantId = addBlankCombatant();
   const maxHp = Math.max(0, Math.round(toNumber(draft.pgMax)));
-  updateCombatantField(combatantId, "nombre", name, false);
-  updateCombatantField(combatantId, "pgMax", String(maxHp), false);
-  updateCombatantField(combatantId, "pgAct", String(maxHp), false);
-  updateCombatantField(combatantId, "ca", String(Math.max(0, Math.round(toNumber(draft.ca)))), false);
-  state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
-    ? normalizeCombatant({ ...combatant, tamano: CHARACTER_SIZE_OPTIONS.includes(draft.tamano) ? draft.tamano : "Mediano" })
-    : combatant);
-  masterCombatWorkspaceSelectedId = combatantId;
+  let lastCombatantId = "";
+  for (let index = 0; index < getMasterCombatAddQuantity(); index += 1) {
+    lastCombatantId = addBlankCombatant();
+    updateCombatantField(lastCombatantId, "nombre", name, false);
+    updateCombatantField(lastCombatantId, "pgMax", String(maxHp), false);
+    updateCombatantField(lastCombatantId, "pgAct", String(maxHp), false);
+    updateCombatantField(lastCombatantId, "ca", String(Math.max(0, Math.round(toNumber(draft.ca)))), false);
+    state.combatants = state.combatants.map((combatant) => combatant.id === lastCombatantId
+      ? normalizeCombatant({ ...combatant, tamano: CHARACTER_SIZE_OPTIONS.includes(draft.tamano) ? draft.tamano : "Mediano" })
+      : combatant);
+  }
+  masterCombatWorkspaceSelectedId = lastCombatantId;
   closeMasterCombatAddDialog();
   saveCombatTrackerState();
 }
@@ -27030,13 +27056,8 @@ function setCombatTurnRound(value, options = {}) {
 
 function queueCombatRoundNotification() {
   const round = getCombatRound();
-  pushNotification({
-    title: isEnglishInterface() ? `Round ${round}` : `Ronda ${round}`,
-    message: isEnglishInterface() ? "A new combat round has begun." : "Ha comenzado una nueva ronda de combate.",
-    tone: "info",
-    category: "round",
-    dedupeKey: "combat-round"
-  });
+  if (normalizeStoredNotificationSettings(state.notificationSettings).round === false) return;
+  combatMapController.showRoundAnnouncement(round);
 }
 
 function jumpCombatTurnTo(combatantId) {
