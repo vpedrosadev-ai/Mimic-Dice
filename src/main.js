@@ -12545,7 +12545,7 @@ function renderMasterCombatWorkspacePanel() {
             </header>
             <div class="master-combat-workspace__entity-list" data-render-scroll-key="master-combat-entities">
               ${combatants.length
-                ? combatants.map((combatant, index) => renderMasterCombatWorkspaceEntityCard(combatant, combatant.id === selectedCombatant?.id, combatant.id === activeId, index + 1)).join("")
+                ? combatants.map((combatant) => renderMasterCombatWorkspaceEntityCard(combatant, combatant.id === selectedCombatant?.id, combatant.id === activeId)).join("")
                 : `<div class="master-combat-workspace__empty"><strong>${escapeHtml(isEnglishInterface() ? "No entities" : "Sin entidades")}</strong><p>${escapeHtml(isEnglishInterface() ? "Add entities from normal Combat Table view." : "Anade entidades desde la vista normal de Tabla de combate.")}</p></div>`}
             </div>
           </aside>
@@ -12790,7 +12790,7 @@ function resolveMasterCombatDiceTarget(combatantId, options = {}) {
   }
 }
 
-function renderMasterCombatWorkspaceEntityCard(combatant, selected, active, initiativePosition) {
+function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
   const context = getCombatRowContext(combatant);
   const tokenUrl = context.tokenUrl;
   const currentHp = Math.max(0, toNumber(combatant.pgAct));
@@ -12799,6 +12799,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active, init
   const tempHp = Math.max(0, toNumber(combatant.pgTemp));
   const hpLabel = isEnglishInterface() ? "HP" : "PG";
   const statusNames = getCombatantStatusNames(combatant);
+  const standNumber = cleanText(combatant.numPeana) || "-";
 
   return `
     <button
@@ -12809,7 +12810,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active, init
       data-combat-turn-token-context="${escapeHtml(combatant.id)}"
       aria-pressed="${selected}"
     >
-      <span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Initiative order" : "Orden de iniciativa")}">${escapeHtml(String(initiativePosition))}</span>
+      <span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span>
       <span class="master-combat-entity__portrait">
         ${tokenUrl
           ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">`

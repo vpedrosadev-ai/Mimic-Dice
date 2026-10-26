@@ -8,6 +8,8 @@ import { parseBestiarySpellcasting } from "../shared/bestiarySpellcasting.js";
 import { createSpellReferenceMatcher } from "../shared/spellReferences.js";
 import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
 import { createCombatMapController } from "../screens/combat-map/combatMap.js";
+import { renderDiceRollerDock } from "../screens/dice-roller/diceRollerRender.js";
+import { DiceFormulaError, rollDiceFormula } from "../shared/diceFormula.js";
 import { fetchAuthSession, getCloudCampaignStatus } from "../cloud/cloudClient.js";
 import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import { projectMonstersLeagueCombatantForPlayer } from "./monstersLeagueVisibility.js";
@@ -47,6 +49,11 @@ const usesFileProtocol = window.location.protocol === "file:";
 const hostNameFromQuery = cleanText(params.get("host"));
 const ROOM_STORAGE_KEY = "mimic-dice:monsters-league:test-room:v1";
 const IMPORT_STORAGE_KEY = "mimic-dice:monsters-league-import:v1";
+const MASTER_WORKSPACE_LAYOUT_KEY = "mimic-dice:monsters-league-master-layout:v1";
+const masterSheetScrollPositions = new Map();
+const masterWorkspaceViewport = { entities: 0, dice: 0 };
+let activeMasterWorkspaceResize = null;
+let masterWorkspaceLayout = loadMasterWorkspaceLayout();
 
 const UI = {
   es: {
@@ -197,7 +204,15 @@ const state = {
   mapBroadcastExpanded: false,
   combatFeedbackRoomId: "",
   combatFeedbackInitialized: false,
-  seenCombatFeedbackIds: new Set()
+  seenCombatFeedbackIds: new Set(),
+  diceRollerDraft: "",
+  diceRollerError: "",
+  diceRollerHelpOpen: false,
+  diceRollerHitDiceMode: false,
+  diceRollerRollMode: "",
+  diceRollerModifier: "+0",
+  diceRollerDiceTrayOpen: false,
+  dismissedDiceRollIds: new Set()
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -219,6 +234,9 @@ app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
 app.addEventListener("submit", handleSubmit);
+app.addEventListener("pointerdown", handleMasterWorkspacePointerDown);
+app.addEventListener("keydown", handleMasterWorkspaceKeydown);
+app.addEventListener("contextmenu", handleMasterWorkspaceContextMenu);
 app.addEventListener("error", handleImageError, true);
 app.addEventListener("wheel", handleMapWheel, { passive: false });
 app.addEventListener("scroll", handleMapScroll, true);
@@ -228,6 +246,9 @@ window.addEventListener("beforeunload", () => {
   state.connection?.close();
 });
 window.addEventListener("resize", () => syncPlayerMapProjection());
+document.addEventListener("pointermove", handleMasterWorkspacePointerMove);
+document.addEventListener("pointerup", handleMasterWorkspacePointerUp);
+document.addEventListener("pointercancel", handleMasterWorkspacePointerUp);
 
 initialize();
 
@@ -392,6 +413,8 @@ function renderLoading() {
 }
 
 function render() {
+  captureMasterWorkspaceViewport();
+
   if (state.loading) {
     renderLoading();
     return;
@@ -435,6 +458,7 @@ function render() {
     ${renderSpellDialog()}
     ${renderTurnFlash()}
   `;
+  restoreMasterWorkspaceViewport();
   syncPlayerMapProjection();
   persistTestRoom();
 }
@@ -774,43 +798,87 @@ function renderTeamScreen() {
   ensureTestCombatState();
   const room = state.room;
   const viewedPlayer = getViewedTeamPlayer(room);
+  const teamCombatants = getMasterTeamCombatants(viewedPlayer);
   const selectedAward = viewedPlayer.roster.find((award) => award.monster.id === state.selectedMonsterId) || viewedPlayer.roster[0];
-  const entry = selectedAward ? state.catalogById.get(selectedAward.monster.id) : null;
+  const entry = selectedAward ? state.catalogById.get(selectedAward.monster.id) || selectedAward.monster : null;
   const projection = room?.mapProjection;
   const mapOpen = projection?.open === true && projection.editorState;
+  const activeId = cleanText(projection?.activeCombatantId);
+  const selectedCombatant = teamCombatants.find(({ monsterId }) => monsterId === entry?.id)?.combatant || null;
+  const entitySize = `${Math.round(masterWorkspaceLayout.entityRatio * 10000) / 100}%`;
+  const listSize = `${Math.round(masterWorkspaceLayout.listRatio * 10000) / 100}%`;
+  const detailSize = `${Math.round(masterWorkspaceLayout.detailRatio * 10000) / 100}%`;
+  const diceHistory = getVisibleDiceRollHistory();
 
   if (entry && state.selectedMonsterId !== entry.id) {
     state.selectedMonsterId = entry.id;
   }
 
   return `
-    <main class="ml-team-page" style="--team-color:${escapeHtml(viewedPlayer.color)}">
-      <section class="ml-team-header">
-        <div><p class="ml-eyebrow">DRAFT COMPLETADO</p><h1>${t("teamOf")} ${escapeHtml(viewedPlayer.name)}</h1><p>${viewedPlayer.roster.length} criaturas · ${viewedPlayer.gold} oro restante</p></div>
-        <div class="ml-team-header__actions">
-          ${localTestMode ? `<label>Ver equipo<select data-ml-team-select>${room.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === viewedPlayer.id ? "selected" : ""}>${escapeHtml(player.name)}</option>`).join("")}</select></label>` : ""}
-          ${renderSharedCampaignConnectionStatus()}
-          ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button ml-button--primary" type="button" data-ml-action="enter-combat">${room.status === "combat" ? "Combate en vivo" : "Iniciar combate"}</button>` : `<span class="ml-live-dot">${room.status === "combat" ? "LIVE" : "ESPERANDO AL HOST"}</span>`}
+    <main class="ml-team-page ml-team-page--master" style="--team-color:${escapeHtml(viewedPlayer.color)}">
+      <section class="panel panel--table combat-tracker-panel master-combat-workspace-panel ml-master-view-panel">
+        <div class="section-heading master-combat-workspace-panel__heading ml-master-view-heading">
+          <div class="ml-master-view-heading__identity">
+            <img src="${escapeHtml(appIconUrl)}" alt="" aria-hidden="true">
+            <div><small>MONSTERS LEAGUE</small><strong>${language === "en" ? "Master view · My monsters" : "Vista master · Mis monstruos"}</strong><span>${escapeHtml(viewedPlayer.name)} · ${viewedPlayer.roster.length} ${language === "en" ? "creatures" : "criaturas"}</span></div>
+          </div>
+          <div class="ml-team-header__actions">
+            ${localTestMode ? `<label>${language === "en" ? "View team" : "Ver equipo"}<select data-ml-team-select>${room.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === viewedPlayer.id ? "selected" : ""}>${escapeHtml(player.name)}</option>`).join("")}</select></label>` : ""}
+            ${renderSharedCampaignConnectionStatus()}
+            ${room.hostPlayerId === state.hostPlayerId ? `<button class="ml-button ml-button--primary" type="button" data-ml-action="enter-combat">${room.status === "combat" ? (language === "en" ? "Combat live" : "Combate en vivo") : (language === "en" ? "Start combat" : "Iniciar combate")}</button>` : `<span class="ml-live-dot">${room.status === "combat" ? "LIVE" : (language === "en" ? "WAITING FOR HOST" : "ESPERANDO AL HOST")}</span>`}
+          </div>
+        </div>
+        <div class="master-combat-workspace" data-master-combat-workspace style="--master-entity-size:${entitySize};--master-list-size:${listSize};--master-detail-size:${detailSize}">
+          <section class="master-combat-workspace__left">
+            <aside class="master-combat-workspace__entities">
+              <header class="master-combat-workspace__panel-heading">
+                <div><small>${language === "en" ? "YOUR TEAM" : "TU EQUIPO"}</small><strong>${language === "en" ? "Entities" : "Entidades"}</strong></div>
+                <div class="master-combat-workspace__turn-controls">
+                  <span class="master-combat-workspace__entity-count">${teamCombatants.length}</span>
+                  <button class="combat-map-initiative-control" type="button" disabled title="${language === "en" ? "Controlled by host" : "Controlado por el anfitrión"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg></button>
+                  <span class="round-chip round-chip--button combat-map-initiative-round">R${escapeHtml(String(Math.max(1, Number(room.combatMeta?.round) || 1)))}</span>
+                  <button class="combat-map-initiative-control" type="button" disabled title="${language === "en" ? "Controlled by host" : "Controlado por el anfitrión"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg></button>
+                </div>
+              </header>
+              <div class="master-combat-workspace__entity-list" data-ml-master-entity-list>
+                ${teamCombatants.length
+                  ? teamCombatants.map((item) => renderMasterTeamEntityCard(viewedPlayer, item, item.monsterId === entry?.id, item.combatant.id === activeId)).join("")
+                  : `<div class="master-combat-workspace__empty"><strong>${language === "en" ? "No creatures" : "Sin criaturas"}</strong></div>`}
+              </div>
+            </aside>
+            <div class="master-combat-workspace__splitter master-combat-workspace__splitter--horizontal" data-master-workspace-resize="entities" role="separator" aria-orientation="horizontal" tabindex="0"></div>
+            <aside class="master-combat-workspace__dice">
+              ${renderDiceRollerDock({
+                open: true,
+                draft: state.diceRollerDraft,
+                error: state.diceRollerError,
+                history: diceHistory,
+                appIconUrl,
+                language,
+                isPopout: true,
+                helpOpen: state.diceRollerHelpOpen,
+                hitDiceMode: state.diceRollerHitDiceMode,
+                rollMode: state.diceRollerRollMode,
+                modifier: state.diceRollerModifier,
+                diceTrayOpen: state.diceRollerDiceTrayOpen
+              })}
+            </aside>
+          </section>
+          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="list" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <section class="master-combat-workspace__sheet">
+            <header class="master-combat-workspace__panel-heading"><div><small>${selectedCombatant?.id === activeId ? (language === "en" ? "CURRENT TURN" : "TURNO ACTUAL") : (language === "en" ? "SELECTION" : "SELECCIÓN")}</small><strong>${escapeHtml(entry?.name || (language === "en" ? "Creature sheet" : "Ficha de criatura"))}</strong></div></header>
+            <div class="master-combat-workspace__sheet-scroll" data-ml-master-sheet-scroll data-ml-master-sheet-key="${escapeHtml(entry?.id || "")}">
+              ${entry ? renderMasterTeamCreaturePreview(entry) : `<div class="master-combat-workspace__empty"><strong>${language === "en" ? "Select a creature" : "Selecciona una criatura"}</strong></div>`}
+            </div>
+          </section>
+          <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="detail" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <section class="master-combat-workspace__map" aria-label="${language === "en" ? "Player map" : "Mapa del jugador"}">
+            <div class="master-combat-workspace__map-host" data-ml-map-projection>
+              ${mapOpen ? "" : `<div class="ml-map-waiting" role="status"><i></i><strong>${language === "en" ? "Waiting for host" : "Esperando al anfitrión"}</strong></div>`}
+            </div>
+          </section>
         </div>
       </section>
-      <div class="ml-master-workspace">
-        <aside class="ml-panel ml-team-roster ml-master-workspace__entities">
-          <div class="ml-panel-heading"><div><p class="ml-eyebrow">PLANTILLA</p><h2>Criaturas</h2></div></div>
-          <div class="ml-team-cards">${viewedPlayer.roster.map((award) => renderTeamMonsterCard(viewedPlayer, award)).join("")}</div>
-        </aside>
-        <section class="ml-panel ml-monster-sheet ml-master-workspace__sheet">
-          <header class="ml-master-workspace__panel-heading"><div><p class="ml-eyebrow">${language === "en" ? "YOUR CREATURE" : "TU CRIATURA"}</p><h2>${escapeHtml(entry?.name || (language === "en" ? "Creature sheet" : "Ficha de criatura"))}</h2></div></header>
-          <div class="ml-master-workspace__sheet-scroll">
-            ${entry ? `${renderMasterLiveOverview(viewedPlayer, entry)}${renderLiveMonsterSheet(viewedPlayer, entry)}` : detailRenderers.renderBestiaryDetailEmpty()}
-          </div>
-        </section>
-        <section class="ml-panel ml-master-workspace__map">
-          <header class="ml-master-workspace__panel-heading"><div><p class="ml-eyebrow">MAPA DE COMBATE</p><h2>${language === "en" ? "Player view" : "Vista de jugador"}</h2></div>${mapOpen ? `<span class="ml-live-dot">LIVE</span>` : ""}</header>
-          ${mapOpen
-            ? `<div class="ml-map-projection" data-ml-map-projection></div>`
-            : `<div class="ml-map-waiting" role="status"><i></i><strong>${language === "en" ? "Waiting for host" : "Esperando al anfitrión"}</strong></div>`}
-        </section>
-      </div>
     </main>
   `;
 }
@@ -822,6 +890,121 @@ function getViewedTeamPlayer(room = state.room) {
   }
   const userId = cleanText(state.session?.user?.id || state.hostPlayerId);
   return players.find((player) => cleanText(player.userId || player.id) === userId) || players[0];
+}
+
+function getMasterTeamCombatants(player) {
+  if (!player) return [];
+  const userId = cleanText(player.userId || player.id);
+  const teamId = cleanText(player.id);
+  const projection = Array.isArray(state.room?.mapProjection?.combatants)
+    ? [...state.room.mapProjection.combatants]
+      .filter((combatant) => cleanText(combatant.iniactiva) !== "")
+      .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0)
+        || getProjectedStandSortValue(left) - getProjectedStandSortValue(right))
+    : [];
+  const positionById = new Map(projection.map((combatant, index) => [cleanText(combatant.id), index + 1]));
+  const ownProjection = projection.filter((combatant) => (
+    cleanText(combatant.teamOwnerUserId) === userId || cleanText(combatant.teamId) === teamId
+  ));
+  const projectedByMonsterId = new Map(ownProjection.map((combatant) => [cleanText(combatant.multiplayerMonsterId), combatant]));
+
+  return player.roster.map((award, index) => {
+    const monster = state.catalogById.get(award.monster.id) || award.monster;
+    const live = getLiveMonster(player.id, monster);
+    const monsterId = cleanText(monster.id);
+    const projected = projectedByMonsterId.get(monsterId);
+    const combatant = projected || {
+      id: `team-${player.id}-${monsterId}`,
+      nombre: monster.name,
+      tokenUrl: monster.tokenUrl || monster.imageUrl,
+      multiplayerMonsterId: monsterId,
+      teamId: player.id,
+      teamOwnerUserId: player.userId,
+      teamColor: player.color,
+      iniactiva: live.initiative,
+      numPeana: live.standNumber,
+      pgMax: live.maxHp,
+      pgAct: live.currentHp,
+      pgTemp: live.tempHp,
+      necrotic: live.necrotic,
+      condiciones: live.conditions.join(", ")
+    };
+    return {
+      monsterId,
+      monster,
+      live,
+      combatant,
+      initiativePosition: positionById.get(cleanText(combatant.id)) || index + 1
+    };
+  }).sort((left, right) => Number(right.combatant.iniactiva || 0) - Number(left.combatant.iniactiva || 0)
+    || left.initiativePosition - right.initiativePosition);
+}
+
+function renderMasterTeamEntityCard(player, item, selected, active) {
+  const { monster, live, combatant } = item;
+  const effectiveMax = Math.max(0, Number(live.maxHp || combatant.pgMax) - Number(live.necrotic || combatant.necrotic));
+  const currentHp = Math.max(0, Number(live.currentHp ?? combatant.pgAct) || 0);
+  const tempHp = Math.max(0, Number(live.tempHp ?? combatant.pgTemp) || 0);
+  const hpPercent = effectiveMax > 0 ? Math.max(0, Math.min(100, currentHp / effectiveMax * 100)) : 0;
+  const statusNames = Array.isArray(live.conditions) ? live.conditions : getProjectedStatusNames(combatant);
+  const tokenUrl = cleanText(monster.tokenUrl || monster.imageUrl || combatant.tokenUrl);
+  const hpLabel = language === "en" ? "HP" : "PG";
+  const standNumber = cleanText(combatant.numPeana || live.standNumber) || "-";
+
+  return `
+    <button class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}" type="button" data-ml-action="select-monster" data-monster-id="${escapeHtml(item.monsterId)}" aria-pressed="${selected}">
+      <span class="master-combat-entity__initiative" title="${language === "en" ? "Stand" : "Peana"}">${escapeHtml(standNumber)}</span>
+      <span class="master-combat-entity__portrait">
+        ${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(monster.name))}</span>`}
+        ${active ? `<i title="${language === "en" ? "Current turn" : "Turno actual"}"></i>` : ""}
+      </span>
+      <span class="master-combat-entity__copy">
+        <span class="master-combat-entity__title"><strong>${escapeHtml(monster.name)}</strong></span>
+        <strong class="master-combat-entity__hp-label">${escapeHtml(`${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`)}</strong>
+        <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
+      </span>
+      ${statusNames.length ? `<span class="master-combat-entity__statuses" aria-label="${language === "en" ? "Conditions" : "Estados"}">${statusNames.map((statusName) => {
+        const iconUrl = getCombatStatusIconUrl(statusName);
+        const fallback = cleanText(statusName).slice(0, 2).toUpperCase() || "?";
+        return `<span class="master-combat-entity__status ${escapeHtml(getProjectedStatusTone(statusName))}" title="${escapeHtml(statusName)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : escapeHtml(fallback)}</span>`;
+      }).join("")}</span>` : ""}
+    </button>
+  `;
+}
+
+function renderMasterTeamCreaturePreview(entry) {
+  const sections = [
+    entry.traits ? { title: t("section_traits"), content: entry.traits } : null,
+    entry.actions ? { title: t("section_actions"), content: entry.actions } : null
+  ].filter(Boolean);
+  const defenses = [
+    { label: t("chip_damage_vulnerabilities"), value: entry.damageVulnerabilities },
+    { label: t("chip_damage_resistances"), value: entry.damageResistances },
+    { label: t("chip_damage_immunities"), value: entry.damageImmunities },
+    { label: t("chip_condition_immunities"), value: entry.conditionImmunities }
+  ].filter((item) => item.value);
+  const sizeLabel = language === "en" ? "SIZE" : "TAMAÑO";
+  const sourceLabel = entry.sourceFullName || entry.source || (language === "en" ? "Unknown source" : "Sin fuente");
+  const crLabel = entry.crBaseLabel || entry.crLabel || "-";
+
+  return `
+    <div class="combat-token-preview combat-token-preview--floating ml-master-creature-preview">
+      <div class="combat-token-preview__header">
+        <div><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(sourceLabel)}</span></div>
+        <div class="combat-token-preview__header-meta"><small>CR ${escapeHtml(crLabel)}</small><span>${escapeHtml(sizeLabel)}: ${escapeHtml(entry.size || "-")}</span></div>
+      </div>
+      <div class="combat-token-preview__metrics">
+        ${detailRenderers.renderBestiaryMetric("CA", entry.ac || "-")}
+        ${detailRenderers.renderBestiaryMetric(t("metric_speed"), entry.speed || "-")}
+      </div>
+      <div class="combat-token-preview__abilities">${["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((ability) => detailRenderers.renderBestiaryAbility(entry, ability)).join("")}</div>
+      ${defenses.length ? `<div class="combat-token-preview__defenses">${defenses.map((item) => detailRenderers.renderDetailChip(item.label, item.value)).join("")}</div>` : ""}
+      ${renderMonsterSpellbook(entry)}
+      <div class="combat-token-preview__sections">
+        ${sections.length ? sections.map((section) => detailRenderers.renderBestiarySection(section.title, section.content, { linkSpells: true })).join("") : `<section class="detail-section"><h4>${language === "en" ? "Traits" : "Rasgos"}</h4><p>${language === "en" ? "No traits or actions listed." : "Sin rasgos o acciones indicados."}</p></section>`}
+      </div>
+    </div>
+  `;
 }
 
 function renderMasterLiveOverview(player, entry) {
@@ -999,6 +1182,7 @@ function observeCombatTurn(room) {
   const currentUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
   const currentPlayer = room.players?.find((player) => player.userId === currentUserId || player.id === currentUserId);
   if (!combatant || (combatant.teamOwnerUserId !== currentUserId && combatant.teamId !== currentPlayer?.id)) return;
+  state.selectedMonsterId = cleanText(combatant.multiplayerMonsterId) || state.selectedMonsterId;
   state.turnFlash = {
     name: cleanText(combatant.nombre) || (language === "en" ? "Your creature" : "Tu criatura"),
     tokenUrl: cleanText(combatant.tokenUrl)
@@ -1228,6 +1412,7 @@ function handleClick(event) {
     playerMapController.handleClick(event);
     return;
   }
+  if (handleMasterDiceClick(event)) return;
   const target = event.target.closest("[data-ml-action]");
 
   if (!target) {
@@ -1292,6 +1477,16 @@ function handleInput(event) {
     playerMapController.handleInput(event);
     return;
   }
+  if (event.target.matches("[data-dice-roller-input]")) {
+    state.diceRollerDraft = event.target.value;
+    state.diceRollerError = "";
+    return;
+  }
+  if (event.target.matches("[data-dice-roller-modifier]")) {
+    state.diceRollerModifier = event.target.value;
+    state.diceRollerError = "";
+    return;
+  }
   if (event.target.matches('[data-ml-config-form] [name="crMin"], [data-ml-config-form] [name="crMax"]')) {
     refreshConfigurationFilters(event.target.closest("[data-ml-config-form]"));
     return;
@@ -1316,6 +1511,11 @@ function handleMapScroll(event) {
 
 function handleSubmit(event) {
   ensureAudioContext();
+  if (event.target.matches("[data-dice-roller-form]")) {
+    event.preventDefault();
+    submitMasterDiceFormula(event.target.querySelector("[data-dice-roller-input]")?.value ?? state.diceRollerDraft);
+    return;
+  }
   if (event.target.matches("[data-ml-config-form]")) {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -1366,6 +1566,224 @@ function handleImageError(event) {
   placeholder.className = "ml-monster-placeholder";
   placeholder.textContent = "MD";
   image.replaceWith(placeholder);
+}
+
+function handleMasterDiceClick(event) {
+  const button = event.target.closest?.("[data-action]");
+  if (!button?.closest(".master-combat-workspace")) return false;
+  const action = cleanText(button.dataset.action);
+
+  if (action === "toggle-dice-roller-help") {
+    state.diceRollerHelpOpen = !state.diceRollerHelpOpen;
+  } else if (action === "clear-dice-roller-history") {
+    for (const roll of getVisibleDiceRollHistory()) {
+      if (roll?.id) state.dismissedDiceRollIds.add(roll.id);
+    }
+  } else if (action === "toggle-dice-roller-hit-dice") {
+    state.diceRollerHitDiceMode = !state.diceRollerHitDiceMode;
+  } else if (action === "toggle-dice-roller-tray") {
+    state.diceRollerDiceTrayOpen = !state.diceRollerDiceTrayOpen;
+  } else if (action === "toggle-dice-roller-roll-mode") {
+    const mode = cleanText(button.dataset.diceRollMode);
+    state.diceRollerRollMode = state.diceRollerRollMode === mode ? "" : mode;
+  } else if (action === "reroll-last-dice-formula") {
+    const roll = getVisibleDiceRollHistory().at(-1);
+    if (roll) submitMasterDiceFormula(roll.formula, { applyModifier: false, hitDiceMode: roll.hitDiceMode, rollMode: roll.rollMode });
+    return true;
+  } else if (action === "roll-dice-formula") {
+    submitMasterDiceFormula(button.dataset.diceFormula);
+    return true;
+  } else if (action === "submit-dice-formula") {
+    submitMasterDiceFormula(state.diceRollerDraft);
+    return true;
+  } else {
+    return false;
+  }
+
+  event.preventDefault();
+  render();
+  return true;
+}
+
+function getVisibleDiceRollHistory() {
+  return (Array.isArray(state.room?.diceRollHistory) ? state.room.diceRollHistory : [])
+    .filter((roll) => !state.dismissedDiceRollIds.has(cleanText(roll?.id)));
+}
+
+function submitMasterDiceFormula(formula, options = {}) {
+  const source = cleanText(formula);
+
+  try {
+    const resolvedFormula = options.applyModifier === false
+      ? source
+      : appendMasterDiceModifier(source, state.diceRollerModifier);
+    const result = rollDiceFormula(resolvedFormula, {
+      hitDiceMode: options.hitDiceMode ?? state.diceRollerHitDiceMode,
+      rollMode: options.rollMode ?? state.diceRollerRollMode
+    });
+    const user = state.session?.user || {};
+    const roll = {
+      id: `ml-dice-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
+      formula: result.normalizedFormula,
+      total: result.total,
+      groups: result.groups,
+      hitDiceMode: result.hitDiceMode,
+      rollMode: result.rollMode,
+      criticalOutcome: result.criticalOutcome,
+      rolledAt: Date.now(),
+      userId: cleanText(user.id || state.hostPlayerId),
+      userName: cleanText(user.name || user.email) || (language === "en" ? "Player" : "Jugador")
+    };
+    state.room.diceRollHistory = [
+      ...(Array.isArray(state.room.diceRollHistory) ? state.room.diceRollHistory : []).filter((entry) => entry.id !== roll.id),
+      roll
+    ].slice(-100);
+    if (!localTestMode) sendOnlineCommand("dice-roll", { roll });
+    state.diceRollerDraft = "";
+    state.diceRollerError = "";
+    state.diceRollerRollMode = "";
+    state.diceRollerModifier = "+0";
+  } catch (error) {
+    state.diceRollerDraft = source;
+    state.diceRollerError = formatMasterDiceError(error);
+  }
+
+  render();
+}
+
+function appendMasterDiceModifier(formula, modifierSource) {
+  const modifierText = cleanText(modifierSource) || "+0";
+  if (!/^[+-]?\d+$/.test(modifierText)) {
+    throw new DiceFormulaError("invalid-modifier", "Modifier must be a signed integer.");
+  }
+  const modifier = Number(modifierText);
+  if (!Number.isSafeInteger(modifier)) {
+    throw new DiceFormulaError("invalid-modifier", "Modifier must be a safe integer.");
+  }
+  return modifier === 0 ? formula : `(${formula})${modifier > 0 ? `+${modifier}` : modifier}`;
+}
+
+function formatMasterDiceError(error) {
+  if (error instanceof DiceFormulaError) {
+    const messages = language === "en"
+      ? { empty: "Enter a formula.", "invalid-modifier": "Modifier must be an integer." }
+      : { empty: "Introduce una fórmula.", "invalid-modifier": "El modificador debe ser un entero." };
+    return messages[error.code] || error.message;
+  }
+  return language === "en" ? "Could not roll that formula." : "No se pudo lanzar esa fórmula.";
+}
+
+function loadMasterWorkspaceLayout() {
+  try {
+    return normalizeMasterWorkspaceLayout(JSON.parse(localStorage.getItem(MASTER_WORKSPACE_LAYOUT_KEY) || "null"));
+  } catch {
+    return normalizeMasterWorkspaceLayout(null);
+  }
+}
+
+function normalizeMasterWorkspaceLayout(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const normalized = {
+    entityRatio: Math.max(.25, Math.min(.75, Number(source.entityRatio) || .5)),
+    listRatio: Math.max(.16, Math.min(.34, Number(source.listRatio) || .24)),
+    detailRatio: Math.max(.18, Math.min(.4, Number(source.detailRatio) || .24))
+  };
+  normalized.detailRatio = Math.min(normalized.detailRatio, .7 - normalized.listRatio);
+  return normalized;
+}
+
+function saveMasterWorkspaceLayout() {
+  try { localStorage.setItem(MASTER_WORKSPACE_LAYOUT_KEY, JSON.stringify(masterWorkspaceLayout)); } catch {}
+}
+
+function handleMasterWorkspacePointerDown(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) {
+    playerMapController.handlePointerDown(event);
+    return;
+  }
+  const handle = event.target.closest?.("[data-master-workspace-resize]");
+  if (!handle || event.button !== 0) return;
+  const root = handle.closest("[data-master-combat-workspace]");
+  if (!root) return;
+  activeMasterWorkspaceResize = { pointerId: event.pointerId, kind: handle.dataset.masterWorkspaceResize, root, handle };
+  handle.setPointerCapture?.(event.pointerId);
+  document.body.classList.add("is-master-combat-workspace-resizing");
+  document.body.style.cursor = activeMasterWorkspaceResize.kind === "entities" ? "row-resize" : "col-resize";
+  event.preventDefault();
+}
+
+function handleMasterWorkspacePointerMove(event) {
+  const resize = activeMasterWorkspaceResize;
+  if (!resize) {
+    playerMapController.handlePointerMove(event);
+    return;
+  }
+  if (event.pointerId !== resize.pointerId) return;
+  const rootRect = resize.root.getBoundingClientRect();
+  if (resize.kind === "entities") {
+    const leftRect = resize.root.querySelector(".master-combat-workspace__left")?.getBoundingClientRect();
+    if (!leftRect) return;
+    masterWorkspaceLayout.entityRatio = Math.max(.25, Math.min(.75, (event.clientY - leftRect.top) / Math.max(1, leftRect.height)));
+  } else {
+    const pointerRatio = (event.clientX - rootRect.left) / Math.max(1, rootRect.width);
+    if (resize.kind === "list") {
+      masterWorkspaceLayout.listRatio = Math.max(.16, Math.min(.34, pointerRatio, .7 - masterWorkspaceLayout.detailRatio));
+    } else if (resize.kind === "detail") {
+      masterWorkspaceLayout.detailRatio = Math.max(.18, Math.min(.4, pointerRatio - masterWorkspaceLayout.listRatio, .7 - masterWorkspaceLayout.listRatio));
+    }
+  }
+  applyMasterWorkspaceLayout(resize.root);
+  syncPlayerMapProjection();
+  event.preventDefault();
+}
+
+function handleMasterWorkspacePointerUp(event) {
+  if (!activeMasterWorkspaceResize) {
+    playerMapController.handlePointerUp(event);
+    return;
+  }
+  if (event.pointerId !== activeMasterWorkspaceResize.pointerId) return;
+  activeMasterWorkspaceResize.handle?.releasePointerCapture?.(activeMasterWorkspaceResize.pointerId);
+  activeMasterWorkspaceResize = null;
+  document.body.classList.remove("is-master-combat-workspace-resizing");
+  document.body.style.cursor = "";
+  saveMasterWorkspaceLayout();
+  syncPlayerMapProjection();
+}
+
+function handleMasterWorkspaceKeydown(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleKeydown(event);
+}
+
+function handleMasterWorkspaceContextMenu(event) {
+  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleContextMenu(event);
+}
+
+function applyMasterWorkspaceLayout(root = app.querySelector("[data-master-combat-workspace]")) {
+  if (!root) return;
+  root.style.setProperty("--master-entity-size", `${masterWorkspaceLayout.entityRatio * 100}%`);
+  root.style.setProperty("--master-list-size", `${masterWorkspaceLayout.listRatio * 100}%`);
+  root.style.setProperty("--master-detail-size", `${masterWorkspaceLayout.detailRatio * 100}%`);
+}
+
+function captureMasterWorkspaceViewport() {
+  const entityList = app.querySelector?.("[data-ml-master-entity-list]");
+  const diceLog = app.querySelector?.(".master-combat-workspace__dice [data-dice-roller-log]");
+  const sheet = app.querySelector?.("[data-ml-master-sheet-scroll]");
+  if (entityList) masterWorkspaceViewport.entities = entityList.scrollTop;
+  if (diceLog) masterWorkspaceViewport.dice = diceLog.scrollTop;
+  const sheetKey = cleanText(sheet?.dataset.mlMasterSheetKey);
+  if (sheet && sheetKey) masterSheetScrollPositions.set(sheetKey, sheet.scrollTop);
+}
+
+function restoreMasterWorkspaceViewport() {
+  const entityList = app.querySelector?.("[data-ml-master-entity-list]");
+  const diceLog = app.querySelector?.(".master-combat-workspace__dice [data-dice-roller-log]");
+  const sheet = app.querySelector?.("[data-ml-master-sheet-scroll]");
+  if (entityList) entityList.scrollTop = masterWorkspaceViewport.entities;
+  if (diceLog) diceLog.scrollTop = masterWorkspaceViewport.dice;
+  const sheetKey = cleanText(sheet?.dataset.mlMasterSheetKey);
+  if (sheet && sheetKey) sheet.scrollTop = masterSheetScrollPositions.get(sheetKey) || 0;
 }
 
 function addBot() {

@@ -175,7 +175,7 @@ function renderRollModeButton(mode, activeMode, isEnglish) {
       data-dice-roll-mode="${mode}"
       aria-pressed="${active}"
       title="${escapeHtml(isEnglish ? `${label}: roll twice and keep one` : `${label}: lanza dos veces y conserva uno`)}"
-    >${escapeHtml(label)}</button>
+    ><span class="dice-roller-control__label">${escapeHtml(label)}</span></button>
   `;
 }
 

@@ -1556,6 +1556,7 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roller-control {
+  container-type: inline-size;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1575,6 +1576,17 @@ body.has-compendium-reference-popup {
   font-size: var(--dice-control-font-size);
   font-weight: 800;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dice-roller-control__label {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(.32rem, 14cqi, .64rem);
+  line-height: 1;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
@@ -1628,7 +1640,7 @@ body.has-compendium-reference-popup {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: inherit;
+  font-size: clamp(.26rem, 9cqi, .64rem);
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
