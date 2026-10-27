@@ -130,6 +130,10 @@ export async function listPublicCloudCampaigns() {
   return requestJson("/api/campaigns/public");
 }
 
+export async function listOpenCloudCampaigns() {
+  return requestJson("/api/campaigns/open");
+}
+
 export async function getCloudCampaign(campaignId) {
   return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}`);
 }
@@ -211,6 +215,32 @@ export async function leaveCloudCampaignCollaboration(campaignId) {
   });
   if (!response.ok) return parseResponse(response);
   return null;
+}
+
+export async function requestCloudCampaignAccess(campaignId) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/requests`, {
+    method: "POST",
+    body: "{}"
+  });
+}
+
+export async function listCloudCampaignJoinRequests(campaignId) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/requests`);
+}
+
+export async function listOwnedCloudCampaignJoinRequests() {
+  return requestJson("/api/campaigns/requests");
+}
+
+export async function getCloudCampaignJoinRequestStatus(campaignId, requestId) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/requests/${encodeURIComponent(requestId)}`);
+}
+
+export async function resolveCloudCampaignJoinRequest(campaignId, requestId, decision) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/requests/${encodeURIComponent(requestId)}`, {
+    method: "POST",
+    body: JSON.stringify({ decision })
+  });
 }
 
 export async function uploadCloudImage(blob, { width = 0, height = 0 } = {}) {

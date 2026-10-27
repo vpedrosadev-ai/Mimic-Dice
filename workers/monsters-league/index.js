@@ -298,6 +298,7 @@ export class SharedCampaignRoom extends DurableObject {
     if (url.pathname === "/revision" && request.method === "POST") {
       const body = await request.json().catch(() => ({}));
       this.metadata = {
+        ...(this.metadata || {}),
         campaignId: safeText(body.campaignId).slice(0, 120),
         revision: Math.max(0, Math.floor(Number(body.revision) || 0)),
         updatedAt: safeText(body.updatedAt).slice(0, 80),
@@ -305,6 +306,14 @@ export class SharedCampaignRoom extends DurableObject {
       };
       await this.ctx.storage.put(SHARED_CAMPAIGN_METADATA_KEY, this.metadata);
       this.broadcast({ type: "revision", ...this.metadata });
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === "/join-request" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const type = safeText(body.type);
+      if (type === "join-request") this.broadcast(body, { role: "host" });
+      else if (type === "join-resolution") this.broadcast(body);
       return Response.json({ ok: true });
     }
 
@@ -326,30 +335,54 @@ export class SharedCampaignRoom extends DurableObject {
     const campaignId = safeText(request.headers.get("X-Mimic-Campaign-Id")).slice(0, 120);
     const revision = Math.max(0, Math.floor(Number(request.headers.get("X-Mimic-Campaign-Revision")) || 0));
     const updatedAt = safeText(request.headers.get("X-Mimic-Campaign-Updated-At")).slice(0, 80);
+    const role = safeText(request.headers.get("X-Mimic-Campaign-Role")) === "host" ? "host" : "editor";
 
     if (!campaignId) {
       return new Response("Campaign required", { status: 400 });
     }
 
     if (!this.metadata || revision > Number(this.metadata.revision || 0)) {
-      this.metadata = { campaignId, revision, updatedAt, actorUserId: "" };
+      this.metadata = { ...(this.metadata || {}), campaignId, revision, updatedAt, actorUserId: "" };
       await this.ctx.storage.put(SHARED_CAMPAIGN_METADATA_KEY, this.metadata);
     }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ userId: user.id, name: user.name });
+    server.serializeAttachment({ userId: user.id, name: user.name, role });
     server.send(JSON.stringify({ type: "revision", ...this.metadata }));
     this.broadcastPresence();
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  webSocketMessage(socket, message) {
+  async webSocketMessage(socket, message) {
     let command = null;
     try { command = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)); } catch {}
     if (command?.type === "ping") {
       try { socket.send(JSON.stringify({ type: "pong", serverNow: Date.now() })); } catch {}
+      return;
+    }
+    if (command?.type === "combat-section") {
+      const attachment = socket.deserializeAttachment() || {};
+      const section = safeText(command.section);
+      if (!['tracker', 'map'].includes(section) || !['host', 'editor'].includes(attachment.role)) return;
+      const serializedValue = JSON.stringify(command.value ?? null);
+      if (serializedValue.length > 2_000_000) {
+        try { socket.send(JSON.stringify({ type: "error", commandId: safeText(command.commandId), code: "section_too_large" })); } catch {}
+        return;
+      }
+      const sequence = Math.max(0, Math.floor(Number(this.metadata?.combatSequence) || 0)) + 1;
+      this.metadata = { ...(this.metadata || {}), combatSequence: sequence };
+      await this.ctx.storage.put(SHARED_CAMPAIGN_METADATA_KEY, this.metadata);
+      this.broadcast({
+        type: "combat-section",
+        section,
+        value: command.value,
+        commandId: safeText(command.commandId).slice(0, 120),
+        sequence,
+        actorUserId: attachment.userId
+      });
+      try { socket.send(JSON.stringify({ type: "combat-section-ack", commandId: safeText(command.commandId), section, sequence })); } catch {}
     }
   }
 
@@ -370,9 +403,14 @@ export class SharedCampaignRoom extends DurableObject {
     this.broadcast({ type: "presence", userCount: userIds.size });
   }
 
-  broadcast(message) {
+  broadcast(message, options = {}) {
     const payload = JSON.stringify(message);
     for (const socket of this.ctx.getWebSockets()) {
+      if (socket === options.except) continue;
+      if (options.role) {
+        const attachment = socket.deserializeAttachment() || {};
+        if (attachment.role !== options.role) continue;
+      }
       try { socket.send(payload); } catch {}
     }
   }

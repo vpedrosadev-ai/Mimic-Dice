@@ -10,6 +10,7 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
   let pingTimer = 0;
   let retry = 0;
   let closed = false;
+  const pendingSections = new Map();
 
   const setStatus = (status) => {
     if (typeof options.onStatus === "function") options.onStatus(status);
@@ -22,6 +23,10 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
     socket.addEventListener("open", () => {
       retry = 0;
       setStatus("connected");
+      for (const [section, command] of pendingSections) {
+        socket.send(JSON.stringify(command));
+        pendingSections.delete(section);
+      }
       window.clearInterval(pingTimer);
       pingTimer = window.setInterval(() => {
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
@@ -36,6 +41,14 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
         options.onPresence(Math.max(0, Math.floor(Number(message.userCount) || 0)));
       } else if (message?.type === "closed") {
         options.onClosed?.();
+      } else if (message?.type === "combat-section") {
+        options.onCombatSection?.(message);
+      } else if (message?.type === "combat-section-ack") {
+        options.onCombatSectionAck?.(message);
+      } else if (message?.type === "join-request") {
+        options.onJoinRequest?.(message.request);
+      } else if (message?.type === "join-resolution") {
+        options.onJoinResolution?.(message.request);
       }
     });
     socket.addEventListener("close", () => {
@@ -50,6 +63,20 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
 
   connect();
   return {
+    publishCombatSection(section, value) {
+      if (!['tracker', 'map'].includes(section)) return false;
+      const command = {
+        type: "combat-section",
+        section,
+        value,
+        commandId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`
+      };
+      pendingSections.set(section, command);
+      if (socket?.readyState !== WebSocket.OPEN) return false;
+      socket.send(JSON.stringify(command));
+      pendingSections.delete(section);
+      return true;
+    },
     close() {
       closed = true;
       window.clearTimeout(reconnectTimer);

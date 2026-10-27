@@ -17,6 +17,7 @@ export function createCombatTrackerStateController({
   COMBAT_TRACKER_STORAGE_KEY,
   usesDesktopFileOnlyPersistence,
   scheduleDesktopCampaignDirtyStateSync,
+  campaignDirtyScope = "",
   createStableId,
   getBattleTimerElapsedMs,
   mapTagToSide,
@@ -114,7 +115,7 @@ function saveCombatTrackerState() {
     }
   }
 
-  scheduleDesktopCampaignDirtyStateSync(60);
+  scheduleDesktopCampaignDirtyStateSync(60, { scope: campaignDirtyScope, value: getCombatTrackerSaveData() });
 }
 
 function getCombatTrackerSaveData(options = {}) {

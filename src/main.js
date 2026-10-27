@@ -135,13 +135,18 @@ import {
   deleteCloudLibraryEntry,
   fetchAuthSession,
   getCloudCampaign,
+  getCloudCampaignJoinRequestStatus,
   getCloudCampaignStatus,
   getCloudLibraryEntry,
   listCloudCampaigns,
+  listOwnedCloudCampaignJoinRequests,
+  listOpenCloudCampaigns,
   listCloudLibraryEntries,
   listPublicCloudCampaigns,
   listPublicCloudLibraryEntries,
   openCloudCampaignCollaboration,
+  requestCloudCampaignAccess,
+  resolveCloudCampaignJoinRequest,
   closeCloudCampaignCollaboration,
   joinCloudCampaignCollaboration,
   leaveCloudCampaignCollaboration,
@@ -527,6 +532,9 @@ let cloudCampaignRealtimeConnection = null;
 let cloudCampaignRealtimeCampaignId = "";
 let cloudCampaignClosingCollaborationId = "";
 let cloudCampaignPendingRemoteRevision = 0;
+let cloudCampaignJoinRequestPollInterval = 0;
+let cloudCampaignJoinRequestPollInProgress = false;
+let cloudCombatSectionApplySuspended = false;
 const SHARED_CAMPAIGN_MAP_VIEW_STORAGE_PREFIX = "mimic-dice:shared-campaign-map-view:v1:";
 const cloudImageUploadCache = new Map();
 const cloudCatalogBaseKeysPromiseByRepository = new Map();
@@ -602,6 +610,7 @@ const {
   COMBAT_TRACKER_STORAGE_KEY,
   usesDesktopFileOnlyPersistence,
   scheduleDesktopCampaignDirtyStateSync,
+  campaignDirtyScope: "combat-tracker",
   createStableId,
   getBattleTimerElapsedMs,
   mapTagToSide,
@@ -845,6 +854,9 @@ state = {
   accountProfileNameEditing: false,
   accountError: "",
   cloudCampaigns: [],
+  openCloudCampaigns: [],
+  cloudCampaignJoinPrompt: null,
+  cloudCampaignJoinPending: null,
   publicCloudCampaigns: [],
   cloudLibraryEntries: [],
   publicCloudLibraryEntries: [],
@@ -1204,9 +1216,9 @@ const combatMapController = createCombatMapController({
       if (input && document.activeElement !== input) input.value = coordinate;
     });
   },
-  onChange: () => {
+  onChange: (mapState) => {
     saveSharedCampaignLocalMapPreferences();
-    scheduleDesktopCampaignDirtyStateSync(60);
+    scheduleDesktopCampaignDirtyStateSync(60, { scope: "combat-map", value: mapState });
   },
   onCloudChanged: () => {
     if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
@@ -2543,6 +2555,30 @@ async function handleClick(event) {
 
   if (action === "refresh-cloud-campaigns") {
     await refreshCloudCampaigns();
+    return;
+  }
+
+  if (action === "refresh-open-cloud-campaigns") {
+    await refreshOpenCloudCampaigns();
+    return;
+  }
+
+  if (action === "request-cloud-campaign-access") {
+    await requestOpenCloudCampaignAccess(
+      actionButton.dataset.cloudCampaignId,
+      actionButton.dataset.cloudRequestId
+    );
+    return;
+  }
+
+  if (action === "resolve-cloud-campaign-request") {
+    await resolveOpenCloudCampaignRequest(actionButton.dataset.cloudDecision);
+    return;
+  }
+
+  if (action === "dismiss-cloud-campaign-request-status") {
+    state.cloudCampaignJoinPending = null;
+    render();
     return;
   }
 
@@ -9469,6 +9505,7 @@ function render(focusState = null) {
       ${renderMulticlassLevelUpDialog()}
       ${renderAutosaveProblemDialog()}
       ${renderAccountDialog()}
+      ${renderCloudCampaignJoinDialogs()}
       ${renderCloudImportUpdateDialog()}
       ${renderCompendiumReferencePopups()}
       ${state.masterCombatWorkspaceVisible && state.activeScreen === "combat-tracker" ? "" : renderDiceRollerDock({
@@ -9895,6 +9932,24 @@ function renderCloudCampaignCard(campaign, options = {}) {
         }
       </div>
     </article>
+  `;
+}
+
+function renderOpenCloudCampaignCard(campaign) {
+  const pending = campaign.requestStatus === "pending";
+  const target = `campaign-request:${campaign.id}`;
+  return `
+    <button class="account-campaign-card account-campaign-card--open${pending ? " is-pending" : ""}" type="button"
+      data-action="request-cloud-campaign-access" data-cloud-campaign-id="${escapeHtml(campaign.id)}"
+      data-cloud-request-id="${escapeHtml(campaign.requestId || "")}" ${renderCloudButtonBusyAttributes("saving", target)}>
+      <span class="account-campaign-card__header">
+        <span>
+          <strong>${escapeHtml(campaign.name || "Campaña sin nombre")}</strong>
+          <small>Host: ${escapeHtml(campaign.ownerName || "Usuario")} · ${Math.max(0, Number(campaign.memberCount) || 0)} colaboradores</small>
+        </span>
+        <span class="account-campaign-card__visibility is-public">${pending ? "Solicitud pendiente" : "Solicitar acceso"}</span>
+      </span>
+    </button>
   `;
 }
 
@@ -11592,6 +11647,18 @@ function renderAccountDialog() {
                       : `<p class="account-dialog__empty">Todavía no tienes campañas cloud.</p>`}
                   </div>
                 </section>
+                <section class="account-dialog__section">
+                  <div class="account-dialog__section-heading">
+                    <h3>Campañas abiertas</h3>
+                    <button class="account-action-button account-action-button--ghost" type="button" data-action="refresh-open-cloud-campaigns">Actualizar</button>
+                  </div>
+                  <small>Campañas de otros usuarios que aceptan colaboradores.</small>
+                  <div class="account-campaign-list">
+                    ${state.openCloudCampaigns.length > 0
+                      ? state.openCloudCampaigns.map(renderOpenCloudCampaignCard).join("")
+                      : `<p class="account-dialog__empty">No hay campañas abiertas ahora.</p>`}
+                  </div>
+                </section>
               `
               : `
                 <p class="account-dialog__intro">Como invitado, todo sigue funcionando localmente con almacenamiento del navegador y archivos JSON.</p>
@@ -11622,6 +11689,49 @@ function renderAccountDialog() {
         }
       </section>
       ${renderCloudCatalogPreview()}
+    </div>
+  `;
+}
+
+function renderCloudCampaignJoinDialogs() {
+  const prompt = state.cloudCampaignJoinPrompt;
+  const pending = state.cloudCampaignJoinPending;
+  if (!prompt && !pending) return "";
+  if (prompt) {
+    const target = `join-request:${prompt.id}`;
+    return `
+      <div class="cloud-join-dialog" role="presentation">
+        <section class="cloud-join-dialog__panel" role="alertdialog" aria-modal="true" aria-labelledby="cloud-join-title">
+          <span class="cloud-join-dialog__icon" aria-hidden="true">⚔</span>
+          <p class="cloud-join-dialog__eyebrow">Solicitud de colaboración</p>
+          <h2 id="cloud-join-title">${escapeHtml(prompt.userName || "Un usuario")} quiere unirse</h2>
+          <p>Quiere colaborar en <strong>${escapeHtml(prompt.campaignName || "tu campaña")}</strong>. Por ahora podrá modificar la tabla de combate y el editor de mapas.</p>
+          <div class="cloud-join-dialog__actions">
+            <button class="account-action-button${getCloudButtonBusyClass("saving", target)}" type="button" data-action="resolve-cloud-campaign-request" data-cloud-decision="approved" ${renderCloudButtonBusyAttributes("saving", target)}>Aceptar</button>
+            <button class="account-action-button account-action-button--danger" type="button" data-action="resolve-cloud-campaign-request" data-cloud-decision="denied" ${renderCloudButtonBusyAttributes("saving", target)}>Denegar</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+  const status = cleanText(pending.status) || "pending";
+  const title = status === "approved" ? "Solicitud aceptada" : status === "denied" || status === "cancelled" ? "Solicitud no aceptada" : "Esperando al host";
+  const message = status === "approved"
+    ? "Acceso concedido. La campaña se está cargando."
+    : status === "denied"
+      ? "El host ha denegado la solicitud."
+      : status === "cancelled"
+        ? "La campaña ya no está abierta."
+        : "Tu solicitud está pendiente. Esta ventana se actualizará automáticamente.";
+  return `
+    <div class="cloud-join-dialog" role="presentation">
+      <section class="cloud-join-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="cloud-join-status-title">
+        <span class="cloud-join-dialog__icon ${status === "pending" ? "is-waiting" : ""}" aria-hidden="true">${status === "approved" ? "✓" : status === "pending" ? "⌛" : "×"}</span>
+        <p class="cloud-join-dialog__eyebrow">${escapeHtml(pending.campaignName || "Campaña compartida")}</p>
+        <h2 id="cloud-join-status-title">${title}</h2>
+        <p>${message}</p>
+        ${status !== "pending" && status !== "approved" ? `<button class="account-action-button" type="button" data-action="dismiss-cloud-campaign-request-status">Cerrar</button>` : ""}
+      </section>
     </div>
   `;
 }
@@ -31638,6 +31748,7 @@ async function initializeCloudAccount() {
     if (session?.user?.id) {
       startCloudCampaignAutosave();
       await refreshCloudCampaigns({ renderAfter: false });
+      startCloudCampaignJoinRequestPolling();
       let storedMeta = null;
 
       if (collaborationInvite) {
@@ -31668,6 +31779,7 @@ async function initializeCloudAccount() {
       detachActiveCloudCampaign({ preserveStoredMeta: Boolean(storedMeta?.campaignId) });
       resetUnloadedCampaignWorkspace();
     } else {
+      stopCloudCampaignJoinRequestPolling();
       stopCloudCampaignAutosave();
       detachActiveCloudCampaign();
       clearPrivateCloudAccountState();
@@ -31716,8 +31828,9 @@ async function refreshCloudCampaigns(options = {}) {
   }
 
   try {
-    const result = await listCloudCampaigns();
+    const [result, openResult] = await Promise.all([listCloudCampaigns(), listOpenCloudCampaigns()]);
     state.cloudCampaigns = Array.isArray(result.campaigns) ? result.campaigns : [];
+    state.openCloudCampaigns = Array.isArray(openResult.campaigns) ? openResult.campaigns : [];
     state.accountError = "";
   } catch (error) {
     state.accountError = getCloudErrorMessage(error);
@@ -31726,6 +31839,124 @@ async function refreshCloudCampaigns(options = {}) {
   if (options.renderAfter !== false) {
     render();
   }
+}
+
+async function refreshOpenCloudCampaigns(options = {}) {
+  if (!state.accountSession?.user?.id) {
+    state.openCloudCampaigns = [];
+    return;
+  }
+  try {
+    const result = await listOpenCloudCampaigns();
+    state.openCloudCampaigns = Array.isArray(result.campaigns) ? result.campaigns : [];
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  if (options.renderAfter !== false) render();
+}
+
+async function requestOpenCloudCampaignAccess(campaignId, existingRequestId = "") {
+  const campaign = state.openCloudCampaigns.find((entry) => entry.id === campaignId);
+  if (!campaign) return;
+  const target = `campaign-request:${campaignId}`;
+  beginCloudOperation("saving", target);
+  try {
+    const result = existingRequestId
+      ? { request: { id: existingRequestId, campaignId, campaignName: campaign.name, status: "pending" } }
+      : await requestCloudCampaignAccess(campaignId);
+    state.cloudCampaignJoinPending = {
+      ...result.request,
+      campaignId,
+      campaignName: campaign.name,
+      ownerName: campaign.ownerName,
+      status: result.request?.status || "pending"
+    };
+    state.accountDialogOpen = false;
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  endCloudOperation("saving", target);
+  render();
+}
+
+async function resolveOpenCloudCampaignRequest(decision) {
+  const prompt = state.cloudCampaignJoinPrompt;
+  if (!prompt?.id || !['approved', 'denied'].includes(decision)) return;
+  const target = `join-request:${prompt.id}`;
+  beginCloudOperation("saving", target);
+  try {
+    await resolveCloudCampaignJoinRequest(prompt.campaignId, prompt.id, decision);
+    state.cloudCampaignJoinPrompt = null;
+    await refreshCloudCampaigns({ renderAfter: false });
+    pushNotification({
+      title: decision === "approved" ? "Colaborador aceptado" : "Solicitud rechazada",
+      message: `${prompt.userName || "El usuario"} ${decision === "approved" ? "ya puede entrar en la campaña." : "no se unirá a la campaña."}`,
+      tone: decision === "approved" ? "success" : "info"
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  endCloudOperation("saving", target);
+  render();
+}
+
+async function pollCloudCampaignJoinRequests() {
+  if (!state.accountSession?.user?.id || cloudCampaignJoinRequestPollInProgress) return;
+  cloudCampaignJoinRequestPollInProgress = true;
+  try {
+  const pending = state.cloudCampaignJoinPending;
+  if (pending?.id && pending.status === "pending") {
+    try {
+      const result = await getCloudCampaignJoinRequestStatus(pending.campaignId, pending.id);
+      const status = cleanText(result.request?.status);
+      if (status && status !== pending.status) {
+        state.cloudCampaignJoinPending = { ...pending, ...result.request };
+        if (status === "approved") {
+          await refreshCloudCampaigns({ renderAfter: false });
+          render();
+          await loadCloudCampaignById(pending.campaignId);
+          state.cloudCampaignJoinPending = { ...state.cloudCampaignJoinPending, status: "approved" };
+          window.setTimeout(() => {
+            if (state.cloudCampaignJoinPending?.id === pending.id) {
+              state.cloudCampaignJoinPending = null;
+              render();
+            }
+          }, 1600);
+        } else {
+          render();
+        }
+      }
+    } catch {}
+  }
+  if (!state.cloudCampaignJoinPrompt) {
+    try {
+      const result = await listOwnedCloudCampaignJoinRequests();
+      const request = result.requests?.[0];
+      if (request) {
+        state.cloudCampaignJoinPrompt = request;
+        render();
+      }
+    } catch {}
+  }
+  } finally {
+    cloudCampaignJoinRequestPollInProgress = false;
+  }
+}
+
+function startCloudCampaignJoinRequestPolling() {
+  if (typeof window === "undefined" || cloudCampaignJoinRequestPollInterval) return;
+  void pollCloudCampaignJoinRequests();
+  cloudCampaignJoinRequestPollInterval = window.setInterval(() => void pollCloudCampaignJoinRequests(), 3000);
+}
+
+function stopCloudCampaignJoinRequestPolling() {
+  if (typeof window !== "undefined" && cloudCampaignJoinRequestPollInterval) {
+    window.clearInterval(cloudCampaignJoinRequestPollInterval);
+  }
+  cloudCampaignJoinRequestPollInterval = 0;
+  cloudCampaignJoinRequestPollInProgress = false;
 }
 
 async function refreshPublicCloudCampaigns() {
@@ -33019,6 +33250,38 @@ function stopCloudCampaignRealtime() {
   state.cloudCampaignLiveUsers = 0;
 }
 
+function applyRemoteCombatSection(message) {
+  if (!isPlainObject(message?.value)) return;
+  cloudCombatSectionApplySuspended = true;
+  try {
+    if (message.section === "tracker") {
+      const tracker = normalizeStoredCombatTrackerState(message.value);
+      state.combatants = tracker.combatants;
+      state.filters = tracker.filters;
+      state.sort = tracker.sort;
+      state.combatSearchQuery = tracker.combatSearchQuery;
+      state.newEntitySide = tracker.newEntitySide;
+      state.nextId = tracker.nextId;
+      state.inlineAdjustments = tracker.inlineAdjustments;
+      state.areaDamage = tracker.areaDamage;
+      state.isCombatActive = tracker.isCombatActive;
+      state.activeTurnCombatantId = tracker.activeTurnCombatantId;
+      state.combatRound = tracker.combatRound;
+      state.combatEncounterLoadOrder = tracker.combatEncounterLoadOrder;
+      state.enemyHpMode = tracker.enemyHpMode;
+      if (isPlainObject(lastCloudCampaignPayload)) lastCloudCampaignPayload.combatTracker = structuredClone(message.value);
+    } else if (message.section === "map") {
+      combatMapController.applySave(message.value, { preserveLocalView: true });
+      if (isPlainObject(lastCloudCampaignPayload)) lastCloudCampaignPayload.combatMap = structuredClone(message.value);
+    } else {
+      return;
+    }
+    render();
+  } finally {
+    cloudCombatSectionApplySuspended = false;
+  }
+}
+
 function syncCloudCampaignRealtime() {
   const campaignId = cleanText(state.cloudCampaignId);
   if (!campaignId || !isCloudCampaignCollaborative() || !state.accountSession?.user?.id) {
@@ -33042,6 +33305,21 @@ function syncCloudCampaignRealtime() {
       if (revision > state.cloudCampaignRevision) {
         cloudCampaignPendingRemoteRevision = Math.max(cloudCampaignPendingRemoteRevision, revision);
         void syncSharedCloudCampaign(cloudCampaignPendingRemoteRevision);
+      }
+    },
+    onCombatSection(message) {
+      applyRemoteCombatSection(message);
+    },
+    onJoinRequest(request) {
+      if (state.cloudCampaignCanManage && request?.campaignId === state.cloudCampaignId) {
+        state.cloudCampaignJoinPrompt = request;
+        render();
+      }
+    },
+    onJoinResolution(request) {
+      if (state.cloudCampaignJoinPending?.id === request?.id) {
+        state.cloudCampaignJoinPending = { ...state.cloudCampaignJoinPending, ...request };
+        render();
       }
     },
     onClosed() {
@@ -33128,6 +33406,9 @@ function detachActiveCloudCampaign(options = {}) {
 
 function clearPrivateCloudAccountState() {
   state.cloudCampaigns = [];
+  state.openCloudCampaigns = [];
+  state.cloudCampaignJoinPrompt = null;
+  state.cloudCampaignJoinPending = null;
   state.cloudLibraryEntries = [];
   state.cloudLocalCatalogItems = [];
   state.cloudCatalogSelectedIds = new Set();
@@ -33149,6 +33430,7 @@ async function handleAccountSignOut() {
     }
 
     const result = await signOutAccount();
+    stopCloudCampaignJoinRequestPolling();
     stopCloudCampaignAutosave();
     detachActiveCloudCampaign();
     state.accountSession = null;
@@ -35383,20 +35665,39 @@ function syncDesktopCampaignDirtyState(force = false) {
   desktopApi.setCampaignDirtyState({ hasUnsavedChanges });
 }
 
-function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
+function scheduleDesktopCampaignDirtyStateSync(delay = 0, options = {}) {
   if (typeof window === "undefined") {
     return;
   }
 
+  const dirtyScope = cleanText(options.scope);
+  const isCollaborativeCombatChange = isCloudCampaignCollaborative()
+    && (dirtyScope === "combat-tracker" || dirtyScope === "combat-map");
+  const canPersistCloudChange = !isCloudCampaignCollaborative()
+    || state.cloudCampaignCanManage
+    || isCollaborativeCombatChange;
+
   if (
     !cloudCampaignSaveSuspended
+    && !cloudCombatSectionApplySuspended
+    && canPersistCloudChange
     && state.accountSession?.user?.id
     && state.cloudCampaignId
   ) {
     cloudCampaignChangeRevision += 1;
   }
 
-  scheduleCloudCampaignAutosave(isCloudCampaignCollaborative() ? 700 : 4000);
+  if (!cloudCombatSectionApplySuspended && isCollaborativeCombatChange) {
+    const section = dirtyScope === "combat-tracker" ? "tracker" : "map";
+    const value = section === "tracker"
+      ? (options.value || getCombatTrackerSaveData())
+      : combatMapController.getSaveData({ portable: true });
+    cloudCampaignRealtimeConnection?.publishCombatSection?.(section, value);
+  }
+
+  if (!cloudCombatSectionApplySuspended && canPersistCloudChange) {
+    scheduleCloudCampaignAutosave(isCollaborativeCombatChange ? 12_000 : isCloudCampaignCollaborative() ? 700 : 4000);
+  }
 
   if (campaignDirtyStateSyncTimer) {
     window.clearTimeout(campaignDirtyStateSyncTimer);
