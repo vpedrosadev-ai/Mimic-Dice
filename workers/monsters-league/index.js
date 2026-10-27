@@ -393,6 +393,18 @@ export class SharedCampaignRoom extends DurableObject {
         actorUserId: attachment.userId
       }, { except: socket });
       try { socket.send(JSON.stringify({ type: "combat-section-ack", commandId: safeText(command.commandId), section, sequence })); } catch {}
+      return;
+    }
+    if (command?.type === "combat-event") {
+      const attachment = socket.deserializeAttachment() || {};
+      if (!['host', 'editor'].includes(attachment.role) || !command.event || typeof command.event !== "object") return;
+      const serializedEvent = JSON.stringify(command.event);
+      if (serializedEvent.length > 12_000) return;
+      this.broadcast({
+        type: "combat-event",
+        event: command.event,
+        actorUserId: attachment.userId
+      }, { except: socket });
     }
   }
 

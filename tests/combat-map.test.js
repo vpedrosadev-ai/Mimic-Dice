@@ -15,6 +15,7 @@ import {
   getTokenFeedbackPosition,
   normalizeMapEditorState,
   getPortableMapReference,
+  preserveLocalMapAssetUrls,
   isImageFileLike,
   inspectImageFile,
   normalizeMapReference,
@@ -32,7 +33,13 @@ test("map campaign sync preserves each user's local view controls", () => {
   };
 
   try {
-    const controller = createCombatMapController({ storageKey: "shared-map-test" });
+    let sharedChanges = 0;
+    let localChanges = 0;
+    const controller = createCombatMapController({
+      storageKey: "shared-map-test",
+      onChange: () => { sharedChanges += 1; },
+      onLocalChange: () => { localChanges += 1; }
+    });
     controller.applySave({
       viewport: { zoom: 2, scrollLeft: 120, scrollTop: 80 },
       playerViewport: { zoom: 1.5, scrollLeft: 30, scrollTop: 40 },
@@ -54,6 +61,8 @@ test("map campaign sync preserves each user's local view controls", () => {
     assert.equal(saved.initiative.position, "left");
     assert.equal(saved.initiative.size, 420);
     assert.equal(saved.initiative.playerVisible, false);
+    assert.equal(sharedChanges, 0);
+    assert.equal(localChanges, 2);
   } finally {
     if (previousStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = previousStorage;
@@ -492,6 +501,24 @@ test("private map references omit asset URLs from portable saves", () => {
     cloudEntryId: "private-map",
     isPrivate: true
   });
+});
+
+test("remote private map updates preserve already resolved local asset URLs", () => {
+  assert.deepEqual(preserveLocalMapAssetUrls({
+    name: "Secret lair",
+    imageUrl: "",
+    width: 1200,
+    height: 800,
+    cloudEntryId: "private-map",
+    isPrivate: true
+  }, {
+    name: "Secret lair",
+    imageUrl: "/api/assets/private",
+    width: 1200,
+    height: 800,
+    cloudEntryId: "private-map",
+    isPrivate: true
+  }).imageUrl, "/api/assets/private");
 });
 
 test("associated map references preserve variants and hide private asset URLs in portable saves", () => {

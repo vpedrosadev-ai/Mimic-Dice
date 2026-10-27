@@ -611,6 +611,21 @@ export function getPortableMapReference(value) {
   return map.isPrivate ? { ...portable, imageUrl: "" } : portable;
 }
 
+export function preserveLocalMapAssetUrls(incomingValue, currentValue) {
+  const incoming = normalizeMapReference(incomingValue);
+  const current = normalizeMapReference(currentValue);
+  if (!incoming || !current || !incoming.cloudEntryId || incoming.cloudEntryId !== current.cloudEntryId) return incoming;
+  const currentAssociatedById = new Map((current.associatedMaps || []).map((entry) => [entry.cloudEntryId, entry]));
+  return {
+    ...incoming,
+    imageUrl: incoming.imageUrl || current.imageUrl,
+    associatedMaps: (incoming.associatedMaps || []).map((entry) => ({
+      ...entry,
+      imageUrl: entry.imageUrl || currentAssociatedById.get(entry.cloudEntryId)?.imageUrl || ""
+    }))
+  };
+}
+
 export function normalizeMapEditorState(value) {
   const source = isObject(value) ? value : {};
   const positions = isObject(source.tokenPositions) ? source.tokenPositions : {};
@@ -1032,6 +1047,11 @@ export function createCombatMapController(options = {}) {
     try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* memory state remains */ }
   }
 
+  function persistLocalPreferences() {
+    persistLocalOnly();
+    options.onLocalChange?.(getSaveData());
+  }
+
   function canLoadMap() {
     return options.canLoadMap?.() !== false;
   }
@@ -1159,7 +1179,10 @@ export function createCombatMapController(options = {}) {
       openPanel: state.openPanel,
       windowBounds: { ...state.windowBounds }
     } : null;
-    state = normalizeMapEditorStateWithPreferences(value, localPreferences);
+    const incomingValue = preserveLocalView && isObject(value)
+      ? { ...value, map: preserveLocalMapAssetUrls(value.map, state.map) }
+      : value;
+    state = normalizeMapEditorStateWithPreferences(incomingValue, localPreferences);
     if (localPlayerView) {
       if (options.preserveLocalView === true) state.viewport = localPlayerView.viewport;
       state.playerViewport = localPlayerView.playerViewport;
@@ -1175,7 +1198,7 @@ export function createCombatMapController(options = {}) {
       }
     }
     openPanel = state.openPanel;
-    persist();
+    persistLocalPreferences();
     sync();
     if (state.map?.cloudEntryId && !state.map.imageUrl) resolveCloudMap(state.map.cloudEntryId);
   }
@@ -1324,7 +1347,7 @@ export function createCombatMapController(options = {}) {
       });
       if (!resolved) throw new Error("El mapa cloud no contiene una imagen válida.");
       state.map = resolved;
-      persist();
+      persistLocalPreferences();
       sync();
     } catch (error) {
       options.onNotify?.("Mapa privado no disponible", error?.message || "Inicia sesión con la cuenta propietaria.", "danger");
@@ -1361,7 +1384,14 @@ export function createCombatMapController(options = {}) {
     const combatant = combatants.find((entry) => entry.id === id);
     state.tokenPositions[id] = snapCreaturePosition(position, state.grid, getCreatureSizeMultiplier(combatant));
     bringTokenToFront(id);
-    persist();
+    persist({
+      operation: "token-position",
+      value: {
+        id,
+        position: { ...state.tokenPositions[id] },
+        stackOrder: [...state.tokenStackOrder]
+      }
+    });
     sync();
     return true;
   }
@@ -1572,7 +1602,7 @@ export function createCombatMapController(options = {}) {
     };
     if (JSON.stringify(next) === JSON.stringify(state.windowBounds)) return;
     state.windowBounds = next;
-    persist();
+    persistLocalPreferences();
   }
 
   function initializeWindow(popup) {
@@ -2231,7 +2261,7 @@ export function createCombatMapController(options = {}) {
     if (viewportPersistTimer) window.clearTimeout(viewportPersistTimer);
     viewportPersistTimer = window.setTimeout(() => {
       viewportPersistTimer = 0;
-      persist();
+      persistLocalPreferences();
     }, 180);
   }
 
@@ -2284,7 +2314,7 @@ export function createCombatMapController(options = {}) {
       input.value = String(Math.round(viewportState.zoom * 100));
       input.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(viewportState.zoom * 100)}%`);
     }
-    persist();
+    persistLocalPreferences();
   }
 
   function handleWheel(event) {
@@ -2636,7 +2666,7 @@ export function createCombatMapController(options = {}) {
       state.openPanel = openPanel;
     }
     if (wasPaintOpen && getSurfacePanel(surface) !== "paint") state.paint.selectedIconId = "";
-    persist();
+    persistLocalPreferences();
     sync();
   }
 
@@ -2957,32 +2987,33 @@ export function createCombatMapController(options = {}) {
       if (icon) icon.icon = value;
       else state.paint.icon = value;
       iconPickerSurface = "";
-      persist();
+      if (icon) persist();
+      else persistLocalPreferences();
       sync();
     }
     if (action === "toggle-shapes-menu") togglePanel("shapes", surface);
     if (action === "toggle-health-menu") togglePanel("health", surface);
     if (action === "toggle-initiative-menu") togglePanel("initiative", surface);
     if (action === "reset-fog") { state.fog.revealed = []; state.fog.polygonDraft = []; persist(); sync(); }
-    if (action === "fog-brush-mode") { state.fog.mode = "brush"; state.fog.polygonDraft = []; persist(); sync(); }
-    if (action === "fog-polygon-mode") { state.fog.mode = "polygon"; persist(); sync(); }
+    if (action === "fog-brush-mode") { state.fog.mode = "brush"; state.fog.polygonDraft = []; persistLocalPreferences(); sync(); }
+    if (action === "fog-polygon-mode") { state.fog.mode = "polygon"; persistLocalPreferences(); sync(); }
     if (action === "close-fog-polygon") applyFogPolygon();
-    if (action === "cancel-fog-polygon") { state.fog.polygonDraft = []; fogPolygonCursor = null; persist(); sync(); }
-    if (action === "paint-mode") { state.paint.mode = "paint"; persist(); sync(); }
-    if (action === "line-mode") { state.paint.mode = "line"; persist(); sync(); }
-    if (action === "icon-mode") { state.paint.mode = "icon"; persist(); sync(); }
-    if (action === "erase-mode") { state.paint.mode = "erase"; persist(); sync(); }
+    if (action === "cancel-fog-polygon") { state.fog.polygonDraft = []; fogPolygonCursor = null; persistLocalPreferences(); sync(); }
+    if (action === "paint-mode") { state.paint.mode = "paint"; persistLocalPreferences(); sync(); }
+    if (action === "line-mode") { state.paint.mode = "line"; persistLocalPreferences(); sync(); }
+    if (action === "icon-mode") { state.paint.mode = "icon"; persistLocalPreferences(); sync(); }
+    if (action === "erase-mode") { state.paint.mode = "erase"; persistLocalPreferences(); sync(); }
     if (action === "undo-paint") { const removed = state.paint.strokes.pop(); if (removed?.id === state.paint.selectedIconId) state.paint.selectedIconId = ""; persist(); sync(); }
     if (action === "clear-paint") { state.paint.strokes = []; state.paint.selectedIconId = ""; persist(); sync(); }
-    if (action === "new-paint-icon") { state.paint.selectedIconId = ""; persist(); sync(); }
+    if (action === "new-paint-icon") { state.paint.selectedIconId = ""; persistLocalPreferences(); sync(); }
     if (action === "delete-paint-icon") { state.paint.strokes = state.paint.strokes.filter((stroke) => stroke.id !== state.paint.selectedIconId); state.paint.selectedIconId = ""; persist(); sync(); }
     if (action === "add-shape") addAreaShape(null, surface);
-    if (action === "new-shape") { state.shapes.selectedId = ""; shapeCoordinateError = ""; persist(); sync(); }
+    if (action === "new-shape") { state.shapes.selectedId = ""; shapeCoordinateError = ""; persistLocalPreferences(); sync(); }
     if (action === "rotate-shape-left") rotateSelectedShape(-15);
     if (action === "rotate-shape-right") rotateSelectedShape(15);
     if (action === "delete-shape") deleteSelectedShape();
-    if (action === "rotate-left") { state.rotation = (state.rotation + 270) % 360; persist(); sync(); }
-    if (action === "rotate-right") { state.rotation = (state.rotation + 90) % 360; persist(); sync(); }
+    if (action === "rotate-left") { state.rotation = (state.rotation + 270) % 360; persistLocalPreferences(); sync(); }
+    if (action === "rotate-right") { state.rotation = (state.rotation + 90) % 360; persistLocalPreferences(); sync(); }
     const viewportState = surface === masterHost ? state.viewport : state.playerViewport;
     if (action === "zoom-out") setMapZoom(viewportState.zoom - .1, surface);
     if (action === "zoom-reset") setMapZoom(1, surface);
@@ -3084,7 +3115,10 @@ export function createCombatMapController(options = {}) {
     }
     else return;
     if (target.matches("[data-grid-visible], [data-grid-type], [data-grid-size]")) resnapTokensWithoutOverlap();
-    persist(); sync();
+    const localPreferenceChange = target.matches("[data-map-token-numbers], [data-map-health], [data-map-health-initiative], [data-map-player-notifications], [data-map-initiative], [data-map-initiative-value], [data-map-initiative-position], [data-map-initiative-status-size], [data-map-rotation-orientation]");
+    if (localPreferenceChange) persistLocalPreferences();
+    else persist();
+    sync();
     if (target.matches("[data-grid-visible], [data-grid-type], [data-grid-size]")) notifyTokenCoordinates();
   }
 
@@ -3111,44 +3145,45 @@ export function createCombatMapController(options = {}) {
     } else if (event.target.matches("[data-fog-size]")) {
       state.fog.brushSize = clamp(event.target.value, 12, 300);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.fog.brushSize * 2)} px`);
-      persist();
+      persistLocalPreferences();
     } else if (event.target.matches("[data-map-zoom]")) {
       setMapZoom(Number(event.target.value) / 100, surface);
     } else if (event.target.matches("[data-map-player-notification-scale]")) {
       state.playerNotifications.scale = clamp(Number(event.target.value) / 100, MIN_PLAYER_NOTIFICATION_SCALE, MAX_PLAYER_NOTIFICATION_SCALE);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.playerNotifications.scale * 100)}%`);
       editorWindow?.document?.querySelector("[data-map-notification-root]")?.style.setProperty("--map-player-notification-scale", String(state.playerNotifications.scale));
-      persist();
+      persistLocalPreferences();
     } else if (event.target.matches("[data-map-initiative-size]")) {
       state.initiative.size = clamp(event.target.value, 160, 650);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.initiative.size)} px`);
       surface?.querySelector("[data-map-workspace]")?.style.setProperty("--initiative-size", `${state.initiative.size}px`);
       fitInitiativeOrder(surface);
-      persist();
+      persistLocalPreferences();
     } else if (event.target.matches("[data-map-opacity]")) {
       const key = clean(event.target.dataset.mapOpacity);
       if (Object.prototype.hasOwnProperty.call(state.opacity, key)) {
         state.opacity[key] = normalizeOpacity(Number(event.target.value) / 100);
         event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.opacity[key] * 100)}%`);
         applyLayerOpacityStyles(surface);
-        persist();
+        persistLocalPreferences();
       }
     } else if (event.target.matches("[data-map-initiative-status-size]")) {
       state.initiative.statusIconSize = clamp(event.target.value, 20, 64);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.initiative.statusIconSize)} px`);
       surface?.querySelectorAll(".combat-turn-strip").forEach((strip) => strip.style.setProperty("--turn-status-icon-scale", String(state.initiative.statusIconSize / 36)));
-      persist();
+      persistLocalPreferences();
     } else if (event.target.matches("[data-paint-size]")) {
       state.paint.size = clamp(event.target.value, MIN_PAINT_SIZE, MAX_PAINT_SIZE);
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(state.paint.size)} px`);
-      persist();
+      persistLocalPreferences();
     } else if (event.target.matches("[data-paint-color]")) {
       const value = normalizeColor(event.target.value);
       const icon = getSelectedPaintIcon();
       if (icon) icon.color = value;
       else state.paint.color = value;
       if (icon) updatePaintIconElement(icon, surface);
-      persist();
+      if (icon) persist();
+      else persistLocalPreferences();
     } else if (event.target.matches("[data-paint-icon-size]")) {
       const value = clamp(event.target.value, 16, 300);
       const icon = getSelectedPaintIcon();
@@ -3156,7 +3191,8 @@ export function createCombatMapController(options = {}) {
       else state.paint.iconSize = value;
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(value)} px`);
       if (icon) updatePaintIconElement(icon, surface);
-      persist();
+      if (icon) persist();
+      else persistLocalPreferences();
     } else if (event.target.matches("[data-paint-icon-rotation]")) {
       const value = clamp(event.target.value, 0, 359);
       const icon = getSelectedPaintIcon();
@@ -3164,12 +3200,13 @@ export function createCombatMapController(options = {}) {
       else state.paint.iconRotation = value;
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(value)}°`);
       if (icon) updatePaintIconElement(icon, surface);
-      persist();
+      if (icon) persist();
+      else persistLocalPreferences();
     } else if (event.target.matches("[data-shape-coordinate]")) {
       state.shapes.coordinate = clean(event.target.value).toUpperCase().replaceAll(" ", "").slice(0, 12);
       event.target.value = state.shapes.coordinate;
       shapeCoordinateError = "";
-      persist();
+      persistLocalPreferences();
     } else if (event.target.matches("[data-shape-text]")) {
       const value = String(event.target.value || "").slice(0, 500);
       const shape = getSelectedShape();
@@ -3177,7 +3214,8 @@ export function createCombatMapController(options = {}) {
       else state.shapes.text = value;
       const label = shape ? surface?.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"] > span`) : null;
       if (label) label.textContent = value || "Texto";
-      persist();
+      if (shape) persist();
+      else persistLocalPreferences();
     } else if (event.target.matches("[data-shape-font-size]")) {
       const value = clamp(event.target.value, 10, 120);
       const shape = getSelectedShape();
@@ -3185,7 +3223,8 @@ export function createCombatMapController(options = {}) {
       else state.shapes.fontSize = value;
       event.target.parentElement?.querySelector("output")?.replaceChildren(`${Math.round(value)} px`);
       if (shape) surface?.querySelector(`[data-map-shape="${CSS.escape(shape.id)}"]`)?.style.setProperty("--text-size", `${value}px`);
-      persist();
+      if (shape) persist();
+      else persistLocalPreferences();
     }
   }
 
@@ -3706,6 +3745,7 @@ export function createCombatMapController(options = {}) {
   function handlePointerUp(event) {
     if (!activeDrag || event.pointerId !== activeDrag.pointerId) return;
     const surface = activeDrag.surface;
+    const completedDragType = activeDrag.type;
     let change = null;
     if (activeDrag.type === "token") {
       const combatant = getCombatants().find((entry) => entry.id === activeDrag.id);
@@ -3740,7 +3780,9 @@ export function createCombatMapController(options = {}) {
       resnapTokensWithoutOverlap();
     }
     activeDrag = null;
-    persist(change); sync();
+    if (completedDragType === "initiative-resize") persistLocalPreferences();
+    else persist(change);
+    sync();
     notifyTokenCoordinates();
   }
 

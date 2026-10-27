@@ -49,6 +49,8 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
         } else {
           options.onCombatSection?.(message);
         }
+      } else if (message?.type === "combat-event") {
+        options.onCombatEvent?.(message.event);
       } else if (message?.type === "combat-section-ack") {
         const active = inFlightSections.get(message.section);
         if (active?.commandId === message.commandId) {
@@ -105,6 +107,11 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
       };
       queuedSections.set(section, command);
       return sendNextSection(section);
+    },
+    publishCombatEvent(event) {
+      if (socket?.readyState !== WebSocket.OPEN || !event || typeof event !== "object") return false;
+      socket.send(JSON.stringify({ type: "combat-event", event }));
+      return true;
     },
     close() {
       closed = true;

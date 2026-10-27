@@ -47,9 +47,11 @@ test("shared combat sync keeps one command in flight and coalesces newer section
 
   try {
     const received = [];
+    const events = [];
     const presences = [];
     const connection = connectSharedCampaignRealtime("campaign-1", {
       onCombatSection: (message) => received.push(message),
+      onCombatEvent: (event) => events.push(event),
       onPresence: (userCount, message) => presences.push({ userCount, message })
     });
     const socket = sockets[0];
@@ -59,6 +61,10 @@ test("shared combat sync keeps one command in flight and coalesces newer section
     assert.equal(presences[0].userCount, 1);
     assert.equal(presences[0].message.sameAccountDeviceCount, 2);
     assert.equal(presences[0].message.sameAccountOldest, true);
+    connection.publishCombatEvent({ type: "round", round: 2 });
+    assert.deepEqual(socket.sent.at(-1), { type: "combat-event", event: { type: "round", round: 2 } });
+    socket.emit("message", { data: JSON.stringify({ type: "combat-event", event: { type: "turn", combatantId: "enemy-1" } }) });
+    assert.deepEqual(events, [{ type: "turn", combatantId: "enemy-1" }]);
 
     connection.publishCombatSection("tracker", { revision: 1 });
     connection.publishCombatSection("tracker", { revision: 2 });

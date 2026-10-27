@@ -891,6 +891,7 @@ state = {
   cloudCampaignRealtimeStatus: "closed",
   cloudCampaignLiveUsers: 0,
   cloudCampaignDeviceCount: 0,
+  cloudCampaignSameAccountOldest: false,
   cloudImportedEntries: [],
   cloudImportUpdateCandidates: [],
   cloudImportUpdateDialogOpen: false,
@@ -1227,6 +1228,9 @@ const combatMapController = createCombatMapController({
       operation: cleanText(change?.operation) || "replace",
       commandValue: change?.value
     });
+  },
+  onLocalChange: () => {
+    saveSharedCampaignLocalMapPreferences();
   },
   onCloudChanged: () => {
     if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
@@ -23417,7 +23421,7 @@ function showDirectCombatResourceFeedback(previousCombatants, combatantId, key, 
   if (key === "necrotic") kind = "necrotic";
   if (key === "pgMax") text = `MAX ${text}`;
 
-  combatMapController.showTokenFeedback({
+  showCombatTokenFeedback({
     combatantId,
     kind,
     text,
@@ -27148,6 +27152,7 @@ function announceCombatantTurn(combatant) {
     ...combatant,
     tokenUrl: getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry)
   });
+  publishCloudCombatEvent({ type: "turn", combatantId: combatant.id });
 }
 
 function startCombatTurns() {
@@ -27252,6 +27257,7 @@ function queueCombatRoundNotification() {
   const round = getCombatRound();
   if (normalizeStoredNotificationSettings(state.notificationSettings).round === false) return;
   combatMapController.showRoundAnnouncement(round);
+  publishCloudCombatEvent({ type: "round", round });
 }
 
 function jumpCombatTurnTo(combatantId) {
@@ -27380,9 +27386,10 @@ function toggleCombatantStatus(combatantId, statusName) {
   }
 
   if (statusChange) {
-    combatMapController.showTokenFeedback({
+    showCombatTokenFeedback({
       combatantId,
       kind: statusChange.added ? "status-add" : "status-remove",
+      statusName: canonicalTargetStatus,
       text: `${statusChange.added ? "+" : "−"} ${statusChange.name}`,
       iconUrl: getCombatStatusIconUrl(canonicalTargetStatus)
     });
@@ -28084,7 +28091,7 @@ function queueCombatResourceNotification(combatant, kind, amount) {
     imageUrl: cleanText(getCombatantTokenUrl(combatant)),
     effectKind: kind
   });
-  combatMapController.showTokenFeedback({
+  showCombatTokenFeedback({
     combatantId: combatant.id,
     kind,
     text: amountLabel,
@@ -33307,6 +33314,7 @@ function stopCloudCampaignRealtime() {
   state.cloudCampaignRealtimeStatus = "closed";
   state.cloudCampaignLiveUsers = 0;
   state.cloudCampaignDeviceCount = 0;
+  state.cloudCampaignSameAccountOldest = false;
 }
 
 function updateLastCloudCampaignCombatSection(section, operation, value) {
@@ -33374,8 +33382,65 @@ function applyRemoteCombatSection(message) {
   }
 }
 
+function publishCloudCombatEvent(event) {
+  if (!isCloudCampaignLiveSynchronized() || !isPlainObject(event)) return false;
+  return cloudCampaignRealtimeConnection?.publishCombatEvent?.(event) === true;
+}
+
+function showCombatTokenFeedback(feedback, options = {}) {
+  combatMapController.showTokenFeedback(feedback);
+  if (options.broadcast === false) return;
+  publishCloudCombatEvent({
+    type: "token-feedback",
+    combatantId: cleanText(feedback?.combatantId),
+    kind: cleanText(feedback?.kind).slice(0, 40) || "info",
+    text: cleanText(feedback?.text).slice(0, 80),
+    statusName: cleanText(feedback?.statusName).slice(0, 80)
+  });
+}
+
+function applyRemoteCombatEvent(event) {
+  if (!isPlainObject(event)) return;
+  if (event.type === "token-feedback") {
+    const combatantId = cleanText(event.combatantId);
+    if (!combatantId || !state.combatants.some((combatant) => combatant.id === combatantId)) return;
+    const kind = cleanText(event.kind).slice(0, 40) || "info";
+    const statusName = cleanText(event.statusName).slice(0, 80);
+    showCombatTokenFeedback({
+      combatantId,
+      kind,
+      text: cleanText(event.text).slice(0, 80),
+      statusName,
+      iconUrl: kind.startsWith("status-")
+        ? getCombatStatusIconUrl(statusName)
+        : getCombatMiniActionIconUrl(kind)
+    }, { broadcast: false });
+    return;
+  }
+  if (event.type === "turn") {
+    if (normalizeStoredNotificationSettings(state.notificationSettings).turn === false) return;
+    const combatant = state.combatants.find((entry) => entry.id === cleanText(event.combatantId));
+    if (!combatant) return;
+    const linkedCharacter = getLinkedCharacterForCombatant(combatant);
+    const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+    combatMapController.showTurnAnnouncement({
+      ...combatant,
+      tokenUrl: getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry)
+    });
+    return;
+  }
+  if (event.type === "round" && normalizeStoredNotificationSettings(state.notificationSettings).round !== false) {
+    combatMapController.showRoundAnnouncement(Math.max(1, Math.floor(toNumber(event.round)) || 1));
+  }
+}
+
 function scheduleHostCombatCheckpoint() {
-  if (cloudCampaignSaveSuspended || !state.cloudCampaignCanManage || !isCloudCampaignLiveSynchronized()) return;
+  if (
+    cloudCampaignSaveSuspended
+    || !state.cloudCampaignCanManage
+    || !isCloudCampaignLiveSynchronized()
+    || (state.cloudCampaignDeviceCount >= 2 && !state.cloudCampaignSameAccountOldest)
+  ) return;
   cloudCampaignChangeRevision += 1;
   scheduleCloudCampaignAutosave(30_000, { changeScope: "combat-checkpoint" });
 }
@@ -33399,6 +33464,7 @@ function syncCloudCampaignRealtime() {
       const deviceCount = Math.max(1, Math.floor(Number(message?.sameAccountDeviceCount) || 1));
       state.cloudCampaignLiveUsers = userCount;
       state.cloudCampaignDeviceCount = deviceCount;
+      state.cloudCampaignSameAccountOldest = message?.sameAccountOldest === true;
       if (deviceCount >= 2 && previousDeviceCount < 2) {
         pushNotification({
           title: "Campaña sincronizada",
@@ -33446,6 +33512,9 @@ function syncCloudCampaignRealtime() {
     },
     onCombatSection(message) {
       applyRemoteCombatSection(message);
+    },
+    onCombatEvent(event) {
+      applyRemoteCombatEvent(event);
     },
     onCombatSectionAck(message) {
       cloudCampaignLastCombatSequence = Math.max(cloudCampaignLastCombatSequence, Number(message?.sequence) || 0);
