@@ -86,6 +86,38 @@ test("non-host campaign members can receive map sync but cannot replace map", ()
   }
 });
 
+test("remote token commands update one token without replacing map state", () => {
+  const previousStorage = globalThis.localStorage;
+  const values = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value))
+  };
+
+  try {
+    const controller = createCombatMapController({ storageKey: "token-command-test" });
+    controller.applySave({
+      map: { name: "Arena", imageUrl: "/arena.webp" },
+      tokenPositions: { first: { x: 10, y: 20 }, second: { x: 30, y: 40 } },
+      tokenStackOrder: ["first", "second"]
+    });
+    assert.equal(controller.applyRemoteCommand("token-position", {
+      id: "first",
+      position: { x: 125, y: 250 },
+      stackOrder: ["second", "first"]
+    }), true);
+
+    const saved = controller.getSaveData();
+    assert.deepEqual(saved.tokenPositions.first, { x: 125, y: 250 });
+    assert.deepEqual(saved.tokenPositions.second, { x: 30, y: 40 });
+    assert.deepEqual(saved.tokenStackOrder, ["second", "first"]);
+    assert.equal(saved.map.name, "Arena");
+  } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
+  }
+});
+
 test("token feedback stays inside viewport and flips below tokens near top edge", () => {
   const bounds = { left: 100, top: 60, right: 900, bottom: 660 };
   const nearTop = getTokenFeedbackPosition({

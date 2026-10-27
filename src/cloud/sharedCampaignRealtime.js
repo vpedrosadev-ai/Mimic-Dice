@@ -10,7 +10,9 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
   let pingTimer = 0;
   let retry = 0;
   let closed = false;
-  const pendingSections = new Map();
+  const queuedSections = new Map();
+  const inFlightSections = new Map();
+  const deferredSections = new Map();
 
   const setStatus = (status) => {
     if (typeof options.onStatus === "function") options.onStatus(status);
@@ -23,10 +25,7 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
     socket.addEventListener("open", () => {
       retry = 0;
       setStatus("connected");
-      for (const [section, command] of pendingSections) {
-        socket.send(JSON.stringify(command));
-        pendingSections.delete(section);
-      }
+      for (const section of queuedSections.keys()) sendNextSection(section);
       window.clearInterval(pingTimer);
       pingTimer = window.setInterval(() => {
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
@@ -42,8 +41,25 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
       } else if (message?.type === "closed") {
         options.onClosed?.();
       } else if (message?.type === "combat-section") {
-        options.onCombatSection?.(message);
+        if (inFlightSections.has(message.section)) {
+          const deferred = deferredSections.get(message.section);
+          if (!deferred || Number(message.sequence) > Number(deferred.sequence)) {
+            deferredSections.set(message.section, message);
+          }
+        } else {
+          options.onCombatSection?.(message);
+        }
       } else if (message?.type === "combat-section-ack") {
+        const active = inFlightSections.get(message.section);
+        if (active?.commandId === message.commandId) {
+          inFlightSections.delete(message.section);
+          const deferred = deferredSections.get(message.section);
+          deferredSections.delete(message.section);
+          if (deferred && Number(deferred.sequence) > Number(message.sequence)) {
+            options.onCombatSection?.(deferred);
+          }
+          sendNextSection(message.section);
+        }
         options.onCombatSectionAck?.(message);
       } else if (message?.type === "join-request") {
         options.onJoinRequest?.(message.request);
@@ -55,27 +71,40 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
       window.clearInterval(pingTimer);
       pingTimer = 0;
       if (closed) return;
+      for (const [section, command] of inFlightSections) {
+        if (!queuedSections.has(section)) queuedSections.set(section, command);
+      }
+      inFlightSections.clear();
+      deferredSections.clear();
       setStatus("reconnecting");
       reconnectTimer = window.setTimeout(connect, Math.min(10_000, 500 * 2 ** retry++));
     });
     socket.addEventListener("error", () => setStatus("reconnecting"));
   };
 
+  const sendNextSection = (section) => {
+    if (socket?.readyState !== WebSocket.OPEN || inFlightSections.has(section)) return false;
+    const command = queuedSections.get(section);
+    if (!command) return false;
+    queuedSections.delete(section);
+    inFlightSections.set(section, command);
+    socket.send(JSON.stringify(command));
+    return true;
+  };
+
   connect();
   return {
-    publishCombatSection(section, value) {
+    publishCombatSection(section, value, operation = "replace") {
       if (!['tracker', 'map'].includes(section)) return false;
       const command = {
         type: "combat-section",
         section,
+        operation,
         value,
         commandId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`
       };
-      pendingSections.set(section, command);
-      if (socket?.readyState !== WebSocket.OPEN) return false;
-      socket.send(JSON.stringify(command));
-      pendingSections.delete(section);
-      return true;
+      queuedSections.set(section, command);
+      return sendNextSection(section);
     },
     close() {
       closed = true;

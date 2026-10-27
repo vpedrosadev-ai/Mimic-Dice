@@ -532,6 +532,8 @@ let cloudCampaignRealtimeConnection = null;
 let cloudCampaignRealtimeCampaignId = "";
 let cloudCampaignClosingCollaborationId = "";
 let cloudCampaignPendingRemoteRevision = 0;
+let cloudCampaignLastCombatSequence = 0;
+let cloudCampaignAutosaveChangeScope = "";
 let cloudCampaignJoinRequestPollInterval = 0;
 let cloudCampaignJoinRequestPollInProgress = false;
 let cloudCombatSectionApplySuspended = false;
@@ -1216,9 +1218,14 @@ const combatMapController = createCombatMapController({
       if (input && document.activeElement !== input) input.value = coordinate;
     });
   },
-  onChange: (mapState) => {
+  onChange: (mapState, change) => {
     saveSharedCampaignLocalMapPreferences();
-    scheduleDesktopCampaignDirtyStateSync(60, { scope: "combat-map", value: mapState });
+    scheduleDesktopCampaignDirtyStateSync(60, {
+      scope: "combat-map",
+      value: mapState,
+      operation: cleanText(change?.operation) || "replace",
+      commandValue: change?.value
+    });
   },
   onCloudChanged: () => {
     if (state.accountDialogOpen && state.accountDialogView === "catalog") refreshCommunityCatalog();
@@ -33250,8 +33257,32 @@ function stopCloudCampaignRealtime() {
   state.cloudCampaignLiveUsers = 0;
 }
 
+function updateLastCloudCampaignCombatSection(section, operation, value) {
+  if (!isPlainObject(lastCloudCampaignPayload)) return;
+  if (section === "tracker" && isPlainObject(value)) {
+    lastCloudCampaignPayload.combatTracker = structuredClone(value);
+    return;
+  }
+  if (section !== "map" || !isPlainObject(value)) return;
+  if (operation !== "token-position") {
+    lastCloudCampaignPayload.combatMap = structuredClone(value);
+    return;
+  }
+  if (!isPlainObject(lastCloudCampaignPayload.combatMap)) return;
+  const id = cleanText(value.id);
+  if (!id || !isPlainObject(value.position)) return;
+  lastCloudCampaignPayload.combatMap.tokenPositions = {
+    ...(lastCloudCampaignPayload.combatMap.tokenPositions || {}),
+    [id]: structuredClone(value.position)
+  };
+  if (Array.isArray(value.stackOrder)) {
+    lastCloudCampaignPayload.combatMap.tokenStackOrder = [...value.stackOrder];
+  }
+}
+
 function applyRemoteCombatSection(message) {
   if (!isPlainObject(message?.value)) return;
+  cloudCampaignLastCombatSequence = Math.max(cloudCampaignLastCombatSequence, Number(message.sequence) || 0);
   cloudCombatSectionApplySuspended = true;
   try {
     if (message.section === "tracker") {
@@ -33269,10 +33300,19 @@ function applyRemoteCombatSection(message) {
       state.combatRound = tracker.combatRound;
       state.combatEncounterLoadOrder = tracker.combatEncounterLoadOrder;
       state.enemyHpMode = tracker.enemyHpMode;
-      if (isPlainObject(lastCloudCampaignPayload)) lastCloudCampaignPayload.combatTracker = structuredClone(message.value);
+      updateLastCloudCampaignCombatSection("tracker", message.operation, message.value);
+      scheduleHostCombatCheckpoint();
     } else if (message.section === "map") {
+      if (message.operation === "token-position") {
+        if (!combatMapController.applyRemoteCommand(message.operation, message.value)) return;
+        updateLastCloudCampaignCombatSection("map", message.operation, message.value);
+        scheduleHostCombatCheckpoint();
+        return;
+      }
       combatMapController.applySave(message.value, { preserveLocalView: true });
-      if (isPlainObject(lastCloudCampaignPayload)) lastCloudCampaignPayload.combatMap = structuredClone(message.value);
+      updateLastCloudCampaignCombatSection("map", message.operation, message.value);
+      scheduleHostCombatCheckpoint();
+      return;
     } else {
       return;
     }
@@ -33280,6 +33320,12 @@ function applyRemoteCombatSection(message) {
   } finally {
     cloudCombatSectionApplySuspended = false;
   }
+}
+
+function scheduleHostCombatCheckpoint() {
+  if (cloudCampaignSaveSuspended || !state.cloudCampaignCanManage || !isCloudCampaignCollaborative()) return;
+  cloudCampaignChangeRevision += 1;
+  scheduleCloudCampaignAutosave(30_000, { changeScope: "combat-checkpoint" });
 }
 
 function syncCloudCampaignRealtime() {
@@ -33302,13 +33348,32 @@ function syncCloudCampaignRealtime() {
     },
     onRevision(message) {
       const revision = Number(message?.revision || 0);
+      const combatSequence = Math.max(0, Number(message?.combatSequence) || 0);
+      if (
+        message?.changeScope === "combat-checkpoint"
+        && revision > state.cloudCampaignRevision
+        && combatSequence > 0
+        && combatSequence <= cloudCampaignLastCombatSequence
+      ) {
+        state.cloudCampaignRevision = revision;
+        state.cloudCampaignUpdatedAt = cleanText(message.updatedAt);
+        cloudCampaignPendingRemoteRevision = 0;
+        saveActiveCloudCampaignMeta();
+        syncCloudAccountUi();
+        return;
+      }
       if (revision > state.cloudCampaignRevision) {
         cloudCampaignPendingRemoteRevision = Math.max(cloudCampaignPendingRemoteRevision, revision);
-        void syncSharedCloudCampaign(cloudCampaignPendingRemoteRevision);
+        void syncSharedCloudCampaign(cloudCampaignPendingRemoteRevision).then((synced) => {
+          if (synced) cloudCampaignLastCombatSequence = Math.max(cloudCampaignLastCombatSequence, combatSequence);
+        });
       }
     },
     onCombatSection(message) {
       applyRemoteCombatSection(message);
+    },
+    onCombatSectionAck(message) {
+      cloudCampaignLastCombatSequence = Math.max(cloudCampaignLastCombatSequence, Number(message?.sequence) || 0);
     },
     onJoinRequest(request) {
       if (state.cloudCampaignCanManage && request?.campaignId === state.cloudCampaignId) {
@@ -33365,6 +33430,7 @@ function stopCloudCampaignAutosave() {
   cloudCampaignSyncInterval = 0;
   cloudCampaignAutosaveDueAt = 0;
   cloudCampaignAutosaveNextPeriodicDueAt = 0;
+  cloudCampaignAutosaveChangeScope = "";
   stopCloudCampaignRealtime();
 }
 
@@ -33391,6 +33457,8 @@ function detachActiveCloudCampaign(options = {}) {
   lastCloudCampaignSavedChangeRevision = 0;
   cloudCampaignAutosaveRetryCount = 0;
   cloudCampaignPendingRemoteRevision = 0;
+  cloudCampaignLastCombatSequence = 0;
+  cloudCampaignAutosaveChangeScope = "";
   stopCloudCampaignRealtime();
 
   if (options.keepLocalLabel === true) {
@@ -33450,7 +33518,11 @@ async function handleAccountSignOut() {
 }
 
 function activateCloudCampaign(campaign, payload, options = {}) {
-  state.cloudCampaignId = cleanText(campaign?.id);
+  const nextCampaignId = cleanText(campaign?.id);
+  if (state.cloudCampaignId && state.cloudCampaignId !== nextCampaignId) {
+    cloudCampaignLastCombatSequence = 0;
+  }
+  state.cloudCampaignId = nextCampaignId;
   state.cloudCampaignRevision = Math.max(0, Number(campaign?.revision) || 0);
   state.cloudCampaignIsPublic = campaign?.isPublic === true;
   state.cloudCampaignIsShared = campaign?.isShared === true;
@@ -34163,6 +34235,7 @@ async function autosaveCloudCampaign(options = {}) {
 
   const isPublic = options.isPublic ?? state.cloudCampaignIsPublic;
   const saveChangeRevision = cloudCampaignChangeRevision;
+  const saveChangeScope = cleanText(options.changeScope || cloudCampaignAutosaveChangeScope) || "full";
 
   if (
     options.force !== true
@@ -34171,6 +34244,7 @@ async function autosaveCloudCampaign(options = {}) {
   ) {
     state.cloudAutosaveStatus = "saved";
     state.cloudAutosaveMessage = "";
+    cloudCampaignAutosaveChangeScope = "";
     finishCloudAutosaveRecovery();
     syncCloudAccountUi();
     return true;
@@ -34187,6 +34261,7 @@ async function autosaveCloudCampaign(options = {}) {
   let mergedRemoteChanges = false;
 
   cloudCampaignAutosaveDueAt = 0;
+  cloudCampaignAutosaveChangeScope = "";
 
   savePromise = (async () => {
     try {
@@ -34215,7 +34290,8 @@ async function autosaveCloudCampaign(options = {}) {
             name: cleanText(payload?.campaign?.name) || cleanText(state.campaignName) || "Campaña sin nombre",
             isPublic,
             baseRevision,
-            payload
+            payload,
+            changeScope: saveChangeScope
           });
           break;
         } catch (error) {
@@ -34298,6 +34374,9 @@ async function autosaveCloudCampaign(options = {}) {
       syncCloudAccountUi();
 
       if (retryDelayMs > 0) {
+        if (saveChangeScope === "full" || !cloudCampaignAutosaveChangeScope) {
+          cloudCampaignAutosaveChangeScope = saveChangeScope;
+        }
         scheduleCloudCampaignAutosave(retryDelayMs, { preserveStatus: true });
       }
 
@@ -34355,6 +34434,15 @@ function scheduleCloudCampaignAutosave(delay = 4000, options = {}) {
 
   if (cloudCampaignAutosaveTimer) {
     window.clearTimeout(cloudCampaignAutosaveTimer);
+  }
+
+  const requestedScope = cleanText(options.changeScope);
+  if (requestedScope === "full") {
+    cloudCampaignAutosaveChangeScope = "full";
+  } else if (requestedScope === "combat-checkpoint" && cloudCampaignAutosaveChangeScope !== "full") {
+    cloudCampaignAutosaveChangeScope = "combat-checkpoint";
+  } else if (!requestedScope && options.preserveStatus !== true) {
+    cloudCampaignAutosaveChangeScope = "full";
   }
 
   const normalizedDelay = Math.max(isCloudCampaignCollaborative() ? 350 : 1500, Number(delay) || 4000);
@@ -35673,9 +35761,7 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0, options = {}) {
   const dirtyScope = cleanText(options.scope);
   const isCollaborativeCombatChange = isCloudCampaignCollaborative()
     && (dirtyScope === "combat-tracker" || dirtyScope === "combat-map");
-  const canPersistCloudChange = !isCloudCampaignCollaborative()
-    || state.cloudCampaignCanManage
-    || isCollaborativeCombatChange;
+  const canPersistCloudChange = !isCloudCampaignCollaborative() || state.cloudCampaignCanManage;
 
   if (
     !cloudCampaignSaveSuspended
@@ -35691,12 +35777,18 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0, options = {}) {
     const section = dirtyScope === "combat-tracker" ? "tracker" : "map";
     const value = section === "tracker"
       ? (options.value || getCombatTrackerSaveData())
-      : combatMapController.getSaveData({ portable: true });
-    cloudCampaignRealtimeConnection?.publishCombatSection?.(section, value);
+      : options.operation && options.operation !== "replace"
+        ? options.commandValue
+        : combatMapController.getSaveData({ portable: true });
+    cloudCampaignRealtimeConnection?.publishCombatSection?.(section, value, options.operation || "replace");
+    updateLastCloudCampaignCombatSection(section, options.operation || "replace", value);
   }
 
   if (!cloudCombatSectionApplySuspended && canPersistCloudChange) {
-    scheduleCloudCampaignAutosave(isCollaborativeCombatChange ? 12_000 : isCloudCampaignCollaborative() ? 700 : 4000);
+    scheduleCloudCampaignAutosave(
+      isCollaborativeCombatChange ? 30_000 : isCloudCampaignCollaborative() ? 700 : 4000,
+      { changeScope: isCollaborativeCombatChange ? "combat-checkpoint" : "full" }
+    );
   }
 
   if (campaignDirtyStateSyncTimer) {

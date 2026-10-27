@@ -302,7 +302,8 @@ export class SharedCampaignRoom extends DurableObject {
         campaignId: safeText(body.campaignId).slice(0, 120),
         revision: Math.max(0, Math.floor(Number(body.revision) || 0)),
         updatedAt: safeText(body.updatedAt).slice(0, 80),
-        actorUserId: safeText(body.actorUserId).slice(0, 120)
+        actorUserId: safeText(body.actorUserId).slice(0, 120),
+        changeScope: safeText(body.changeScope) === "combat-checkpoint" ? "combat-checkpoint" : "full"
       };
       await this.ctx.storage.put(SHARED_CAMPAIGN_METADATA_KEY, this.metadata);
       this.broadcast({ type: "revision", ...this.metadata });
@@ -366,6 +367,8 @@ export class SharedCampaignRoom extends DurableObject {
       const attachment = socket.deserializeAttachment() || {};
       const section = safeText(command.section);
       if (!['tracker', 'map'].includes(section) || !['host', 'editor'].includes(attachment.role)) return;
+      const operation = safeText(command.operation) || "replace";
+      if ((section === "tracker" && operation !== "replace") || (section === "map" && !['replace', 'token-position'].includes(operation))) return;
       const serializedValue = JSON.stringify(command.value ?? null);
       if (serializedValue.length > 2_000_000) {
         try { socket.send(JSON.stringify({ type: "error", commandId: safeText(command.commandId), code: "section_too_large" })); } catch {}
@@ -377,11 +380,12 @@ export class SharedCampaignRoom extends DurableObject {
       this.broadcast({
         type: "combat-section",
         section,
+        operation,
         value: command.value,
         commandId: safeText(command.commandId).slice(0, 120),
         sequence,
         actorUserId: attachment.userId
-      });
+      }, { except: socket });
       try { socket.send(JSON.stringify({ type: "combat-section-ack", commandId: safeText(command.commandId), section, sequence })); } catch {}
     }
   }

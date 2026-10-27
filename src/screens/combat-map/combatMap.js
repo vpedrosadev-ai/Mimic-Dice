@@ -1023,9 +1023,13 @@ export function createCombatMapController(options = {}) {
     }
   }
 
-  function persist() {
+  function persist(change = null) {
     try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* memory state remains */ }
-    options.onChange?.(getSaveData());
+    options.onChange?.(getSaveData(), change);
+  }
+
+  function persistLocalOnly() {
+    try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* memory state remains */ }
   }
 
   function canLoadMap() {
@@ -1174,6 +1178,31 @@ export function createCombatMapController(options = {}) {
     persist();
     sync();
     if (state.map?.cloudEntryId && !state.map.imageUrl) resolveCloudMap(state.map.cloudEntryId);
+  }
+
+  function applyRemoteCommand(operation, value) {
+    if (operation !== "token-position" || !value || typeof value !== "object") return false;
+    const id = clean(value.id);
+    const x = Number(value.position?.x);
+    const y = Number(value.position?.y);
+    if (!id || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    state.tokenPositions[id] = { x: clamp(x, 0, 100000), y: clamp(y, 0, 100000) };
+    if (Array.isArray(value.stackOrder)) {
+      state.tokenStackOrder = [...new Set(value.stackOrder.map(clean).filter(Boolean))].slice(-1000);
+    } else {
+      bringTokenToFront(id);
+    }
+    persistLocalOnly();
+    const roots = [masterHost, playerProjectionHost, editorWindow?.document].filter(Boolean);
+    roots.forEach((root) => {
+      root.querySelectorAll?.(`[data-map-token="${CSS.escape(id)}"]`).forEach((token) => {
+        token.style.left = `${state.tokenPositions[id].x}px`;
+        token.style.top = `${state.tokenPositions[id].y}px`;
+        token.style.zIndex = String(5 + getTokenStackIndex(id));
+      });
+    });
+    notifyTokenCoordinates();
+    return true;
   }
 
   function applyMapWorkspace(map, workspace = {}) {
@@ -3677,6 +3706,7 @@ export function createCombatMapController(options = {}) {
   function handlePointerUp(event) {
     if (!activeDrag || event.pointerId !== activeDrag.pointerId) return;
     const surface = activeDrag.surface;
+    let change = null;
     if (activeDrag.type === "token") {
       const combatant = getCombatants().find((entry) => entry.id === activeDrag.id);
       state.tokenPositions[activeDrag.id] = snapCreaturePosition(
@@ -3686,6 +3716,14 @@ export function createCombatMapController(options = {}) {
       );
       bringTokenToFront(activeDrag.id);
       clearTokenDragFeedback(surface, activeDrag.id);
+      change = {
+        operation: "token-position",
+        value: {
+          id: activeDrag.id,
+          position: { ...state.tokenPositions[activeDrag.id] },
+          stackOrder: [...state.tokenStackOrder]
+        }
+      };
     } else if (activeDrag.type === "shape") {
       const shape = state.shapes.items.find((item) => item.id === activeDrag.id);
       if (shape && shape.type !== "text") {
@@ -3702,7 +3740,7 @@ export function createCombatMapController(options = {}) {
       resnapTokensWithoutOverlap();
     }
     activeDrag = null;
-    persist(); sync();
+    persist(change); sync();
     notifyTokenCoordinates();
   }
 
@@ -3792,5 +3830,5 @@ export function createCombatMapController(options = {}) {
     if (playerProjectionHost?.isConnected) applyPlayerCombatantHover(playerProjectionHost);
   }
 
-  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, showRoundAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, showRoundAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyRemoteCommand, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }

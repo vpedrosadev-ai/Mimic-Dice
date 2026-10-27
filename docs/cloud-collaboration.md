@@ -25,9 +25,11 @@ Five-second campaign polling remains fallback when WebSocket is unavailable. Joi
 
 ## Combat command synchronization
 
-Combat tracker and map editor changes no longer wait for a whole campaign upload. The browser sends a `combat-section` command over the campaign WebSocket. `SharedCampaignRoom` assigns a monotonic sequence and broadcasts it to every editor, including the sender, so simultaneous clients converge on the same ordered result.
+Combat tracker and map editor changes no longer wait for a whole campaign upload. Browser sends a `combat-section` command over campaign WebSocket. `SharedCampaignRoom` assigns a monotonic sequence and broadcasts it to other editors. Sender keeps optimistic local state; one in-flight command per section plus latest-value coalescing prevents echo loops and snapshot floods while preserving server order.
 
-Full campaign uploads remain durability checkpoints, delayed to 12 seconds for combat-only changes and backed by the existing periodic autosave. Other campaign domains still use the full payload path.
+Token movement uses a small `token-position` command instead of replacing full map. Remote token updates patch map DOM directly without rebuilding app or notification stack.
+
+Only host writes full durability checkpoints for combat changes. Checkpoint waits 30 seconds; clients already caught up through command sequence accept revision metadata without downloading/reapplying full campaign. Other campaign domains still use full payload path.
 
 ## Lost-edit protection
 

@@ -325,7 +325,7 @@ async function getCampaignStatus(context, campaignId, user) {
   return jsonResponse({ campaign: getCampaignSummary(campaign, user?.id || "", administrator) });
 }
 
-async function notifyCampaignRevision(context, campaign, actorUserId = "") {
+async function notifyCampaignRevision(context, campaign, actorUserId = "", changeScope = "full") {
   if (!context.env?.SHARED_CAMPAIGN_ROOMS || !campaign?.id) return;
   try {
     const objectId = context.env.SHARED_CAMPAIGN_ROOMS.idFromName(campaign.id);
@@ -336,7 +336,8 @@ async function notifyCampaignRevision(context, campaign, actorUserId = "") {
         campaignId: campaign.id,
         revision: campaign.revision,
         updatedAt: campaign.updatedAt,
-        actorUserId
+        actorUserId,
+        changeScope
       })
     });
   } catch {
@@ -704,7 +705,8 @@ async function updateCampaign(context, campaignId, user) {
   });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
-  const revisionNotification = notifyCampaignRevision(context, updatedCampaign, user.id);
+  const changeScope = body.changeScope === "combat-checkpoint" ? "combat-checkpoint" : "full";
+  const revisionNotification = notifyCampaignRevision(context, updatedCampaign, user.id, changeScope);
   if (typeof context.waitUntil === "function") context.waitUntil(revisionNotification);
   else await revisionNotification;
   return jsonResponse({ campaign: getCampaignSummary(updatedCampaign, user.id, administrator) });

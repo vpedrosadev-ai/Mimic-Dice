@@ -149,10 +149,10 @@ export async function createCloudCampaign({ name, isPublic = false, payload }) {
   });
 }
 
-export async function updateCloudCampaign(campaignId, { name, isPublic = false, baseRevision, payload }) {
+export async function updateCloudCampaign(campaignId, { name, isPublic = false, baseRevision, payload, changeScope = "full" }) {
   return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}`, {
     method: "PUT",
-    body: JSON.stringify({ name, isPublic, baseRevision, payload })
+    body: JSON.stringify({ name, isPublic, baseRevision, payload, changeScope })
   });
 }
 
