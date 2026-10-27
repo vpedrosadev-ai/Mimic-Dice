@@ -2589,6 +2589,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "retry-approved-cloud-campaign-load") {
+    await loadApprovedCloudCampaignRequest();
+    return;
+  }
+
   if (action === "join-cloud-campaign-collaboration") {
     await joinSharedCloudCampaign();
     return;
@@ -11722,22 +11727,38 @@ function renderCloudCampaignJoinDialogs() {
     `;
   }
   const status = cleanText(pending.status) || "pending";
-  const title = status === "approved" ? "Solicitud aceptada" : status === "denied" || status === "cancelled" ? "Solicitud no aceptada" : "Esperando al host";
+  const title = status === "approved"
+    ? "Solicitud aceptada"
+    : status === "loading"
+      ? "Cargando campaña"
+      : status === "load-error"
+        ? "No se pudo cargar"
+        : status === "denied" || status === "cancelled"
+          ? "Solicitud no aceptada"
+          : "Esperando al host";
   const message = status === "approved"
-    ? "Acceso concedido. La campaña se está cargando."
-    : status === "denied"
-      ? "El host ha denegado la solicitud."
-      : status === "cancelled"
-        ? "La campaña ya no está abierta."
-        : "Tu solicitud está pendiente. Esta ventana se actualizará automáticamente.";
+    ? "Acceso concedido. Campaña compartida cargada."
+    : status === "loading"
+      ? "Acceso concedido. Descargando campaña compartida."
+      : status === "load-error"
+        ? pending.error || "No se pudo cargar la campaña compartida."
+        : status === "denied"
+          ? "El host ha denegado la solicitud."
+          : status === "cancelled"
+            ? "La campaña ya no está abierta."
+            : "Tu solicitud está pendiente. Esta ventana se actualizará automáticamente.";
   return `
     <div class="cloud-join-dialog" role="presentation">
       <section class="cloud-join-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="cloud-join-status-title">
-        <span class="cloud-join-dialog__icon ${status === "pending" ? "is-waiting" : ""}" aria-hidden="true">${status === "approved" ? "✓" : status === "pending" ? "⌛" : "×"}</span>
+        <span class="cloud-join-dialog__icon ${status === "pending" || status === "loading" ? "is-waiting" : ""}" aria-hidden="true">${status === "approved" ? "✓" : status === "pending" || status === "loading" ? "⌛" : "×"}</span>
         <p class="cloud-join-dialog__eyebrow">${escapeHtml(pending.campaignName || "Campaña compartida")}</p>
         <h2 id="cloud-join-status-title">${title}</h2>
-        <p>${message}</p>
-        ${status !== "pending" && status !== "approved" ? `<button class="account-action-button" type="button" data-action="dismiss-cloud-campaign-request-status">Cerrar</button>` : ""}
+        <p>${escapeHtml(message)}</p>
+        ${status === "load-error"
+          ? `<div class="cloud-join-dialog__actions"><button class="account-action-button" type="button" data-action="retry-approved-cloud-campaign-load">Reintentar</button><button class="account-action-button account-action-button--ghost" type="button" data-action="dismiss-cloud-campaign-request-status">Cerrar</button></div>`
+          : status !== "pending" && status !== "loading" && status !== "approved"
+            ? `<button class="account-action-button" type="button" data-action="dismiss-cloud-campaign-request-status">Cerrar</button>`
+            : ""}
       </section>
     </div>
   `;
@@ -31869,7 +31890,8 @@ async function requestOpenCloudCampaignAccess(campaignId, existingRequestId = ""
   const target = `campaign-request:${campaignId}`;
   beginCloudOperation("saving", target);
   try {
-    const result = existingRequestId
+    const reusablePendingRequestId = campaign.requestStatus === "pending" ? existingRequestId : "";
+    const result = reusablePendingRequestId
       ? { request: { id: existingRequestId, campaignId, campaignName: campaign.name, status: "pending" } }
       : await requestCloudCampaignAccess(campaignId);
     state.cloudCampaignJoinPending = {
@@ -31886,6 +31908,31 @@ async function requestOpenCloudCampaignAccess(campaignId, existingRequestId = ""
   }
   endCloudOperation("saving", target);
   render();
+}
+
+async function loadApprovedCloudCampaignRequest() {
+  const pending = state.cloudCampaignJoinPending;
+  if (!pending?.campaignId) return false;
+  state.cloudCampaignJoinPending = { ...pending, status: "loading" };
+  render();
+  const loaded = await loadCloudCampaignById(pending.campaignId);
+  if (loaded) {
+    state.cloudCampaignJoinPending = { ...pending, status: "approved" };
+    window.setTimeout(() => {
+      if (state.cloudCampaignJoinPending?.id === pending.id) {
+        state.cloudCampaignJoinPending = null;
+        render();
+      }
+    }, 1600);
+    return true;
+  }
+  state.cloudCampaignJoinPending = {
+    ...pending,
+    status: "load-error",
+    error: state.accountError || "No se pudo cargar la campaña compartida."
+  };
+  render();
+  return false;
 }
 
 async function resolveOpenCloudCampaignRequest(decision) {
@@ -31922,15 +31969,7 @@ async function pollCloudCampaignJoinRequests() {
         state.cloudCampaignJoinPending = { ...pending, ...result.request };
         if (status === "approved") {
           await refreshCloudCampaigns({ renderAfter: false });
-          render();
-          await loadCloudCampaignById(pending.campaignId);
-          state.cloudCampaignJoinPending = { ...state.cloudCampaignJoinPending, status: "approved" };
-          window.setTimeout(() => {
-            if (state.cloudCampaignJoinPending?.id === pending.id) {
-              state.cloudCampaignJoinPending = null;
-              render();
-            }
-          }, 1600);
+          await loadApprovedCloudCampaignRequest();
         } else {
           render();
         }

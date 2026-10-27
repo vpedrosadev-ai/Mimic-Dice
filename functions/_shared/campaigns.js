@@ -384,7 +384,7 @@ async function closeCampaignCollaboration(context, campaignId, user) {
     context.env.DB.prepare(`
       UPDATE "campaign_join_requests"
       SET "status" = 'cancelled', "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "campaignId" = ? AND "status" = 'pending'
+      WHERE "campaignId" = ? AND "status" <> 'cancelled'
     `).bind(campaignId)
   ]);
 
@@ -518,15 +518,23 @@ async function resolveCampaignJoinRequest(context, campaignId, requestId, user) 
     if (Number(memberCount?.count || 0) >= MAX_CAMPAIGN_COLLABORATORS) {
       throw new HttpError(409, "collaboration_full", `Maximum ${MAX_CAMPAIGN_COLLABORATORS} collaborators per campaign.`);
     }
+    await context.env.DB.batch([
+      context.env.DB.prepare(`
+        INSERT INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
+        VALUES (?, ?, 'editor', CURRENT_TIMESTAMP)
+        ON CONFLICT("campaignId", "userId") DO NOTHING
+      `).bind(campaignId, joinRequest.userId),
+      context.env.DB.prepare(`
+        UPDATE "campaign_join_requests" SET "status" = 'approved', "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ? AND "status" = 'pending'
+      `).bind(requestId)
+    ]);
+  } else {
     await context.env.DB.prepare(`
-      INSERT OR IGNORE INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
-      VALUES (?, ?, 'editor', CURRENT_TIMESTAMP)
-    `).bind(campaignId, joinRequest.userId).run();
+      UPDATE "campaign_join_requests" SET "status" = 'denied', "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ? AND "status" = 'pending'
+    `).bind(requestId).run();
   }
-  await context.env.DB.prepare(`
-    UPDATE "campaign_join_requests" SET "status" = ?, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ? AND "status" = 'pending'
-  `).bind(decision, requestId).run();
   await notifyCampaignJoinRequest(context, campaignId, {
     type: "join-resolution",
     request: { id: requestId, campaignId, userId: joinRequest.userId, status: decision }
