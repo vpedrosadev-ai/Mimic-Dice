@@ -890,6 +890,7 @@ state = {
   cloudCampaignUpdatedAt: "",
   cloudCampaignRealtimeStatus: "closed",
   cloudCampaignLiveUsers: 0,
+  cloudCampaignDeviceCount: 0,
   cloudImportedEntries: [],
   cloudImportUpdateCandidates: [],
   cloudImportUpdateDialogOpen: false,
@@ -9804,8 +9805,11 @@ function getCloudAutosaveLabel() {
 }
 
 function getCloudCollaborationStatusLabel() {
-  if (!isCloudCampaignCollaborative()) return "";
+  if (!isCloudCampaignLiveSynchronized()) return "";
   if (state.cloudCampaignRealtimeStatus === "connected") {
+    if (state.cloudCampaignDeviceCount >= 2) {
+      return `Sincronización en directo · ${state.cloudCampaignDeviceCount} dispositivos`;
+    }
     const userCount = Math.max(1, state.cloudCampaignLiveUsers);
     return `Colaboración en directo · ${userCount} conectado${userCount === 1 ? "" : "s"}`;
   }
@@ -11641,7 +11645,7 @@ function renderAccountDialog() {
                     <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
                     ${state.cloudAutosaveMessage ? `<small>${escapeHtml(state.cloudAutosaveMessage)}</small>` : ""}
                   </div>
-                  ${isCloudCampaignCollaborative() ? `<small data-cloud-live-status>${escapeHtml(getCloudCollaborationStatusLabel())}</small>` : ""}
+                  ${isCloudCampaignLiveSynchronized() ? `<small data-cloud-live-status>${escapeHtml(getCloudCollaborationStatusLabel())}</small>` : ""}
                   <small>Autoguardado empieza cuando cargas o creas una campaña cloud. JSON local sigue disponible.</small>
                 </section>
                 <section class="account-dialog__section">
@@ -33288,12 +33292,21 @@ function isCloudCampaignCollaborative() {
   return state.cloudCampaignIsShared || state.cloudCampaignCollaborationOpen;
 }
 
+function isCloudCampaignRealtimeEnabled() {
+  return Boolean(state.cloudCampaignId && (state.cloudCampaignCanManage || isCloudCampaignCollaborative()));
+}
+
+function isCloudCampaignLiveSynchronized() {
+  return isCloudCampaignCollaborative() || state.cloudCampaignDeviceCount >= 2;
+}
+
 function stopCloudCampaignRealtime() {
   cloudCampaignRealtimeConnection?.close();
   cloudCampaignRealtimeConnection = null;
   cloudCampaignRealtimeCampaignId = "";
   state.cloudCampaignRealtimeStatus = "closed";
   state.cloudCampaignLiveUsers = 0;
+  state.cloudCampaignDeviceCount = 0;
 }
 
 function updateLastCloudCampaignCombatSection(section, operation, value) {
@@ -33362,14 +33375,14 @@ function applyRemoteCombatSection(message) {
 }
 
 function scheduleHostCombatCheckpoint() {
-  if (cloudCampaignSaveSuspended || !state.cloudCampaignCanManage || !isCloudCampaignCollaborative()) return;
+  if (cloudCampaignSaveSuspended || !state.cloudCampaignCanManage || !isCloudCampaignLiveSynchronized()) return;
   cloudCampaignChangeRevision += 1;
   scheduleCloudCampaignAutosave(30_000, { changeScope: "combat-checkpoint" });
 }
 
 function syncCloudCampaignRealtime() {
   const campaignId = cleanText(state.cloudCampaignId);
-  if (!campaignId || !isCloudCampaignCollaborative() || !state.accountSession?.user?.id) {
+  if (!campaignId || !isCloudCampaignRealtimeEnabled() || !state.accountSession?.user?.id) {
     stopCloudCampaignRealtime();
     return;
   }
@@ -33381,8 +33394,31 @@ function syncCloudCampaignRealtime() {
       state.cloudCampaignRealtimeStatus = status;
       syncCloudAccountUi();
     },
-    onPresence(userCount) {
+    onPresence(userCount, message) {
+      const previousDeviceCount = state.cloudCampaignDeviceCount;
+      const deviceCount = Math.max(1, Math.floor(Number(message?.sameAccountDeviceCount) || 1));
       state.cloudCampaignLiveUsers = userCount;
+      state.cloudCampaignDeviceCount = deviceCount;
+      if (deviceCount >= 2 && previousDeviceCount < 2) {
+        pushNotification({
+          title: "Campaña sincronizada",
+          message: `Esta campaña está sincronizada entre ${deviceCount} dispositivos de tu cuenta.`,
+          tone: "info",
+          durationMs: 6500,
+          dedupeKey: `cloud-device-sync:${state.cloudCampaignId}`
+        });
+        syncNotificationUi();
+      }
+      if (deviceCount >= 2 && deviceCount > previousDeviceCount && message?.sameAccountOldest === true) {
+        const tracker = getCombatTrackerSaveData();
+        const map = combatMapController.getSaveData({ portable: true });
+        cloudCampaignRealtimeConnection?.publishCombatSection?.("tracker", tracker, "replace");
+        cloudCampaignRealtimeConnection?.publishCombatSection?.("map", map, "replace");
+        updateLastCloudCampaignCombatSection("tracker", "replace", tracker);
+        updateLastCloudCampaignCombatSection("map", "replace", map);
+        cloudCampaignChangeRevision += 1;
+        scheduleCloudCampaignAutosave(350, { changeScope: "full" });
+      }
       syncCloudAccountUi();
     },
     onRevision(message) {
@@ -33427,6 +33463,14 @@ function syncCloudCampaignRealtime() {
       }
     },
     onClosed() {
+      if (state.cloudCampaignCanManage) {
+        stopCloudCampaignRealtime();
+        state.cloudCampaignCollaborationOpen = false;
+        state.cloudCampaignIsShared = false;
+        syncCloudCampaignRealtime();
+        syncCloudAccountUi();
+        return;
+      }
       if (cloudCampaignClosingCollaborationId === state.cloudCampaignId) {
         stopCloudCampaignRealtime();
         return;
@@ -34045,7 +34089,7 @@ function checkCloudAutosaveHealth() {
 }
 
 function preserveSharedCampaignLocalPreferences(payload) {
-  if (!isCloudCampaignCollaborative() || !isPlainObject(payload) || !isPlainObject(lastCloudCampaignPayload)) {
+  if (!isCloudCampaignLiveSynchronized() || !isPlainObject(payload) || !isPlainObject(lastCloudCampaignPayload)) {
     return payload;
   }
 
@@ -34145,7 +34189,7 @@ function getSharedCampaignLocalMapPreferences(campaignId) {
 }
 
 function saveSharedCampaignLocalMapPreferences() {
-  if (cloudCampaignSaveSuspended || !isCloudCampaignCollaborative() || !state.cloudCampaignId || typeof window === "undefined") return;
+  if (cloudCampaignSaveSuspended || !isCloudCampaignLiveSynchronized() || !state.cloudCampaignId || typeof window === "undefined") return;
   const map = combatMapController.getSaveData();
   const initiative = isPlainObject(map.initiative) ? map.initiative : {};
   const value = {
@@ -34292,7 +34336,7 @@ async function autosaveCloudCampaign(options = {}) {
   const startedAt = Date.now();
   const campaignId = state.cloudCampaignId;
   let baseRevision = state.cloudCampaignRevision;
-  const sharedCampaign = isCloudCampaignCollaborative();
+  const sharedCampaign = isCloudCampaignLiveSynchronized();
   let phase = "preparación del contenido";
   let completionWatchdog = 0;
   let savePromise;
@@ -34484,7 +34528,7 @@ function scheduleCloudCampaignAutosave(delay = 4000, options = {}) {
     cloudCampaignAutosaveChangeScope = "full";
   }
 
-  const normalizedDelay = Math.max(isCloudCampaignCollaborative() ? 350 : 1500, Number(delay) || 4000);
+  const normalizedDelay = Math.max(isCloudCampaignLiveSynchronized() ? 350 : 1500, Number(delay) || 4000);
 
   if (options.preserveStatus !== true) {
     state.cloudAutosaveStatus = "pending";
@@ -34526,7 +34570,7 @@ async function syncSharedCloudCampaign(knownRemoteRevision = 0) {
     || cloudCampaignSaveInProgress
     || !state.accountSession?.user?.id
     || !state.cloudCampaignId
-    || !isCloudCampaignCollaborative()
+    || !isCloudCampaignLiveSynchronized()
     || cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision
   ) {
     return false;
@@ -35798,7 +35842,7 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0, options = {}) {
   }
 
   const dirtyScope = cleanText(options.scope);
-  const isCollaborativeCombatChange = isCloudCampaignCollaborative()
+  const isCollaborativeCombatChange = isCloudCampaignLiveSynchronized()
     && (dirtyScope === "combat-tracker" || dirtyScope === "combat-map");
   const canPersistCloudChange = !isCloudCampaignCollaborative() || state.cloudCampaignCanManage;
 
@@ -35825,7 +35869,7 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0, options = {}) {
 
   if (!cloudCombatSectionApplySuspended && canPersistCloudChange) {
     scheduleCloudCampaignAutosave(
-      isCollaborativeCombatChange ? 30_000 : isCloudCampaignCollaborative() ? 700 : 4000,
+      isCollaborativeCombatChange ? 30_000 : isCloudCampaignLiveSynchronized() ? 700 : 4000,
       { changeScope: isCollaborativeCombatChange ? "combat-checkpoint" : "full" }
     );
   }

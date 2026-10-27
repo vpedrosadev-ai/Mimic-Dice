@@ -47,12 +47,18 @@ test("shared combat sync keeps one command in flight and coalesces newer section
 
   try {
     const received = [];
+    const presences = [];
     const connection = connectSharedCampaignRealtime("campaign-1", {
-      onCombatSection: (message) => received.push(message)
+      onCombatSection: (message) => received.push(message),
+      onPresence: (userCount, message) => presences.push({ userCount, message })
     });
     const socket = sockets[0];
     socket.readyState = FakeWebSocket.OPEN;
     socket.emit("open");
+    socket.emit("message", { data: JSON.stringify({ type: "presence", userCount: 1, connectionCount: 2, sameAccountDeviceCount: 2, sameAccountOldest: true }) });
+    assert.equal(presences[0].userCount, 1);
+    assert.equal(presences[0].message.sameAccountDeviceCount, 2);
+    assert.equal(presences[0].message.sameAccountOldest, true);
 
     connection.publishCombatSection("tracker", { revision: 1 });
     connection.publishCombatSection("tracker", { revision: 2 });

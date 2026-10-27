@@ -2,6 +2,7 @@
 
 ## User model
 
+- Campaign owner may load same cloud campaign on multiple devices without approval. Owned campaigns always open an authenticated realtime channel; second same-account connection triggers snapshot handoff and a synchronization notice on every connected device.
 - Campaign owner opens collaboration and receives a revocable invite URL.
 - Open campaigns also appear in **Tu cuenta > Campañas abiertas**. Joining there creates a persistent request that the host accepts or denies from the main app.
 - The requester sees a centered status dialog; approval adds editor membership and loads the campaign automatically.

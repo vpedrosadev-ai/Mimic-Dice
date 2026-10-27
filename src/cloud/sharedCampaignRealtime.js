@@ -37,7 +37,7 @@ export function connectSharedCampaignRealtime(campaignId, options = {}) {
       if (message?.type === "revision" && typeof options.onRevision === "function") {
         options.onRevision(message);
       } else if (message?.type === "presence" && typeof options.onPresence === "function") {
-        options.onPresence(Math.max(0, Math.floor(Number(message.userCount) || 0)));
+        options.onPresence(Math.max(0, Math.floor(Number(message.userCount) || 0)), message);
       } else if (message?.type === "closed") {
         options.onClosed?.();
       } else if (message?.type === "combat-section") {

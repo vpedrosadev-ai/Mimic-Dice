@@ -350,7 +350,13 @@ export class SharedCampaignRoom extends DurableObject {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ userId: user.id, name: user.name, role });
+    server.serializeAttachment({
+      userId: user.id,
+      name: user.name,
+      role,
+      connectedAt: Date.now(),
+      connectionId: crypto.randomUUID()
+    });
     server.send(JSON.stringify({ type: "revision", ...this.metadata }));
     this.broadcastPresence();
     return new Response(null, { status: 101, webSocket: client });
@@ -399,12 +405,34 @@ export class SharedCampaignRoom extends DurableObject {
   }
 
   broadcastPresence() {
+    const sockets = this.ctx.getWebSockets();
     const userIds = new Set();
-    for (const socket of this.ctx.getWebSockets()) {
+    const socketsByUser = new Map();
+    for (const socket of sockets) {
       const attachment = socket.deserializeAttachment() || {};
-      if (attachment.userId) userIds.add(attachment.userId);
+      if (!attachment.userId) continue;
+      userIds.add(attachment.userId);
+      const entries = socketsByUser.get(attachment.userId) || [];
+      entries.push({ socket, attachment });
+      socketsByUser.set(attachment.userId, entries);
     }
-    this.broadcast({ type: "presence", userCount: userIds.size });
+    for (const entries of socketsByUser.values()) {
+      entries.sort((left, right) => (
+        Number(left.attachment.connectedAt || 0) - Number(right.attachment.connectedAt || 0)
+        || safeText(left.attachment.connectionId).localeCompare(safeText(right.attachment.connectionId))
+      ));
+      entries.forEach(({ socket }, index) => {
+        try {
+          socket.send(JSON.stringify({
+            type: "presence",
+            userCount: userIds.size,
+            connectionCount: sockets.length,
+            sameAccountDeviceCount: entries.length,
+            sameAccountOldest: index === 0
+          }));
+        } catch {}
+      });
+    }
   }
 
   broadcast(message, options = {}) {
