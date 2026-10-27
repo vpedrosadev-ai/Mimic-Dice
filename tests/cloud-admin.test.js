@@ -51,6 +51,7 @@ test("shared campaign editor can edit without owner-only management rights", () 
     ownerId: "host",
     memberRole: "editor",
     memberCount: 3,
+    collaborationOpen: 1,
     name: "Monster League",
     isPublic: 0,
     revision: 4,
@@ -59,6 +60,7 @@ test("shared campaign editor can edit without owner-only management rights", () 
 
   assert.equal(summary.isOwner, false);
   assert.equal(summary.isShared, true);
+  assert.equal(summary.collaborationOpen, true);
   assert.equal(summary.canEdit, true);
   assert.equal(summary.canManage, false);
 });

@@ -83,7 +83,11 @@ export async function beginGoogleAuth({ registrationCode = "", register = false 
   }
 
   const csrfToken = await fetchCsrfToken();
-  const callbackUrl = `${window.location.origin}/?cloud=choose`;
+  const callback = new URL("/", window.location.origin);
+  callback.searchParams.set("cloud", "choose");
+  const pendingInvite = new URL(window.location.href).searchParams.get("cloudJoin");
+  if (pendingInvite) callback.searchParams.set("cloudJoin", pendingInvite);
+  const callbackUrl = callback.toString();
   const response = await fetch("/api/auth/signin/google", {
     method: "POST",
     credentials: "same-origin",
@@ -175,6 +179,38 @@ export async function cloneCloudCampaign(campaignId) {
     method: "POST",
     body: "{}"
   });
+}
+
+export async function openCloudCampaignCollaboration(campaignId) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/share`, {
+    method: "POST",
+    body: "{}"
+  });
+}
+
+export async function closeCloudCampaignCollaboration(campaignId) {
+  return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/share`, {
+    method: "DELETE",
+    body: "{}"
+  });
+}
+
+export async function joinCloudCampaignCollaboration(inviteToken) {
+  return requestJson("/api/campaigns/join", {
+    method: "POST",
+    body: JSON.stringify({ inviteToken })
+  });
+}
+
+export async function leaveCloudCampaignCollaboration(campaignId) {
+  const response = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/membership`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) return parseResponse(response);
+  return null;
 }
 
 export async function uploadCloudImage(blob, { width = 0, height = 0 } = {}) {

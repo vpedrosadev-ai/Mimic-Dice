@@ -16,3 +16,8 @@ bucket_name = "mimic-dice-assets"
 name = "MONSTERS_LEAGUE_ROOMS"
 class_name = "MonstersLeagueRoom"
 script_name = "mimicdice-monsters-league"
+
+[[durable_objects.bindings]]
+name = "SHARED_CAMPAIGN_ROOMS"
+class_name = "SharedCampaignRoom"
+script_name = "mimicdice-monsters-league"

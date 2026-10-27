@@ -274,6 +274,110 @@ export class MonstersLeagueRoom extends DurableObject {
   }
 }
 
+const SHARED_CAMPAIGN_METADATA_KEY = "campaign-metadata";
+
+export class SharedCampaignRoom extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.ctx = ctx;
+    this.env = env;
+    this.metadata = null;
+    this.ready = ctx.blockConcurrencyWhile(async () => {
+      this.metadata = await ctx.storage.get(SHARED_CAMPAIGN_METADATA_KEY) || null;
+    });
+  }
+
+  async fetch(request) {
+    await this.ready;
+    const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/socket") && request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+      return this.connectSocket(request);
+    }
+
+    if (url.pathname === "/revision" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      this.metadata = {
+        campaignId: safeText(body.campaignId).slice(0, 120),
+        revision: Math.max(0, Math.floor(Number(body.revision) || 0)),
+        updatedAt: safeText(body.updatedAt).slice(0, 80),
+        actorUserId: safeText(body.actorUserId).slice(0, 120)
+      };
+      await this.ctx.storage.put(SHARED_CAMPAIGN_METADATA_KEY, this.metadata);
+      this.broadcast({ type: "revision", ...this.metadata });
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === "/close" && request.method === "POST") {
+      this.broadcast({ type: "closed" });
+      for (const socket of this.ctx.getWebSockets()) {
+        try { socket.close(1000, "Campaign collaboration closed"); } catch {}
+      }
+      await this.ctx.storage.deleteAll();
+      this.metadata = null;
+      return Response.json({ ok: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }
+
+  async connectSocket(request) {
+    const user = getTrustedUser(request);
+    const campaignId = safeText(request.headers.get("X-Mimic-Campaign-Id")).slice(0, 120);
+    const revision = Math.max(0, Math.floor(Number(request.headers.get("X-Mimic-Campaign-Revision")) || 0));
+    const updatedAt = safeText(request.headers.get("X-Mimic-Campaign-Updated-At")).slice(0, 80);
+
+    if (!campaignId) {
+      return new Response("Campaign required", { status: 400 });
+    }
+
+    if (!this.metadata || revision > Number(this.metadata.revision || 0)) {
+      this.metadata = { campaignId, revision, updatedAt, actorUserId: "" };
+      await this.ctx.storage.put(SHARED_CAMPAIGN_METADATA_KEY, this.metadata);
+    }
+
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ userId: user.id, name: user.name });
+    server.send(JSON.stringify({ type: "revision", ...this.metadata }));
+    this.broadcastPresence();
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  webSocketMessage(socket, message) {
+    let command = null;
+    try { command = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)); } catch {}
+    if (command?.type === "ping") {
+      try { socket.send(JSON.stringify({ type: "pong", serverNow: Date.now() })); } catch {}
+    }
+  }
+
+  webSocketClose() {
+    this.broadcastPresence();
+  }
+
+  webSocketError() {
+    this.broadcastPresence();
+  }
+
+  broadcastPresence() {
+    const userIds = new Set();
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() || {};
+      if (attachment.userId) userIds.add(attachment.userId);
+    }
+    this.broadcast({ type: "presence", userCount: userIds.size });
+  }
+
+  broadcast(message) {
+    const payload = JSON.stringify(message);
+    for (const socket of this.ctx.getWebSockets()) {
+      try { socket.send(payload); } catch {}
+    }
+  }
+}
+
 export default {
   fetch() {
     return new Response("Monsters League room worker", { status: 404 });

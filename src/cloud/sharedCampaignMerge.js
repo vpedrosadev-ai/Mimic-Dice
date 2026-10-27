@@ -80,3 +80,8 @@ export function mergeSharedCampaignPayload(base, local, remote) {
   if (!isPlainObject(local) || !isPlainObject(remote)) return clone(local);
   return mergeValue(isPlainObject(base) ? base : {}, local, remote);
 }
+
+export function shouldApplyMergedSharedCampaign(mergedRemoteChanges, savedChangeRevision, currentChangeRevision) {
+  return mergedRemoteChanges === true
+    && Number(savedChangeRevision) === Number(currentChangeRevision);
+}

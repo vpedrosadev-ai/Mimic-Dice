@@ -7,6 +7,14 @@ workers_dev = false
 tag = "v1"
 new_sqlite_classes = ["MonstersLeagueRoom"]
 
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SharedCampaignRoom"]
+
 [[durable_objects.bindings]]
 name = "MONSTERS_LEAGUE_ROOMS"
 class_name = "MonstersLeagueRoom"
+
+[[durable_objects.bindings]]
+name = "SHARED_CAMPAIGN_ROOMS"
+class_name = "SharedCampaignRoom"

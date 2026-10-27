@@ -141,6 +141,10 @@ import {
   listCloudLibraryEntries,
   listPublicCloudCampaigns,
   listPublicCloudLibraryEntries,
+  openCloudCampaignCollaboration,
+  closeCloudCampaignCollaboration,
+  joinCloudCampaignCollaboration,
+  leaveCloudCampaignCollaboration,
   setCloudCampaignVisibility,
   setCloudLibraryEntryVisibility,
   signOutAccount,
@@ -151,7 +155,11 @@ import {
   uploadCloudImage,
   uploadCloudPdf
 } from "./cloud/cloudClient.js";
-import { mergeSharedCampaignPayload } from "./cloud/sharedCampaignMerge.js";
+import {
+  mergeSharedCampaignPayload,
+  shouldApplyMergedSharedCampaign
+} from "./cloud/sharedCampaignMerge.js";
+import { connectSharedCampaignRealtime } from "./cloud/sharedCampaignRealtime.js";
 import {
   getCloudAutosaveRetryDelayMs,
   isRetryableCloudAutosaveError
@@ -515,6 +523,10 @@ let cloudCampaignChangeRevision = 0;
 let lastCloudCampaignSavedChangeRevision = 0;
 let cloudCampaignVisibilityHandlerRegistered = false;
 let cloudCampaignSyncInProgress = false;
+let cloudCampaignRealtimeConnection = null;
+let cloudCampaignRealtimeCampaignId = "";
+let cloudCampaignClosingCollaborationId = "";
+let cloudCampaignPendingRemoteRevision = 0;
 const SHARED_CAMPAIGN_MAP_VIEW_STORAGE_PREFIX = "mimic-dice:shared-campaign-map-view:v1:";
 const cloudImageUploadCache = new Map();
 const cloudCatalogBaseKeysPromiseByRepository = new Map();
@@ -859,8 +871,11 @@ state = {
   cloudCampaignRevision: 0,
   cloudCampaignIsPublic: false,
   cloudCampaignIsShared: false,
+  cloudCampaignCollaborationOpen: false,
   cloudCampaignCanManage: false,
   cloudCampaignUpdatedAt: "",
+  cloudCampaignRealtimeStatus: "closed",
+  cloudCampaignLiveUsers: 0,
   cloudImportedEntries: [],
   cloudImportUpdateCandidates: [],
   cloudImportUpdateDialogOpen: false,
@@ -1109,7 +1124,7 @@ state = {
 
 const combatMapController = createCombatMapController({
   canLoadMap: () => {
-    if (!state.cloudCampaignIsShared) return true;
+    if (!isCloudCampaignCollaborative()) return true;
     const roomIds = [...new Set(state.combatants
       .filter((combatant) => combatant.multiplayerOnline)
       .map((combatant) => cleanText(combatant.multiplayerRoomId))
@@ -1476,7 +1491,7 @@ function getMonstersLeagueRoomAccess(roomId) {
   const userId = cleanText(state.accountSession?.user?.id);
   return {
     combatants,
-    shared: state.cloudCampaignIsShared === true,
+    shared: isCloudCampaignCollaborative(),
     host: state.cloudCampaignCanManage === true
       || Boolean(userId && cleanText(sample?.multiplayerHostUserId) === userId)
   };
@@ -2531,6 +2546,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "join-cloud-campaign-collaboration") {
+    await joinSharedCloudCampaign();
+    return;
+  }
+
   if (action === "create-cloud-campaign") {
     await chooseCloudCampaignCreationSource();
     return;
@@ -2548,6 +2568,21 @@ async function handleClick(event) {
 
   if (action === "toggle-cloud-campaign-public") {
     await toggleCloudCampaignPublic(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "open-cloud-campaign-collaboration") {
+    await shareCloudCampaign(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "close-cloud-campaign-collaboration") {
+    await stopSharingCloudCampaign(actionButton.dataset.cloudCampaignId);
+    return;
+  }
+
+  if (action === "leave-cloud-campaign-collaboration") {
+    await leaveSharedCloudCampaign(actionButton.dataset.cloudCampaignId);
     return;
   }
 
@@ -9719,6 +9754,16 @@ function getCloudAutosaveLabel() {
   return labels[state.cloudAutosaveStatus] || labels.idle;
 }
 
+function getCloudCollaborationStatusLabel() {
+  if (!isCloudCampaignCollaborative()) return "";
+  if (state.cloudCampaignRealtimeStatus === "connected") {
+    const userCount = Math.max(1, state.cloudCampaignLiveUsers);
+    return `Colaboración en directo · ${userCount} conectado${userCount === 1 ? "" : "s"}`;
+  }
+  if (state.cloudCampaignRealtimeStatus === "reconnecting") return "Reconectando colaboración...";
+  return "Conectando colaboración...";
+}
+
 function renderAccountChip() {
   const user = state.accountSession?.user ?? null;
   const isAuthenticated = Boolean(user?.id);
@@ -9805,6 +9850,7 @@ function renderCloudCampaignCard(campaign, options = {}) {
   const publicLoadTarget = `public-campaign:${campaign.id}`;
   const visibilityTarget = `campaign-visibility:${campaign.id}`;
   const duplicateTarget = `campaign-duplicate:${campaign.id}`;
+  const shareTarget = `campaign-share:${campaign.id}`;
 
   return `
     <article class="account-campaign-card ${isActive ? "is-active" : ""}">
@@ -9815,7 +9861,7 @@ function renderCloudCampaignCard(campaign, options = {}) {
             ${escapeHtml(formatCampaignSavedAt(campaign.updatedAt) || "Sin fecha")}
             · ${escapeHtml(formatCloudCampaignSize(campaign.payloadBytes))}
             ${(publicLibrary || campaign.isOwner === false) ? ` · por ${escapeHtml(campaign.ownerName || "Usuario")}` : ""}
-            ${campaign.isShared ? " · Compartida" : ""}
+            ${campaign.collaborationOpen ? ` · Colaboración abierta${isActive && state.cloudCampaignLiveUsers > 0 ? ` (${state.cloudCampaignLiveUsers})` : ""}` : campaign.isShared ? " · Compartida" : ""}
           </small>
         </div>
         <span class="account-campaign-card__visibility ${campaign.isPublic ? "is-public" : ""}">
@@ -9836,11 +9882,15 @@ function renderCloudCampaignCard(campaign, options = {}) {
                 ${renderCloudButtonLabel("Duplicar", "Duplicando...", "saving", duplicateTarget)}
               </button>
               ${canManage ? `
+                <button class="account-action-button${getCloudButtonBusyClass("saving", shareTarget)}" type="button" data-action="open-cloud-campaign-collaboration" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("saving", shareTarget)}>
+                  ${renderCloudButtonLabel(campaign.collaborationOpen ? "Copiar enlace" : "Abrir colaboración", "Preparando...", "saving", shareTarget)}
+                </button>
+                ${campaign.collaborationOpen ? `<button class="account-action-button account-action-button--danger${getCloudButtonBusyClass("saving", shareTarget)}" type="button" data-action="close-cloud-campaign-collaboration" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("saving", shareTarget)}>Cerrar colaboración</button>` : ""}
                 <button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="toggle-cloud-campaign-public" data-cloud-campaign-id="${escapeHtml(campaign.id)}" ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>
                   ${renderCloudButtonLabel(campaign.isPublic ? "Hacer privada" : "Hacer pública", "Guardando...", "saving", visibilityTarget)}
                 </button>
                 <button class="account-action-button account-action-button--danger" type="button" data-action="delete-cloud-campaign" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Eliminar</button>
-              ` : ""}
+              ` : `<button class="account-action-button account-action-button--ghost" type="button" data-action="leave-cloud-campaign-collaboration" data-cloud-campaign-id="${escapeHtml(campaign.id)}">Salir de colaboración</button>`}
             `
         }
       </div>
@@ -11524,6 +11574,7 @@ function renderAccountDialog() {
                     <strong>${escapeHtml(getCloudAutosaveLabel())}</strong>
                     ${state.cloudAutosaveMessage ? `<small>${escapeHtml(state.cloudAutosaveMessage)}</small>` : ""}
                   </div>
+                  ${isCloudCampaignCollaborative() ? `<small data-cloud-live-status>${escapeHtml(getCloudCollaborationStatusLabel())}</small>` : ""}
                   <small>Autoguardado empieza cuando cargas o creas una campaña cloud. JSON local sigue disponible.</small>
                 </section>
                 <section class="account-dialog__section">
@@ -11531,6 +11582,7 @@ function renderAccountDialog() {
                     <h3>Tus campañas</h3>
                     <div class="account-dialog__section-actions">
                       <button class="account-action-button${getCloudButtonBusyClass("saving", "campaign:create")}" type="button" data-action="create-cloud-campaign" ${renderCloudButtonBusyAttributes("saving", "campaign:create")}>${renderCloudButtonLabel("Crear campaña", "Creando...", "saving", "campaign:create")}</button>
+                      <button class="account-action-button" type="button" data-action="join-cloud-campaign-collaboration">Unirse con enlace</button>
                       <button class="account-action-button account-action-button--ghost" type="button" data-action="refresh-cloud-campaigns">Actualizar</button>
                     </div>
                   </div>
@@ -13833,7 +13885,7 @@ function rollAndRecordDiceFormula(formula, options = {}) {
     rollEntry
   ].slice(-DICE_ROLLER_MAX_HISTORY);
   const sharedRoomIds = new Set(state.combatants
-    .filter((combatant) => state.cloudCampaignIsShared && combatant.multiplayerOnline)
+    .filter((combatant) => isCloudCampaignCollaborative() && combatant.multiplayerOnline)
     .map((combatant) => cleanText(combatant.multiplayerRoomId))
     .filter(Boolean));
   for (const roomId of sharedRoomIds) publishMonstersLeagueDiceRoll(roomId, rollEntry);
@@ -30869,6 +30921,10 @@ function getCloudErrorMessage(error) {
     asset_not_found: "La imagen cloud no esta disponible.",
     invalid_registration_code: "Código de registro incorrecto.",
     unauthorized: "La sesión ha caducado. Inicia sesión de nuevo.",
+    invite_required: "Pega un enlace o código de colaboración.",
+    campaign_invite_not_found: "El enlace de colaboración no existe o ya fue cerrado.",
+    collaboration_full: "Esta campaña ya alcanzó el límite de colaboradores.",
+    collaboration_unavailable: "Servicio de colaboración en directo no disponible.",
     revision_conflict: "Esta campaña cambió en otra sesión. Recárgala antes de guardar.",
     campaign_limit: "Has alcanzado el límite de campañas cloud.",
     campaign_too_large: "La campaña supera el límite cloud de 24 MB después de separar las imágenes.",
@@ -31453,6 +31509,14 @@ function cleanCloudAuthQuery() {
   }
 }
 
+function cleanCloudInviteQuery() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("cloudJoin")) return;
+  url.searchParams.delete("cloudJoin");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 async function updateAccountProfileImage(file) {
   if (!state.accountSession?.user?.id) {
     return;
@@ -31561,6 +31625,7 @@ async function initializeCloudAccount() {
 
   const currentUrl = new URL(window.location.href);
   const shouldChooseCampaign = currentUrl.searchParams.get("cloud") === "choose";
+  const collaborationInvite = cleanText(currentUrl.searchParams.get("cloudJoin"));
   const authError = cleanText(currentUrl.searchParams.get("error"));
 
   try {
@@ -31575,7 +31640,16 @@ async function initializeCloudAccount() {
       await refreshCloudCampaigns({ renderAfter: false });
       let storedMeta = null;
 
-      if (shouldChooseCampaign) {
+      if (collaborationInvite) {
+        const joined = await joinSharedCloudCampaign(collaborationInvite);
+        if (joined) {
+          cleanCloudInviteQuery();
+          cleanCloudAuthQuery();
+          return;
+        }
+        state.accountDialogOpen = true;
+        state.accountDialogView = "account";
+      } else if (shouldChooseCampaign) {
         state.accountDialogOpen = true;
         state.accountDialogView = "account";
       } else {
@@ -31598,6 +31672,11 @@ async function initializeCloudAccount() {
       detachActiveCloudCampaign();
       clearPrivateCloudAccountState();
       resetUnloadedCampaignWorkspace();
+      if (collaborationInvite) {
+        state.accountDialogOpen = true;
+        state.accountDialogView = "account";
+        state.accountError = "Inicia sesión para unirte a la campaña compartida.";
+      }
     }
 
     if (authError) {
@@ -32928,6 +33007,63 @@ async function startGoogleAccountFlow(register) {
   }
 }
 
+function isCloudCampaignCollaborative() {
+  return state.cloudCampaignIsShared || state.cloudCampaignCollaborationOpen;
+}
+
+function stopCloudCampaignRealtime() {
+  cloudCampaignRealtimeConnection?.close();
+  cloudCampaignRealtimeConnection = null;
+  cloudCampaignRealtimeCampaignId = "";
+  state.cloudCampaignRealtimeStatus = "closed";
+  state.cloudCampaignLiveUsers = 0;
+}
+
+function syncCloudCampaignRealtime() {
+  const campaignId = cleanText(state.cloudCampaignId);
+  if (!campaignId || !isCloudCampaignCollaborative() || !state.accountSession?.user?.id) {
+    stopCloudCampaignRealtime();
+    return;
+  }
+  if (cloudCampaignRealtimeConnection && cloudCampaignRealtimeCampaignId === campaignId) return;
+  stopCloudCampaignRealtime();
+  cloudCampaignRealtimeCampaignId = campaignId;
+  cloudCampaignRealtimeConnection = connectSharedCampaignRealtime(campaignId, {
+    onStatus(status) {
+      state.cloudCampaignRealtimeStatus = status;
+      syncCloudAccountUi();
+    },
+    onPresence(userCount) {
+      state.cloudCampaignLiveUsers = userCount;
+      syncCloudAccountUi();
+    },
+    onRevision(message) {
+      const revision = Number(message?.revision || 0);
+      if (revision > state.cloudCampaignRevision) {
+        cloudCampaignPendingRemoteRevision = Math.max(cloudCampaignPendingRemoteRevision, revision);
+        void syncSharedCloudCampaign(cloudCampaignPendingRemoteRevision);
+      }
+    },
+    onClosed() {
+      if (cloudCampaignClosingCollaborationId === state.cloudCampaignId) {
+        stopCloudCampaignRealtime();
+        return;
+      }
+      const campaignName = cleanText(state.campaignName) || "Campaña";
+      stopCloudCampaignRealtime();
+      detachActiveCloudCampaign({ keepLocalLabel: true });
+      state.campaignMessage = `${campaignName} ya no está compartida. Los cambios actuales permanecen como copia local.`;
+      pushNotification({
+        title: "Colaboración cerrada",
+        message: "El propietario cerró el acceso. Tu estado actual se conserva localmente.",
+        tone: "info",
+        durationMs: 7000
+      });
+      render();
+    }
+  });
+}
+
 function stopCloudCampaignAutosave() {
   if (typeof window !== "undefined" && cloudCampaignAutosaveTimer) {
     window.clearTimeout(cloudCampaignAutosaveTimer);
@@ -32951,6 +33087,7 @@ function stopCloudCampaignAutosave() {
   cloudCampaignSyncInterval = 0;
   cloudCampaignAutosaveDueAt = 0;
   cloudCampaignAutosaveNextPeriodicDueAt = 0;
+  stopCloudCampaignRealtime();
 }
 
 function detachActiveCloudCampaign(options = {}) {
@@ -32965,6 +33102,7 @@ function detachActiveCloudCampaign(options = {}) {
   state.cloudCampaignRevision = 0;
   state.cloudCampaignIsPublic = false;
   state.cloudCampaignIsShared = false;
+  state.cloudCampaignCollaborationOpen = false;
   state.cloudCampaignCanManage = false;
   state.cloudCampaignUpdatedAt = "";
   state.cloudAutosaveStatus = "idle";
@@ -32974,6 +33112,8 @@ function detachActiveCloudCampaign(options = {}) {
   cloudCampaignChangeRevision = 0;
   lastCloudCampaignSavedChangeRevision = 0;
   cloudCampaignAutosaveRetryCount = 0;
+  cloudCampaignPendingRemoteRevision = 0;
+  stopCloudCampaignRealtime();
 
   if (options.keepLocalLabel === true) {
     state.campaignLoadedFromPublic = true;
@@ -33032,12 +33172,18 @@ function activateCloudCampaign(campaign, payload, options = {}) {
   state.cloudCampaignRevision = Math.max(0, Number(campaign?.revision) || 0);
   state.cloudCampaignIsPublic = campaign?.isPublic === true;
   state.cloudCampaignIsShared = campaign?.isShared === true;
+  state.cloudCampaignCollaborationOpen = campaign?.collaborationOpen === true;
   state.cloudCampaignCanManage = campaign?.canManage === true;
   state.cloudCampaignUpdatedAt = cleanText(campaign?.updatedAt);
+  if (state.cloudCampaignRevision >= cloudCampaignPendingRemoteRevision) {
+    cloudCampaignPendingRemoteRevision = 0;
+  }
   state.cloudAutosaveStatus = "saved";
   state.cloudAutosaveMessage = "";
   state.campaignLoadedFromPublic = false;
-  state.campaignName = cleanText(campaign?.name) || cleanText(payload?.campaign?.name) || state.campaignName;
+  if (options.preserveLocalCampaignName !== true) {
+    state.campaignName = cleanText(campaign?.name) || cleanText(payload?.campaign?.name) || state.campaignName;
+  }
   state.accountCampaignName = state.campaignName;
   lastCloudCampaignSnapshot = getComparableCampaignSnapshot(payload);
   lastCloudCampaignPayload = isPlainObject(payload) ? structuredClone(payload) : null;
@@ -33050,6 +33196,7 @@ function activateCloudCampaign(campaign, payload, options = {}) {
   }
 
   saveActiveCloudCampaignMeta();
+  syncCloudCampaignRealtime();
 }
 
 async function saveCurrentCampaignToCloud() {
@@ -33505,7 +33652,7 @@ function checkCloudAutosaveHealth() {
 }
 
 function preserveSharedCampaignLocalPreferences(payload) {
-  if (!state.cloudCampaignIsShared || !isPlainObject(payload) || !isPlainObject(lastCloudCampaignPayload)) {
+  if (!isCloudCampaignCollaborative() || !isPlainObject(payload) || !isPlainObject(lastCloudCampaignPayload)) {
     return payload;
   }
 
@@ -33605,7 +33752,7 @@ function getSharedCampaignLocalMapPreferences(campaignId) {
 }
 
 function saveSharedCampaignLocalMapPreferences() {
-  if (cloudCampaignSaveSuspended || !state.cloudCampaignIsShared || !state.cloudCampaignId || typeof window === "undefined") return;
+  if (cloudCampaignSaveSuspended || !isCloudCampaignCollaborative() || !state.cloudCampaignId || typeof window === "undefined") return;
   const map = combatMapController.getSaveData();
   const initiative = isPlainObject(map.initiative) ? map.initiative : {};
   const value = {
@@ -33750,7 +33897,7 @@ async function autosaveCloudCampaign(options = {}) {
   const startedAt = Date.now();
   const campaignId = state.cloudCampaignId;
   let baseRevision = state.cloudCampaignRevision;
-  const sharedCampaign = state.cloudCampaignIsShared;
+  const sharedCampaign = isCloudCampaignCollaborative();
   let phase = "preparación del contenido";
   let completionWatchdog = 0;
   let savePromise;
@@ -33813,7 +33960,11 @@ async function autosaveCloudCampaign(options = {}) {
       }
 
       phase = "confirmación del servidor";
-      if (mergedRemoteChanges) {
+      if (shouldApplyMergedSharedCampaign(
+        mergedRemoteChanges,
+        saveChangeRevision,
+        cloudCampaignChangeRevision
+      )) {
         cloudCampaignSaveSuspended = true;
         try {
           applyCampaignSave(normalizeCampaignSave(payload), null, {
@@ -33824,7 +33975,10 @@ async function autosaveCloudCampaign(options = {}) {
           cloudCampaignSaveSuspended = false;
         }
       }
-      activateCloudCampaign(result.campaign, payload, { savedChangeRevision: saveChangeRevision });
+      activateCloudCampaign(result.campaign, payload, {
+        savedChangeRevision: saveChangeRevision,
+        preserveLocalCampaignName: cloudCampaignChangeRevision !== saveChangeRevision
+      });
       updateCloudCampaignSummary(result.campaign);
       finishCloudAutosaveRecovery();
       syncCloudAccountUi();
@@ -33880,6 +34034,12 @@ async function autosaveCloudCampaign(options = {}) {
         && cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision
       ) {
         scheduleCloudCampaignAutosave(1500);
+      } else if (
+        !cloudCampaignSaveInProgress
+        && cloudCampaignPendingRemoteRevision > state.cloudCampaignRevision
+        && cloudCampaignChangeRevision === lastCloudCampaignSavedChangeRevision
+      ) {
+        queueMicrotask(() => void syncSharedCloudCampaign(cloudCampaignPendingRemoteRevision));
       }
     }
   })();
@@ -33915,7 +34075,7 @@ function scheduleCloudCampaignAutosave(delay = 4000, options = {}) {
     window.clearTimeout(cloudCampaignAutosaveTimer);
   }
 
-  const normalizedDelay = Math.max(state.cloudCampaignIsShared ? 500 : 1500, Number(delay) || 4000);
+  const normalizedDelay = Math.max(isCloudCampaignCollaborative() ? 350 : 1500, Number(delay) || 4000);
 
   if (options.preserveStatus !== true) {
     state.cloudAutosaveStatus = "pending";
@@ -33950,14 +34110,14 @@ function scheduleCloudCampaignAutosave(delay = 4000, options = {}) {
   }, normalizedDelay);
 }
 
-async function syncSharedCloudCampaign() {
+async function syncSharedCloudCampaign(knownRemoteRevision = 0) {
   if (
     cloudCampaignSyncInProgress
     || cloudCampaignSaveSuspended
     || cloudCampaignSaveInProgress
     || !state.accountSession?.user?.id
     || !state.cloudCampaignId
-    || !state.cloudCampaignIsShared
+    || !isCloudCampaignCollaborative()
     || cloudCampaignChangeRevision !== lastCloudCampaignSavedChangeRevision
   ) {
     return false;
@@ -33967,10 +34127,15 @@ async function syncSharedCloudCampaign() {
   cloudCampaignSyncInProgress = true;
 
   try {
-    const statusResult = await getCloudCampaignStatus(campaignId);
-    const remoteSummary = statusResult?.campaign;
+    let remoteSummary = null;
+    if (Number(knownRemoteRevision) > state.cloudCampaignRevision) {
+      remoteSummary = { id: campaignId, revision: Number(knownRemoteRevision) };
+    } else {
+      const statusResult = await getCloudCampaignStatus(campaignId);
+      remoteSummary = statusResult?.campaign;
+      if (remoteSummary?.id) updateCloudCampaignSummary(remoteSummary);
+    }
     if (!remoteSummary?.id) return false;
-    updateCloudCampaignSummary(remoteSummary);
 
     if (
       campaignId !== state.cloudCampaignId
@@ -34012,6 +34177,12 @@ async function syncSharedCloudCampaign() {
     return false;
   } finally {
     cloudCampaignSyncInProgress = false;
+    if (
+      cloudCampaignPendingRemoteRevision > state.cloudCampaignRevision
+      && cloudCampaignChangeRevision === lastCloudCampaignSavedChangeRevision
+    ) {
+      queueMicrotask(() => void syncSharedCloudCampaign(cloudCampaignPendingRemoteRevision));
+    }
   }
 }
 
@@ -34058,7 +34229,7 @@ function startCloudCampaignAutosave() {
   if (!cloudCampaignSyncInterval) {
     cloudCampaignSyncInterval = window.setInterval(() => {
       void syncSharedCloudCampaign();
-    }, 1000);
+    }, 5000);
   }
 
   if (!cloudCampaignVisibilityHandlerRegistered) {
@@ -34095,6 +34266,147 @@ function syncCloudAccountUi() {
     `;
     applyInterfaceTranslations(saveStatus);
   }
+
+  const liveStatus = app.querySelector("[data-cloud-live-status]");
+  if (liveStatus) liveStatus.textContent = getCloudCollaborationStatusLabel();
+}
+
+function getCloudCampaignInviteToken(value) {
+  const text = cleanText(value);
+  if (!text) return "";
+  try {
+    const url = new URL(text, window.location.origin);
+    return cleanText(url.searchParams.get("cloudJoin"));
+  } catch {
+    return text;
+  }
+}
+
+async function copyCloudCampaignInvite(inviteUrl) {
+  if (typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function") {
+    await navigator.clipboard.writeText(inviteUrl);
+    return true;
+  }
+  window.prompt("Copia este enlace de colaboración:", inviteUrl);
+  return false;
+}
+
+function applyActiveCloudCampaignCollaborationSummary(campaign) {
+  if (campaign?.id !== state.cloudCampaignId) return;
+  state.cloudCampaignIsShared = campaign.isShared === true;
+  state.cloudCampaignCollaborationOpen = campaign.collaborationOpen === true;
+  state.cloudCampaignCanManage = campaign.canManage === true;
+  syncCloudCampaignRealtime();
+}
+
+async function shareCloudCampaign(campaignId) {
+  const summary = state.cloudCampaigns.find((campaign) => campaign.id === campaignId);
+  if (!summary?.canManage) return;
+  const operationTarget = `campaign-share:${campaignId}`;
+  beginCloudOperation("saving", operationTarget);
+  try {
+    if (campaignId === state.cloudCampaignId) {
+      const saved = await autosaveCloudCampaign({ force: true });
+      if (saved === false) throw new Error(state.cloudAutosaveMessage || "No se pudo guardar la campaña antes de compartirla.");
+    }
+    const result = await openCloudCampaignCollaboration(campaignId);
+    updateCloudCampaignSummary(result.campaign);
+    applyActiveCloudCampaignCollaborationSummary(result.campaign);
+    await copyCloudCampaignInvite(result.share.inviteUrl);
+    state.accountError = "";
+    pushNotification({
+      title: "Enlace de colaboración copiado",
+      message: "Usuarios con cuenta pueden unirse y editar esta campaña en directo.",
+      tone: "success"
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+async function stopSharingCloudCampaign(campaignId) {
+  const summary = state.cloudCampaigns.find((campaign) => campaign.id === campaignId);
+  if (!summary?.canManage) return;
+  if (!window.confirm("Cerrar la colaboración expulsará a los demás usuarios y revocará el enlace. ¿Continuar?")) return;
+  const operationTarget = `campaign-share:${campaignId}`;
+  beginCloudOperation("saving", operationTarget);
+  try {
+    if (campaignId === state.cloudCampaignId) {
+      const saved = await autosaveCloudCampaign({ force: true });
+      if (saved === false) throw new Error(state.cloudAutosaveMessage || "No se pudo guardar la campaña antes de cerrar la colaboración.");
+    }
+    cloudCampaignClosingCollaborationId = campaignId;
+    const result = await closeCloudCampaignCollaboration(campaignId);
+    updateCloudCampaignSummary(result.campaign);
+    applyActiveCloudCampaignCollaborationSummary(result.campaign);
+    state.accountError = "";
+    pushNotification({
+      title: "Colaboración cerrada",
+      message: "Enlace revocado y editores desconectados.",
+      tone: "info"
+    });
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  } finally {
+    cloudCampaignClosingCollaborationId = "";
+  }
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
+async function joinSharedCloudCampaign(inviteValue = "") {
+  const requested = inviteValue || window.prompt("Pega el enlace o código de colaboración:", "");
+  if (requested === null) return false;
+  const inviteToken = getCloudCampaignInviteToken(requested);
+  if (!inviteToken) {
+    state.accountError = "Enlace de colaboración no válido.";
+    render();
+    return false;
+  }
+  const operationTarget = "campaign:join";
+  beginCloudOperation("loading", operationTarget);
+  try {
+    const result = await joinCloudCampaignCollaboration(inviteToken);
+    await refreshCloudCampaigns({ renderAfter: false });
+    const loaded = await loadCloudCampaignById(result.campaign.id, {
+      operationTarget,
+      operationAlreadyStarted: true
+    });
+    if (!loaded) throw new Error(state.accountError || "No se pudo cargar la campaña compartida.");
+    state.accountError = "";
+    return true;
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    endCloudOperation("loading", operationTarget);
+    render();
+    return false;
+  }
+}
+
+async function leaveSharedCloudCampaign(campaignId) {
+  const summary = state.cloudCampaigns.find((campaign) => campaign.id === campaignId);
+  if (!summary || summary.isOwner || !window.confirm(`¿Dejar de colaborar en “${summary.name}”?`)) return;
+  const operationTarget = `campaign-leave:${campaignId}`;
+  beginCloudOperation("saving", operationTarget);
+  try {
+    if (campaignId === state.cloudCampaignId) {
+      const saved = await autosaveCloudCampaign({ force: true });
+      if (saved === false) throw new Error(state.cloudAutosaveMessage || "No se pudo guardar antes de salir.");
+    }
+    await leaveCloudCampaignCollaboration(campaignId);
+    if (campaignId === state.cloudCampaignId) {
+      detachActiveCloudCampaign({ keepLocalLabel: true });
+      state.campaignMessage = "Has salido de la colaboración. El estado actual queda como copia local.";
+    }
+    await refreshCloudCampaigns({ renderAfter: false });
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  endCloudOperation("saving", operationTarget);
+  render();
 }
 
 async function toggleCloudCampaignPublic(campaignId) {
@@ -35084,7 +35396,7 @@ function scheduleDesktopCampaignDirtyStateSync(delay = 0) {
     cloudCampaignChangeRevision += 1;
   }
 
-  scheduleCloudCampaignAutosave(state.cloudCampaignIsShared ? 1000 : 4000);
+  scheduleCloudCampaignAutosave(isCloudCampaignCollaborative() ? 700 : 4000);
 
   if (campaignDirtyStateSyncTimer) {
     window.clearTimeout(campaignDirtyStateSyncTimer);

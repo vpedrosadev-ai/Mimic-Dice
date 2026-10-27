@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mergeSharedCampaignPayload } from "../src/cloud/sharedCampaignMerge.js";
+import {
+  mergeSharedCampaignPayload,
+  shouldApplyMergedSharedCampaign
+} from "../src/cloud/sharedCampaignMerge.js";
 
 test("shared campaign merge keeps independent local and remote object edits", () => {
   const base = { campaign: { name: "League" }, combatTracker: { round: 1, activeId: "a" } };
@@ -33,4 +36,10 @@ test("shared campaign merge uses local value for same-field conflict", () => {
     mergeSharedCampaignPayload({ round: 1 }, { round: 2 }, { round: 3 }),
     { round: 2 }
   );
+});
+
+test("shared campaign merge never reapplies stale save over newer local edits", () => {
+  assert.equal(shouldApplyMergedSharedCampaign(true, 7, 7), true);
+  assert.equal(shouldApplyMergedSharedCampaign(true, 7, 8), false);
+  assert.equal(shouldApplyMergedSharedCampaign(false, 7, 7), false);
 });

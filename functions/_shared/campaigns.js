@@ -14,6 +14,7 @@ import {
 const MAX_CAMPAIGN_BYTES = 24 * 1024 * 1024;
 const MAX_CAMPAIGN_STORAGE_BYTES_PER_USER = 200 * 1024 * 1024;
 const MAX_CAMPAIGNS_PER_USER = 50;
+const MAX_CAMPAIGN_COLLABORATORS = 20;
 const CHUNK_CHARACTER_COUNT = 300_000;
 
 function serializeCampaign(payload) {
@@ -77,6 +78,7 @@ export function getCampaignSummary(row, currentUserId = "", administrator = fals
     ownerName: row.ownerName || "Usuario de Mimic Dice",
     isOwner,
     isShared: memberCount > 0,
+    collaborationOpen: row.collaborationOpen === 1,
     memberCount,
     canEdit: Boolean(isOwner || isMember || administrator),
     canManage: Boolean(isOwner || administrator)
@@ -94,7 +96,11 @@ async function getCampaignRecord(db, campaignId, currentUserId = "") {
       (
         SELECT COUNT(*) FROM "campaign_members" cm
         WHERE cm."campaignId" = c."id"
-      ) AS "memberCount"
+      ) AS "memberCount",
+      EXISTS(
+        SELECT 1 FROM "campaign_collaboration_sessions" session
+        WHERE session."campaignId" = c."id"
+      ) AS "collaborationOpen"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
     WHERE c."id" = ?
@@ -150,7 +156,8 @@ async function listAccessibleCampaigns(context, user) {
   const administrator = isAdministrator(user);
   const result = await context.env.DB.prepare(`
     SELECT c.*, u."name" AS "ownerName", cm."role" AS "memberRole",
-      (SELECT COUNT(*) FROM "campaign_members" members WHERE members."campaignId" = c."id") AS "memberCount"
+      (SELECT COUNT(*) FROM "campaign_members" members WHERE members."campaignId" = c."id") AS "memberCount",
+      EXISTS(SELECT 1 FROM "campaign_collaboration_sessions" session WHERE session."campaignId" = c."id") AS "collaborationOpen"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
     LEFT JOIN "campaign_members" cm ON cm."campaignId" = c."id" AND cm."userId" = ?
@@ -164,7 +171,8 @@ async function listAccessibleCampaigns(context, user) {
 async function listPublicCampaigns(context, user) {
   const result = await context.env.DB.prepare(`
     SELECT c.*, u."name" AS "ownerName",
-      (SELECT COUNT(*) FROM "campaign_members" members WHERE members."campaignId" = c."id") AS "memberCount"
+      (SELECT COUNT(*) FROM "campaign_members" members WHERE members."campaignId" = c."id") AS "memberCount",
+      EXISTS(SELECT 1 FROM "campaign_collaboration_sessions" session WHERE session."campaignId" = c."id") AS "collaborationOpen"
     FROM "campaigns" c
     INNER JOIN "users" u ON u."id" = c."ownerId"
     WHERE c."isPublic" = 1
@@ -292,6 +300,163 @@ async function getCampaignStatus(context, campaignId, user) {
   return jsonResponse({ campaign: getCampaignSummary(campaign, user?.id || "", administrator) });
 }
 
+async function notifyCampaignRevision(context, campaign, actorUserId = "") {
+  if (!context.env?.SHARED_CAMPAIGN_ROOMS || !campaign?.id) return;
+  try {
+    const objectId = context.env.SHARED_CAMPAIGN_ROOMS.idFromName(campaign.id);
+    await context.env.SHARED_CAMPAIGN_ROOMS.get(objectId).fetch("https://shared-campaign.internal/revision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        campaignId: campaign.id,
+        revision: campaign.revision,
+        updatedAt: campaign.updatedAt,
+        actorUserId
+      })
+    });
+  } catch {
+    // Durable Object relay is an acceleration layer. D1 remains authoritative.
+  }
+}
+
+async function openCampaignCollaboration(context, campaignId, user) {
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  if (!campaign || (campaign.ownerId !== user.id && !isAdministrator(user))) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
+
+  const existing = await context.env.DB.prepare(`
+    SELECT "inviteToken" FROM "campaign_collaboration_sessions" WHERE "campaignId" = ? LIMIT 1
+  `).bind(campaignId).first();
+  const inviteToken = cleanText(existing?.inviteToken, 120)
+    || crypto.randomUUID().replaceAll("-", "");
+
+  await context.env.DB.prepare(`
+    INSERT INTO "campaign_collaboration_sessions" ("campaignId", "inviteToken", "createdAt", "updatedAt")
+    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT("campaignId") DO UPDATE SET "updatedAt" = CURRENT_TIMESTAMP
+  `).bind(campaignId, inviteToken).run();
+
+  const updated = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  const inviteUrl = new URL("/", context.request.url);
+  inviteUrl.searchParams.set("cloudJoin", inviteToken);
+  return jsonResponse({
+    campaign: getCampaignSummary(updated, user.id, isAdministrator(user)),
+    share: { inviteToken, inviteUrl: inviteUrl.toString() }
+  });
+}
+
+async function closeCampaignCollaboration(context, campaignId, user) {
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  if (!campaign || (campaign.ownerId !== user.id && !isAdministrator(user))) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
+
+  await context.env.DB.batch([
+    context.env.DB.prepare('DELETE FROM "campaign_collaboration_sessions" WHERE "campaignId" = ?').bind(campaignId),
+    context.env.DB.prepare('DELETE FROM "campaign_members" WHERE "campaignId" = ?').bind(campaignId)
+  ]);
+
+  if (context.env?.SHARED_CAMPAIGN_ROOMS) {
+    try {
+      const objectId = context.env.SHARED_CAMPAIGN_ROOMS.idFromName(campaignId);
+      await context.env.SHARED_CAMPAIGN_ROOMS.get(objectId).fetch("https://shared-campaign.internal/close", {
+        method: "POST"
+      });
+    } catch {}
+  }
+
+  const updated = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  return jsonResponse({ campaign: getCampaignSummary(updated, user.id, isAdministrator(user)) });
+}
+
+async function joinCampaignCollaboration(context, user) {
+  const body = await readJsonBody(context.request, 4096);
+  const inviteToken = cleanText(body.inviteToken, 120);
+  if (!inviteToken) {
+    throw new HttpError(400, "invite_required", "Campaign invite is required.");
+  }
+
+  const session = await context.env.DB.prepare(`
+    SELECT c."id", c."ownerId"
+    FROM "campaign_collaboration_sessions" session
+    INNER JOIN "campaigns" c ON c."id" = session."campaignId"
+    WHERE session."inviteToken" = ?
+    LIMIT 1
+  `).bind(inviteToken).first();
+  if (!session) {
+    throw new HttpError(404, "campaign_invite_not_found", "Campaign invite is invalid or closed.");
+  }
+
+  if (session.ownerId !== user.id) {
+    const membership = await context.env.DB.prepare(`
+      SELECT 1 AS "exists" FROM "campaign_members" WHERE "campaignId" = ? AND "userId" = ? LIMIT 1
+    `).bind(session.id, user.id).first();
+    if (!membership) {
+      const memberCount = await context.env.DB.prepare(`
+        SELECT COUNT(*) AS "count" FROM "campaign_members" WHERE "campaignId" = ?
+      `).bind(session.id).first();
+      if (Number(memberCount?.count || 0) >= MAX_CAMPAIGN_COLLABORATORS) {
+        throw new HttpError(409, "collaboration_full", `Maximum ${MAX_CAMPAIGN_COLLABORATORS} collaborators per campaign.`);
+      }
+    }
+    await context.env.DB.prepare(`
+      INSERT OR IGNORE INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
+      VALUES (?, ?, 'editor', CURRENT_TIMESTAMP)
+    `).bind(session.id, user.id).run();
+  }
+
+  const campaign = await getCampaignRecord(context.env.DB, session.id, user.id);
+  return jsonResponse({ campaign: getCampaignSummary(campaign, user.id, isAdministrator(user)) });
+}
+
+async function leaveCampaignCollaboration(context, campaignId, user) {
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  if (!campaign || campaign.memberRole !== "editor" || campaign.ownerId === user.id) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
+  await context.env.DB.prepare(`
+    DELETE FROM "campaign_members" WHERE "campaignId" = ? AND "userId" = ?
+  `).bind(campaignId, user.id).run();
+  return new Response(null, { status: 204 });
+}
+
+async function connectCampaignSocket(context, campaignId, user) {
+  if (!context.env?.SHARED_CAMPAIGN_ROOMS) {
+    throw new HttpError(503, "collaboration_unavailable", "Campaign collaboration service is unavailable.");
+  }
+  const requestUrl = new URL(context.request.url);
+  const origin = cleanText(context.request.headers.get("Origin"), 300);
+  if (cleanText(context.request.headers.get("Upgrade")).toLowerCase() !== "websocket") {
+    throw new HttpError(426, "websocket_required", "WebSocket upgrade required.");
+  }
+  if (origin !== requestUrl.origin) {
+    throw new HttpError(403, "invalid_origin", "Cross-origin campaign connection rejected.");
+  }
+
+  const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  const administrator = isAdministrator(user);
+  if (!campaign || (!canEditCampaign(campaign, user, administrator))) {
+    throw new HttpError(404, "campaign_not_found", "Campaign not found.");
+  }
+
+  const objectId = context.env.SHARED_CAMPAIGN_ROOMS.idFromName(campaignId);
+  const headers = new Headers({
+    Upgrade: "websocket",
+    Connection: "Upgrade",
+    Origin: requestUrl.origin,
+    "X-Mimic-User-Id": cleanText(user.id, 120),
+    "X-Mimic-User-Name": encodeURIComponent(cleanText(user.name || user.email, 80) || "Player"),
+    "X-Mimic-Campaign-Id": campaignId,
+    "X-Mimic-Campaign-Revision": String(Math.max(0, Number(campaign.revision) || 0)),
+    "X-Mimic-Campaign-Updated-At": cleanText(campaign.updatedAt, 80)
+  });
+  return context.env.SHARED_CAMPAIGN_ROOMS.get(objectId).fetch(new Request(
+    `https://shared-campaign.internal/socket/${encodeURIComponent(campaignId)}`,
+    { method: "GET", headers }
+  ));
+}
+
 async function updateCampaign(context, campaignId, user) {
   const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
 
@@ -363,6 +528,9 @@ async function updateCampaign(context, campaignId, user) {
   });
 
   const updatedCampaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
+  const revisionNotification = notifyCampaignRevision(context, updatedCampaign, user.id);
+  if (typeof context.waitUntil === "function") context.waitUntil(revisionNotification);
+  else await revisionNotification;
   return jsonResponse({ campaign: getCampaignSummary(updatedCampaign, user.id, administrator) });
 }
 
@@ -483,6 +651,13 @@ export async function handleCampaignRequest(context) {
       return methodNotAllowed(["GET", "POST"]);
     }
 
+    if (pathParts[0] === "join" && pathParts.length === 1) {
+      if (method !== "POST") {
+        return methodNotAllowed(["POST"]);
+      }
+      return await joinCampaignCollaboration(context, await requireAuthenticatedUser(context));
+    }
+
     const campaignId = cleanText(pathParts[0], 80);
 
     if (!campaignId) {
@@ -501,6 +676,31 @@ export async function handleCampaignRequest(context) {
         return methodNotAllowed(["GET"]);
       }
       return await getCampaignStatus(context, campaignId, await getAuthenticatedUser(context));
+    }
+
+    if (pathParts[1] === "share" && pathParts.length === 2) {
+      const user = await requireAuthenticatedUser(context);
+      if (method === "POST") {
+        return await openCampaignCollaboration(context, campaignId, user);
+      }
+      if (method === "DELETE") {
+        return await closeCampaignCollaboration(context, campaignId, user);
+      }
+      return methodNotAllowed(["POST", "DELETE"]);
+    }
+
+    if (pathParts[1] === "membership" && pathParts.length === 2) {
+      if (method !== "DELETE") {
+        return methodNotAllowed(["DELETE"]);
+      }
+      return await leaveCampaignCollaboration(context, campaignId, await requireAuthenticatedUser(context));
+    }
+
+    if (pathParts[1] === "socket" && pathParts.length === 2) {
+      if (method !== "GET") {
+        return methodNotAllowed(["GET"]);
+      }
+      return await connectCampaignSocket(context, campaignId, await requireAuthenticatedUser(context));
     }
 
     if (pathParts.length !== 1) {
