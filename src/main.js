@@ -1477,6 +1477,7 @@ app.addEventListener("contextmenu", handleContextMenu);
 installLongPressContextMenu(app);
 app.addEventListener("wheel", handleWheel, { passive: false });
 document.addEventListener("keydown", handleGlobalKeydown);
+document.addEventListener("pointerdown", dismissCombatTurnQuickMenuOnOutsidePointerDown, true);
 document.addEventListener("pointermove", handlePointerMove);
 document.addEventListener("pointerup", handlePointerUp);
 document.addEventListener("pointercancel", handlePointerUp);
@@ -3499,7 +3500,11 @@ async function handleClick(event) {
       statusQuery: translateCombatStatusNameForLanguage(canonicalName, state.appLanguage),
       selectedStatus: canonicalName
     };
-    render({ focusSelector: '[data-action="add-custom-combat-status"]' });
+    const combatantId = cleanText(actionButton.dataset.combatantId || state.combatTurnQuickMenu?.combatantId);
+    if (addCombatTurnQuickStatus(combatantId, canonicalName)) {
+      saveCombatTrackerState();
+      render({ focusSelector: "[data-combat-turn-custom-status]" });
+    }
     return;
   }
 
@@ -3773,6 +3778,9 @@ async function handleClick(event) {
     if (state.masterCombatWorkspaceVisible) {
       state.combatMapMirrorVisible = false;
       state.combatMapMirrorCollapsed = false;
+      if (window.matchMedia?.("(max-width: 980px)")?.matches) {
+        combatMapController.closeMasterPanels({ sync: false });
+      }
     }
     render();
     return;
@@ -14758,8 +14766,13 @@ function handleCombatTurnPopoutClick(event) {
       statusQuery: translateCombatStatusNameForLanguage(canonicalName, state.appLanguage),
       selectedStatus: canonicalName
     };
-    syncCombatTurnPopout();
-    focusCombatTurnPopoutSelector('[data-action="add-custom-combat-status"]');
+    const combatantId = cleanText(actionButton.dataset.combatantId || state.combatTurnQuickMenu?.combatantId);
+    if (addCombatTurnQuickStatus(combatantId, canonicalName)) {
+      saveCombatTrackerState();
+      combatMapController.sync();
+      syncCombatTurnPopout();
+      focusCombatTurnPopoutSelector("[data-combat-turn-custom-status]");
+    }
   }
 }
 
@@ -14899,6 +14912,18 @@ function handleCombatTurnPopoutPointerDown(event) {
   ) {
     closeCombatTurnQuickMenu();
     render();
+  }
+}
+
+function dismissCombatTurnQuickMenuOnOutsidePointerDown(event) {
+  if (!cleanText(state.combatTurnQuickMenu?.combatantId)) return;
+  if (event.target?.closest?.("[data-combat-turn-quick-menu], [data-combat-turn-token-context]")) return;
+  const owner = cleanText(state.combatTurnQuickMenu?.owner) || "main";
+  closeCombatTurnQuickMenu();
+  if (owner === "main") {
+    app.querySelector("[data-combat-turn-quick-menu]")?.remove();
+  } else {
+    syncCombatTurnPopout();
   }
 }
 

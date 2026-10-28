@@ -5713,6 +5713,31 @@ button.is-cloud-busy:disabled {
   display: none;
 }
 
+.combat-map-popover__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.combat-map-popover__heading h2 {
+  margin: 0;
+}
+
+.combat-map-popover .combat-map-popover__close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  place-items: center;
+  border-color: rgba(232, 105, 116, .62);
+  border-radius: 50%;
+  background: rgba(145, 38, 50, .52);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
 .combat-map-confirmation {
   position: fixed;
   inset: 0;

@@ -10,6 +10,7 @@ import {
   getMapLayoutKey,
   getMovementSpeedFeet,
   hasInvisibleCondition,
+  isDefeatedEnemyMapToken,
   isMapTokenConcealed,
   isMapTokenVisibleToPlayer,
   getTokenFeedbackPosition,
@@ -24,6 +25,13 @@ import {
   snapCreaturePosition,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
+
+test("dead enemies no longer render as map tokens", () => {
+  assert.equal(isDefeatedEnemyMapToken({ side: "enemies", pgAct: 0 }), true);
+  assert.equal(isDefeatedEnemyMapToken({ tag: "ENEMIGO", pgAct: -4 }), true);
+  assert.equal(isDefeatedEnemyMapToken({ side: "enemies", pgAct: 1 }), false);
+  assert.equal(isDefeatedEnemyMapToken({ side: "allies", pgAct: 0 }), false);
+});
 
 test("multiple token feedback bubbles form a non-overlapping stack", () => {
   const positions = getTokenFeedbackStackPositions({

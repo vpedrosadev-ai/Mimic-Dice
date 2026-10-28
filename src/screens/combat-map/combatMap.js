@@ -941,6 +941,10 @@ function isAlive(combatant) {
   return combatant?.pgAct === "" || Number(combatant?.pgAct) > 0;
 }
 
+export function isDefeatedEnemyMapToken(combatant) {
+  return getSide(combatant) === "enemies" && !isAlive(combatant);
+}
+
 function hasInitiativeToken(combatant) {
   return isAlive(combatant) && combatant?.iniactiva !== "" && combatant?.iniactiva !== null && combatant?.iniactiva !== undefined;
 }
@@ -1134,7 +1138,7 @@ export function createCombatMapController(options = {}) {
   }
 
   function getTokenEnabled(combatant) {
-    return state.tokenVisibility[combatant.id] === true;
+    return state.tokenVisibility[combatant.id] === true && !isDefeatedEnemyMapToken(combatant);
   }
 
   function getDefaultPosition(combatant, index) {
@@ -1958,7 +1962,7 @@ export function createCombatMapController(options = {}) {
         <strong class="combat-map-token-checklist__number">${escapeHtml(stand)}</strong>
       </label>`;
     }).join("");
-    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${panel === "tokens" ? "" : "hidden"}><h2>Peanas</h2>${renderOpacityControl("tokens")}<label class="combat-map-token-number-visibility"><input type="checkbox" data-map-token-numbers ${state.showTokenNumbers ? "checked" : ""}><span>Mostrar número de peana en el mapa</span></label><label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
+    return `<section class="combat-map-popover combat-map-popover--tokens" data-map-panel="tokens" ${panel === "tokens" ? "" : "hidden"}><header class="combat-map-popover__heading"><h2>Peanas</h2><button class="combat-map-popover__close" type="button" data-map-action="close-panel" aria-label="Cerrar panel" title="Cerrar">×</button></header>${renderOpacityControl("tokens")}<label class="combat-map-token-number-visibility"><input type="checkbox" data-map-token-numbers ${state.showTokenNumbers ? "checked" : ""}><span>Mostrar número de peana en el mapa</span></label><label class="combat-map-token-load-initiative"><input type="checkbox" data-map-initiative-tokens ${initiativeTokensLoaded ? "checked" : ""} ${initiativeCombatants.length ? "" : "disabled"}><span>Cargar peanas con iniciativa</span></label><label class="combat-map-token-search"><span>Buscar</span><input type="search" value="${escapeHtml(tokenSearch)}" placeholder="Nombre o número" data-map-token-search></label><div class="combat-map-token-actions"><button type="button" data-map-action="all-tokens">Marcar todas</button><button type="button" data-map-action="no-tokens">Desmarcar todas</button></div><div class="combat-map-token-checklist">${rows || "<p>No hay entidades.</p>"}</div></section>`;
   }
 
   function getSelectedPaintIcon() {
@@ -2724,6 +2728,15 @@ export function createCombatMapController(options = {}) {
     sync();
   }
 
+  function closeMasterPanels(options = {}) {
+    openPanel = "";
+    state.openPanel = "";
+    mapLoadMenuSurface = "";
+    mapLoadSection = "";
+    persistLocalPreferences();
+    if (options.sync !== false) sync();
+  }
+
   function finishMapSelection(map, surface = masterHost, onApplied = null) {
     const callback = pickerCallback;
     pickerCallback = null;
@@ -3010,6 +3023,15 @@ export function createCombatMapController(options = {}) {
       mapLoadMenuSurface = "";
       mapLoadSection = "";
       sync();
+    }
+    if (action === "close-panel") {
+      if (surfaceKind === "player") {
+        playerOpenPanel = "";
+      } else {
+        closeMasterPanels({ sync: false });
+      }
+      sync();
+      return;
     }
     if (action === "toggle-blank-map-options") { mapLoadSection = mapLoadSection === "blank" ? "" : "blank"; sync(); }
     if (action === "toggle-encounter-map-options") { mapLoadSection = mapLoadSection === "encounters" ? "" : "encounters"; sync(); }
@@ -3926,5 +3948,5 @@ export function createCombatMapController(options = {}) {
     if (playerProjectionHost?.isConnected) applyPlayerCombatantHover(playerProjectionHost);
   }
 
-  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, showRoundAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyRemoteCommand, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
+  return { open, sync, syncMirror, syncPlayerProjection, syncNotifications, showTokenFeedback, showTurnAnnouncement, showRoundAnnouncement, setPlayerCombatantHover, isOpen, getSaveData, getCloudMapEditorState, applySave, applyRemoteCommand, applyMapWorkspace, applyCloudMapResult, setMap, selectMap: finishMapSelection, getMap, hasGrid, getTokenCoordinate, setTokenCoordinate, resnapToken, closeMasterPanels, chooseMap, convertAndSetFile: handleImageFile, handleClick, handleChange, handleInput, handleKeydown, handleContextMenu, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleViewportScroll, isMasterInteractionActive: () => Boolean(activeDrag?.surface === masterHost) };
 }
