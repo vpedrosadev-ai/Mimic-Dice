@@ -10,6 +10,15 @@ import { cleanText, escapeHtml, normalizeSearchText } from "../shared/text.js";
 import { createCombatMapController } from "../screens/combat-map/combatMap.js";
 import { renderDiceRollerDock } from "../screens/dice-roller/diceRollerRender.js";
 import { DiceFormulaError, rollDiceFormula } from "../shared/diceFormula.js";
+import { enhanceDiceFormulaLinks } from "../shared/diceFormulaLinks.js";
+import { installLongPressContextMenu } from "../shared/longPressContextMenu.js";
+import {
+  COMBAT_DICE_TARGET_ATTACK,
+  COMBAT_DICE_TARGET_DAMAGE,
+  doubleDiceInFormula,
+  getCombatDiceTargetKind,
+  getCombatDiceTargetOutcome
+} from "../screens/combat-tracker/combatDiceTarget.js";
 import { fetchAuthSession, getCloudCampaignStatus } from "../cloud/cloudClient.js";
 import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import { projectMonstersLeagueCombatantForPlayer } from "./monstersLeagueVisibility.js";
@@ -205,6 +214,7 @@ const state = {
   roundFlash: null,
   roundFlashTimer: 0,
   mapBroadcastExpanded: false,
+  mapPublishTimer: 0,
   combatFeedbackRoomId: "",
   combatFeedbackInitialized: false,
   seenCombatFeedbackIds: new Set(),
@@ -215,7 +225,8 @@ const state = {
   diceRollerRollMode: "",
   diceRollerModifier: "+0",
   diceRollerDiceTrayOpen: false,
-  dismissedDiceRollIds: new Set()
+  dismissedDiceRollIds: new Set(),
+  diceTargetMenu: null
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -230,8 +241,12 @@ const playerMapController = createCombatMapController({
   storageKey: "mimic-dice:monsters-league-player-map:v1",
   getCombatants: getPlayerVisibleCombatants,
   getActiveCombatantId: () => cleanText(state.room?.mapProjection?.activeCombatantId),
-  renderInitiativeOrder: renderProjectedInitiativeOrder
+  renderInitiativeOrder: renderProjectedInitiativeOrder,
+  canLoadMap: () => localTestMode || state.room?.hostPlayerId === state.hostPlayerId,
+  onChange: publishLeagueMasterMapChange
 });
+
+installLongPressContextMenu(app);
 
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
@@ -248,7 +263,7 @@ window.addEventListener("beforeunload", () => {
   window.clearTimeout(state.sharedCampaignConnectRetryTimer);
   state.connection?.close();
 });
-window.addEventListener("resize", () => syncPlayerMapProjection());
+window.addEventListener("resize", () => syncMasterMapSurface());
 document.addEventListener("pointermove", handleMasterWorkspacePointerMove);
 document.addEventListener("pointerup", handleMasterWorkspacePointerUp);
 document.addEventListener("pointercancel", handleMasterWorkspacePointerUp);
@@ -460,9 +475,12 @@ function render() {
     </div>
     ${renderSpellDialog()}
     ${renderTurnFlash()}
+    ${renderLeagueDiceTargetMenu()}
   `;
   restoreMasterWorkspaceViewport();
-  syncPlayerMapProjection();
+  syncMasterMapSurface();
+  enhanceDiceFormulaLinks(app.querySelector(".master-combat-workspace__sheet"));
+  enhanceDiceFormulaLinks(app.querySelector(".ml-spell-dialog__panel"));
   persistTestRoom();
 }
 
@@ -803,21 +821,21 @@ function renderTeamScreen() {
   const viewedPlayer = getViewedTeamPlayer(room);
   const teamCombatants = getMasterTeamCombatants(viewedPlayer)
     .filter(({ combatant }) => Math.max(0, Number(combatant.pgAct) || 0) > 0);
-  const visibleMonsterIds = new Set(teamCombatants.map(({ monsterId }) => monsterId));
-  const selectedAward = viewedPlayer.roster.find((award) => award.monster.id === state.selectedMonsterId && visibleMonsterIds.has(award.monster.id))
-    || viewedPlayer.roster.find((award) => visibleMonsterIds.has(award.monster.id));
-  const entry = selectedAward ? state.catalogById.get(selectedAward.monster.id) || selectedAward.monster : null;
+  const selectedItem = teamCombatants.find((item) => item.selectionId === state.selectedMonsterId || item.monsterId === state.selectedMonsterId)
+    || teamCombatants.find((item) => item.isOwned)
+    || teamCombatants[0];
+  const entry = selectedItem?.isOwned ? selectedItem.monster : null;
   const projection = room?.mapProjection;
   const mapOpen = projection?.open === true && projection.editorState;
   const activeId = cleanText(projection?.activeCombatantId);
-  const selectedCombatant = teamCombatants.find(({ monsterId }) => monsterId === entry?.id)?.combatant || null;
+  const selectedCombatant = selectedItem?.combatant || null;
   const entitySize = `${Math.round(masterWorkspaceLayout.entityRatio * 10000) / 100}%`;
   const listSize = `${Math.round(masterWorkspaceLayout.listRatio * 10000) / 100}%`;
   const detailSize = `${Math.round(masterWorkspaceLayout.detailRatio * 10000) / 100}%`;
   const diceHistory = getVisibleDiceRollHistory();
 
-  if (entry && state.selectedMonsterId !== entry.id) {
-    state.selectedMonsterId = entry.id;
+  if (selectedItem && state.selectedMonsterId !== selectedItem.selectionId) {
+    state.selectedMonsterId = selectedItem.selectionId;
   }
 
   return `
@@ -848,7 +866,7 @@ function renderTeamScreen() {
               </header>
               <div class="master-combat-workspace__entity-list" data-ml-master-entity-list>
                 ${teamCombatants.length
-                  ? teamCombatants.map((item) => renderMasterTeamEntityCard(viewedPlayer, item, item.monsterId === entry?.id, item.combatant.id === activeId)).join("")
+                  ? teamCombatants.map((item) => renderMasterTeamEntityCard(viewedPlayer, item, item.selectionId === state.selectedMonsterId, item.combatant.id === activeId)).join("")
                   : `<div class="master-combat-workspace__empty"><strong>${language === "en" ? "No creatures" : "Sin criaturas"}</strong></div>`}
               </div>
             </aside>
@@ -874,13 +892,13 @@ function renderTeamScreen() {
           <section class="master-combat-workspace__sheet">
             <header class="master-combat-workspace__panel-heading"><div><small>${selectedCombatant?.id === activeId ? (language === "en" ? "CURRENT TURN" : "TURNO ACTUAL") : (language === "en" ? "SELECTION" : "SELECCIÓN")}</small><strong>${escapeHtml(entry?.name || (language === "en" ? "Creature sheet" : "Ficha de criatura"))}</strong></div></header>
             <div class="master-combat-workspace__sheet-scroll" data-ml-master-sheet-scroll data-ml-master-sheet-key="${escapeHtml(entry?.id || "")}">
-              ${entry ? renderMasterTeamCreaturePreview(entry) : `<div class="master-combat-workspace__empty"><strong>${language === "en" ? "Select a creature" : "Selecciona una criatura"}</strong></div>`}
+              ${entry ? renderMasterTeamCreaturePreview(entry) : `<div class="master-combat-workspace__empty"><strong>${language === "en" ? "Private rival sheet" : "Ficha rival privada"}</strong><p>${language === "en" ? "Only public combat data is visible." : "Solo se muestran los datos públicos de combate."}</p></div>`}
             </div>
           </section>
           <div class="master-combat-workspace__splitter master-combat-workspace__splitter--vertical" data-master-workspace-resize="detail" role="separator" aria-orientation="vertical" tabindex="0"></div>
-          <section class="master-combat-workspace__map" aria-label="${language === "en" ? "Player map" : "Mapa del jugador"}">
-            <div class="master-combat-workspace__map-host" data-ml-map-projection>
-              ${mapOpen ? "" : `<div class="ml-map-waiting" role="status"><i></i><strong>${language === "en" ? "Waiting for host" : "Esperando al anfitrión"}</strong></div>`}
+          <section class="master-combat-workspace__map" aria-label="${language === "en" ? "Master map editor" : "Editor de mapa máster"}">
+            <div class="master-combat-workspace__map-host" data-ml-master-map>
+              ${mapOpen ? `<div data-combat-map-mirror-host></div>` : `<div class="ml-map-waiting" role="status"><i></i><strong>${language === "en" ? "Waiting for host" : "Esperando al anfitrión"}</strong></div>`}
             </div>
           </section>
         </div>
@@ -903,40 +921,40 @@ function getMasterTeamCombatants(player) {
   const userId = cleanText(player.userId || player.id);
   const teamId = cleanText(player.id);
   const projection = Array.isArray(state.room?.mapProjection?.combatants)
-    ? [...state.room.mapProjection.combatants]
+    ? getPlayerVisibleCombatants()
       .filter((combatant) => cleanText(combatant.iniactiva) !== "")
       .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0)
         || getProjectedStandSortValue(left) - getProjectedStandSortValue(right))
     : [];
   const positionById = new Map(projection.map((combatant, index) => [cleanText(combatant.id), index + 1]));
-  const ownProjection = projection.filter((combatant) => (
-    cleanText(combatant.teamOwnerUserId) === userId || cleanText(combatant.teamId) === teamId
-  ));
-  const projectedByMonsterId = new Map(ownProjection.map((combatant) => [cleanText(combatant.multiplayerMonsterId), combatant]));
+  const rosterByMonsterId = new Map(player.roster.map((award) => [cleanText(award.monster.id), award]));
 
-  return player.roster.map((award, index) => {
-    const monster = state.catalogById.get(award.monster.id) || award.monster;
-    const live = getLiveMonster(player.id, monster);
-    const monsterId = cleanText(monster.id);
-    const projected = projectedByMonsterId.get(monsterId);
-    const combatant = projected || {
-      id: `team-${player.id}-${monsterId}`,
-      nombre: monster.name,
-      tokenUrl: monster.tokenUrl || monster.imageUrl,
-      multiplayerMonsterId: monsterId,
-      teamId: player.id,
-      teamOwnerUserId: player.userId,
-      teamColor: player.color,
-      iniactiva: live.initiative,
-      numPeana: live.standNumber,
-      pgMax: live.maxHp,
-      pgAct: live.currentHp,
-      pgTemp: live.tempHp,
-      necrotic: live.necrotic,
-      condiciones: live.conditions.join(", ")
-    };
+  return projection.map((combatant, index) => {
+    const monsterId = cleanText(combatant.multiplayerMonsterId || combatant.id);
+    const isOwned = cleanText(combatant.teamOwnerUserId) === userId || cleanText(combatant.teamId) === teamId;
+    const award = isOwned ? rosterByMonsterId.get(monsterId) : null;
+    const monster = award
+      ? state.catalogById.get(award.monster.id) || award.monster
+      : {
+          id: monsterId,
+          name: cleanText(combatant.nombre) || (language === "en" ? "Rival creature" : "Criatura rival"),
+          tokenUrl: cleanText(combatant.tokenUrl)
+        };
+    const live = isOwned && award
+      ? getLiveMonster(player.id, monster)
+      : {
+          maxHp: Number(combatant.pgMax) || 0,
+          currentHp: Number(combatant.pgAct) || 0,
+          tempHp: Number(combatant.pgTemp) || 0,
+          necrotic: Number(combatant.necrotic) || 0,
+          conditions: getProjectedStatusNames(combatant),
+          initiative: combatant.iniactiva,
+          standNumber: combatant.numPeana
+        };
     return {
       monsterId,
+      selectionId: cleanText(combatant.id) || monsterId,
+      isOwned,
       monster,
       live,
       combatant,
@@ -956,9 +974,11 @@ function renderMasterTeamEntityCard(player, item, selected, active) {
   const tokenUrl = cleanText(monster.tokenUrl || monster.imageUrl || combatant.tokenUrl);
   const hpLabel = language === "en" ? "HP" : "PG";
   const standNumber = cleanText(combatant.numPeana || live.standNumber) || "-";
+  const hidesHealth = combatant.hideHealth === true;
+  const hpText = hidesHealth ? (language === "en" ? "HP hidden" : "PG ocultos") : `${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`;
 
   return `
-    <button class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}" type="button" data-ml-action="select-monster" data-monster-id="${escapeHtml(item.monsterId)}" aria-pressed="${selected}">
+    <button class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}" type="button" data-ml-action="select-monster" data-monster-id="${escapeHtml(item.selectionId)}" aria-pressed="${selected}">
       <span class="master-combat-entity__initiative" title="${language === "en" ? "Stand" : "Peana"}">${escapeHtml(standNumber)}</span>
       <span class="master-combat-entity__portrait">
         ${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(monster.name))}</span>`}
@@ -966,7 +986,7 @@ function renderMasterTeamEntityCard(player, item, selected, active) {
       </span>
       <span class="master-combat-entity__copy">
         <span class="master-combat-entity__title"><strong>${escapeHtml(monster.name)}</strong></span>
-        <strong class="master-combat-entity__hp-label">${escapeHtml(`${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`)}</strong>
+        <strong class="master-combat-entity__hp-label">${escapeHtml(hpText)}</strong>
         <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
       </span>
       ${statusNames.length ? `<span class="master-combat-entity__statuses" aria-label="${language === "en" ? "Conditions" : "Estados"}">${statusNames.map((statusName) => {
@@ -1042,12 +1062,30 @@ function renderCombatMapBroadcast() {
   `;
 }
 
-function syncPlayerMapProjection() {
-  const host = app.querySelector("[data-ml-map-projection]");
+function syncMasterMapSurface() {
+  const root = app.querySelector("[data-ml-master-map]");
   const projection = state.room?.mapProjection;
-  if (!host || projection?.open !== true || !projection.editorState) return;
-  playerMapController.applySave(projection.editorState, { preservePlayerView: true });
-  playerMapController.syncPlayerProjection(host);
+  if (!root || projection?.open !== true || !projection.editorState) return;
+  playerMapController.applySave(projection.editorState, { preserveLocalView: true });
+  playerMapController.syncMirror(root);
+}
+
+function publishLeagueMasterMapChange(editorState) {
+  if (!state.room || (!localTestMode && state.room.hostPlayerId !== state.hostPlayerId)) return;
+  state.room.mapProjection = {
+    ...(state.room.mapProjection || {}),
+    open: true,
+    editorState
+  };
+  if (localTestMode) return;
+  window.clearTimeout(state.mapPublishTimer);
+  state.mapPublishTimer = window.setTimeout(() => {
+    sendOnlineCommand("combat-update", {
+      combatState: state.room.combatState,
+      combatMeta: state.room.combatMeta,
+      mapProjection: state.room.mapProjection
+    });
+  }, 80);
 }
 
 function observeCombatFeedback(room) {
@@ -1330,6 +1368,40 @@ function renderSpellDialog() {
   `;
 }
 
+function renderLeagueDiceTargetMenu() {
+  const menu = state.diceTargetMenu;
+  if (!menu?.kind || !cleanText(menu.formula)) return "";
+  const targets = getPlayerVisibleCombatants().filter((combatant) => Number(combatant.pgAct) > 0);
+  const isAttack = menu.kind === COMBAT_DICE_TARGET_ATTACK;
+  const left = Math.max(12, Math.min(Number(menu.x) || 12, window.innerWidth - 390));
+  const top = Math.max(12, Math.min(Number(menu.y) || 12, window.innerHeight - 480));
+  const title = isAttack
+    ? (language === "en" ? "Choose attack target" : "Elige objetivo del ataque")
+    : (language === "en" ? "Choose damage target" : "Elige objetivo del daño");
+  return `<aside class="master-combat-dice-target-menu" style="left:${left}px;top:${top}px;width:min(24rem,calc(100vw - 24px));max-height:min(36rem,calc(100vh - 24px));--target-columns:1" data-ml-dice-target-menu role="dialog" aria-label="${escapeHtml(title)}">
+    <header class="master-combat-dice-target-menu__header"><div><small>${isAttack ? "ATTACK" : "DAMAGE"}</small><strong>${escapeHtml(title)}</strong></div><code>${escapeHtml(menu.formula)}</code></header>
+    <div class="master-combat-dice-target-menu__list">${targets.map((combatant) => renderLeagueDiceTargetCard(combatant, isAttack)).join("")}</div>
+  </aside>`;
+}
+
+function renderLeagueDiceTargetCard(combatant, isAttack) {
+  const name = cleanText(combatant.nombre) || (language === "en" ? "Creature" : "Criatura");
+  const stand = cleanText(combatant.numPeana) || "-";
+  const portrait = cleanText(combatant.tokenUrl);
+  const button = (extra, label, className = "") => `<button class="master-combat-dice-target-card__mode ${className}" type="button" data-ml-action="resolve-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" ${extra}>${label}</button>`;
+  return `<article class="master-combat-dice-target-card">
+    <button class="master-combat-dice-target-card__select" type="button" data-ml-action="resolve-dice-target" data-combatant-id="${escapeHtml(combatant.id)}"><span class="master-combat-dice-target-card__portrait">${portrait ? `<img src="${escapeHtml(portrait)}" alt="">` : `<span>${escapeHtml(getInitials(name))}</span>`}</span><span class="master-combat-dice-target-card__copy"><strong>${escapeHtml(name)}</strong><small>${language === "en" ? "Stand" : "Peana"} ${escapeHtml(stand)}${isAttack ? ` · AC ${escapeHtml(String(combatant.acValue || "-"))}` : ""}</small></span></button>
+    <span class="master-combat-dice-target-card__controls ${isAttack ? "" : "master-combat-dice-target-card__controls--damage"}">${isAttack
+      ? `${button('data-target-roll-mode="advantage"', language === "en" ? "Advantage" : "Ventaja", "master-combat-dice-target-card__mode--advantage")}${button('data-target-roll-mode="disadvantage"', language === "en" ? "Disadvantage" : "Desventaja", "master-combat-dice-target-card__mode--disadvantage")}`
+      : `${button('data-target-critical="true"', "x2", "master-combat-dice-target-card__mode--critical")}${button('data-target-half-damage="true"', "1/2", "master-combat-dice-target-card__mode--half")}${button('data-target-necrotic-damage="true"', `<span aria-hidden="true">${renderLeagueMiniActionIcon("necrotic")}</span>`, "master-combat-dice-target-card__mode--necrotic")}`}</span>
+  </article>`;
+}
+
+function renderLeagueMiniActionIcon(kind) {
+  const iconUrl = getCombatMiniActionIconUrl(kind);
+  return iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : "✦";
+}
+
 function renderDraftFlash() {
   const flash = state.draftFlash;
   if (!flash) return "";
@@ -1447,7 +1519,13 @@ function renderMonsterImage(monster, loading = "lazy") {
 }
 
 function handleClick(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) {
+  let closedDiceTargetMenu = false;
+  if (state.diceTargetMenu && !event.target.closest?.("[data-ml-dice-target-menu], .dice-formula-link")) {
+    state.diceTargetMenu = null;
+    closedDiceTargetMenu = true;
+    app.querySelector("[data-ml-dice-target-menu]")?.remove();
+  }
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handleClick(event);
     return;
   }
@@ -1460,6 +1538,7 @@ function handleClick(event) {
       state.selectedSpellId = nativeSpellLink.dataset.arcanumEntryId;
       render();
     }
+    else if (closedDiceTargetMenu) render();
     return;
   }
 
@@ -1476,6 +1555,15 @@ function handleClick(event) {
     else if (action === "next-lot") nextLot();
     else if (action === "quick-bid") bid(Number(target.dataset.bidAmount));
     else if (action === "select-monster") state.selectedMonsterId = target.dataset.monsterId;
+    else if (action === "resolve-dice-target") {
+      resolveLeagueDiceTarget(target.dataset.combatantId, {
+        rollMode: target.dataset.targetRollMode,
+        critical: target.dataset.targetCritical === "true",
+        halfDamage: target.dataset.targetHalfDamage === "true",
+        necroticDamage: target.dataset.targetNecroticDamage === "true"
+      });
+      return;
+    }
     else if (action === "open-spell") state.selectedSpellId = target.dataset.spellId;
     else if (action === "close-spell") state.selectedSpellId = "";
     else if (action === "toggle-map-broadcast") state.mapBroadcastExpanded = !state.mapBroadcastExpanded;
@@ -1491,7 +1579,7 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handleChange(event);
     return;
   }
@@ -1512,7 +1600,7 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handleInput(event);
     return;
   }
@@ -1541,11 +1629,11 @@ function handleInput(event) {
 }
 
 function handleMapWheel(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleWheel(event);
+  if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleWheel(event);
 }
 
 function handleMapScroll(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleViewportScroll(event);
+  if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleViewportScroll(event);
 }
 
 function handleSubmit(event) {
@@ -1609,7 +1697,7 @@ function handleImageError(event) {
 
 function handleMasterDiceClick(event) {
   const button = event.target.closest?.("[data-action]");
-  if (!button?.closest(".master-combat-workspace")) return false;
+  if (!button?.closest(".master-combat-workspace, .ml-spell-dialog__panel")) return false;
   const action = cleanText(button.dataset.action);
 
   if (action === "toggle-dice-roller-help") {
@@ -1660,6 +1748,14 @@ function submitMasterDiceFormula(formula, options = {}) {
       hitDiceMode: options.hitDiceMode ?? state.diceRollerHitDiceMode,
       rollMode: options.rollMode ?? state.diceRollerRollMode
     });
+    const targetContext = options.targetContext || null;
+    const targetOutcome = targetContext
+      ? getCombatDiceTargetOutcome(targetContext.kind, result.total, targetContext.armorClass, {
+          criticalOutcome: result.criticalOutcome,
+          halfDamage: targetContext.halfDamage === true,
+          isAlly: targetContext.isAlly === true
+        })
+      : null;
     const user = state.session?.user || {};
     const roll = {
       id: `ml-dice-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
@@ -1671,13 +1767,28 @@ function submitMasterDiceFormula(formula, options = {}) {
       criticalOutcome: result.criticalOutcome,
       rolledAt: Date.now(),
       userId: cleanText(user.id || state.hostPlayerId),
-      userName: cleanText(user.name || user.email) || (language === "en" ? "Player" : "Jugador")
+      userName: cleanText(user.name || user.email) || (language === "en" ? "Player" : "Jugador"),
+      ...(targetContext ? {
+        targetKind: targetOutcome.kind,
+        targetCombatantId: cleanText(targetContext.combatantId),
+        targetName: cleanText(targetContext.name),
+        targetStand: cleanText(targetContext.stand),
+        targetArmorClass: targetOutcome.armorClass,
+        targetHit: targetOutcome.hit,
+        appliedDamage: targetOutcome.appliedDamage,
+        targetCriticalDamage: targetContext.criticalDamage === true,
+        targetHalfDamage: targetContext.halfDamage === true,
+        targetNecroticDamage: targetContext.necroticDamage === true
+      } : {})
     };
     state.room.diceRollHistory = [
       ...(Array.isArray(state.room.diceRollHistory) ? state.room.diceRollHistory : []).filter((entry) => entry.id !== roll.id),
       roll
     ].slice(-100);
     if (!localTestMode) sendOnlineCommand("dice-roll", { roll });
+    if (targetContext?.kind === COMBAT_DICE_TARGET_DAMAGE) {
+      applyLeagueTargetDamage(targetContext, targetOutcome.appliedDamage);
+    }
     state.diceRollerDraft = "";
     state.diceRollerError = "";
     state.diceRollerRollMode = "";
@@ -1688,6 +1799,52 @@ function submitMasterDiceFormula(formula, options = {}) {
   }
 
   render();
+}
+
+function resolveLeagueDiceTarget(combatantId, options = {}) {
+  const target = getPlayerVisibleCombatants().find((combatant) => combatant.id === cleanText(combatantId));
+  const menu = state.diceTargetMenu;
+  if (!target || !menu?.kind) return;
+  const isCritical = menu.kind === COMBAT_DICE_TARGET_DAMAGE && options.critical === true;
+  const formula = isCritical ? doubleDiceInFormula(menu.formula) : menu.formula;
+  const requestedMode = cleanText(options.rollMode);
+  state.diceTargetMenu = null;
+  submitMasterDiceFormula(formula, {
+    rollMode: ["advantage", "disadvantage"].includes(requestedMode) ? requestedMode : state.diceRollerRollMode,
+    targetContext: {
+      kind: menu.kind,
+      combatantId: target.id,
+      name: target.nombre,
+      stand: target.numPeana,
+      armorClass: Number.isFinite(Number(target.acValue)) ? Number(target.acValue) : null,
+      criticalDamage: isCritical,
+      halfDamage: options.halfDamage === true,
+      necroticDamage: options.necroticDamage === true,
+      isAlly: target.side === "allies"
+    }
+  });
+}
+
+function applyLeagueTargetDamage(targetContext, amount) {
+  const target = getPlayerVisibleCombatants().find((combatant) => combatant.id === targetContext.combatantId);
+  const teamId = cleanText(target?.teamId);
+  const monsterId = cleanText(target?.multiplayerMonsterId);
+  const live = state.room?.combatState?.[teamId]?.[monsterId];
+  if (!target || !teamId || !monsterId || !live) return;
+  const damage = Math.max(0, Number(amount) || 0);
+  const nextState = structuredClone(state.room.combatState || {});
+  const nextLive = nextState[teamId]?.[monsterId];
+  if (!nextLive) return;
+  if (targetContext.necroticDamage) {
+    nextLive.necrotic = Math.min(nextLive.maxHp, Number(nextLive.necrotic || 0) + damage);
+  }
+  let remaining = damage;
+  const temp = Math.max(0, Number(nextLive.tempHp) || 0);
+  nextLive.tempHp = Math.max(0, temp - remaining);
+  remaining = Math.max(0, remaining - temp);
+  nextLive.currentHp = Math.max(0, Number(nextLive.currentHp) - remaining);
+  state.room.combatState = nextState;
+  if (!localTestMode) sendOnlineCommand("combat-update", { combatState: nextState, combatMeta: state.room.combatMeta });
 }
 
 function appendMasterDiceModifier(formula, modifierSource) {
@@ -1736,7 +1893,7 @@ function saveMasterWorkspaceLayout() {
 }
 
 function handleMasterWorkspacePointerDown(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) {
+  if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handlePointerDown(event);
     return;
   }
@@ -1772,7 +1929,7 @@ function handleMasterWorkspacePointerMove(event) {
     }
   }
   applyMasterWorkspaceLayout(resize.root);
-  syncPlayerMapProjection();
+  syncMasterMapSurface();
   event.preventDefault();
 }
 
@@ -1787,15 +1944,32 @@ function handleMasterWorkspacePointerUp(event) {
   document.body.classList.remove("is-master-combat-workspace-resizing");
   document.body.style.cursor = "";
   saveMasterWorkspaceLayout();
-  syncPlayerMapProjection();
+  syncMasterMapSurface();
 }
 
 function handleMasterWorkspaceKeydown(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleKeydown(event);
+  if (event.key === "Escape" && state.diceTargetMenu) {
+    state.diceTargetMenu = null;
+    render();
+    return;
+  }
+  if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleKeydown(event);
 }
 
 function handleMasterWorkspaceContextMenu(event) {
-  if (event.target.closest?.("[data-combat-map-player-root]")) playerMapController.handleContextMenu(event);
+  const formulaButton = event.target.closest?.('[data-action="roll-dice-formula"][data-dice-formula]');
+  if (formulaButton?.closest(".master-combat-workspace__sheet, .ml-spell-dialog__panel")) {
+    event.preventDefault();
+    state.diceTargetMenu = {
+      formula: cleanText(formulaButton.dataset.diceFormula),
+      kind: getCombatDiceTargetKind(formulaButton.textContent, formulaButton.dataset.diceFormula),
+      x: event.clientX,
+      y: event.clientY
+    };
+    render();
+    return;
+  }
+  if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleContextMenu(event);
 }
 
 function applyMasterWorkspaceLayout(root = app.querySelector("[data-master-combat-workspace]")) {

@@ -569,7 +569,17 @@ function sanitizeDiceRoll(value, actor) {
     criticalOutcome: ["critical", "fumble", "doubleCritical", "doubleFumble"].includes(source.criticalOutcome) ? source.criticalOutcome : "",
     rolledAt: Math.max(0, Number(source.rolledAt) || Date.now()),
     userId: safeText(actor.userId).slice(0, 160),
-    userName: safeText(actor.userName || actor.name).slice(0, 80) || "Jugador"
+    userName: safeText(actor.userName || actor.name).slice(0, 80) || "Jugador",
+    targetKind: ["attack", "damage"].includes(source.targetKind) ? source.targetKind : "",
+    targetCombatantId: safeText(source.targetCombatantId).slice(0, 160),
+    targetName: safeText(source.targetName).slice(0, 160),
+    targetStand: safeText(source.targetStand).slice(0, 30),
+    targetArmorClass: Number.isFinite(Number(source.targetArmorClass)) ? Number(source.targetArmorClass) : null,
+    targetHit: source.targetHit === true ? true : source.targetHit === false ? false : null,
+    appliedDamage: Number.isFinite(Number(source.appliedDamage)) ? Math.max(0, Number(source.appliedDamage)) : null,
+    targetCriticalDamage: source.targetCriticalDamage === true,
+    targetHalfDamage: source.targetHalfDamage === true,
+    targetNecroticDamage: source.targetNecroticDamage === true
   };
 }
 
@@ -607,6 +617,7 @@ function sanitizeMapProjection(value, room) {
     pgAct: clampLiveNumber(entry?.pgAct),
     pgTemp: clampLiveNumber(entry?.pgTemp),
     necrotic: clampLiveNumber(entry?.necrotic),
+    acValue: clampLiveNumber(entry?.acValue),
     condiciones: safeText(entry?.condiciones).slice(0, 600),
     hiddenFromInitiative: entry?.hiddenFromInitiative === true,
     iniactiva: Number.isFinite(Number(entry?.iniactiva)) ? Number(entry.iniactiva) : "",

@@ -5,6 +5,7 @@ import {
   listPublicCloudLibraryEntries,
   uploadCloudImage
 } from "../../cloud/cloudClient.js";
+import { installLongPressContextMenu } from "../../shared/longPressContextMenu.js";
 
 const tokenWingUrl = new URL("../../assets/token-wing.png", import.meta.url).href;
 
@@ -1616,6 +1617,7 @@ export function createCombatMapController(options = {}) {
     popup.document.addEventListener("keydown", handleKeydown);
     popup.document.addEventListener("contextmenu", handleContextMenu);
     popup.document.addEventListener("pointerdown", handlePointerDown);
+    installLongPressContextMenu(popup.document);
     popup.document.addEventListener("pointermove", handlePointerMove);
     popup.document.addEventListener("pointerup", handlePointerUp);
     popup.document.addEventListener("pointercancel", handlePointerUp);

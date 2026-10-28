@@ -2881,6 +2881,7 @@ table {
 
 .topbar {
   --topbar-scale: 1.25;
+  --topbar-fit-scale: 1;
   --topbar-nav-button-width: 7.95rem;
   --topbar-menu-button-width: 7.5rem;
   display: grid;
@@ -3432,6 +3433,19 @@ button.is-cloud-busy:disabled {
   to {
     box-shadow: 0 0 0 5px rgba(225, 173, 85, 0.08), 0 0 0.72rem rgba(225, 173, 85, 0.72);
     transform: scale(1.12);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  [data-map-token],
+  [data-combat-turn-token-context],
+  [data-combat-turn-status-remove],
+  [data-combat-pgmax-restore-context],
+  [data-diary-tag-filter],
+  [data-master-combat-round-reset],
+  [data-action="roll-dice-formula"][data-dice-formula] {
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
   }
 }
 
@@ -5125,7 +5139,7 @@ button.is-cloud-busy:disabled {
   flex-wrap: nowrap;
   align-items: stretch;
   gap: 0;
-  width: auto;
+  width: 100%;
   justify-self: end;
   align-self: stretch;
 }
@@ -5165,8 +5179,8 @@ button.is-cloud-busy:disabled {
   height: 100%;
   min-height: calc(6.35rem * var(--topbar-scale));
   min-width: var(--nav-button-width);
-  gap: calc(0.18rem * var(--topbar-scale));
-  padding: calc(0.32rem * var(--topbar-scale)) calc(0.24rem * var(--topbar-scale)) calc(0.38rem * var(--topbar-scale));
+  gap: calc(0.18rem * var(--topbar-scale) * var(--topbar-fit-scale));
+  padding: calc(0.32rem * var(--topbar-scale)) calc(0.24rem * var(--topbar-scale) * var(--topbar-fit-scale)) calc(0.38rem * var(--topbar-scale));
   border: 1px solid rgba(183, 136, 76, 0.22);
   border-radius: 0;
   background:
@@ -5217,8 +5231,8 @@ button.is-cloud-busy:disabled {
 
 .nav__icon {
   display: inline-flex;
-  width: 3.45rem;
-  height: 3.45rem;
+  width: calc(3.45rem * var(--topbar-fit-scale));
+  height: calc(3.45rem * var(--topbar-fit-scale));
 }
 
 .nav__icon img,
@@ -5243,8 +5257,8 @@ button.is-cloud-busy:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.84rem;
-  letter-spacing: 0.04em;
+  font-size: calc(0.84rem * var(--topbar-fit-scale));
+  letter-spacing: calc(0.04em * var(--topbar-fit-scale));
   text-align: center;
   text-transform: uppercase;
   font-variant: small-caps;
@@ -22297,7 +22311,6 @@ button.character-stat-block__modifier--roll:focus-visible {
   }
 
   .nav__button {
-    --nav-button-width: 4.7rem;
     flex: 0 0 var(--nav-button-width);
     width: var(--nav-button-width);
     min-width: var(--nav-button-width);
@@ -22856,7 +22869,6 @@ button.character-stat-block__modifier--roll:focus-visible {
   }
 
   .nav__button {
-    --nav-button-width: 4rem;
     min-height: 3.8rem;
     height: 3.8rem;
   }

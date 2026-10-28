@@ -47,6 +47,7 @@ import {
 import { loadVersionedCompendiumBundle } from "./data/compendiumBundles.js";
 import { getLocalizedSystemTableDefinitions, getLocalizedSystemTableFolders, initialTableDefinitions, initialTableFolders } from "./data/tablesSeedData.js";
 import { screens } from "./navigation/screens.js";
+import { getNavigationFitMetrics } from "./navigation/navigationLayout.js";
 import { getCombatMiniActionIconUrl, getCombatSpellbookIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "./assets/combatIcons.js";
 import { getCharacterClassIcon } from "./assets/characterClassIcons.js";
 import { getScreenIconUrl } from "./assets/screenIcons.js";
@@ -57,6 +58,7 @@ import moonNewIconUrl from "./assets/moon-icons/Luna_nueva.png";
 import moonWaningCrescentIconUrl from "./assets/moon-icons/Luna_menguante.png";
 import moonWaningQuarterIconUrl from "./assets/moon-icons/Cuarto_menguante.png";
 import { syncCompendiumLayoutHeights } from "./shared/compendiumLayout.js";
+import { installLongPressContextMenu } from "./shared/longPressContextMenu.js";
 import {
   findCompendiumEntryByReference,
   getCompendiumEntryIdentityKey,
@@ -90,6 +92,13 @@ import {
   getFightClubCharacterXmlFileName
 } from "./screens/characters/characterFightClubXml.js";
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
+import {
+  formatConcentrationStatusName,
+  getConstitutionSaveModifier,
+  isConcentrationStatusName,
+  resolveConcentrationSave,
+  splitConcentrationStatusName
+} from "./screens/combat-tracker/combatConcentration.js";
 import { convertImageFileToWebp, createCombatMapController, getPortableMapReference, normalizeMapEditorState, normalizeMapReference } from "./screens/combat-map/combatMap.js";
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
@@ -1464,6 +1473,7 @@ app.addEventListener("focusin", handleFocusIn);
 app.addEventListener("focusout", handleFocusOut);
 app.addEventListener("pointerdown", handlePointerDown);
 app.addEventListener("contextmenu", handleContextMenu);
+installLongPressContextMenu(app);
 app.addEventListener("wheel", handleWheel, { passive: false });
 document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("pointermove", handlePointerMove);
@@ -1645,6 +1655,7 @@ function getMonstersLeagueMapProjection(roomId) {
         pgAct: Math.max(0, toNumber(combatant.pgAct)),
         pgTemp: Math.max(0, toNumber(combatant.pgTemp)),
         necrotic: Math.max(0, toNumber(combatant.necrotic)),
+        acValue: getCombatantArmorClassValue(combatant),
         condiciones: cleanText(combatant.condiciones),
         hiddenFromInitiative: combatant.hiddenFromInitiative === true,
         iniactiva: combatant.iniactiva,
@@ -6417,6 +6428,7 @@ function handleScroll(event) {
 
 function handleWindowResize() {
   clampDiceRollerRectToViewport();
+  syncTopbarNavigationMetrics();
   syncCompendiumLayoutHeights();
   updateBestiaryListViewport(true);
   updateItemListViewport(true);
@@ -12230,32 +12242,46 @@ function renderOptionsDialog() {
 }
 
 function syncTopbarNavigationMetrics() {
+  const topbar = app.querySelector(".topbar");
   const navStack = app.querySelector(".topbar__nav-stack");
   const navButtons = navStack ? [...navStack.querySelectorAll(".nav__button[data-screen]")] : [];
   const firstButton = navButtons[0] ?? null;
 
-  if (!navStack || !firstButton || navButtons.length === 0) {
+  if (!topbar || !navStack || !firstButton || navButtons.length === 0) {
     return;
   }
 
-  const firstButtonWidth = firstButton.getBoundingClientRect().width;
-  const maxButtonWidth = navButtons.reduce((maxWidth, button) => {
+  if ((window.innerWidth || 0) <= 760) {
+    topbar.style.removeProperty("--topbar-fit-scale");
+    navStack.style.removeProperty("--nav-button-width");
+    navStack.style.removeProperty("--nav-stagger");
+    return;
+  }
+
+  const previousScale = Math.max(0.01, Number.parseFloat(topbar.style.getPropertyValue("--topbar-fit-scale")) || 1);
+  const naturalButtonWidth = navButtons.reduce((maxWidth, button) => {
     const label = button.querySelector(".nav__label");
     const icon = button.querySelector(".nav__icon");
     const naturalWidth = Math.ceil(
       Math.max(
-        button.getBoundingClientRect().width,
-        (label?.scrollWidth ?? 0) + 20,
-        (icon?.getBoundingClientRect().width ?? 0) + 18,
-        96
+        ((label?.scrollWidth ?? 0) + 20) / previousScale,
+        ((icon?.getBoundingClientRect().width ?? 0) + 18) / previousScale,
+        72
       )
     );
 
     return Math.max(maxWidth, naturalWidth);
   }, 0);
+  const availableWidth = Math.max(1, navStack.clientWidth || navStack.getBoundingClientRect().width);
+  const { buttonWidth, scale } = getNavigationFitMetrics({
+    availableWidth,
+    buttonCount: navButtons.length,
+    naturalButtonWidth
+  });
 
-  navStack.style.setProperty("--nav-stagger", `${Math.max(0, firstButtonWidth / 4)}px`);
-  navStack.style.setProperty("--nav-button-width", `${Math.ceil(maxButtonWidth)}px`);
+  topbar.style.setProperty("--topbar-fit-scale", String(scale));
+  navStack.style.setProperty("--nav-stagger", `${Math.max(0, buttonWidth / 4)}px`);
+  navStack.style.setProperty("--nav-button-width", `${buttonWidth}px`);
 }
 
 function getCampaignDisplayName() {
@@ -12407,6 +12433,7 @@ function applyLocalizedSystemTableTemplate(table, template) {
 
 function getCanonicalCombatStatusName(statusName) {
   const rawStatus = cleanText(statusName);
+  if (isConcentrationStatusName(rawStatus)) return "Concentrado";
   const normalizedStatus = normalizeTranslationKey(rawStatus.toLowerCase());
   const exhaustionMatch = rawStatus.match(/^(agotamiento|exhaustion)(?:\s+(\d+))?$/i);
 
@@ -12425,6 +12452,13 @@ function getCanonicalCombatStatusName(statusName) {
 function translateCombatStatusNameForLanguage(statusName, language = state.contentLanguage) {
   const rawStatus = cleanText(statusName);
   const normalizedLanguage = normalizeStoredAppLanguage(language);
+  const concentration = splitConcentrationStatusName(rawStatus);
+  if (concentration) {
+    return formatConcentrationStatusName(
+      normalizedLanguage === APP_LANGUAGE_EN ? "Concentrating" : "Concentrado",
+      concentration.detail
+    );
+  }
   const exhaustionMatch = rawStatus.match(/^(agotamiento|exhaustion)(?:\s+(\d+))?$/i);
 
   if (exhaustionMatch) {
@@ -14555,6 +14589,7 @@ function initializeCombatTurnPopout(popout) {
   popout.document.addEventListener("keydown", handleCombatTurnPopoutKeydown);
   popout.document.addEventListener("pointerdown", handleCombatTurnPopoutPointerDown);
   popout.document.addEventListener("contextmenu", handleCombatTurnPopoutContextMenu);
+  installLongPressContextMenu(popout.document);
   popout.addEventListener("beforeunload", () => handleCombatTurnPopoutClosed(popout));
 }
 
@@ -15523,9 +15558,9 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
           <strong>Estados</strong>
           ${activeStatuses.length ? `<div class="combat-turn-quick-menu__active-statuses" aria-label="${escapeHtml(isEnglishInterface() ? "Active conditions; click to remove" : "Estados activos; pulsa para retirar")}">${activeStatuses.map((statusName) => {
             const canonicalName = getCanonicalCombatStatusName(statusName);
-            const label = translateCombatStatusNameForLanguage(canonicalName, state.appLanguage);
+            const label = translateCombatStatusNameForLanguage(statusName, state.appLanguage);
             const iconUrl = getCombatStatusIconUrl(canonicalName);
-            return `<button class="combat-turn-quick-menu__status is-active ${getCombatStatusToneClass(canonicalName)}" type="button" data-action="toggle-combat-status" data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(canonicalName)}" title="${escapeHtml(isEnglishInterface() ? `Remove ${label}` : `Retirar ${label}`)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}<span>${escapeHtml(label)}</span><b aria-hidden="true">×</b></button>`;
+            return `<button class="combat-turn-quick-menu__status is-active ${getCombatStatusToneClass(canonicalName)}" type="button" data-action="toggle-combat-status" data-combatant-id="${escapeHtml(combatant.id)}" data-combat-status="${escapeHtml(statusName)}" title="${escapeHtml(isEnglishInterface() ? `Remove ${label}` : `Retirar ${label}`)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}<span>${escapeHtml(label)}</span><b aria-hidden="true">×</b></button>`;
           }).join("")}</div>` : ""}
           <div class="combat-turn-quick-menu__custom-status">
             <input type="search" maxlength="80" value="${escapeHtml(statusQuery)}" data-combat-turn-custom-status placeholder="${escapeHtml(isEnglishInterface() ? "Search or type a condition" : "Buscar o escribir un estado")}" aria-label="${escapeHtml(isEnglishInterface() ? "Condition search" : "Buscador de estado")}">
@@ -23427,6 +23462,10 @@ function showDirectCombatResourceFeedback(previousCombatants, combatantId, key, 
     text,
     iconUrl: getCombatMiniActionIconUrl(kind)
   });
+
+  if ((key === "pgAct" && delta < 0) || (key === "necrotic" && delta > 0)) {
+    resolveEnemyConcentrationAfterDamage(previousCombatant, Math.abs(delta));
+  }
 }
 
 function updateCombatantInitiativeHidden(id, isHidden) {
@@ -27342,6 +27381,20 @@ function toggleCombatantStatus(combatantId, statusName) {
     return;
   }
 
+  const targetCombatant = state.combatants.find((combatant) => combatant.id === combatantId);
+  const targetKey = normalizeTranslationKey(canonicalTargetStatus.toLowerCase());
+  const alreadyActive = getCombatantStatusNames(targetCombatant || {})
+    .some((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()) === targetKey);
+  const concentration = splitConcentrationStatusName(normalizedStatus);
+  let concentrationDetail = concentration?.detail || "";
+
+  if (concentration && !alreadyActive && !concentrationDetail && typeof window?.prompt === "function") {
+    concentrationDetail = cleanText(window.prompt(
+      isEnglishInterface() ? "What is this creature concentrating on? (optional)" : "¿En qué se concentra esta criatura? (opcional)",
+      ""
+    ));
+  }
+
   let addedStatusName = "";
   let notificationCombatant = null;
   let statusChange = null;
@@ -27353,9 +27406,11 @@ function toggleCombatantStatus(combatantId, statusName) {
 
     const currentStatuses = getCombatantStatusNames(combatant);
     const normalizedStatuses = currentStatuses.map((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()));
-    const targetKey = normalizeTranslationKey(canonicalTargetStatus.toLowerCase());
     const hasStatus = normalizedStatuses.includes(targetKey);
-    const localizedStatusName = translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage);
+    const localizedBaseName = translateCombatStatusNameForLanguage(canonicalTargetStatus, state.appLanguage);
+    const localizedStatusName = concentration
+      ? formatConcentrationStatusName(localizedBaseName, concentrationDetail)
+      : localizedBaseName;
     const nextStatuses = hasStatus
       ? currentStatuses.filter((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()) !== targetKey)
       : [...currentStatuses, localizedStatusName];
@@ -27396,6 +27451,47 @@ function toggleCombatantStatus(combatantId, statusName) {
   }
 
   clearCombatStatusDraft(combatantId);
+}
+
+function resolveEnemyConcentrationAfterDamage(combatant, damageAmount) {
+  const damage = Math.max(0, toNumber(damageAmount));
+  const isEnemy = combatant?.side === "enemies" || ["ENEMIGO", "ENEMY"].includes(cleanText(combatant?.tag).toUpperCase());
+  if (!isEnemy || damage <= 0) return null;
+
+  const concentrationStatus = getCombatantStatusNames(combatant).find(isConcentrationStatusName);
+  if (!concentrationStatus) return null;
+
+  const bestiaryEntry = getCombatantBestiaryEntry(combatant);
+  const modifier = getConstitutionSaveModifier(bestiaryEntry?.savingThrows, combatant.stats || bestiaryEntry?.stats);
+  const result = resolveConcentrationSave({ damage, modifier, roll: randomD20() });
+
+  if (!result.success) {
+    state.combatants = state.combatants.map((entry) => entry.id === combatant.id
+      ? normalizeCombatant({
+          ...entry,
+          condiciones: getCombatantStatusNames(entry).filter((status) => !isConcentrationStatusName(status)).join(", ")
+        })
+      : entry);
+  }
+
+  const localizedStatus = translateCombatStatusNameForLanguage(concentrationStatus, state.appLanguage);
+  const rollLabel = `${result.naturalRoll}${formatModifier(result.modifier)} = ${result.total}`;
+  pushNotification({
+    title: result.success
+      ? (isEnglishInterface() ? "Concentration maintained" : "Concentración mantenida")
+      : (isEnglishInterface() ? "Concentration lost" : "Concentración perdida"),
+    message: `${getCombatantNotificationLabel(combatant)} · ${localizedStatus} · CON ${rollLabel} / DC ${result.dc}`,
+    tone: result.success ? "success" : "warning",
+    imageUrl: cleanText(getCombatantTokenUrl(combatant))
+  });
+  showCombatTokenFeedback({
+    combatantId: combatant.id,
+    kind: result.success ? "status-save" : "status-remove",
+    statusName: "Concentrado",
+    text: `CON ${result.total}/${result.dc} ${result.success ? "✓" : "✕"}`,
+    iconUrl: getCombatStatusIconUrl("Concentrado")
+  });
+  return result;
 }
 
 function generateInitiative() {
@@ -27490,6 +27586,9 @@ function applyPgActAdjustment(id, mode) {
   applyReviveExhaustion(previousCombatants);
   notifyCombatantDeaths(previousCombatants);
   adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", amount));
+  if (mode !== "heal" && amount > 0) {
+    adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
+  }
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -27521,6 +27620,7 @@ function applyNecroticAdjustment(id) {
   applyReviveExhaustion(previousCombatants);
   notifyCombatantDeaths(previousCombatants);
   adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "necrotic", amount));
+  if (amount > 0) adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
   setInlineAdjustment(id, "pgAct", "");
 }
 
@@ -27783,6 +27883,7 @@ function applyAreaPgActAdjustment(mode = "damage", targetConfigs = null) {
   adjustedCombatants.forEach(({ combatant, appliedAmount }) => {
     if (appliedAmount > 0) {
       queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", appliedAmount);
+      if (mode !== "heal") resolveEnemyConcentrationAfterDamage(combatant, appliedAmount);
     }
   });
   state.areaDamage = "";
@@ -27828,6 +27929,7 @@ function applyAreaNecroticAdjustment(targetConfigs = null) {
   adjustedCombatants.forEach(({ combatant, appliedAmount }) => {
     if (appliedAmount > 0) {
       queueCombatResourceNotification(combatant, "necrotic", appliedAmount);
+      resolveEnemyConcentrationAfterDamage(combatant, appliedAmount);
     }
   });
   state.areaDamage = "";
