@@ -43,6 +43,13 @@ export function publishMonstersLeagueDiceRoll(roomId, roll) {
   return true;
 }
 
+export function publishMonstersLeagueCombatDamage(roomId, command) {
+  const connection = connections.get(clean(roomId));
+  if (!connection) return false;
+  connection.publishCommand({ type: "combat-damage", ...command });
+  return true;
+}
+
 export function groupCombatantsByRoom(combatants) {
   const rooms = new Map();
 
@@ -85,6 +92,7 @@ function createRoomConnection(roomId, onRoomSnapshot) {
   let lastSent = "";
   let inflight = null;
   let snapshotReceived = false;
+  let combatRevision = 0;
   const commandQueue = [];
 
   const connect = () => {
@@ -109,6 +117,7 @@ function createRoomConnection(roomId, onRoomSnapshot) {
         sendRetryTimer = window.setTimeout(flush, 800);
       } else if (message?.type === "snapshot" && message.room) {
         snapshotReceived = true;
+        combatRevision = Math.max(0, Math.floor(Number(message.room.combatRevision) || 0));
         if (typeof onRoomSnapshot === "function") onRoomSnapshot(message.room);
         pending = null;
         flush();
@@ -138,7 +147,8 @@ function createRoomConnection(roomId, onRoomSnapshot) {
       type: "combat-update",
       commandId,
       combatState: pending.combatState,
-      combatMeta: pending.combatMeta
+      combatMeta: pending.combatMeta,
+      baseCombatRevision: combatRevision
     };
     if (pending.mapProjection !== undefined) command.mapProjection = pending.mapProjection;
     socket.send(JSON.stringify(command));
@@ -153,6 +163,10 @@ function createRoomConnection(roomId, onRoomSnapshot) {
     },
     publishDiceRoll(roll) {
       commandQueue.push({ type: "dice-roll", roll });
+      flush();
+    },
+    publishCommand(command) {
+      commandQueue.push(command);
       flush();
     },
     close() {

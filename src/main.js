@@ -103,7 +103,7 @@ import { convertImageFileToWebp, createCombatMapController, getPortableMapRefere
 import { createDiaryRenderers } from "./screens/diary/diaryRender.js";
 import { createTablesController } from "./screens/tables/tableController.js";
 import { createTableRenderers } from "./screens/tables/tableRender.js";
-import { publishMonstersLeagueDiceRoll, startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
+import { publishMonstersLeagueCombatDamage, publishMonstersLeagueDiceRoll, startMonstersLeagueCombatSync } from "./multiplayer/monstersLeagueCombatSync.js";
 import { rewriteMonstersLeagueAssetUrl } from "./multiplayer/monstersLeagueProjection.js";
 import { shouldHideMonstersLeagueRivalStats } from "./multiplayer/monstersLeagueVisibility.js";
 import { renderDiceRollerDock } from "./screens/dice-roller/diceRollerRender.js";
@@ -27668,6 +27668,7 @@ function applyPgActAdjustment(id, mode) {
   notifyCombatantDeaths(previousCombatants);
   adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", amount));
   if (mode !== "heal" && amount > 0) {
+    adjustedCombatants.forEach((combatant) => publishCombatantMonstersLeagueDamage(combatant, amount));
     adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
   }
   setInlineAdjustment(id, "pgAct", "");
@@ -27701,8 +27702,25 @@ function applyNecroticAdjustment(id) {
   applyReviveExhaustion(previousCombatants);
   notifyCombatantDeaths(previousCombatants);
   adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "necrotic", amount));
-  if (amount > 0) adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
+  if (amount > 0) {
+    adjustedCombatants.forEach((combatant) => publishCombatantMonstersLeagueDamage(combatant, amount, true));
+    adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
+  }
   setInlineAdjustment(id, "pgAct", "");
+}
+
+function publishCombatantMonstersLeagueDamage(combatant, amount, necroticDamage = false) {
+  if (combatant?.multiplayerOnline !== true) return false;
+  const roomId = cleanText(combatant.multiplayerRoomId);
+  const teamId = cleanText(combatant.teamId);
+  const monsterId = cleanText(combatant.multiplayerMonsterId || combatant.entryId || combatant.entryKey);
+  if (!roomId || !teamId || !monsterId) return false;
+  return publishMonstersLeagueCombatDamage(roomId, {
+    teamId,
+    monsterId,
+    amount: Math.max(0, Number(amount) || 0),
+    necroticDamage: necroticDamage === true
+  });
 }
 
 function applyPgTempAdjustment(id) {

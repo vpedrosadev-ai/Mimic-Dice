@@ -5,6 +5,7 @@ import {
   advanceMonstersLeagueDraft,
   chooseBotBid,
   createMonstersLeagueRoom,
+  ensureMonstersLeagueCombatState,
   getMonstersLeagueRoomSummary,
   openRandomMonstersLeagueLot,
   placeMonstersLeagueBid,
@@ -16,6 +17,11 @@ import {
   updateMonstersLeagueConfig
 } from "../../src/multiplayer/monstersLeagueRules.js";
 import { createMonstersLeagueCombatFeedback } from "../../src/multiplayer/monstersLeagueLiveEvents.js";
+import {
+  advanceMonstersLeagueCombatTurn,
+  applyMonstersLeagueCombatDamage,
+  applyMonstersLeagueCombatantPatch
+} from "../../src/multiplayer/monstersLeagueCombatState.js";
 
 const ROOM_STORAGE_KEY = "room";
 const CATALOG_STORAGE_KEY = "catalog";
@@ -81,6 +87,7 @@ export class MonstersLeagueRoom extends DurableObject {
     }
 
     const user = getTrustedUser(request);
+    if (ensureMonstersLeagueCombatState(this.room)) await this.persist();
     let player = this.room.players.find((entry) => entry.userId === user.id || entry.id === user.id);
 
     if (!player) {
@@ -138,6 +145,7 @@ export class MonstersLeagueRoom extends DurableObject {
     const changed = this.runAutomaticDraftStep(Date.now());
 
     if (changed) {
+      ensureMonstersLeagueCombatState(this.room);
       await this.persist();
       this.broadcastSnapshot();
     }
@@ -184,6 +192,10 @@ export class MonstersLeagueRoom extends DurableObject {
       if (!player || player.isBot || !["complete", "combat"].includes(this.room.status)) {
         throw Object.assign(new Error("This player cannot update live combat."), { code: "player_required" });
       }
+      const currentCombatRevision = Math.max(0, Math.floor(Number(this.room.combatRevision) || 0));
+      if (Number.isFinite(Number(command.baseCombatRevision)) && Number(command.baseCombatRevision) !== currentCombatRevision) {
+        throw Object.assign(new Error("Combat state changed before this update."), { code: "stale_combat_revision" });
+      }
       const nextCombatState = sanitizeCombatState(command.combatState, this.room);
       const feedback = createMonstersLeagueCombatFeedback(this.room.combatState, nextCombatState, actor, { now });
       this.room.combatState = nextCombatState;
@@ -195,6 +207,32 @@ export class MonstersLeagueRoom extends DurableObject {
       if (playerId === this.room.hostPlayerId && Object.prototype.hasOwnProperty.call(command, "mapProjection")) {
         this.room.mapProjection = sanitizeMapProjection(command.mapProjection, this.room);
       }
+      this.room.combatRevision = currentCombatRevision + 1;
+      this.room.revision += 1;
+      this.room.updatedAt = now;
+    } else if (["combat-damage", "combat-patch", "combat-turn"].includes(type)) {
+      const player = this.room.players.find((entry) => entry.id === playerId);
+      if (!player || player.isBot || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("This player cannot update live combat."), { code: "player_required" });
+      }
+      const previousCombatState = this.room.combatState;
+      if (type === "combat-turn") {
+        this.room.combatMeta = advanceMonstersLeagueCombatTurn(this.room.combatState, this.room.combatMeta, command.direction);
+      } else {
+        const nextCombatState = type === "combat-damage"
+          ? applyMonstersLeagueCombatDamage(this.room.combatState, command)
+          : applyMonstersLeagueCombatantPatch(this.room.combatState, command);
+        if (!nextCombatState) {
+          throw Object.assign(new Error("Combatant not found."), { code: "combatant_not_found" });
+        }
+        this.room.combatState = sanitizeCombatState(nextCombatState, this.room);
+        const feedback = createMonstersLeagueCombatFeedback(previousCombatState, this.room.combatState, actor, { now });
+        this.room.combatFeedback = [
+          ...(Array.isArray(this.room.combatFeedback) ? this.room.combatFeedback : []),
+          ...feedback
+        ].slice(-50);
+      }
+      this.room.combatRevision = Math.max(0, Math.floor(Number(this.room.combatRevision) || 0)) + 1;
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (type === "dice-roll") {
@@ -213,6 +251,7 @@ export class MonstersLeagueRoom extends DurableObject {
       throw Object.assign(new Error("Unknown room command."), { code: "unknown_command" });
     }
 
+    ensureMonstersLeagueCombatState(this.room);
     await this.persist();
     await this.scheduleNextAlarm();
   }

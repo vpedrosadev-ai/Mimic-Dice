@@ -70,6 +70,7 @@ export function createMonstersLeagueRoom({
     availableMonsterIds: [],
     combatState: {},
     combatMeta: { active: false, round: 1, activeMonsterKey: "" },
+    combatRevision: 0,
     combatFeedback: [],
     diceRollHistory: [],
     mapProjection: { open: false, editorState: null, combatants: [], activeCombatantId: "" },
@@ -471,6 +472,7 @@ export function getMonstersLeagueRoomSummary(room) {
     availableMonsterIds: [...room.availableMonsterIds],
     combatState: cloneCombatState(room.combatState),
     combatMeta: cloneCombatMeta(room.combatMeta),
+    combatRevision: Math.max(0, Math.floor(Number(room.combatRevision) || 0)),
     combatFeedback: cloneCombatFeedback(room.combatFeedback),
     diceRollHistory: cloneDiceRollHistory(room.diceRollHistory),
     mapProjection: cloneMapProjection(room.mapProjection),
@@ -478,6 +480,45 @@ export function getMonstersLeagueRoomSummary(room) {
     history: room.history.map((entry) => ({ ...entry, monster: { ...entry.monster } })),
     completedAt: room.completedAt
   };
+}
+
+export function ensureMonstersLeagueCombatState(room) {
+  if (!room || !["complete", "combat"].includes(room.status)) return false;
+  const previous = room.combatState && typeof room.combatState === "object" ? room.combatState : {};
+  const next = { ...previous };
+  let standNumber = 1;
+  let changed = false;
+  for (const player of room.players || []) {
+    const team = { ...(next[player.id] || {}) };
+    next[player.id] = team;
+    for (const award of player.roster || []) {
+      const monster = award?.monster || {};
+      const monsterId = cleanText(monster.id);
+      if (!monsterId) continue;
+      if (!team[monsterId]) {
+        const hpMatch = cleanText(monster.hp).match(/\d+/);
+        const maxHp = Math.max(1, Math.floor(Number(monster.hpValue) || Number(hpMatch?.[0]) || 1));
+        team[monsterId] = {
+          maxHp,
+          currentHp: maxHp,
+          tempHp: 0,
+          necrotic: 0,
+          conditions: [],
+          initiative: "0",
+          hiddenFromInitiative: false,
+          standNumber: String(standNumber),
+          isFlying: false,
+          flyingHeight: 0,
+          mapTokenSize: ""
+        };
+        changed = true;
+      }
+      standNumber += 1;
+    }
+  }
+  if (changed || room.combatState !== previous) room.combatState = next;
+  if (!Number.isFinite(Number(room.combatRevision))) room.combatRevision = 0;
+  return changed;
 }
 
 function cloneMapProjection(value) {

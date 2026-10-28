@@ -19,9 +19,16 @@ import {
   getCombatDiceTargetKind,
   getCombatDiceTargetOutcome
 } from "../screens/combat-tracker/combatDiceTarget.js";
-import { fetchAuthSession, getCloudCampaignStatus } from "../cloud/cloudClient.js";
+import { fetchAuthSession, getCloudCampaignStatus, uploadCloudImage } from "../cloud/cloudClient.js";
 import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import { projectMonstersLeagueCombatantForPlayer } from "./monstersLeagueVisibility.js";
+import { rewriteMonstersLeagueAssetUrl } from "./monstersLeagueProjection.js";
+import {
+  advanceMonstersLeagueCombatTurn,
+  applyMonstersLeagueCombatDamage,
+  applyMonstersLeagueCombatantPatch,
+  mergeMonstersLeagueProjectedCombatantLiveState
+} from "./monstersLeagueCombatState.js";
 import {
   createMonstersLeagueServerClockSample,
   getMonstersLeagueClockNow,
@@ -226,7 +233,10 @@ const state = {
   diceRollerModifier: "+0",
   diceRollerDiceTrayOpen: false,
   dismissedDiceRollIds: new Set(),
-  diceTargetMenu: null
+  diceTargetMenu: null,
+  combatQuickMenu: null,
+  mapUploadSource: "",
+  mapUploadPromise: null
 };
 
 const t = (key) => UI[language]?.[key] ?? UI.es[key] ?? key;
@@ -240,9 +250,16 @@ const detailRenderers = createCompendiumDetailRenderers({
 const playerMapController = createCombatMapController({
   storageKey: "mimic-dice:monsters-league-player-map:v1",
   getCombatants: getPlayerVisibleCombatants,
-  getActiveCombatantId: () => cleanText(state.room?.mapProjection?.activeCombatantId),
+  getActiveCombatantId: getLeagueActiveCombatantId,
   renderInitiativeOrder: renderProjectedInitiativeOrder,
   canLoadMap: () => localTestMode || state.room?.hostPlayerId === state.hostPlayerId,
+  getAccountSession: () => state.session,
+  renderContextMenu: renderLeagueCombatQuickMenu,
+  openContextMenu: openLeagueCombatQuickMenu,
+  handleContextClick: handleLeagueCombatQuickMenuClick,
+  handleContextChange: handleLeagueCombatQuickMenuChange,
+  handleContextInput: handleLeagueCombatQuickMenuInput,
+  handleContextKeydown: handleLeagueCombatQuickMenuKeydown,
   onChange: publishLeagueMasterMapChange
 });
 
@@ -356,9 +373,9 @@ async function initializeOnlineRoom(hostName) {
       const clockSample = createMonstersLeagueServerClockSample(timing.serverNow, timing.receivedAt);
       if (clockSample) state.serverClockSample = clockSample;
       const previousStatus = state.room?.status;
+      state.room = room;
       observeDraftEvents(room);
       observeCombatTurn(room);
-      state.room = room;
       state.loading = false;
       state.loadError = "";
       if (!state.selectedTeamPlayerId || !room.players.some((player) => player.id === state.selectedTeamPlayerId)) {
@@ -827,7 +844,7 @@ function renderTeamScreen() {
   const entry = selectedItem?.isOwned ? selectedItem.monster : null;
   const projection = room?.mapProjection;
   const mapOpen = projection?.open === true && projection.editorState;
-  const activeId = cleanText(projection?.activeCombatantId);
+  const activeId = getLeagueActiveCombatantId();
   const selectedCombatant = selectedItem?.combatant || null;
   const entitySize = `${Math.round(masterWorkspaceLayout.entityRatio * 10000) / 100}%`;
   const listSize = `${Math.round(masterWorkspaceLayout.listRatio * 10000) / 100}%`;
@@ -920,7 +937,7 @@ function getMasterTeamCombatants(player) {
   if (!player) return [];
   const userId = cleanText(player.userId || player.id);
   const teamId = cleanText(player.id);
-  const projection = Array.isArray(state.room?.mapProjection?.combatants)
+  const projection = getPlayerVisibleCombatants().length
     ? getPlayerVisibleCombatants()
       .filter((combatant) => cleanText(combatant.iniactiva) !== "")
       .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0)
@@ -1065,27 +1082,83 @@ function renderCombatMapBroadcast() {
 function syncMasterMapSurface() {
   const root = app.querySelector("[data-ml-master-map]");
   const projection = state.room?.mapProjection;
-  if (!root || projection?.open !== true || !projection.editorState) return;
-  playerMapController.applySave(projection.editorState, { preserveLocalView: true });
+  const canEdit = localTestMode || state.room?.hostPlayerId === state.hostPlayerId;
+  if (!root) return;
+  if (!root.querySelector("[data-combat-map-mirror-host]") && canEdit) {
+    root.innerHTML = '<div data-combat-map-mirror-host></div>';
+  }
+  const turnButtons = app.querySelectorAll(".master-combat-workspace__turn-controls .combat-map-initiative-control");
+  if (turnButtons[0]) {
+    turnButtons[0].disabled = getLeagueTurnCombatants().length === 0;
+    turnButtons[0].dataset.mlAction = "retreat-turn";
+  }
+  if (turnButtons[1]) {
+    turnButtons[1].disabled = getLeagueTurnCombatants().length === 0;
+    turnButtons[1].dataset.mlAction = "advance-turn";
+  }
+  if (!root.querySelector("[data-combat-map-mirror-host]")) return;
+  if (projection?.open === true && projection.editorState) {
+    playerMapController.applySave(projection.editorState, { preserveLocalView: true });
+  }
   playerMapController.syncMirror(root);
 }
 
 function publishLeagueMasterMapChange(editorState) {
   if (!state.room || (!localTestMode && state.room.hostPlayerId !== state.hostPlayerId)) return;
+  const dataUrl = cleanText(editorState?.map?.imageUrl).startsWith("data:") ? editorState.map.imageUrl : "";
   state.room.mapProjection = {
     ...(state.room.mapProjection || {}),
     open: true,
-    editorState
+    editorState,
+    combatants: state.room.mapProjection?.combatants?.length
+      ? state.room.mapProjection.combatants
+      : createLeagueRosterCombatants(),
+    activeCombatantId: getLeagueActiveCombatantId()
   };
   if (localTestMode) return;
+  if (dataUrl) {
+    uploadLeagueMapDataUrl(editorState, dataUrl);
+    return;
+  }
   window.clearTimeout(state.mapPublishTimer);
   state.mapPublishTimer = window.setTimeout(() => {
     sendOnlineCommand("combat-update", {
       combatState: state.room.combatState,
       combatMeta: state.room.combatMeta,
-      mapProjection: state.room.mapProjection
+      mapProjection: state.room.mapProjection,
+      baseCombatRevision: state.room.combatRevision
     });
   }, 80);
+}
+
+function uploadLeagueMapDataUrl(editorState, dataUrl) {
+  if (state.mapUploadSource === dataUrl && state.mapUploadPromise) return state.mapUploadPromise;
+  state.mapUploadSource = dataUrl;
+  state.mapUploadPromise = fetch(dataUrl)
+    .then((response) => response.blob())
+    .then((blob) => uploadCloudImage(blob, {
+      width: Number(editorState?.map?.width) || 1600,
+      height: Number(editorState?.map?.height) || 900
+    }))
+    .then((result) => {
+      const uploadedUrl = rewriteMonstersLeagueAssetUrl(result?.asset?.url, state.room?.id);
+      if (!uploadedUrl) throw new Error("Map upload returned no shared URL.");
+      const nextEditorState = structuredClone(editorState);
+      nextEditorState.map.imageUrl = uploadedUrl;
+      state.mapUploadSource = "";
+      state.mapUploadPromise = null;
+      playerMapController.applySave(nextEditorState, { preserveLocalView: true });
+      publishLeagueMasterMapChange(nextEditorState);
+      syncMasterMapSurface();
+      return nextEditorState;
+    })
+    .catch((error) => {
+      state.mapUploadPromise = null;
+      state.error = error?.message || "Map could not be shared.";
+      render();
+      return null;
+    });
+  return state.mapUploadPromise;
 }
 
 function observeCombatFeedback(room) {
@@ -1125,20 +1198,89 @@ function observeCombatFeedback(room) {
 }
 
 function getPlayerVisibleCombatants() {
-  const combatants = state.room?.mapProjection?.combatants || [];
+  const projected = state.room?.mapProjection?.combatants || [];
+  const combatants = projected.length ? projected : createLeagueRosterCombatants();
+  const combatState = state.room?.combatState || {};
   const viewerUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
   const viewerPlayer = getViewedTeamPlayer(state.room);
 
-  return combatants.map((combatant) => projectMonstersLeagueCombatantForPlayer(
-    combatant,
-    viewerUserId,
-    viewerPlayer?.id
-  ));
+  return combatants.map((combatant) => ({
+    ...projectMonstersLeagueCombatantForPlayer(
+      mergeMonstersLeagueProjectedCombatantLiveState(combatant, combatState),
+      viewerUserId,
+      viewerPlayer?.id
+    ),
+    side: cleanText(combatant.teamId) === cleanText(viewerPlayer?.id) ? "allies" : "enemies"
+  }));
+}
+
+function createLeagueRosterCombatants() {
+  const room = state.room;
+  if (!room) return [];
+  const viewerTeamId = cleanText(getViewedTeamPlayer(room)?.id);
+  return (room.players || []).flatMap((player) => (player.roster || []).map((award, monsterIndex) => {
+    const monster = state.catalogById.get(award.monster?.id) || award.monster || {};
+    const live = room.combatState?.[player.id]?.[monster.id] || {};
+    const maxHp = Math.max(1, Number(live.maxHp) || Number(monster.hpValue) || 1);
+    const currentHp = live.currentHp === undefined ? maxHp : Math.max(0, Number(live.currentHp) || 0);
+    return {
+      id: `ml-${player.id}-${monster.id}`,
+      nombre: cleanText(monster.name) || "Creature",
+      tokenUrl: cleanText(monster.tokenUrl || monster.imageUrl),
+      side: cleanText(player.id) === viewerTeamId ? "allies" : "enemies",
+      teamId: player.id,
+      teamOwnerUserId: cleanText(player.userId || player.id),
+      teamColor: cleanText(player.color),
+      multiplayerOnline: !localTestMode,
+      multiplayerRoomId: room.id,
+      multiplayerMonsterId: monster.id,
+      pgMax: maxHp,
+      pgAct: currentHp,
+      pgTemp: Number(live.tempHp) || 0,
+      necrotic: Number(live.necrotic) || 0,
+      condiciones: Array.isArray(live.conditions) ? live.conditions.join(", ") : "",
+      iniactiva: cleanText(live.initiative),
+      numPeana: cleanText(live.standNumber) || String(monsterIndex + 1),
+      acValue: Number(monster.acValue) || 0,
+      tamano: cleanText(monster.size),
+      isFlying: live.isFlying === true,
+      flyingHeight: Number(live.flyingHeight) || 0,
+      mapTokenSize: cleanText(live.mapTokenSize)
+    };
+  }));
+}
+
+function getLeagueCombatantKey(combatant) {
+  const teamId = cleanText(combatant?.teamId);
+  const monsterId = cleanText(combatant?.multiplayerMonsterId);
+  return teamId && monsterId ? `${teamId}:${monsterId}` : "";
+}
+
+function getLeagueActiveCombatantId() {
+  const key = cleanText(state.room?.combatMeta?.activeMonsterKey);
+  const combatant = getPlayerVisibleCombatants().find((entry) => getLeagueCombatantKey(entry) === key);
+  return cleanText(combatant?.id || state.room?.mapProjection?.activeCombatantId);
+}
+
+function getLeagueTurnCombatants() {
+  return getPlayerVisibleCombatants()
+    .filter((combatant) => cleanText(combatant.iniactiva) !== "" && Number(combatant.pgAct) > 0 && combatant.hiddenFromInitiative !== true)
+    .sort((left, right) => Number(right.iniactiva || 0) - Number(left.iniactiva || 0)
+      || getProjectedStandSortValue(left) - getProjectedStandSortValue(right)
+      || cleanText(left.nombre).localeCompare(cleanText(right.nombre), "es", { numeric: true, sensitivity: "base" }));
+}
+
+function changeLeagueTurn(direction) {
+  if (!state.room || !getLeagueTurnCombatants().length) return;
+  state.room.combatMeta = advanceMonstersLeagueCombatTurn(state.room.combatState, state.room.combatMeta, direction);
+  const activeId = getLeagueActiveCombatantId();
+  state.room.mapProjection = { ...(state.room.mapProjection || {}), activeCombatantId: activeId };
+  if (!localTestMode) sendOnlineCommand("combat-turn", { direction: Number(direction) < 0 ? -1 : 1 });
+  render();
 }
 
 function renderProjectedInitiativeOrder(_viewportWindow, layout = {}) {
-  const projection = state.room?.mapProjection;
-  const activeId = cleanText(projection?.activeCombatantId);
+  const activeId = getLeagueActiveCombatantId();
   const combatants = getPlayerVisibleCombatants()
     .filter((combatant) => {
       if (cleanText(combatant.iniactiva) === "") return false;
@@ -1229,11 +1371,14 @@ function observeCombatTurn(room) {
       render();
     }, 3200);
   }
-  const activeId = cleanText(projection?.activeCombatantId);
+  const activeKey = cleanText(room?.combatMeta?.activeMonsterKey);
+  const activeCombatant = getPlayerVisibleCombatants().find((entry) => getLeagueCombatantKey(entry) === activeKey)
+    || (projection?.combatants || []).find((entry) => cleanText(entry.id) === cleanText(projection?.activeCombatantId));
+  const activeId = cleanText(activeCombatant?.id || projection?.activeCombatantId);
   if (activeId === state.lastActiveCombatantId) return;
   state.lastActiveCombatantId = activeId;
   if (!activeId || projection?.open !== true) return;
-  const combatant = (projection.combatants || []).find((entry) => cleanText(entry.id) === activeId);
+  const combatant = activeCombatant;
   const currentUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
   const currentPlayer = room.players?.find((player) => player.userId === currentUserId || player.id === currentUserId);
   if (!combatant || (combatant.teamOwnerUserId !== currentUserId && combatant.teamId !== currentPlayer?.id)) return;
@@ -1567,6 +1712,8 @@ function handleClick(event) {
     else if (action === "open-spell") state.selectedSpellId = target.dataset.spellId;
     else if (action === "close-spell") state.selectedSpellId = "";
     else if (action === "toggle-map-broadcast") state.mapBroadcastExpanded = !state.mapBroadcastExpanded;
+    else if (action === "retreat-turn") { changeLeagueTurn(-1); return; }
+    else if (action === "advance-turn") { changeLeagueTurn(1); return; }
     else if (action === "send-encounters") sendEncountersToMainApp();
     else if (action === "enter-combat") enterCombat();
     else if (action === "adjust-hp") adjustLiveValue("currentHp", Number(target.dataset.amount));
@@ -1829,22 +1976,153 @@ function applyLeagueTargetDamage(targetContext, amount) {
   const target = getPlayerVisibleCombatants().find((combatant) => combatant.id === targetContext.combatantId);
   const teamId = cleanText(target?.teamId);
   const monsterId = cleanText(target?.multiplayerMonsterId);
-  const live = state.room?.combatState?.[teamId]?.[monsterId];
-  if (!target || !teamId || !monsterId || !live) return;
   const damage = Math.max(0, Number(amount) || 0);
-  const nextState = structuredClone(state.room.combatState || {});
-  const nextLive = nextState[teamId]?.[monsterId];
-  if (!nextLive) return;
-  if (targetContext.necroticDamage) {
-    nextLive.necrotic = Math.min(nextLive.maxHp, Number(nextLive.necrotic || 0) + damage);
-  }
-  let remaining = damage;
-  const temp = Math.max(0, Number(nextLive.tempHp) || 0);
-  nextLive.tempHp = Math.max(0, temp - remaining);
-  remaining = Math.max(0, remaining - temp);
-  nextLive.currentHp = Math.max(0, Number(nextLive.currentHp) - remaining);
+  const nextState = applyMonstersLeagueCombatDamage(state.room?.combatState, {
+    teamId,
+    monsterId,
+    amount: damage,
+    necroticDamage: targetContext.necroticDamage === true
+  });
+  if (!target || !nextState) return;
   state.room.combatState = nextState;
-  if (!localTestMode) sendOnlineCommand("combat-update", { combatState: nextState, combatMeta: state.room.combatMeta });
+  if (!localTestMode) {
+    sendOnlineCommand("combat-damage", {
+      teamId,
+      monsterId,
+      amount: damage,
+      necroticDamage: targetContext.necroticDamage === true
+    });
+  }
+}
+
+function openLeagueCombatQuickMenu(combatantId, x, y, owner = "map-master") {
+  const combatant = getPlayerVisibleCombatants().find((entry) => entry.id === cleanText(combatantId));
+  if (!combatant) return;
+  state.combatQuickMenu = {
+    combatantId: combatant.id,
+    owner: cleanText(owner) || "map-master",
+    x: Number(x) || 0,
+    y: Number(y) || 0,
+    value: "",
+    statusQuery: ""
+  };
+}
+
+function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-master") {
+  const menu = state.combatQuickMenu;
+  if (!menu || cleanText(menu.owner) !== cleanText(owner)) return "";
+  const combatant = getPlayerVisibleCombatants().find((entry) => entry.id === cleanText(menu.combatantId));
+  if (!combatant) return "";
+  const width = 330;
+  const left = Math.max(8, Math.min(Number(menu.x) || 8, (viewportWindow.innerWidth || window.innerWidth) - width - 8));
+  const top = Math.max(8, Math.min(Number(menu.y) || 8, (viewportWindow.innerHeight || window.innerHeight) - 480));
+  const statuses = getProjectedStatusNames(combatant);
+  const damageIcon = getCombatMiniActionIconUrl("damage");
+  const healIcon = getCombatMiniActionIconUrl("heal");
+  const necroticIcon = getCombatMiniActionIconUrl("necrotic");
+  const tempIcon = getCombatMiniActionIconUrl("temp");
+  return `<div class="combat-turn-quick-menu" style="position:fixed;left:${left}px;top:${top}px;z-index:10000" data-combat-turn-quick-menu>
+    <div class="combat-turn-quick-menu__panel">
+      <div class="combat-turn-quick-menu__header"><div class="combat-turn-quick-menu__title"><strong>${escapeHtml(combatant.nombre || "Creature")}</strong><b>${escapeHtml(cleanText(combatant.numPeana) || "-")}</b></div><span>${combatant.hideHealth ? (language === "en" ? "Rival data hidden" : "Datos rivales ocultos") : `${language === "en" ? "HP" : "PG"} ${Math.max(0, Number(combatant.pgAct) || 0)}/${Math.max(0, Number(combatant.pgMax) - Number(combatant.necrotic || 0))}`}</span></div>
+      <div class="combat-turn-quick-menu__flight"><label class="combat-turn-quick-menu__hide"><input type="checkbox" data-ml-context-field="isFlying" ${combatant.isFlying ? "checked" : ""}><span>${language === "en" ? "Flying" : "Volando"}</span></label><label class="combat-turn-quick-menu__flight-height"><span>${language === "en" ? "Height" : "Altura"}</span><input type="number" min="0" step="5" value="${Math.max(0, Number(combatant.flyingHeight) || 0)}" data-ml-context-field="flyingHeight"><span>ft</span></label></div>
+      <div class="combat-turn-quick-menu__identity-fields"><label><span>${language === "en" ? "Initiative" : "Iniciativa"}</span><input value="${escapeHtml(cleanText(combatant.iniactiva))}" data-ml-context-field="initiative"></label><label><span>${language === "en" ? "Stand" : "Peana"}</span><input value="${escapeHtml(cleanText(combatant.numPeana))}" data-ml-context-field="standNumber"></label></div>
+      <div class="resource-cell__actions-row combat-turn-quick-menu__actions-row"><div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls"><input class="mini-input combat-turn-quick-menu__input" type="text" inputmode="text" placeholder="0 or 2d6" value="${escapeHtml(menu.value)}" data-combat-turn-quick-value><div class="mini-actions combat-turn-quick-menu__actions">
+        ${renderLeagueQuickResourceButton("damage", damageIcon, language === "en" ? "Damage" : "Daño")}
+        ${renderLeagueQuickResourceButton("heal", healIcon, language === "en" ? "Heal" : "Curar")}
+        ${renderLeagueQuickResourceButton("necrotic", necroticIcon, language === "en" ? "Necrotic" : "Necrótico")}
+        ${renderLeagueQuickResourceButton("temp", tempIcon, language === "en" ? "Temporary HP" : "PG temporales")}
+      </div></div></div>
+      <section class="combat-turn-quick-menu__statuses"><strong>${language === "en" ? "Conditions" : "Estados"}</strong>${statuses.length ? `<div class="combat-turn-quick-menu__active-statuses">${statuses.map((status) => `<button class="combat-turn-quick-menu__status is-active ${escapeHtml(getProjectedStatusTone(status))}" type="button" data-ml-context-action="remove-status" data-status="${escapeHtml(status)}"><span>${escapeHtml(status)}</span><b aria-hidden="true">×</b></button>`).join("")}</div>` : ""}<div class="combat-turn-quick-menu__custom-status"><input type="search" maxlength="80" value="${escapeHtml(menu.statusQuery)}" data-ml-context-status placeholder="${language === "en" ? "Type a condition" : "Escribe un estado"}"><button type="button" data-ml-context-action="add-status">${language === "en" ? "Add" : "Añadir"}</button></div></section>
+    </div></div>`;
+}
+
+function renderLeagueQuickResourceButton(mode, iconUrl, label) {
+  return `<button class="mini-action mini-action--${escapeHtml(mode)}" type="button" data-ml-context-action="resource" data-mode="${escapeHtml(mode)}" title="${escapeHtml(label)}"><span class="mini-action__icon" aria-hidden="true">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}</span></button>`;
+}
+
+function handleLeagueCombatQuickMenuClick(event) {
+  const button = event.target.closest("[data-ml-context-action]");
+  if (!button) return;
+  event.preventDefault();
+  const combatant = getLeagueQuickMenuCombatant();
+  if (!combatant) return;
+  const action = button.dataset.mlContextAction;
+  if (action === "resource") applyLeagueQuickResource(combatant, button.dataset.mode);
+  if (action === "remove-status") patchLeagueCombatant(combatant, { conditions: getProjectedStatusNames(combatant).filter((status) => status !== button.dataset.status) });
+  if (action === "add-status") {
+    const value = cleanText(button.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status]")?.value);
+    if (value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
+  }
+  playerMapController.sync();
+}
+
+function handleLeagueCombatQuickMenuChange(event) {
+  const field = cleanText(event.target.dataset.mlContextField);
+  const combatant = getLeagueQuickMenuCombatant();
+  if (!field || !combatant) return;
+  const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+  patchLeagueCombatant(combatant, { [field]: value });
+  playerMapController.sync();
+}
+
+function handleLeagueCombatQuickMenuInput(event) {
+  if (!state.combatQuickMenu) return;
+  if (event.target.matches("[data-combat-turn-quick-value]")) state.combatQuickMenu.value = event.target.value;
+  if (event.target.matches("[data-ml-context-status]")) state.combatQuickMenu.statusQuery = event.target.value;
+}
+
+function handleLeagueCombatQuickMenuKeydown(event) {
+  if (event.key === "Escape") {
+    state.combatQuickMenu = null;
+    playerMapController.sync();
+  } else if (event.key === "Enter" && event.target.matches("[data-ml-context-status]")) {
+    event.preventDefault();
+    const combatant = getLeagueQuickMenuCombatant();
+    const value = cleanText(event.target.value);
+    if (combatant && value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
+    playerMapController.sync();
+  }
+}
+
+function getLeagueQuickMenuCombatant() {
+  return getPlayerVisibleCombatants().find((entry) => entry.id === cleanText(state.combatQuickMenu?.combatantId));
+}
+
+function applyLeagueQuickResource(combatant, mode) {
+  const source = cleanText(state.combatQuickMenu?.value);
+  if (!source) return;
+  if (["damage", "necrotic"].includes(mode)) {
+    state.combatQuickMenu = null;
+    submitMasterDiceFormula(source, {
+      applyModifier: false,
+      targetContext: {
+        kind: COMBAT_DICE_TARGET_DAMAGE,
+        combatantId: combatant.id,
+        name: combatant.nombre,
+        stand: combatant.numPeana,
+        armorClass: Number.isFinite(Number(combatant.acValue)) ? Number(combatant.acValue) : null,
+        necroticDamage: mode === "necrotic",
+        isAlly: combatant.side === "allies"
+      }
+    });
+    return;
+  }
+  let amount;
+  try { amount = Math.max(0, Number(rollDiceFormula(source).total) || 0); } catch { return; }
+  const effectiveMax = Math.max(0, Number(combatant.pgMax) - Number(combatant.necrotic || 0));
+  if (mode === "heal") patchLeagueCombatant(combatant, { currentHp: Math.min(effectiveMax, Number(combatant.pgAct) + amount) });
+  if (mode === "temp") patchLeagueCombatant(combatant, { tempHp: Math.max(Number(combatant.pgTemp) || 0, amount) });
+  state.combatQuickMenu.value = "";
+}
+
+function patchLeagueCombatant(combatant, patch) {
+  const teamId = cleanText(combatant?.teamId);
+  const monsterId = cleanText(combatant?.multiplayerMonsterId);
+  const nextState = applyMonstersLeagueCombatantPatch(state.room?.combatState, { teamId, monsterId, patch });
+  if (!nextState) return false;
+  state.room.combatState = nextState;
+  if (!localTestMode) sendOnlineCommand("combat-patch", { teamId, monsterId, patch });
+  return true;
 }
 
 function appendMasterDiceModifier(formula, modifierSource) {
@@ -1893,6 +2171,11 @@ function saveMasterWorkspaceLayout() {
 }
 
 function handleMasterWorkspacePointerDown(event) {
+  if (state.combatQuickMenu
+    && !event.target.closest?.("[data-combat-turn-quick-menu]")) {
+    state.combatQuickMenu = null;
+    playerMapController.sync();
+  }
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handlePointerDown(event);
     return;
