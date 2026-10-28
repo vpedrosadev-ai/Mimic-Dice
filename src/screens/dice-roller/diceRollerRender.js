@@ -310,6 +310,7 @@ function renderDiceTargetOutcome(entry, language) {
 
   if (targetKind === "attack") {
     const armorClass = entry.targetArmorClass;
+    const armorClassHidden = entry.targetArmorClassHidden === true;
     const hasArmorClass = Number.isFinite(Number(armorClass)) && armorClass !== null && armorClass !== "";
     const hit = entry.targetHit === true;
     const isCritical = entry.criticalOutcome === "critical" || entry.criticalOutcome === "doubleCritical";
@@ -318,6 +319,8 @@ function renderDiceTargetOutcome(entry, language) {
       ? (isEnglish ? "HIT" : "ACIERTO")
       : isFumble
         ? (isEnglish ? "MISS" : "FALLO")
+        : armorClassHidden
+          ? (hit ? (isEnglish ? "HIT" : "ACIERTO") : (isEnglish ? "MISS" : "FALLO"))
         : hasArmorClass
           ? (hit ? (isEnglish ? "HIT" : "ACIERTO") : (isEnglish ? "MISS" : "FALLO"))
           : (isEnglish ? "NO AC" : "SIN CA");
@@ -325,6 +328,8 @@ function renderDiceTargetOutcome(entry, language) {
       ? (isEnglish ? "Critical: automatic hit." : "Critico: impacto automatico.")
       : isFumble
         ? (isEnglish ? "Fumble: automatic miss." : "Pifia: fallo automatico.")
+        : armorClassHidden
+          ? (isEnglish ? "Target Armor Class hidden." : "Clase de Armadura del objetivo oculta.")
         : hasArmorClass
           ? `${entry.total} ${isEnglish ? "vs" : "contra"} ${isEnglish ? "AC" : "CA"} ${armorClass}`
       : (isEnglish ? "Target has no Armor Class value." : "El objetivo no tiene Clase de Armadura.");

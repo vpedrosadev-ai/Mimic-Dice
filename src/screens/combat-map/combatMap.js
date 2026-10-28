@@ -1718,6 +1718,10 @@ export function createCombatMapController(options = {}) {
     return version === "player" ? state.initiative.playerVisible : state.initiative.masterVisible;
   }
 
+  function isToolbarControlVisible(control, version = "master") {
+    return options.isToolbarControlVisible?.(control, version) !== false;
+  }
+
   function renderToolbar(version = "master") {
     const panel = getVersionPanel(version);
     return `<header class="combat-map-toolbar">
@@ -1725,11 +1729,11 @@ export function createCombatMapController(options = {}) {
       <button type="button" data-map-action="open-map-menu" class="${panel === "map" ? "is-active" : ""}">Mapa</button>
       <button type="button" data-map-action="toggle-grid-menu" class="${state.grid.visible ? "is-active" : ""}">Rejilla</button>
       <button type="button" data-map-action="toggle-token-menu">Peanas</button>
-      <button type="button" data-map-action="toggle-fog-menu" class="${state.fog.enabled || panel === "fog" ? "is-active" : ""}">Niebla</button>
+      ${isToolbarControlVisible("fog", version) ? `<button type="button" data-map-action="toggle-fog-menu" class="${state.fog.enabled || panel === "fog" ? "is-active" : ""}">Niebla</button>` : ""}
       <button type="button" data-map-action="toggle-paint-menu" class="${panel === "paint" ? "is-active" : ""}">Pintar</button>
       <button type="button" data-map-action="toggle-shapes-menu" class="${panel === "shapes" ? "is-active" : ""}">Formas</button>
-      <button type="button" data-map-action="toggle-health-menu" class="${panel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>
-      <button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${isInitiativeVisible(version) || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>
+      ${isToolbarControlVisible("health", version) ? `<button type="button" data-map-action="toggle-health-menu" class="${panel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>` : ""}
+      ${isToolbarControlVisible("initiative", version) ? `<button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${isInitiativeVisible(version) || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>` : ""}
     </header>`;
   }
 
@@ -2028,7 +2032,7 @@ export function createCombatMapController(options = {}) {
     const content = options.renderInitiativeOrder?.(viewportWindow, {
       ...initiativeLayout,
       position: state.initiative.position,
-      showHealth: state.healthInInitiative,
+      showHealth: options.showInitiativeHealth?.(version) !== false && state.healthInInitiative,
       showInitiativeValue: state.initiative.showValue,
       statusIconSize: state.initiative.statusIconSize,
       version
@@ -2068,7 +2072,9 @@ export function createCombatMapController(options = {}) {
   }
 
   function showHealth(combatant) {
-    return combatant?.hideHealth !== true && (state.healthMode === "all" || state.healthMode === getSide(combatant));
+    return options.showTokenHealth?.() !== false
+      && combatant?.hideHealth !== true
+      && (state.healthMode === "all" || state.healthMode === getSide(combatant));
   }
 
   function renderTokens(layer = "all", behavior = {}) {
@@ -2090,7 +2096,9 @@ export function createCombatMapController(options = {}) {
       const isFlying = combatant.isFlying === true;
       const flyingHeight = Math.max(0, Math.round(Number(combatant.flyingHeight) || 0));
       const stackIndex = getTokenStackIndex(combatant.id, index);
-      const teamColor = /^#[0-9a-f]{6}$/i.test(clean(combatant.teamColor)) ? clean(combatant.teamColor) : "";
+      const teamColor = options.showTeamColorRings?.() === false
+        ? ""
+        : /^#[0-9a-f]{6}$/i.test(clean(combatant.teamColor)) ? clean(combatant.teamColor) : "";
       const dead = !isAlive(combatant);
       return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
         ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt="">` : ""}

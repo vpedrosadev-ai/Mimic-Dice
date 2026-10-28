@@ -118,6 +118,28 @@ test("dice log shows critical attacks as automatic hits and fumbles as automatic
   assert.match(html, /Fumble: automatic miss\./);
 });
 
+test("dice log keeps a rival target Armor Class private", () => {
+  const html = renderDiceRollerDock({
+    open: true,
+    history: [{
+      id: "private-ac",
+      formula: "1d20+6",
+      total: 17,
+      targetKind: "attack",
+      targetName: "Rival creature",
+      targetArmorClass: null,
+      targetArmorClassHidden: true,
+      targetHit: true,
+      groups: []
+    }],
+    language: "en"
+  });
+
+  assert.match(html, /HIT/);
+  assert.match(html, /Target Armor Class hidden\./);
+  assert.doesNotMatch(html, /vs AC/);
+});
+
 test("dice log shows concentration outcome and named effect", () => {
   const html = renderDiceRollerDock({
     open: true,

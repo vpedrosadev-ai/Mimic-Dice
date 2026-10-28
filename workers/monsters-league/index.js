@@ -613,7 +613,10 @@ function sanitizeDiceRoll(value, actor) {
     targetCombatantId: safeText(source.targetCombatantId).slice(0, 160),
     targetName: safeText(source.targetName).slice(0, 160),
     targetStand: safeText(source.targetStand).slice(0, 30),
-    targetArmorClass: Number.isFinite(Number(source.targetArmorClass)) ? Number(source.targetArmorClass) : null,
+    targetArmorClass: source.targetArmorClass !== null && source.targetArmorClass !== "" && Number.isFinite(Number(source.targetArmorClass))
+      ? Number(source.targetArmorClass)
+      : null,
+    targetArmorClassHidden: source.targetArmorClassHidden === true,
     targetHit: source.targetHit === true ? true : source.targetHit === false ? false : null,
     appliedDamage: Number.isFinite(Number(source.appliedDamage)) ? Math.max(0, Number(source.appliedDamage)) : null,
     targetCriticalDamage: source.targetCriticalDamage === true,

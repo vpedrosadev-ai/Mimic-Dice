@@ -260,6 +260,11 @@ const playerMapController = createCombatMapController({
   handleContextChange: handleLeagueCombatQuickMenuChange,
   handleContextInput: handleLeagueCombatQuickMenuInput,
   handleContextKeydown: handleLeagueCombatQuickMenuKeydown,
+  handleTurnShortcutKeydown: handleLeagueTurnShortcutKeydown,
+  showTokenHealth: () => false,
+  showInitiativeHealth: () => false,
+  showTeamColorRings: () => false,
+  isToolbarControlVisible: (control) => !["fog", "health", "initiative"].includes(control),
   onChange: publishLeagueMasterMapChange
 });
 
@@ -493,6 +498,7 @@ function render() {
     ${renderSpellDialog()}
     ${renderTurnFlash()}
     ${renderLeagueDiceTargetMenu()}
+    ${renderLeagueCombatQuickMenu(window, "main")}
   `;
   restoreMasterWorkspaceViewport();
   syncMasterMapSurface();
@@ -992,10 +998,13 @@ function renderMasterTeamEntityCard(player, item, selected, active) {
   const hpLabel = language === "en" ? "HP" : "PG";
   const standNumber = cleanText(combatant.numPeana || live.standNumber) || "-";
   const hidesHealth = combatant.hideHealth === true;
+  const teamColor = /^#[0-9a-f]{6}$/i.test(cleanText(combatant.teamColor || player?.color))
+    ? cleanText(combatant.teamColor || player?.color)
+    : "#d9ab5d";
   const hpText = hidesHealth ? (language === "en" ? "HP hidden" : "PG ocultos") : `${currentHp}/${effectiveMax} ${hpLabel}${tempHp ? ` · +${tempHp}` : ""}`;
 
   return `
-    <button class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}" type="button" data-ml-action="select-monster" data-monster-id="${escapeHtml(item.selectionId)}" aria-pressed="${selected}">
+    <button class="master-combat-entity has-team-color ${hidesHealth ? "is-rival-private" : ""} ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}" style="--team-color:${escapeHtml(teamColor)}" type="button" data-ml-action="select-monster" data-monster-id="${escapeHtml(item.selectionId)}" data-combat-turn-token-context="${escapeHtml(combatant.id)}" aria-pressed="${selected}">
       <span class="master-combat-entity__initiative" title="${language === "en" ? "Stand" : "Peana"}">${escapeHtml(standNumber)}</span>
       <span class="master-combat-entity__portrait">
         ${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(monster.name))}</span>`}
@@ -1004,7 +1013,7 @@ function renderMasterTeamEntityCard(player, item, selected, active) {
       <span class="master-combat-entity__copy">
         <span class="master-combat-entity__title"><strong>${escapeHtml(monster.name)}</strong></span>
         <strong class="master-combat-entity__hp-label">${escapeHtml(hpText)}</strong>
-        <span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>
+        ${hidesHealth ? "" : `<span class="master-combat-entity__health"><i style="width:${hpPercent}%"></i></span>`}
       </span>
       ${statusNames.length ? `<span class="master-combat-entity__statuses" aria-label="${language === "en" ? "Conditions" : "Estados"}">${statusNames.map((statusName) => {
         const iconUrl = getCombatStatusIconUrl(statusName);
@@ -1275,6 +1284,7 @@ function changeLeagueTurn(direction) {
   state.room.combatMeta = advanceMonstersLeagueCombatTurn(state.room.combatState, state.room.combatMeta, direction);
   const activeId = getLeagueActiveCombatantId();
   state.room.mapProjection = { ...(state.room.mapProjection || {}), activeCombatantId: activeId };
+  observeCombatTurn(state.room);
   if (!localTestMode) sendOnlineCommand("combat-turn", { direction: Number(direction) < 0 ? -1 : 1 });
   render();
 }
@@ -1291,31 +1301,21 @@ function renderProjectedInitiativeOrder(_viewportWindow, layout = {}) {
       || cleanText(left.nombre).localeCompare(cleanText(right.nombre), "es", { numeric: true, sensitivity: "base" }));
   const scale = layout.count === combatants.length ? layout.scale : getProjectedTurnTokenScale(combatants.length);
   const columns = layout.count === combatants.length ? layout.columns : 1;
-  return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${combatants.length}" aria-label="${language === "en" ? "Initiative order" : "Orden de iniciativa"}">${combatants.map((combatant) => renderProjectedTurnToken(combatant, combatant.id === activeId)).join("") || `<p class="combat-turn-panel__empty">${language === "en" ? "No visible creatures in initiative." : "No hay entidades visibles para el turno."}</p>`}</div></div>`;
+  return `<div class="combat-map-initiative-order-inner"><div class="combat-turn-strip" style="--turn-token-scale:${scale};--initiative-columns:${columns};--turn-strip-count:${combatants.length}" aria-label="${language === "en" ? "Initiative order" : "Orden de iniciativa"}">${combatants.map((combatant) => renderProjectedTurnToken(combatant, combatant.id === activeId, { showHealth: layout.showHealth !== false })).join("") || `<p class="combat-turn-panel__empty">${language === "en" ? "No visible creatures in initiative." : "No hay entidades visibles para el turno."}</p>`}</div></div>`;
 }
 
-function renderProjectedTurnToken(combatant, isActive) {
+function renderProjectedTurnToken(combatant, isActive, options = {}) {
   const initiativeIconUrl = getCombatToolbarActionIconUrl("initiative");
-  const teamColor = /^#[0-9a-f]{6}$/i.test(cleanText(combatant.teamColor)) ? cleanText(combatant.teamColor) : "";
   const side = ["allies", "enemies", "neutral"].includes(combatant.side) ? combatant.side : "enemies";
   const hidesRivalStats = combatant.hideHealth === true;
+  const hidesHealth = hidesRivalStats || options.showHealth === false;
   const statusNames = hidesRivalStats ? [] : getProjectedStatusNames(combatant).slice(0, 3);
   const isFallenAlly = side === "allies" && Number(combatant.pgAct) < 1;
   const isHidden = combatant.hiddenFromInitiative === true || statusNames.some((name) => normalizeSearchText(name) === "invisible");
-  const maxHp = Math.max(1, Number(combatant.pgMax) - Number(combatant.necrotic || 0));
-  const hpPercent = hidesRivalStats ? 0 : Math.max(0, Math.min(100, Math.round((Number(combatant.pgAct) || 0) / maxHp * 100)));
-  const visualFill = hpPercent <= 0 ? 0 : Math.round(100 * Math.pow(hpPercent / 100, 0.45));
-  const hpColor = hpPercent === 0
-    ? "rgba(16, 14, 14, 0.96)"
-    : hpPercent <= 25
-      ? "rgba(184, 60, 74, 0.92)"
-      : hpPercent <= 50
-        ? "rgba(201, 124, 44, 0.94)"
-        : "rgba(84, 160, 101, 0.9)";
   const label = cleanText(combatant.nombre) || (language === "en" ? "Unnamed" : "Sin nombre");
   const standNumber = cleanText(combatant.numPeana);
 
-  return `<div class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHidden ? "is-hidden-from-initiative" : ""} ${hidesRivalStats ? "is-health-hidden" : ""}" style="--turn-hp-fill:${visualFill}%;--turn-hp-color:${hpColor}${teamColor ? `;--team-color:${teamColor}` : ""}" title="${escapeHtml(label)} | ${language === "en" ? "Init" : "Inic"} ${escapeHtml(String(combatant.iniactiva ?? ""))}">
+  return `<div class="combat-turn-token-wrap ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHidden ? "is-hidden-from-initiative" : ""} ${hidesHealth ? "is-health-hidden" : ""}" title="${escapeHtml(label)} | ${language === "en" ? "Init" : "Inic"} ${escapeHtml(String(combatant.iniactiva ?? ""))}">
     <span class="combat-turn-token__initiative" data-tooltip="${language === "en" ? "Combat initiative" : "Iniciativa en el combate"}"><img class="combat-turn-token__initiative-icon" src="${escapeHtml(initiativeIconUrl)}" alt="" decoding="async" aria-hidden="true"><span>${escapeHtml(String(combatant.iniactiva ?? "-"))}</span></span>
     <div class="combat-turn-token combat-turn-token--${side}">${combatant.tokenUrl ? `<img src="${escapeHtml(combatant.tokenUrl)}" alt="" loading="lazy" decoding="async" aria-hidden="true">` : `<span class="combat-turn-token__placeholder" aria-hidden="true">${escapeHtml(getInitials(label))}</span>`}${side === "enemies" && standNumber ? `<span class="combat-turn-token__stand">${escapeHtml(standNumber)}</span>` : ""}</div>
     <div class="combat-turn-token__statuses">${statusNames.map(renderProjectedTurnStatus).join("")}</div>
@@ -1363,37 +1363,21 @@ function observeCombatTurn(room) {
   const round = Math.max(1, Math.floor(Number(room?.combatMeta?.round) || 1));
   const previousRound = state.lastCombatRound;
   state.lastCombatRound = round;
-  if (previousRound && round !== previousRound && projection?.open === true) {
-    state.roundFlash = { round };
-    window.clearTimeout(state.roundFlashTimer);
-    state.roundFlashTimer = window.setTimeout(() => {
-      state.roundFlash = null;
-      render();
-    }, 3200);
-  }
+  if (previousRound && round !== previousRound) playerMapController.showRoundAnnouncement(round);
   const activeKey = cleanText(room?.combatMeta?.activeMonsterKey);
   const activeCombatant = getPlayerVisibleCombatants().find((entry) => getLeagueCombatantKey(entry) === activeKey)
     || (projection?.combatants || []).find((entry) => cleanText(entry.id) === cleanText(projection?.activeCombatantId));
   const activeId = cleanText(activeCombatant?.id || projection?.activeCombatantId);
   if (activeId === state.lastActiveCombatantId) return;
   state.lastActiveCombatantId = activeId;
-  if (!activeId || projection?.open !== true) return;
+  if (!activeId) return;
   const combatant = activeCombatant;
   const currentUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
   const currentPlayer = room.players?.find((player) => player.userId === currentUserId || player.id === currentUserId);
-  if (!combatant || (combatant.teamOwnerUserId !== currentUserId && combatant.teamId !== currentPlayer?.id)) return;
-  state.selectedMonsterId = cleanText(combatant.multiplayerMonsterId) || state.selectedMonsterId;
-  state.turnFlash = {
-    name: cleanText(combatant.nombre) || (language === "en" ? "Your creature" : "Tu criatura"),
-    tokenUrl: cleanText(combatant.tokenUrl),
-    standNumber: cleanText(combatant.numPeana),
-    conditions: getProjectedStatusNames(combatant)
-  };
-  window.clearTimeout(state.turnFlashTimer);
-  state.turnFlashTimer = window.setTimeout(() => {
-    state.turnFlash = null;
-    render();
-  }, 3200);
+  if (!combatant) return;
+  const ownsCombatant = combatant.teamOwnerUserId === currentUserId || combatant.teamId === currentPlayer?.id;
+  if (ownsCombatant) state.selectedMonsterId = cleanText(combatant.multiplayerMonsterId) || state.selectedMonsterId;
+  playerMapController.showTurnAnnouncement(combatant);
 }
 
 function renderTurnFlash() {
@@ -1518,24 +1502,47 @@ function renderLeagueDiceTargetMenu() {
   if (!menu?.kind || !cleanText(menu.formula)) return "";
   const targets = getPlayerVisibleCombatants().filter((combatant) => Number(combatant.pgAct) > 0);
   const isAttack = menu.kind === COMBAT_DICE_TARGET_ATTACK;
-  const left = Math.max(12, Math.min(Number(menu.x) || 12, window.innerWidth - 390));
-  const top = Math.max(12, Math.min(Number(menu.y) || 12, window.innerHeight - 480));
   const title = isAttack
     ? (language === "en" ? "Choose attack target" : "Elige objetivo del ataque")
     : (language === "en" ? "Choose damage target" : "Elige objetivo del daño");
-  return `<aside class="master-combat-dice-target-menu" style="left:${left}px;top:${top}px;width:min(24rem,calc(100vw - 24px));max-height:min(36rem,calc(100vh - 24px));--target-columns:1" data-ml-dice-target-menu role="dialog" aria-label="${escapeHtml(title)}">
-    <header class="master-combat-dice-target-menu__header"><div><small>${isAttack ? "ATTACK" : "DAMAGE"}</small><strong>${escapeHtml(title)}</strong></div><code>${escapeHtml(menu.formula)}</code></header>
-    <div class="master-combat-dice-target-menu__list">${targets.map((combatant) => renderLeagueDiceTargetCard(combatant, isAttack)).join("")}</div>
+  const subtitle = isAttack
+    ? (language === "en" ? "Roll and compare against Armor Class" : "Lanza y compara con la Clase de Armadura")
+    : (language === "en" ? "Roll and apply damage immediately" : "Lanza y aplica el daño inmediatamente");
+  return `<aside class="master-combat-dice-target-menu" style="${escapeHtml(getLeagueDiceTargetMenuStyle(targets.length))}" data-ml-dice-target-menu role="dialog" aria-label="${escapeHtml(title)}">
+    <header class="master-combat-dice-target-menu__header"><div><small>${isAttack ? "ATTACK" : "DAMAGE"}</small><strong>${escapeHtml(title)}</strong></div><code>${escapeHtml(menu.formula)}</code><span>${escapeHtml(subtitle)}</span></header>
+    <div class="master-combat-dice-target-menu__list">${targets.length ? targets.map((combatant) => renderLeagueDiceTargetCard(combatant, isAttack)).join("") : `<p class="master-combat-dice-target-menu__empty">${language === "en" ? "No combat entities available." : "No hay entidades de combate disponibles."}</p>`}</div>
   </aside>`;
+}
+
+function getLeagueDiceTargetMenuStyle(targetCount = 0) {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1280;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+  const padding = 12;
+  const headerHeight = 132;
+  const rowHeight = 72;
+  const availableHeight = Math.max(rowHeight, viewportHeight - padding * 2 - headerHeight);
+  const rowCount = Math.max(1, Math.min(Math.max(1, targetCount), Math.floor(availableHeight / rowHeight)));
+  const columnCount = Math.max(1, Math.ceil(Math.max(1, targetCount) / rowCount));
+  const menuWidth = Math.min(
+    Math.max(0, viewportWidth - padding * 2),
+    Math.max(368, columnCount * 288 + (columnCount - 1) * 8 + 26)
+  );
+  const menuHeight = Math.min(viewportHeight - padding * 2, headerHeight + rowCount * rowHeight);
+  const rawX = Math.round(Number(state.diceTargetMenu?.x) || 0);
+  const rawY = Math.round(Number(state.diceTargetMenu?.y) || 0);
+  const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
+  const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));
+  return `left:${left}px;top:${top}px;width:${menuWidth}px;max-height:${menuHeight}px;--target-columns:${columnCount};--target-rows:${rowCount};`;
 }
 
 function renderLeagueDiceTargetCard(combatant, isAttack) {
   const name = cleanText(combatant.nombre) || (language === "en" ? "Creature" : "Criatura");
   const stand = cleanText(combatant.numPeana) || "-";
   const portrait = cleanText(combatant.tokenUrl);
+  const showArmorClass = isAttack && combatant.hideHealth !== true;
   const button = (extra, label, className = "") => `<button class="master-combat-dice-target-card__mode ${className}" type="button" data-ml-action="resolve-dice-target" data-combatant-id="${escapeHtml(combatant.id)}" ${extra}>${label}</button>`;
   return `<article class="master-combat-dice-target-card">
-    <button class="master-combat-dice-target-card__select" type="button" data-ml-action="resolve-dice-target" data-combatant-id="${escapeHtml(combatant.id)}"><span class="master-combat-dice-target-card__portrait">${portrait ? `<img src="${escapeHtml(portrait)}" alt="">` : `<span>${escapeHtml(getInitials(name))}</span>`}</span><span class="master-combat-dice-target-card__copy"><strong>${escapeHtml(name)}</strong><small>${language === "en" ? "Stand" : "Peana"} ${escapeHtml(stand)}${isAttack ? ` · AC ${escapeHtml(String(combatant.acValue || "-"))}` : ""}</small></span></button>
+    <button class="master-combat-dice-target-card__select" type="button" data-ml-action="resolve-dice-target" data-combatant-id="${escapeHtml(combatant.id)}"><span class="master-combat-dice-target-card__portrait">${portrait ? `<img src="${escapeHtml(portrait)}" alt="">` : `<span>${escapeHtml(getInitials(name))}</span>`}</span><span class="master-combat-dice-target-card__copy"><strong>${escapeHtml(name)}</strong><small>${language === "en" ? "Stand" : "Peana"} ${escapeHtml(stand)}${showArmorClass ? ` · AC ${escapeHtml(String(combatant.acValue || "-"))}` : ""}</small></span></button>
     <span class="master-combat-dice-target-card__controls ${isAttack ? "" : "master-combat-dice-target-card__controls--damage"}">${isAttack
       ? `${button('data-target-roll-mode="advantage"', language === "en" ? "Advantage" : "Ventaja", "master-combat-dice-target-card__mode--advantage")}${button('data-target-roll-mode="disadvantage"', language === "en" ? "Disadvantage" : "Desventaja", "master-combat-dice-target-card__mode--disadvantage")}`
       : `${button('data-target-critical="true"', "x2", "master-combat-dice-target-card__mode--critical")}${button('data-target-half-damage="true"', "1/2", "master-combat-dice-target-card__mode--half")}${button('data-target-necrotic-damage="true"', `<span aria-hidden="true">${renderLeagueMiniActionIcon("necrotic")}</span>`, "master-combat-dice-target-card__mode--necrotic")}`}</span>
@@ -1670,6 +1677,10 @@ function handleClick(event) {
     closedDiceTargetMenu = true;
     app.querySelector("[data-ml-dice-target-menu]")?.remove();
   }
+  if (event.target.closest?.("[data-combat-turn-quick-menu]")) {
+    handleLeagueCombatQuickMenuClick(event);
+    return;
+  }
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handleClick(event);
     return;
@@ -1726,6 +1737,10 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
+  if (event.target.closest?.("[data-combat-turn-quick-menu]")) {
+    handleLeagueCombatQuickMenuChange(event);
+    return;
+  }
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handleChange(event);
     return;
@@ -1747,6 +1762,10 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
+  if (event.target.closest?.("[data-combat-turn-quick-menu]")) {
+    handleLeagueCombatQuickMenuInput(event);
+    return;
+  }
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handleInput(event);
     return;
@@ -1920,7 +1939,8 @@ function submitMasterDiceFormula(formula, options = {}) {
         targetCombatantId: cleanText(targetContext.combatantId),
         targetName: cleanText(targetContext.name),
         targetStand: cleanText(targetContext.stand),
-        targetArmorClass: targetOutcome.armorClass,
+        targetArmorClass: targetContext.hideArmorClass === true ? null : targetOutcome.armorClass,
+        targetArmorClassHidden: targetContext.hideArmorClass === true,
         targetHit: targetOutcome.hit,
         appliedDamage: targetOutcome.appliedDamage,
         targetCriticalDamage: targetContext.criticalDamage === true,
@@ -1964,6 +1984,7 @@ function resolveLeagueDiceTarget(combatantId, options = {}) {
       name: target.nombre,
       stand: target.numPeana,
       armorClass: Number.isFinite(Number(target.acValue)) ? Number(target.acValue) : null,
+      hideArmorClass: target.hideHealth === true,
       criticalDamage: isCritical,
       halfDamage: options.halfDamage === true,
       necroticDamage: options.necroticDamage === true,
@@ -2046,6 +2067,7 @@ function handleLeagueCombatQuickMenuClick(event) {
   event.preventDefault();
   const combatant = getLeagueQuickMenuCombatant();
   if (!combatant) return;
+  const owner = cleanText(state.combatQuickMenu?.owner);
   const action = button.dataset.mlContextAction;
   if (action === "resource") applyLeagueQuickResource(combatant, button.dataset.mode);
   if (action === "remove-status") patchLeagueCombatant(combatant, { conditions: getProjectedStatusNames(combatant).filter((status) => status !== button.dataset.status) });
@@ -2053,16 +2075,17 @@ function handleLeagueCombatQuickMenuClick(event) {
     const value = cleanText(button.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status]")?.value);
     if (value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
   }
-  playerMapController.sync();
+  syncLeagueCombatQuickMenuSurface(owner);
 }
 
 function handleLeagueCombatQuickMenuChange(event) {
   const field = cleanText(event.target.dataset.mlContextField);
   const combatant = getLeagueQuickMenuCombatant();
   if (!field || !combatant) return;
+  const owner = cleanText(state.combatQuickMenu?.owner);
   const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
   patchLeagueCombatant(combatant, { [field]: value });
-  playerMapController.sync();
+  syncLeagueCombatQuickMenuSurface(owner);
 }
 
 function handleLeagueCombatQuickMenuInput(event) {
@@ -2073,15 +2096,22 @@ function handleLeagueCombatQuickMenuInput(event) {
 
 function handleLeagueCombatQuickMenuKeydown(event) {
   if (event.key === "Escape") {
+    const owner = cleanText(state.combatQuickMenu?.owner);
     state.combatQuickMenu = null;
-    playerMapController.sync();
+    syncLeagueCombatQuickMenuSurface(owner);
   } else if (event.key === "Enter" && event.target.matches("[data-ml-context-status]")) {
     event.preventDefault();
+    const owner = cleanText(state.combatQuickMenu?.owner);
     const combatant = getLeagueQuickMenuCombatant();
     const value = cleanText(event.target.value);
     if (combatant && value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
-    playerMapController.sync();
+    syncLeagueCombatQuickMenuSurface(owner);
   }
+}
+
+function syncLeagueCombatQuickMenuSurface(owner = cleanText(state.combatQuickMenu?.owner)) {
+  if (owner === "main") render();
+  else playerMapController.sync();
 }
 
 function getLeagueQuickMenuCombatant() {
@@ -2173,8 +2203,10 @@ function saveMasterWorkspaceLayout() {
 function handleMasterWorkspacePointerDown(event) {
   if (state.combatQuickMenu
     && !event.target.closest?.("[data-combat-turn-quick-menu]")) {
+    const owner = cleanText(state.combatQuickMenu.owner);
     state.combatQuickMenu = null;
-    playerMapController.sync();
+    if (owner === "main") app.querySelector("[data-combat-turn-quick-menu]")?.remove();
+    else playerMapController.sync();
   }
   if (event.target.closest?.("[data-combat-map-master-root]")) {
     playerMapController.handlePointerDown(event);
@@ -2231,12 +2263,27 @@ function handleMasterWorkspacePointerUp(event) {
 }
 
 function handleMasterWorkspaceKeydown(event) {
+  if (event.target.closest?.("[data-combat-turn-quick-menu]") && ["Escape", "Enter"].includes(event.key)) {
+    handleLeagueCombatQuickMenuKeydown(event);
+    return;
+  }
   if (event.key === "Escape" && state.diceTargetMenu) {
     state.diceTargetMenu = null;
     render();
     return;
   }
+  if (handleLeagueTurnShortcutKeydown(event)) return;
   if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleKeydown(event);
+}
+
+function handleLeagueTurnShortcutKeydown(event) {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (event.target?.matches?.("input, select, textarea, [contenteditable='true']")) return false;
+  const key = cleanText(event.key).toLowerCase();
+  if (key !== "a" && key !== "d") return false;
+  event.preventDefault();
+  changeLeagueTurn(key === "a" ? -1 : 1);
+  return true;
 }
 
 function handleMasterWorkspaceContextMenu(event) {
@@ -2250,6 +2297,14 @@ function handleMasterWorkspaceContextMenu(event) {
       y: event.clientY
     };
     render();
+    return;
+  }
+  const entityCard = event.target.closest?.("[data-combat-turn-token-context]");
+  if (entityCard && !entityCard.closest("[data-combat-map-master-root]")) {
+    event.preventDefault();
+    openLeagueCombatQuickMenu(entityCard.dataset.combatTurnTokenContext, event.clientX, event.clientY, "main");
+    render();
+    app.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
     return;
   }
   if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleContextMenu(event);
