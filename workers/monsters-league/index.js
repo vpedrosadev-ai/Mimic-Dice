@@ -579,7 +579,11 @@ function sanitizeDiceRoll(value, actor) {
     appliedDamage: Number.isFinite(Number(source.appliedDamage)) ? Math.max(0, Number(source.appliedDamage)) : null,
     targetCriticalDamage: source.targetCriticalDamage === true,
     targetHalfDamage: source.targetHalfDamage === true,
-    targetNecroticDamage: source.targetNecroticDamage === true
+    targetNecroticDamage: source.targetNecroticDamage === true,
+    contextKind: source.contextKind === "concentration" ? "concentration" : "",
+    concentrationOutcome: ["maintains", "loses"].includes(source.concentrationOutcome) ? source.concentrationOutcome : "",
+    concentrationName: safeText(source.concentrationName).slice(0, 100),
+    concentrationDc: Math.max(0, Number(source.concentrationDc) || 0)
   };
 }
 

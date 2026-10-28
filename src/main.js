@@ -328,7 +328,7 @@ const defaultSoundSettings = Object.freeze({
   doubleCritical: true,
   doubleFumble: true
 });
-const NOTIFICATION_SETTING_KEYS = Object.freeze(["damage", "healing", "experience", "turn", "round", "status", "initiative", "system"]);
+const NOTIFICATION_SETTING_KEYS = Object.freeze(["damage", "healing", "experience", "turn", "round", "status", "concentration", "initiative", "system"]);
 const defaultNotificationSettings = Object.freeze(Object.fromEntries(NOTIFICATION_SETTING_KEYS.map((key) => [key, true])));
 const blankBestiaryFilters = {
   query: "",
@@ -1000,6 +1000,7 @@ state = {
     isRunning: false
   },
   combatTimerPanelOpen: false,
+  combatTurnPanelVisible: initialCombatTrackerState.isCombatActive === true,
   combatMaxHpRestoreMenu: {
     combatantId: "",
     x: 0,
@@ -3747,6 +3748,13 @@ async function handleClick(event) {
 
   if (action === "toggle-combat-timer-panel") {
     state.combatTimerPanelOpen = !state.combatTimerPanelOpen;
+    render();
+    return;
+  }
+
+  if (action === "toggle-combat-turn-panel") {
+    state.combatTurnPanelVisible = !state.combatTurnPanelVisible;
+    if (state.combatTurnPanelVisible) activateCombatTurns({ announce: false });
     render();
     return;
   }
@@ -12035,6 +12043,7 @@ function renderOptionsDialog() {
     { key: "turn", es: "Turnos", en: "Turns" },
     { key: "round", es: "Rondas", en: "Rounds" },
     { key: "status", es: "Estados", en: "Conditions" },
+    { key: "concentration", es: "Concentración", en: "Concentration" },
     { key: "initiative", es: "Iniciativa", en: "Initiative" },
     { key: "system", es: "Sistema, guardado y resto", en: "System, saving and other" }
   ];
@@ -12810,15 +12819,7 @@ function renderCombatTracker() {
     visibleCombatants.length > 0 &&
     visibleCombatants.every((combatant) => state.selectedIds.has(combatant.id));
   const battleTimerLabel = formatBattleTimer(getBattleTimerElapsedMs());
-  const initiativeActionIconUrl = getCombatToolbarActionIconUrl("initiative");
-  const combatActionIconUrl = getCombatToolbarActionIconUrl("combat");
   const longRestActionIconUrl = getCombatToolbarActionIconUrl("longRest");
-  const combatActionTooltip = state.isCombatActive
-    ? "Para el contador y oculta el visual de combate"
-    : "Muestra el visual de combate para todas las filas ordenadas con un valor de iniciativa y enciende el contador";
-  const combatActionLabel = state.isCombatActive
-    ? "<span>Fin del</span><span>combate</span>"
-    : "<span class=\"combat-action-button__single-line\">Combate !</span>";
   const hasVisibleCombatants = visibleCombatants.length > 0;
   const areaAmountValue = Number(state.areaDamage);
   const hasAreaAmount = Number.isFinite(areaAmountValue) && areaAmountValue >= 0;
@@ -12833,23 +12834,20 @@ function renderCombatTracker() {
       <div class="section-heading">
         ${renderScreenHeadingIdentity("combat-tracker", "", t("combat_table_title"))}
         <div class="section-heading__side">
-          ${!state.combatTimerPanelOpen
-            ? `
-              <div class="combat-heading__actions">
-                ${renderMasterCombatWorkspaceButton()}
-                ${renderCombatMapButton()}
-                ${renderCombatTimerToggleButton(false)}
-              </div>
-            `
-            : ""}
+          <div class="combat-heading__actions">
+            ${renderMasterCombatWorkspaceButton()}
+            ${renderCombatMapButton()}
+            ${renderCombatInitiativeToggleButton()}
+            ${renderCombatTimerToggleButton(state.combatTimerPanelOpen)}
+          </div>
         </div>
       </div>
 
       ${
-        state.combatTimerPanelOpen || state.isCombatActive
+        state.combatTimerPanelOpen || state.combatTurnPanelVisible
           ? `
             <div class="combat-top-row">
-              ${state.isCombatActive
+              ${state.combatTurnPanelVisible
                 ? renderCombatTurnPanel(turnDisplayParticipants, activeTurnCombatantId, { turnParticipants })
                 : ""}
               ${state.combatTimerPanelOpen ? renderCombatTimerPanel(battleTimerLabel) : ""}
@@ -12894,28 +12892,6 @@ function renderCombatTracker() {
         <div class="table-toolbar__group combat-toolbar__secondary-row">
           ${renderCombatAreaEffectsBox(visibleCombatants, hasVisibleCombatants, hasAreaAmount)}
 
-          <button
-            class="toolbar-button toolbar-button--combat"
-            type="button"
-            data-action="generate-iniactiva"
-            data-tooltip="Lanza la iniciativa sumando el bonus para las filas seleccionadas"
-            ${state.selectedIds.size === 0 ? "disabled" : ""}
-          >
-            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(initiativeActionIconUrl)}" alt="" decoding="async" /></span>
-            <span class="combat-action-button__label"><span>${escapeHtml(t("Generar"))}</span><span>${escapeHtml(t("iniciativa"))}</span></span>
-          </button>
-          <button
-            class="toolbar-button toolbar-button--combat"
-            type="button"
-            data-action="${state.isCombatActive ? "end-combat-turns" : "start-combat-turns"}"
-            data-tooltip="${escapeHtml(combatActionTooltip)}"
-            ${!state.isCombatActive && turnParticipants.length === 0 ? "disabled" : ""}
-          >
-            <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(combatActionIconUrl)}" alt="" decoding="async" /></span>
-            <span class="combat-action-button__label combat-action-button__label--combat${state.isCombatActive ? "" : " combat-action-button__label--combat-start"}">
-              ${combatActionLabel}
-            </span>
-          </button>
           <button
             class="toolbar-button toolbar-button--combat"
             type="button"
@@ -13060,6 +13036,24 @@ function renderCombatMapButton() {
   `;
 }
 
+function renderCombatInitiativeToggleButton() {
+  const label = isEnglishInterface() ? "Initiative order" : "Orden iniciativa";
+  const iconUrl = getCombatToolbarActionIconUrl("initiative");
+  return `
+    <button
+      class="toolbar-button toolbar-button--combat combat-overview-toggle ${state.combatTurnPanelVisible ? "is-active" : ""}"
+      type="button"
+      data-action="toggle-combat-turn-panel"
+      aria-expanded="${state.combatTurnPanelVisible}"
+      aria-label="${escapeHtml(label)}"
+      title="${escapeHtml(label)}"
+    >
+      <span class="button-icon" aria-hidden="true"><img src="${escapeHtml(iconUrl)}" alt="" decoding="async"></span>
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
 function renderMasterCombatWorkspaceButton() {
   const label = isEnglishInterface() ? "Master view" : "Vista master";
   return `
@@ -13124,14 +13118,14 @@ function renderMasterCombatWorkspacePanel() {
               <div><small>${escapeHtml(isEnglishInterface() ? "COMBAT" : "COMBATE")}</small><strong>${escapeHtml(isEnglishInterface() ? "Entities" : "Entidades")}</strong></div>
               <div class="master-combat-workspace__turn-controls" aria-label="${escapeHtml(isEnglishInterface() ? "Turn controls" : "Controles de turno")}">
                 <button class="master-combat-workspace__entity-add" type="button" data-action="open-master-combat-add-dialog" aria-label="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}" title="${escapeHtml(isEnglishInterface() ? "Add entity" : "Anadir entidad")}">+</button>
-                <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${!state.isCombatActive || turnCombatants.length === 0 ? "disabled" : ""}>
+                <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${turnCombatants.length === 0 ? "disabled" : ""}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg>
                 </button>
                 <div class="combat-turn-panel__menu-wrap" data-combat-turn-round-menu>
                   <button class="round-chip round-chip--button combat-map-initiative-round" type="button" data-action="toggle-combat-turn-round-editor" data-master-combat-round-reset aria-expanded="${state.combatTurnRoundEditorOpen}" title="${escapeHtml(t("round_label"))}">R${escapeHtml(String(getCombatRound()))}</button>
                   ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
                 </div>
-                <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${!state.isCombatActive || turnCombatants.length === 0 ? "disabled" : ""}>
+                <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${turnCombatants.length === 0 ? "disabled" : ""}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg>
                 </button>
               </div>
@@ -13776,14 +13770,7 @@ function finishMasterCombatWorkspaceResize(event) {
 function renderCombatTimerPanel(battleTimerLabel) {
   return `
     <div class="combat-timer">
-      <div class="combat-timer__map-action">
-        ${renderMasterCombatWorkspaceButton()}
-        ${renderCombatMapButton()}
-      </div>
       <article class="combat-timer__card">
-        <div class="combat-timer__toolbar">
-          ${renderCombatTimerToggleButton(true)}
-        </div>
         <div class="combat-timer__visual">
           <div class="combat-timer__hourglass" aria-hidden="true">
             <span class="combat-timer__hourglass-cap combat-timer__hourglass-cap--top"></span>
@@ -13826,11 +13813,11 @@ function renderCombatTimerPanel(battleTimerLabel) {
 }
 
 function renderMapInitiativeControls(turnParticipants, activeTurnCombatantId) {
-  const disabled = !state.isCombatActive || turnParticipants.length === 0;
+  const disabled = turnParticipants.length === 0;
   return `
     <div class="combat-map-initiative-controls" aria-label="Controles de turno">
-      <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${disabled ? "disabled" : ""}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg>
+      <button class="combat-map-initiative-control" type="button" data-action="retreat-combat-turn" aria-label="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" title="${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}" ${disabled ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-2v16h2V4Zm-4.5 1.5-10 6.5 10 6.5v-13Z" /></svg>
       </button>
       <div class="combat-turn-panel__menu-wrap" data-combat-turn-jump-menu>
         <button class="combat-map-initiative-control" type="button" data-action="toggle-combat-turn-jump-menu" aria-label="${escapeHtml(t("jump_turn_to"))}" title="${escapeHtml(t("jump_turn_to"))}" aria-expanded="${state.combatTurnJumpMenuOpen}" ${disabled ? "disabled" : ""}>
@@ -13844,6 +13831,9 @@ function renderMapInitiativeControls(turnParticipants, activeTurnCombatantId) {
         </button>
         ${state.combatTurnRoundEditorOpen ? renderCombatTurnRoundEditor() : ""}
       </div>
+      <button class="combat-map-initiative-control" type="button" data-action="advance-combat-turn" aria-label="${escapeHtml(t("Pasar turno"))}" title="${escapeHtml(t("Pasar turno"))}" ${disabled ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h2v16H5V4Zm4.5 1.5 10 6.5-10 6.5v-13Z" /></svg>
+      </button>
     </div>
   `;
 }
@@ -13866,6 +13856,14 @@ function renderCombatTurnPanel(turnOrder, activeTurnCombatantId, options = {}) {
     <section class="panel panel--inner combat-turn-section">
       <div class="combat-turn-panel">
         <div class="combat-turn-panel__controls">
+          <button
+            class="summary-button combat-turn-panel__button"
+            type="button"
+            data-action="retreat-combat-turn"
+            ${turnParticipants.length === 0 ? "disabled" : ""}
+          >
+            ${escapeHtml(isEnglishInterface() ? "Previous turn" : "Atrasar turno")}
+          </button>
           <button
             class="summary-button summary-button--turn combat-turn-panel__button"
             type="button"
@@ -27195,20 +27193,31 @@ function announceCombatantTurn(combatant) {
 }
 
 function startCombatTurns() {
-  const turnOrder = getCombatTurnParticipants();
-
-  state.isCombatActive = true;
+  activateCombatTurns({ announce: true, resetRound: true });
   state.combatTimerPanelOpen = true;
-  state.sort = { key: "iniactiva", direction: "desc" };
-  state.activeTurnCombatantId = turnOrder[0]?.id ?? "";
-  state.combatRound = 1;
-  state.combatTurnRoundDraft = "1";
-  state.combatTurnRoundEditorOpen = false;
-  state.combatTurnJumpMenuOpen = false;
   resetBattleTimer();
   startBattleTimer();
   saveCombatTrackerState();
-  announceCombatantTurn(turnOrder[0]);
+}
+
+function activateCombatTurns({ announce = false, resetRound = false } = {}) {
+  const turnOrder = getCombatTurnParticipants();
+  if (turnOrder.length === 0) return false;
+  const wasActive = state.isCombatActive === true;
+  state.isCombatActive = true;
+  state.sort = { key: "iniactiva", direction: "desc" };
+  if (!wasActive || !turnOrder.some((combatant) => combatant.id === state.activeTurnCombatantId)) {
+    state.activeTurnCombatantId = turnOrder[0].id;
+  }
+  if (!wasActive || resetRound) {
+    state.combatRound = 1;
+    state.combatTurnRoundDraft = "1";
+  }
+  state.combatTurnRoundEditorOpen = false;
+  state.combatTurnJumpMenuOpen = false;
+  saveCombatTrackerState();
+  if (announce && !wasActive) announceCombatantTurn(turnOrder[0]);
+  return true;
 }
 
 function endCombatTurns() {
@@ -27224,6 +27233,7 @@ function endCombatTurns() {
 
 function advanceCombatTurn() {
   if (!state.isCombatActive) {
+    activateCombatTurns({ announce: true });
     return;
   }
 
@@ -27250,8 +27260,14 @@ function advanceCombatTurn() {
 }
 
 function retreatCombatTurn() {
-  if (!state.isCombatActive) return;
   const turnOrder = getCombatTurnParticipants();
+  if (!state.isCombatActive) {
+    if (!activateCombatTurns({ announce: false })) return;
+    state.activeTurnCombatantId = turnOrder.at(-1)?.id || "";
+    saveCombatTrackerState();
+    announceCombatantTurn(turnOrder.at(-1));
+    return;
+  }
   if (turnOrder.length === 0) {
     state.activeTurnCombatantId = "";
     state.combatRound = 1;
@@ -27463,7 +27479,9 @@ function resolveEnemyConcentrationAfterDamage(combatant, damageAmount) {
 
   const bestiaryEntry = getCombatantBestiaryEntry(combatant);
   const modifier = getConstitutionSaveModifier(bestiaryEntry?.savingThrows, combatant.stats || bestiaryEntry?.stats);
-  const result = resolveConcentrationSave({ damage, modifier, roll: randomD20() });
+  const concentration = splitConcentrationStatusName(concentrationStatus);
+  const concentrationName = concentration?.detail || "";
+  const { result } = rollAndRecordConcentrationSave(combatant, damage, modifier, concentrationName);
 
   if (!result.success) {
     state.combatants = state.combatants.map((entry) => entry.id === combatant.id
@@ -27478,20 +27496,58 @@ function resolveEnemyConcentrationAfterDamage(combatant, damageAmount) {
   const rollLabel = `${result.naturalRoll}${formatModifier(result.modifier)} = ${result.total}`;
   pushNotification({
     title: result.success
-      ? (isEnglishInterface() ? "Concentration maintained" : "Concentración mantenida")
-      : (isEnglishInterface() ? "Concentration lost" : "Concentración perdida"),
-    message: `${getCombatantNotificationLabel(combatant)} · ${localizedStatus} · CON ${rollLabel} / DC ${result.dc}`,
+      ? (isEnglishInterface() ? "Maintains concentration" : "Mantiene concentración")
+      : (isEnglishInterface() ? "Loses concentration" : "Pierde concentración"),
+    message: `${concentrationName ? `${isEnglishInterface() ? "Concentration" : "Concentración"}: ${concentrationName}` : localizedStatus} · ${getCombatantNotificationLabel(combatant)} · CON ${rollLabel} / ${isEnglishInterface() ? "DC" : "CD"} ${result.dc}`,
     tone: result.success ? "success" : "warning",
-    imageUrl: cleanText(getCombatantTokenUrl(combatant))
+    imageUrl: cleanText(getCombatantTokenUrl(combatant)),
+    category: "concentration"
   });
   showCombatTokenFeedback({
     combatantId: combatant.id,
     kind: result.success ? "status-save" : "status-remove",
     statusName: "Concentrado",
-    text: `CON ${result.total}/${result.dc} ${result.success ? "✓" : "✕"}`,
+    text: `${result.success ? (isEnglishInterface() ? "Maintains" : "Mantiene") : (isEnglishInterface() ? "Loses" : "Pierde")} · CON ${result.total}/${result.dc}`,
+    detailText: concentrationName
+      ? `${isEnglishInterface() ? "Concentration" : "Concentración"}: ${concentrationName}`
+      : (isEnglishInterface() ? "Concentration" : "Concentración"),
     iconUrl: getCombatStatusIconUrl("Concentrado")
   });
   return result;
+}
+
+function rollAndRecordConcentrationSave(combatant, damage, modifier, concentrationName = "") {
+  const formula = `d20${formatModifier(modifier)}`;
+  const rollResult = rollDiceFormula(formula);
+  const naturalRoll = Number(rollResult.groups?.[0]?.rawRolls?.[0]) || 1;
+  const result = resolveConcentrationSave({ damage, modifier, roll: naturalRoll });
+  const rollEntry = {
+    id: createStableId("dice-roll"),
+    formula: rollResult.normalizedFormula,
+    total: result.total,
+    groups: rollResult.groups,
+    hitDiceMode: false,
+    rollMode: "",
+    criticalOutcome: "",
+    rolledAt: Date.now(),
+    userId: cleanText(state.accountSession?.user?.id),
+    userName: cleanText(state.accountSession?.user?.name) || cleanText(state.accountSession?.user?.email),
+    contextKind: "concentration",
+    concentrationOutcome: result.success ? "maintains" : "loses",
+    concentrationName: cleanText(concentrationName),
+    concentrationDc: result.dc,
+    targetCombatantId: cleanText(combatant.id),
+    targetName: cleanText(combatant.nombre),
+    targetStand: cleanText(combatant.numPeana)
+  };
+  state.diceRollHistory = [...state.diceRollHistory, rollEntry].slice(-DICE_ROLLER_MAX_HISTORY);
+  const sharedRoomIds = new Set(state.combatants
+    .filter((entry) => isCloudCampaignCollaborative() && entry.multiplayerOnline)
+    .map((entry) => cleanText(entry.multiplayerRoomId))
+    .filter(Boolean));
+  for (const roomId of sharedRoomIds) publishMonstersLeagueDiceRoll(roomId, rollEntry);
+  playInterfaceSound(diceRollSoundUrl, 0.72);
+  return { result, rollEntry };
 }
 
 function generateInitiative() {
@@ -33458,6 +33514,7 @@ function applyRemoteCombatSection(message) {
       state.inlineAdjustments = tracker.inlineAdjustments;
       state.areaDamage = tracker.areaDamage;
       state.isCombatActive = tracker.isCombatActive;
+      if (tracker.isCombatActive) state.combatTurnPanelVisible = true;
       state.activeTurnCombatantId = tracker.activeTurnCombatantId;
       state.combatRound = tracker.combatRound;
       state.combatEncounterLoadOrder = tracker.combatEncounterLoadOrder;
@@ -36326,6 +36383,7 @@ function applyCampaignSave(campaign, fileResult = null, options = {}) {
   state.inlineAdjustments = campaign.combatTracker.inlineAdjustments;
   state.areaDamage = campaign.combatTracker.areaDamage;
   state.isCombatActive = campaign.combatTracker.isCombatActive;
+  state.combatTurnPanelVisible = campaign.combatTracker.isCombatActive === true;
   state.activeTurnCombatantId = campaign.combatTracker.activeTurnCombatantId;
   state.combatRound = campaign.combatTracker.combatRound;
   state.combatEncounterLoadOrder = campaign.combatTracker.combatEncounterLoadOrder;

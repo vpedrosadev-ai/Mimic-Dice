@@ -278,6 +278,25 @@ function renderDiceRollEntry(entry, language) {
 }
 
 function renderDiceTargetOutcome(entry, language) {
+  if (entry.contextKind === "concentration") {
+    const isEnglish = language === "en";
+    const maintained = entry.concentrationOutcome === "maintains";
+    const targetName = String(entry.targetName || "").trim();
+    const stand = String(entry.targetStand || "").trim();
+    const concentrationName = String(entry.concentrationName || "").trim();
+    const targetLabel = `${targetName}${stand ? ` · ${isEnglish ? "Stand" : "Peana"} ${stand}` : ""}`;
+    const concentrationLabel = concentrationName
+      ? `${isEnglish ? "Concentration" : "Concentración"}: ${concentrationName}`
+      : (isEnglish ? "Concentration" : "Concentración");
+    return `
+      <div class="dice-roll-entry__target dice-roll-entry__target--concentration ${maintained ? "is-maintained" : "is-lost"}">
+        <strong>${escapeHtml(maintained ? (isEnglish ? "MAINTAINS" : "MANTIENE") : (isEnglish ? "LOSES" : "PIERDE"))}</strong>
+        <span>${escapeHtml(targetLabel)}</span>
+        <small>${escapeHtml(`${concentrationLabel} · ${isEnglish ? "DC" : "CD"} ${entry.concentrationDc}`)}</small>
+      </div>
+    `;
+  }
+
   const targetKind = String(entry.targetKind || "");
   const targetName = String(entry.targetName || "").trim();
 

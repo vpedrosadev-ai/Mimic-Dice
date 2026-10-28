@@ -1361,6 +1361,14 @@ body.has-compendium-reference-popup {
   color: #f0a48f;
 }
 
+.dice-roll-entry__target--concentration {
+  border-color: rgba(186, 140, 255, .34);
+  background: rgba(83, 45, 128, .16);
+}
+
+.dice-roll-entry__target--concentration.is-maintained strong { color: #8fe0ad; }
+.dice-roll-entry__target--concentration.is-lost strong { color: #ff9aa4; }
+
 .dice-roll-entry code {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -5511,6 +5519,11 @@ button.is-cloud-busy:disabled {
   border-color: transparent transparent var(--feedback-color);
 }
 
+.combat-map-token-feedback.is-stack-without-arrow::before,
+.combat-map-token-feedback.is-stack-without-arrow::after {
+  display: none;
+}
+
 .combat-map-token-feedback.is-below::after {
   top: -7px;
   border-width: 0 6px 8px;
@@ -5529,6 +5542,20 @@ button.is-cloud-busy:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 1rem;
+}
+
+.combat-map-token-feedback__copy {
+  display: grid;
+  gap: .24rem;
+  min-width: 0;
+}
+
+.combat-map-token-feedback__copy small {
+  overflow: hidden;
+  color: rgba(255, 248, 231, .78);
+  font-size: .76rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
 }
 
 .combat-map-token-feedback--damage { --feedback-color: #ff7a85; --feedback-bg: rgba(86, 24, 31, .98); }

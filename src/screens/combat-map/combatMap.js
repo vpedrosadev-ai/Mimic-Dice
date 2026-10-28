@@ -980,6 +980,42 @@ export function getTokenFeedbackPosition({ tokenCenterX, tokenTop, tokenBottom, 
   };
 }
 
+export function getTokenFeedbackStackPositions({ tokenCenterX, tokenTop, tokenBottom, bubbleSizes = [], bounds, padding = 8, gap = 6 }) {
+  const sizes = bubbleSizes.map((size) => ({
+    width: Math.max(1, Number(size?.width) || 1),
+    height: Math.max(1, Number(size?.height) || 1)
+  }));
+  if (sizes.length === 0) return [];
+  const totalHeight = sizes.reduce((sum, size) => sum + size.height, 0) + gap * Math.max(0, sizes.length - 1);
+  const maxWidth = Math.max(...sizes.map((size) => size.width));
+  const anchor = getTokenFeedbackPosition({
+    tokenCenterX,
+    tokenTop,
+    tokenBottom,
+    bubbleWidth: maxWidth,
+    bubbleHeight: totalHeight,
+    bounds,
+    padding
+  });
+  const safeLeft = Number(bounds?.left) || 0;
+  const safeRight = Math.max(safeLeft, Number(bounds?.right) || 0);
+  let offsetTop = 0;
+  return sizes.map((size, index) => {
+    const minLeft = safeLeft + padding;
+    const maxLeft = Math.max(minLeft, safeRight - padding - size.width);
+    const left = clamp((Number(tokenCenterX) || 0) - size.width / 2, minLeft, maxLeft);
+    const position = {
+      left,
+      top: anchor.top + offsetTop,
+      below: anchor.below,
+      arrowX: clamp((Number(tokenCenterX) || 0) - left, 14, Math.max(14, size.width - 14)),
+      showArrow: anchor.below ? index === 0 : index === sizes.length - 1
+    };
+    offsetTop += size.height + gap;
+    return position;
+  });
+}
+
 export function getMapKeyboardPanDelta(key, accelerated = false) {
   const distance = MAP_KEYBOARD_PAN_STEP * (accelerated ? 3 : 1);
   if (key === "ArrowLeft") return { left: -distance, top: 0 };
@@ -1496,7 +1532,7 @@ export function createCombatMapController(options = {}) {
     }
   }
 
-  function showTokenFeedback({ combatantId = "", kind = "info", text = "", iconUrl = "", durationMs = 2400 } = {}) {
+  function showTokenFeedback({ combatantId = "", kind = "info", text = "", detailText = "", iconUrl = "", durationMs = 2400 } = {}) {
     const normalizedCombatantId = clean(combatantId);
     const normalizedText = clean(text);
     if (!normalizedCombatantId || !normalizedText) return "";
@@ -1507,6 +1543,7 @@ export function createCombatMapController(options = {}) {
       combatantId: normalizedCombatantId,
       kind: clean(kind) || "info",
       text: normalizedText.slice(0, 80),
+      detailText: clean(detailText).slice(0, 100),
       iconUrl: clean(iconUrl)
     }].slice(-16);
     mountTokenFeedbacks(masterHost);
@@ -1518,6 +1555,8 @@ export function createCombatMapController(options = {}) {
         tokenFeedbacks = tokenFeedbacks.filter((entry) => entry.id !== id);
         removeTokenFeedback(id, masterHost);
         removeTokenFeedback(id, editorWindow?.document?.querySelector?.("[data-combat-map-player-root]"));
+        mountTokenFeedbacks(masterHost);
+        mountTokenFeedbacks(editorWindow?.document?.querySelector?.("[data-combat-map-player-root]"));
       }, durationMs);
       tokenFeedbackTimers.set(id, timeoutId);
     }
@@ -1554,8 +1593,15 @@ export function createCombatMapController(options = {}) {
     };
     const padding = 8;
 
+    const feedbackGroups = new Map();
     tokenFeedbacks.forEach((feedback) => {
-      const token = editor.querySelector(`[data-map-token="${CSS.escape(feedback.combatantId)}"]`);
+      const entries = feedbackGroups.get(feedback.combatantId) || [];
+      entries.push(feedback);
+      feedbackGroups.set(feedback.combatantId, entries);
+    });
+
+    feedbackGroups.forEach((feedbackGroup, combatantId) => {
+      const token = editor.querySelector(`[data-map-token="${CSS.escape(combatantId)}"]`);
       if (!token) return;
       const tokenRect = token.getBoundingClientRect();
       const tokenCenterX = tokenRect.left + tokenRect.width / 2;
@@ -1565,31 +1611,37 @@ export function createCombatMapController(options = {}) {
         || tokenCenterY < viewportRect.top || tokenCenterY > viewportRect.bottom
       ) return;
 
-      const element = editor.ownerDocument.createElement("div");
-      element.className = `combat-map-token-feedback combat-map-token-feedback--${feedback.kind.replace(/[^a-z0-9-]/gi, "") || "info"}`;
-      element.dataset.mapTokenFeedback = feedback.id;
-      element.innerHTML = `${feedback.iconUrl ? `<img src="${escapeHtml(feedback.iconUrl)}" alt="">` : ""}<strong>${escapeHtml(feedback.text)}</strong>`;
-      host.append(element);
-
-      const bubbleRect = element.getBoundingClientRect();
-      const bubbleWidth = bubbleRect.width;
-      const bubbleHeight = bubbleRect.height;
+      const elements = feedbackGroup.map((feedback) => {
+        const element = editor.ownerDocument.createElement("div");
+        element.className = `combat-map-token-feedback combat-map-token-feedback--${feedback.kind.replace(/[^a-z0-9-]/gi, "") || "info"}`;
+        element.dataset.mapTokenFeedback = feedback.id;
+        element.innerHTML = `${feedback.iconUrl ? `<img src="${escapeHtml(feedback.iconUrl)}" alt="">` : ""}<span class="combat-map-token-feedback__copy"><strong>${escapeHtml(feedback.text)}</strong>${feedback.detailText ? `<small>${escapeHtml(feedback.detailText)}</small>` : ""}</span>`;
+        host.append(element);
+        return element;
+      });
+      const bubbleSizes = elements.map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
       const tokenLeft = tokenCenterX - editorRect.left;
       const tokenTop = tokenRect.top - editorRect.top;
       const tokenBottom = tokenRect.bottom - editorRect.top;
-      const position = getTokenFeedbackPosition({
+      const positions = getTokenFeedbackStackPositions({
         tokenCenterX: tokenLeft,
         tokenTop,
         tokenBottom,
-        bubbleWidth,
-        bubbleHeight,
+        bubbleSizes,
         bounds,
         padding
       });
-      element.classList.toggle("is-below", position.below);
-      element.style.left = `${Math.round(position.left)}px`;
-      element.style.top = `${Math.round(position.top)}px`;
-      element.style.setProperty("--feedback-arrow-x", `${Math.round(position.arrowX)}px`);
+      elements.forEach((element, index) => {
+        const position = positions[index];
+        element.classList.toggle("is-below", position.below);
+        element.classList.toggle("is-stack-without-arrow", !position.showArrow);
+        element.style.left = `${Math.round(position.left)}px`;
+        element.style.top = `${Math.round(position.top)}px`;
+        element.style.setProperty("--feedback-arrow-x", `${Math.round(position.arrowX)}px`);
+      });
     });
   }
 

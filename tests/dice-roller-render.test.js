@@ -117,3 +117,26 @@ test("dice log shows critical attacks as automatic hits and fumbles as automatic
   assert.match(html, /Critical: automatic hit\./);
   assert.match(html, /Fumble: automatic miss\./);
 });
+
+test("dice log shows concentration outcome and named effect", () => {
+  const html = renderDiceRollerDock({
+    open: true,
+    language: "es",
+    history: [{
+      id: "concentration-1",
+      formula: "1d20+3",
+      total: 15,
+      groups: [],
+      rolledAt: Date.now(),
+      contextKind: "concentration",
+      concentrationOutcome: "maintains",
+      concentrationName: "Bendecir",
+      concentrationDc: 10,
+      targetName: "Cultista",
+      targetStand: "4"
+    }]
+  });
+  assert.match(html, /MANTIENE/);
+  assert.match(html, /Concentración: Bendecir/);
+  assert.match(html, /CD 10/);
+});

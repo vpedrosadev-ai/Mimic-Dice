@@ -13,6 +13,7 @@ import {
   isMapTokenConcealed,
   isMapTokenVisibleToPlayer,
   getTokenFeedbackPosition,
+  getTokenFeedbackStackPositions,
   normalizeMapEditorState,
   getPortableMapReference,
   preserveLocalMapAssetUrls,
@@ -23,6 +24,20 @@ import {
   snapCreaturePosition,
   snapTokenPosition
 } from "../src/screens/combat-map/combatMap.js";
+
+test("multiple token feedback bubbles form a non-overlapping stack", () => {
+  const positions = getTokenFeedbackStackPositions({
+    tokenCenterX: 200,
+    tokenTop: 200,
+    tokenBottom: 250,
+    bubbleSizes: [{ width: 120, height: 40 }, { width: 160, height: 54 }],
+    bounds: { left: 0, top: 0, right: 500, bottom: 500 }
+  });
+  assert.equal(positions.length, 2);
+  assert.ok(positions[1].top >= positions[0].top + 40 + 6);
+  assert.equal(positions[0].showArrow, false);
+  assert.equal(positions[1].showArrow, true);
+});
 
 test("map campaign sync preserves each user's local view controls", () => {
   const previousStorage = globalThis.localStorage;
