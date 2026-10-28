@@ -14791,6 +14791,7 @@ function handleCombatTurnPopoutInput(event) {
       value: event.target.value
     };
   } else if (event.target.matches("[data-combat-turn-custom-status]")) {
+    const ownerDocument = event.target.ownerDocument;
     const selectionStart = event.target.selectionStart;
     const selectionEnd = event.target.selectionEnd;
     state.combatTurnQuickMenu = {
@@ -14798,8 +14799,13 @@ function handleCombatTurnPopoutInput(event) {
       statusQuery: event.target.value,
       selectedStatus: ""
     };
-    syncCombatTurnPopout();
-    const input = combatTurnPopoutWindow?.document?.querySelector("[data-combat-turn-custom-status]");
+    const menuOwner = cleanText(state.combatTurnQuickMenu?.owner);
+    if (menuOwner === "map-master" || menuOwner === "map-player") {
+      combatMapController.sync();
+    } else {
+      syncCombatTurnPopout();
+    }
+    const input = ownerDocument?.querySelector("[data-combat-turn-quick-menu] [data-combat-turn-custom-status]");
     input?.focus({ preventScroll: true });
     input?.setSelectionRange?.(selectionStart, selectionEnd);
   }

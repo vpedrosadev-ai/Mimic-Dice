@@ -265,12 +265,22 @@
 
 .master-combat-entity__remove {
   display: grid;
+  flex: 0 0 1.65rem;
   width: 1.65rem;
+  min-width: 1.65rem;
+  max-width: 1.65rem;
   height: 1.65rem;
+  min-height: 1.65rem;
+  max-height: 1.65rem;
+  aspect-ratio: 1 / 1;
   padding: 0;
+  align-self: center;
+  justify-self: center;
   place-items: center;
   border: 1px solid rgba(218, 80, 92, .62);
-  border-radius: 50%;
+  border-radius: 999px;
+  -webkit-appearance: none;
+  appearance: none;
   color: #ffd7da;
   background: rgba(151, 43, 55, .34);
   font: 900 1rem/1 ui-sans-serif, system-ui, sans-serif;
