@@ -286,6 +286,7 @@ window.addEventListener("beforeunload", () => {
   state.connection?.close();
 });
 window.addEventListener("resize", () => syncMasterMapSurface());
+window.addEventListener("keydown", handleLeagueTurnShortcutKeydown);
 document.addEventListener("pointermove", handleMasterWorkspacePointerMove);
 document.addEventListener("pointerup", handleMasterWorkspacePointerUp);
 document.addEventListener("pointercancel", handleMasterWorkspacePointerUp);

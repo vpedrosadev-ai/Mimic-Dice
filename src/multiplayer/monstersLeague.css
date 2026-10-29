@@ -1410,7 +1410,7 @@
   border-radius: 14px;
 }
 
-.ml-master-workspace .master-combat-entity.has-team-color {
+.master-combat-workspace .master-combat-entity.has-team-color {
   border-color: color-mix(in srgb, var(--team-color) 58%, rgba(255, 255, 255, .08));
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--team-color) 32%, rgba(10, 7, 5, .96)), color-mix(in srgb, var(--team-color) 12%, rgba(10, 7, 5, .96)) 72%),
@@ -1418,9 +1418,9 @@
   box-shadow: inset 4px 0 0 var(--team-color);
 }
 
-.ml-master-workspace .master-combat-entity.has-team-color:hover,
-.ml-master-workspace .master-combat-entity.has-team-color:focus-visible,
-.ml-master-workspace .master-combat-entity.has-team-color.is-selected {
+.master-combat-workspace .master-combat-entity.has-team-color:hover,
+.master-combat-workspace .master-combat-entity.has-team-color:focus-visible,
+.master-combat-workspace .master-combat-entity.has-team-color.is-selected {
   border-color: color-mix(in srgb, var(--team-color) 82%, #f5d9a7);
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--team-color) 42%, rgba(10, 7, 5, .94)), color-mix(in srgb, var(--team-color) 18%, rgba(10, 7, 5, .94)) 72%),
