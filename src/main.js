@@ -5357,6 +5357,7 @@ async function handleChange(event) {
   }
 
   if (target.matches("[data-combat-turn-quick-hide]")) {
+    if (isCloudCampaignPlayer()) return;
     updateCombatantInitiativeHidden(target.dataset.combatTurnQuickHide, target.checked);
     closeCombatTurnQuickMenu();
     saveCombatTrackerState();
@@ -5388,6 +5389,7 @@ async function handleChange(event) {
   }
 
   if (target.matches("[data-combat-turn-quick-stand]")) {
+    if (isCloudCampaignPlayer()) return;
     updateCombatantField(target.dataset.combatTurnQuickStand, "numPeana", target.value);
     saveCombatTrackerState();
     combatMapController.sync();
@@ -5907,6 +5909,7 @@ function handleInput(event) {
   }
 
   if (target.matches("[data-combat-turn-quick-stand]")) {
+    if (isCloudCampaignPlayer()) return;
     updateCombatantField(target.dataset.combatTurnQuickStand, "numPeana", target.value, false);
     saveCombatTrackerState();
     return;
@@ -14969,6 +14972,7 @@ function handleCombatTurnPopoutInput(event) {
     updateCombatantField(event.target.dataset.combatTurnQuickInitiative, "iniactiva", event.target.value, false);
     saveCombatTrackerState();
   } else if (event.target.matches("[data-combat-turn-quick-stand]")) {
+    if (isCloudCampaignPlayer()) return;
     updateCombatantField(event.target.dataset.combatTurnQuickStand, "numPeana", event.target.value, false);
     saveCombatTrackerState();
   } else if (event.target.matches("[data-combat-turn-quick-value]")) {
@@ -14999,6 +15003,7 @@ function handleCombatTurnPopoutInput(event) {
 
 function handleCombatTurnPopoutChange(event) {
   if (event.target.matches("[data-combat-turn-quick-hide]")) {
+    if (isCloudCampaignPlayer()) return;
     updateCombatantInitiativeHidden(event.target.dataset.combatTurnQuickHide, event.target.checked);
     closeCombatTurnQuickMenu();
     saveCombatTrackerState();
@@ -15030,6 +15035,7 @@ function handleCombatTurnPopoutChange(event) {
   }
 
   if (event.target.matches("[data-combat-turn-quick-stand]")) {
+    if (isCloudCampaignPlayer()) return;
     updateCombatantField(event.target.dataset.combatTurnQuickStand, "numPeana", event.target.value);
     saveCombatTrackerState();
     combatMapController.sync();
@@ -15696,6 +15702,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
 
   const menuStyle = getCombatTurnQuickMenuStyle(viewportWindow);
   const hidesRivalStats = isCombatantPrivateForViewer(combatant);
+  const isRestrictedPlayer = isCloudCampaignPlayer();
   const effectiveMax = getEffectivePgMax(combatant);
   const tempHp = Math.max(0, toNumber(combatant.pgTemp));
   const activeStatuses = hidesRivalStats ? [] : getCombatantStatusNames(combatant);
@@ -15716,14 +15723,16 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
           <div class="combat-turn-quick-menu__title"><strong>${escapeHtml(cleanText(combatant.nombre) || "Entidad")}</strong><b>${escapeHtml(cleanText(combatant.numPeana) || "—")}</b></div>
           <span>${hidesRivalStats ? "Datos de equipo rival ocultos" : escapeHtml(`${getCurrentHitPointLabelShort()} ${toNumber(combatant.pgAct)}/${effectiveMax} | TEMP ${tempHp}`)}</span>
         </div>
-        <label class="combat-turn-quick-menu__hide">
-          <input
-            type="checkbox"
-            data-combat-turn-quick-hide="${escapeHtml(combatant.id)}"
-            ${combatant.hiddenFromInitiative ? "checked" : ""}
-          />
-          <span>Hide</span>
-        </label>
+        ${isRestrictedPlayer ? "" : `
+          <label class="combat-turn-quick-menu__hide">
+            <input
+              type="checkbox"
+              data-combat-turn-quick-hide="${escapeHtml(combatant.id)}"
+              ${combatant.hiddenFromInitiative ? "checked" : ""}
+            />
+            <span>Hide</span>
+          </label>
+        `}
         <label class="combat-turn-quick-menu__token-size">
           <span>Tamaño de peana</span>
           <select data-combat-turn-quick-token-size="${escapeHtml(combatant.id)}">
@@ -15740,7 +15749,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
         </div>
         <div class="combat-turn-quick-menu__identity-fields">
           <label><span>${escapeHtml(isEnglishInterface() ? "Initiative" : "Iniciativa")}</span><input type="text" inputmode="numeric" value="${escapeHtml(String(combatant.iniactiva ?? ""))}" data-combat-turn-quick-initiative="${escapeHtml(combatant.id)}"></label>
-          <label><span>${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}</span><input type="text" inputmode="text" value="${escapeHtml(String(combatant.numPeana ?? ""))}" data-combat-turn-quick-stand="${escapeHtml(combatant.id)}"></label>
+          ${isRestrictedPlayer ? "" : `<label><span>${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}</span><input type="text" inputmode="text" value="${escapeHtml(String(combatant.numPeana ?? ""))}" data-combat-turn-quick-stand="${escapeHtml(combatant.id)}"></label>`}
         </div>
         <div class="resource-cell__actions-row combat-turn-quick-menu__actions-row">
           <div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls">
