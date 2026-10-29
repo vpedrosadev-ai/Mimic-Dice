@@ -896,6 +896,7 @@ state = {
   cloudCampaignIsShared: false,
   cloudCampaignCollaborationOpen: false,
   cloudCampaignCanManage: false,
+  cloudCampaignMemberRole: "",
   cloudCampaignUpdatedAt: "",
   cloudCampaignRealtimeStatus: "closed",
   cloudCampaignLiveUsers: 0,
@@ -950,6 +951,7 @@ state = {
   compendiumCreateMode: "create",
   compendiumEditRowKey: "",
   compendiumCreateDraft: {},
+  compendiumCreateImageUrl: "",
   compendiumCreateError: "",
   characterSpellbookAbilityDescriptionDialogOpen: false,
   characterSpellbookAbilityDescriptionDialogRowId: "",
@@ -1162,10 +1164,15 @@ const combatMapController = createCombatMapController({
     const bestiaryEntry = getCombatantBestiaryEntry(combatant);
     return {
       ...combatant,
+      hideHealth: isCloudCampaignEnemyPrivate(combatant),
+      hideConditions: isCloudCampaignEnemyPrivate(combatant),
       tokenUrl: getCombatantTokenUrl(combatant, linkedCharacter, bestiaryEntry),
       tamano: cleanText(combatant.mapTokenSize || linkedCharacter?.size || bestiaryEntry?.size || combatant.tamano) || "Mediano"
     };
   }),
+  showTokenHealth: () => !isCloudCampaignPlayer(),
+  showInitiativeHealth: () => !isCloudCampaignPlayer(),
+  isToolbarControlVisible: (control) => !isCloudCampaignPlayer() || ["paint", "shapes"].includes(control),
   getStatusMeta: (statusName) => ({
     label: translateCombatStatusNameForLanguage(statusName, state.appLanguage),
     description: getCombatStatusDescription(statusName),
@@ -2597,7 +2604,7 @@ async function handleClick(event) {
   }
 
   if (action === "resolve-cloud-campaign-request") {
-    await resolveOpenCloudCampaignRequest(actionButton.dataset.cloudDecision);
+    await resolveOpenCloudCampaignRequest(actionButton.dataset.cloudDecision, actionButton.dataset.cloudRole);
     return;
   }
 
@@ -2793,6 +2800,13 @@ async function handleClick(event) {
 
   if (action === "dismiss-compendium-create-dialog") {
     closeCompendiumCreateDialog();
+    render();
+    return;
+  }
+
+  if (action === "remove-compendium-create-image") {
+    state.compendiumCreateImageUrl = "";
+    state.compendiumCreateError = "";
     render();
     return;
   }
@@ -5140,6 +5154,13 @@ async function handleChange(event) {
   if (target.matches("[data-character-image]")) {
     updateActiveCharacterImage(target.files?.[0] ?? null);
     target.value = "";
+    return;
+  }
+
+  if (target.matches("[data-compendium-create-image]")) {
+    const file = target.files?.[0] ?? null;
+    target.value = "";
+    await updateCompendiumCreateImage(file);
     return;
   }
 
@@ -8138,6 +8159,7 @@ function openCompendiumCreateDialog(kind) {
   state.compendiumCreateMode = "create";
   state.compendiumEditRowKey = "";
   state.compendiumCreateDraft = createBlankCompendiumDraft(kind);
+  state.compendiumCreateImageUrl = "";
   state.compendiumCreateError = "";
 }
 
@@ -8147,6 +8169,7 @@ function closeCompendiumCreateDialog() {
   state.compendiumCreateMode = "create";
   state.compendiumEditRowKey = "";
   state.compendiumCreateDraft = {};
+  state.compendiumCreateImageUrl = "";
   state.compendiumCreateError = "";
 }
 
@@ -8178,6 +8201,7 @@ async function openCompendiumEditDialog(repositoryKey, entryId) {
     state.compendiumEditRowKey = rowKey;
     state.compendiumCreateDraft = Object.fromEntries(getCompendiumCreateFields(repositoryKey)
       .map((field) => [field.key, String(sourceRow[field.key] ?? "")]));
+    state.compendiumCreateImageUrl = getCompendiumCustomImageUrl(repositoryKey, sourceRow);
     state.compendiumCreateError = "";
     render();
   } catch (error) {
@@ -8210,6 +8234,46 @@ function saveCompendiumCustomMap(repositoryKey, value) {
   } else {
     saveArcanumCustomMap(value);
   }
+}
+
+function getCompendiumCustomImageUrl(repositoryKey, row) {
+  if (!["bestiary", "items"].includes(repositoryKey)) return "";
+  const currentMap = getCompendiumCustomMap(repositoryKey);
+  const key = getCompendiumCustomMapKeys(repositoryKey, row)
+    .find((candidate) => Object.prototype.hasOwnProperty.call(currentMap, candidate));
+  const value = key ? currentMap[key] : null;
+  if (typeof value === "string") return cleanText(value);
+  return cleanText(value?.imageUrl || value?.tokenUrl);
+}
+
+function saveCompendiumDraftImage(repositoryKey, row) {
+  if (!["bestiary", "items"].includes(repositoryKey)) return;
+  const currentMap = { ...getCompendiumCustomMap(repositoryKey) };
+  const keys = getCompendiumCustomMapKeys(repositoryKey, row);
+  keys.forEach((key) => delete currentMap[key]);
+  const imageUrl = cleanText(state.compendiumCreateImageUrl);
+  if (imageUrl && keys[0]) {
+    currentMap[keys[0]] = repositoryKey === "bestiary"
+      ? { imageUrl, tokenUrl: imageUrl }
+      : { imageUrl };
+  }
+  saveCompendiumCustomMap(repositoryKey, currentMap);
+}
+
+async function updateCompendiumCreateImage(file) {
+  if (!file) return;
+  if (!file.type?.startsWith("image/")) {
+    state.compendiumCreateError = "Selecciona un archivo de imagen válido.";
+    render();
+    return;
+  }
+  try {
+    state.compendiumCreateImageUrl = await readFileAsDataUrl(file);
+    state.compendiumCreateError = "";
+  } catch (error) {
+    state.compendiumCreateError = getErrorMessage(error) || "No se pudo leer la imagen.";
+  }
+  render();
 }
 
 function getCompendiumCustomMapKeys(repositoryKey, row) {
@@ -8563,6 +8627,8 @@ async function saveCompendiumEntityFromDialog() {
       moveCompendiumCustomMapEntry(repositoryKey, previousRow, replacementRow);
       updateCloudImportRefsAfterCompendiumEdit(repositoryKey, editRowKey, nextRowKey, nextMapKey);
     }
+
+    saveCompendiumDraftImage(repositoryKey, replacementRow);
 
     scheduleDesktopCampaignDirtyStateSync(60);
     await reloadCompendiumRepository(repositoryKey);
@@ -8971,6 +9037,7 @@ function renderCompendiumCreateDialog() {
           ? `Guardar reemplazará esta entidad personalizada en el CSV activo de ${escapeHtml(repositoryLabel)}.`
           : `Guardar escribirá una nueva fila en el CSV activo de ${escapeHtml(repositoryLabel)}.`}</p>
         <div class="compendium-create-dialog__grid">
+          ${["bestiary", "items"].includes(repositoryKey) ? renderCompendiumCreateImageField(repositoryKey) : ""}
           ${getCompendiumCreateFields(repositoryKey).map((field) => renderCompendiumCreateField(field)).join("")}
         </div>
         ${
@@ -8987,6 +9054,27 @@ function renderCompendiumCreateDialog() {
           </button>
         </div>
       </section>
+    </div>
+  `;
+}
+
+function renderCompendiumCreateImageField(repositoryKey) {
+  const imageUrl = cleanText(state.compendiumCreateImageUrl);
+  const noun = repositoryKey === "bestiary" ? "criatura" : "objeto";
+  return `
+    <div class="compendium-create-dialog__image-field">
+      <span class="compendium-create-dialog__image-preview" aria-label="Vista previa de imagen">
+        ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="eager" decoding="async">` : `<i aria-hidden="true">+</i>`}
+      </span>
+      <div class="compendium-create-dialog__image-actions">
+        <strong>Imagen de ${escapeHtml(noun)}</strong>
+        <span>Se tratará igual que la imagen de un personaje.</span>
+        <label class="toolbar-button toolbar-button--accent" tabindex="0">
+          ${imageUrl ? "Cambiar imagen" : "Adjuntar imagen"}
+          <input type="file" accept="image/*" data-compendium-create-image hidden>
+        </label>
+        ${imageUrl ? `<button class="toolbar-button toolbar-button--danger" type="button" data-action="remove-compendium-create-image">Quitar imagen</button>` : ""}
+      </div>
     </div>
   `;
 }
@@ -11753,9 +11841,11 @@ function renderCloudCampaignJoinDialogs() {
           <span class="cloud-join-dialog__icon" aria-hidden="true">⚔</span>
           <p class="cloud-join-dialog__eyebrow">Solicitud de colaboración</p>
           <h2 id="cloud-join-title">${escapeHtml(prompt.userName || "Un usuario")} quiere unirse</h2>
-          <p>Quiere colaborar en <strong>${escapeHtml(prompt.campaignName || "tu campaña")}</strong>. Por ahora podrá modificar la tabla de combate y el editor de mapas.</p>
+          <p>Quiere colaborar en <strong>${escapeHtml(prompt.campaignName || "tu campaña")}</strong>. Elige el nivel de acceso.</p>
+          <p class="cloud-join-dialog__role-help"><strong>Jugador:</strong> colabora en combate, pero no ve datos privados de enemigos y solo usa Pintar/Formas en el mapa. <strong>Máster:</strong> mantiene acceso completo de colaborador.</p>
           <div class="cloud-join-dialog__actions">
-            <button class="account-action-button${getCloudButtonBusyClass("saving", target)}" type="button" data-action="resolve-cloud-campaign-request" data-cloud-decision="approved" ${renderCloudButtonBusyAttributes("saving", target)}>Aceptar</button>
+            <button class="account-action-button${getCloudButtonBusyClass("saving", target)}" type="button" data-action="resolve-cloud-campaign-request" data-cloud-decision="approved" data-cloud-role="player" ${renderCloudButtonBusyAttributes("saving", target)}>Permisos de jugador</button>
+            <button class="account-action-button${getCloudButtonBusyClass("saving", target)}" type="button" data-action="resolve-cloud-campaign-request" data-cloud-decision="approved" data-cloud-role="master" ${renderCloudButtonBusyAttributes("saving", target)}>Permisos de máster</button>
             <button class="account-action-button account-action-button--danger" type="button" data-action="resolve-cloud-campaign-request" data-cloud-decision="denied" ${renderCloudButtonBusyAttributes("saving", target)}>Denegar</button>
           </div>
         </section>
@@ -13434,7 +13524,7 @@ function renderMasterCombatDiceTargetCard(combatant, showArmorClass) {
   const name = cleanText(combatant.nombre) || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
   const stand = cleanText(combatant.numPeana) || "-";
   const armorClass = getCombatantArmorClassValue(combatant);
-  const armorLabel = armorClass === "" ? "-" : armorClass;
+  const armorLabel = isCloudCampaignEnemyPrivate(combatant) ? "?" : armorClass === "" ? "-" : armorClass;
 
   return `
     <article class="master-combat-dice-target-card">
@@ -13576,6 +13666,16 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
   const nameSuggestions = isEditingName ? getCombatNameSuggestions(combatant) : [];
   const displayName = combatant.nombre || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
 
+  if (isCloudCampaignEnemyPrivate(combatant)) {
+    return `
+      <article class="master-combat-entity is-rival-private ${active ? "is-active-turn" : ""}" aria-label="${escapeHtml(displayName)}">
+        <span class="master-combat-entity__rail"><span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span></span>
+        <span class="master-combat-entity__portrait">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
+        <span class="master-combat-entity__copy"><span class="master-combat-entity__name-row"><span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span></span><strong class="master-combat-entity__hp-label">🔒 ${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}</strong></span>
+      </article>
+    `;
+  }
+
   return `
     <article
       class="master-combat-entity ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""} ${isEditingName ? "is-editing-name" : ""}"
@@ -13624,6 +13724,9 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
 }
 
 function renderMasterCombatWorkspaceEntityPreview(combatant) {
+  if (isCloudCampaignEnemyPrivate(combatant)) {
+    return `<div class="master-combat-workspace__empty"><strong>🔒 ${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}</strong><p>${escapeHtml(isEnglishInterface() ? "The host hid this creature's sheet and combat statistics." : "El host ha ocultado la ficha y las estadísticas de combate de esta criatura.")}</p></div>`;
+  }
   const linkedCharacter = getLinkedCharacterForCombatant(combatant);
 
   if (linkedCharacter) {
@@ -15436,9 +15539,10 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
   const label = cleanText(combatant.nombre) || "Sin nombre";
   const side = mapTagToSide(combatant.tag);
   const initials = getCombatantInitials(combatant);
-  const allStatusNames = getCombatantStatusNames(combatant);
+  const privateCombatant = isCombatantPrivateForViewer(combatant);
+  const allStatusNames = privateCombatant ? [] : getCombatantStatusNames(combatant);
   const statusNames = allStatusNames.slice(0, 3);
-  const hidesRivalStats = isMonstersLeagueRivalCombatant(combatant);
+  const hidesRivalStats = privateCombatant;
   const isFallenAlly = !hidesRivalStats && side === "allies" && toNumber(combatant.pgAct) < 1;
   const isHiddenFromInitiative = combatant.hiddenFromInitiative === true || isCombatantInvisible(combatant);
   const maxHp = Math.max(1, getEffectivePgMax(combatant));
@@ -15449,7 +15553,7 @@ function renderCombatTurnToken(combatant, isActive, options = {}) {
 
   return `
     <div
-      class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""} ${options.showHealth === false ? "is-health-hidden" : ""}"
+      class="combat-turn-token-wrap ${teamColor ? "has-team-color" : ""} ${isActive ? "is-active" : ""} ${isFallenAlly ? "is-fallen-ally" : ""} ${isHiddenFromInitiative ? "is-hidden-from-initiative" : ""} ${options.showHealth === false || hidesRivalStats ? "is-health-hidden" : ""}"
       style="--turn-hp-fill:${hpVisualFill}%;--turn-hp-color:${hpToneColor}${teamColor ? `;--team-color:${teamColor}` : ""}"
       role="button"
       tabindex="0"
@@ -17352,6 +17456,7 @@ function renderCombatRow(combatant, activeTurnCombatantId = "", visibleColumns =
   const isActiveTurn = combatant.id === activeTurnCombatantId;
   const rowContext = getCombatRowContext(combatant);
   const teamColor = normalizeTeamColor(combatant.teamColor);
+  const privateEnemy = isCloudCampaignEnemyPrivate(combatant);
 
   return `
     <tr
@@ -17361,6 +17466,7 @@ function renderCombatRow(combatant, activeTurnCombatantId = "", visibleColumns =
       tabindex="-1"
     >
       <td class="cell-select">
+        ${privateEnemy ? `<span class="combat-rival-hidden" title="${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}" aria-hidden="true">🔒</span>` : `
         <div class="cell-select__stack">
           <span class="combat-inline-tooltip-anchor combat-inline-tooltip-anchor--corner" data-tooltip="Seleccionar fila">
             <input
@@ -17382,6 +17488,7 @@ function renderCombatRow(combatant, activeTurnCombatantId = "", visibleColumns =
             </button>
           </span>
         </div>
+        `}
       </td>
       ${visibleColumns.map((column) => renderDataCell(combatant, column, isDead, rowContext)).join("")}
     </tr>
@@ -17574,6 +17681,17 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
   const value = getCombatantColumnValue(combatant, column.key);
   const isInitiativeNat20 = column.key === "iniactiva" && combatant.initiativeNat20;
   const inlineValues = getInlineAdjustment(combatant.id);
+
+  if (isCloudCampaignEnemyPrivate(combatant)) {
+    if (column.key === "pgAct") return renderMonstersLeagueBlindAdjustmentCell(combatant, inlineValues);
+    if (column.key === "nombre") {
+      return `<td><div class="name-cell combat-name-cell"><div class="combat-name-cell__main"><strong>${escapeHtml(cleanText(combatant.nombre) || (isEnglishInterface() ? "Enemy" : "Enemigo"))}</strong>${renderCombatantNameToken(combatant, rowContext)}</div></div></td>`;
+    }
+    if (column.key === "numPeana" || column.key === "iniactiva") {
+      return `<td><strong class="combat-private-public-value">${escapeHtml(String(value || "-"))}</strong></td>`;
+    }
+    return renderMonstersLeagueHiddenResourceCell();
+  }
 
   if (isMonstersLeagueRivalCombatant(combatant) && column.key === "pgMax") {
     return renderMonstersLeagueHiddenResourceCell();
@@ -17957,6 +18075,14 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
 
 function isMonstersLeagueRivalCombatant(combatant) {
   return shouldHideMonstersLeagueRivalStats(combatant, state.accountSession?.user?.id);
+}
+
+function isCloudCampaignEnemyPrivate(combatant) {
+  return isCloudCampaignPlayer() && isEnemyCombatant(combatant);
+}
+
+function isCombatantPrivateForViewer(combatant) {
+  return isMonstersLeagueRivalCombatant(combatant) || isCloudCampaignEnemyPrivate(combatant);
 }
 
 function renderMonstersLeagueHiddenResourceCell() {
@@ -19076,7 +19202,7 @@ function renderCombatantNameToken(combatant, context = getCombatRowContext(comba
     ? getCharacterInitials(linkedCharacter)
     : getCombatantInitials(combatant);
 
-  if (isMonstersLeagueRivalCombatant(combatant)) {
+  if (isCombatantPrivateForViewer(combatant)) {
     return `
       <span class="combat-name-token-wrap combat-name-token-wrap--restricted" title="Datos del equipo rival ocultos">
         <span class="combat-name-token-static" aria-label="Ficha de equipo rival oculta">
@@ -28404,6 +28530,9 @@ function openCombatTurnQuickMenu(combatantId, x, y, owner = "main") {
     return;
   }
 
+  const combatant = state.combatants.find((entry) => entry.id === normalizedCombatantId);
+  if (isCloudCampaignEnemyPrivate(combatant)) return;
+
   state.combatTurnQuickMenu = {
     combatantId: normalizedCombatantId,
     x: Math.round(toNumber(x)),
@@ -32153,18 +32282,19 @@ async function loadApprovedCloudCampaignRequest() {
   return false;
 }
 
-async function resolveOpenCloudCampaignRequest(decision) {
+async function resolveOpenCloudCampaignRequest(decision, role = "") {
   const prompt = state.cloudCampaignJoinPrompt;
   if (!prompt?.id || !['approved', 'denied'].includes(decision)) return;
   const target = `join-request:${prompt.id}`;
   beginCloudOperation("saving", target);
   try {
-    await resolveCloudCampaignJoinRequest(prompt.campaignId, prompt.id, decision);
+    const normalizedRole = decision === "approved" && role === "player" ? "player" : "master";
+    await resolveCloudCampaignJoinRequest(prompt.campaignId, prompt.id, decision, decision === "approved" ? normalizedRole : "");
     state.cloudCampaignJoinPrompt = null;
     await refreshCloudCampaigns({ renderAfter: false });
     pushNotification({
       title: decision === "approved" ? "Colaborador aceptado" : "Solicitud rechazada",
-      message: `${prompt.userName || "El usuario"} ${decision === "approved" ? "ya puede entrar en la campaña." : "no se unirá a la campaña."}`,
+      message: `${prompt.userName || "El usuario"} ${decision === "approved" ? `ya puede entrar como ${normalizedRole === "player" ? "jugador" : "máster"}.` : "no se unirá a la campaña."}`,
       tone: decision === "approved" ? "success" : "info"
     });
   } catch (error) {
@@ -33506,6 +33636,10 @@ function isCloudCampaignCollaborative() {
   return state.cloudCampaignIsShared || state.cloudCampaignCollaborationOpen;
 }
 
+function isCloudCampaignPlayer() {
+  return Boolean(state.cloudCampaignId && state.cloudCampaignMemberRole === "player");
+}
+
 function isCloudCampaignRealtimeEnabled() {
   return Boolean(state.cloudCampaignId && (state.cloudCampaignCanManage || isCloudCampaignCollaborative()));
 }
@@ -33808,6 +33942,7 @@ function detachActiveCloudCampaign(options = {}) {
   state.cloudCampaignIsShared = false;
   state.cloudCampaignCollaborationOpen = false;
   state.cloudCampaignCanManage = false;
+  state.cloudCampaignMemberRole = "";
   state.cloudCampaignUpdatedAt = "";
   state.cloudAutosaveStatus = "idle";
   state.cloudAutosaveMessage = "";
@@ -33888,6 +34023,7 @@ function activateCloudCampaign(campaign, payload, options = {}) {
   state.cloudCampaignIsShared = campaign?.isShared === true;
   state.cloudCampaignCollaborationOpen = campaign?.collaborationOpen === true;
   state.cloudCampaignCanManage = campaign?.canManage === true;
+  state.cloudCampaignMemberRole = cleanText(campaign?.memberRole).toLowerCase();
   state.cloudCampaignUpdatedAt = cleanText(campaign?.updatedAt);
   if (state.cloudCampaignRevision >= cloudCampaignPendingRemoteRevision) {
     cloudCampaignPendingRemoteRevision = 0;
@@ -35026,6 +35162,7 @@ function applyActiveCloudCampaignCollaborationSummary(campaign) {
   state.cloudCampaignIsShared = campaign.isShared === true;
   state.cloudCampaignCollaborationOpen = campaign.collaborationOpen === true;
   state.cloudCampaignCanManage = campaign.canManage === true;
+  state.cloudCampaignMemberRole = cleanText(campaign.memberRole).toLowerCase();
   syncCloudCampaignRealtime();
 }
 

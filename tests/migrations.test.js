@@ -29,6 +29,11 @@ test("all database migrations apply in order and allow map entries", () => {
   assert.ok(database.prepare('PRAGMA table_info("multiplayer_rooms")').all().some((column) => column.name === "campaignId"));
   assert.ok(database.prepare('PRAGMA table_info("campaign_members")').all().some((column) => column.name === "userId"));
   assert.ok(database.prepare('PRAGMA index_list("campaign_members")').all().some((index) => index.name === "campaign_members_user_index"));
+  const memberSchema = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'campaign_members'"
+  ).get()?.sql || "";
+  assert.match(memberSchema, /'master'/);
+  assert.match(memberSchema, /'player'/);
   assert.ok(database.prepare('PRAGMA table_info("campaign_collaboration_sessions")').all().some((column) => column.name === "inviteToken"));
   assert.ok(database.prepare('PRAGMA index_list("campaign_collaboration_sessions")').all().some((index) => index.name === "campaign_collaboration_invite_index"));
   assert.ok(database.prepare('PRAGMA table_info("campaign_join_requests")').all().some((column) => column.name === "status"));

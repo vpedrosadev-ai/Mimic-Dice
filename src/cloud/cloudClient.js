@@ -236,10 +236,10 @@ export async function getCloudCampaignJoinRequestStatus(campaignId, requestId) {
   return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/requests/${encodeURIComponent(requestId)}`);
 }
 
-export async function resolveCloudCampaignJoinRequest(campaignId, requestId, decision) {
+export async function resolveCloudCampaignJoinRequest(campaignId, requestId, decision, role = "") {
   return requestJson(`/api/campaigns/${encodeURIComponent(campaignId)}/requests/${encodeURIComponent(requestId)}`, {
     method: "POST",
-    body: JSON.stringify({ decision })
+    body: JSON.stringify({ decision, ...(role ? { role } : {}) })
   });
 }
 

@@ -375,7 +375,8 @@ export class SharedCampaignRoom extends DurableObject {
     const campaignId = safeText(request.headers.get("X-Mimic-Campaign-Id")).slice(0, 120);
     const revision = Math.max(0, Math.floor(Number(request.headers.get("X-Mimic-Campaign-Revision")) || 0));
     const updatedAt = safeText(request.headers.get("X-Mimic-Campaign-Updated-At")).slice(0, 80);
-    const role = safeText(request.headers.get("X-Mimic-Campaign-Role")) === "host" ? "host" : "editor";
+    const requestedRole = safeText(request.headers.get("X-Mimic-Campaign-Role"));
+    const role = requestedRole === "host" ? "host" : requestedRole === "player" ? "player" : "master";
 
     if (!campaignId) {
       return new Response("Campaign required", { status: 400 });
@@ -411,7 +412,7 @@ export class SharedCampaignRoom extends DurableObject {
     if (command?.type === "combat-section") {
       const attachment = socket.deserializeAttachment() || {};
       const section = safeText(command.section);
-      if (!['tracker', 'map'].includes(section) || !['host', 'editor'].includes(attachment.role)) return;
+      if (!['tracker', 'map'].includes(section) || !['host', 'master', 'player'].includes(attachment.role)) return;
       const operation = safeText(command.operation) || "replace";
       if ((section === "tracker" && operation !== "replace") || (section === "map" && !['replace', 'token-position'].includes(operation))) return;
       const serializedValue = JSON.stringify(command.value ?? null);
@@ -436,7 +437,7 @@ export class SharedCampaignRoom extends DurableObject {
     }
     if (command?.type === "combat-event") {
       const attachment = socket.deserializeAttachment() || {};
-      if (!['host', 'editor'].includes(attachment.role) || !command.event || typeof command.event !== "object") return;
+      if (!['host', 'master', 'player'].includes(attachment.role) || !command.event || typeof command.event !== "object") return;
       const serializedEvent = JSON.stringify(command.event);
       if (serializedEvent.length > 12_000) return;
       this.broadcast({
@@ -675,7 +676,8 @@ function sanitizeMapProjection(value, room) {
     teamId: safeText(entry?.teamId).slice(0, 120),
     teamOwnerUserId: safeText(entry?.teamOwnerUserId).slice(0, 120),
     teamColor: /^#[0-9a-f]{6}$/i.test(safeText(entry?.teamColor)) ? safeText(entry.teamColor).toLowerCase() : "",
-    multiplayerMonsterId: safeText(entry?.multiplayerMonsterId).slice(0, 160)
+    multiplayerMonsterId: safeText(entry?.multiplayerMonsterId).slice(0, 160),
+    multiplayerOnline: entry?.multiplayerOnline === true
   })).filter((entry) => entry.id);
   const validIds = new Set(combatants.map((entry) => entry.id));
   const activeCombatantId = safeText(value.activeCombatantId);

@@ -63,6 +63,24 @@ test("shared campaign editor can edit without owner-only management rights", () 
   assert.equal(summary.collaborationOpen, true);
   assert.equal(summary.canEdit, true);
   assert.equal(summary.canManage, false);
+  assert.equal(summary.memberRole, "master");
+});
+
+test("shared campaign player keeps combat edit access with explicit restricted role", () => {
+  const summary = getCampaignSummary({
+    id: "campaign-player",
+    ownerId: "host",
+    memberRole: "player",
+    memberCount: 1,
+    name: "Player campaign",
+    isPublic: 0,
+    revision: 1,
+    payloadBytes: 100
+  }, "player-1", false);
+
+  assert.equal(summary.memberRole, "player");
+  assert.equal(summary.canEdit, true);
+  assert.equal(summary.canManage, false);
 });
 
 test("admin storage classifies tracked and untracked R2 objects", () => {

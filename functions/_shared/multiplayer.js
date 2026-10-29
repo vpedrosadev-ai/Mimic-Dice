@@ -176,7 +176,7 @@ async function finalizeRoomCampaign(context, roomId, user) {
     ).bind(record.campaignId),
     ...participantUserIds.map((userId) => context.env.DB.prepare(`
       INSERT OR IGNORE INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
-      SELECT ?, "id", 'editor', CURRENT_TIMESTAMP FROM "users" WHERE "id" = ?
+        SELECT ?, "id", 'master', CURRENT_TIMESTAMP FROM "users" WHERE "id" = ?
     `).bind(record.campaignId, userId))
   ]);
 

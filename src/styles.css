@@ -1007,6 +1007,13 @@ body.has-compendium-reference-popup {
     0 8px 18px rgba(0, 0, 0, 0.58);
 }
 
+.combat-map-token.has-team-color.team-color-ring--single .combat-map-token__portrait {
+  border-color: var(--team-color);
+  box-shadow:
+    0 0 max(8px, calc(var(--token-size) * .16)) color-mix(in srgb, var(--team-color) 38%, transparent),
+    0 8px 18px rgba(0, 0, 0, 0.58);
+}
+
 .combat-name-token-wrap--restricted .combat-name-token-static {
   position: relative;
   cursor: not-allowed;
@@ -2534,6 +2541,63 @@ table {
 
 .compendium-create-dialog__field--full {
   grid-column: 1 / -1;
+}
+
+.compendium-create-dialog__image-field {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(186, 138, 71, 0.28);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.compendium-create-dialog__image-preview {
+  flex: 0 0 7rem;
+  width: 7rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(186, 138, 71, 0.42);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.compendium-create-dialog__image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.compendium-create-dialog__image-preview i {
+  color: var(--accent-soft);
+  font-size: 2.5rem;
+  font-style: normal;
+}
+
+.compendium-create-dialog__image-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.compendium-create-dialog__image-actions strong,
+.compendium-create-dialog__image-actions > span {
+  flex-basis: 100%;
+}
+
+.compendium-create-dialog__image-actions > span {
+  color: var(--text-muted);
+}
+
+.cloud-join-dialog__role-help {
+  font-size: 0.9em;
+  color: var(--text-muted);
 }
 
 .compendium-create-dialog__textarea {

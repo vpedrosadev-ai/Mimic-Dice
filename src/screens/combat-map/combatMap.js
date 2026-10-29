@@ -1726,12 +1726,12 @@ export function createCombatMapController(options = {}) {
     const panel = getVersionPanel(version);
     return `<header class="combat-map-toolbar">
       <strong class="combat-map-toolbar__version">Versión ${version === "player" ? "jugador" : "máster"}</strong>
-      <button type="button" data-map-action="open-map-menu" class="${panel === "map" ? "is-active" : ""}">Mapa</button>
-      <button type="button" data-map-action="toggle-grid-menu" class="${state.grid.visible ? "is-active" : ""}">Rejilla</button>
-      <button type="button" data-map-action="toggle-token-menu">Peanas</button>
+      ${isToolbarControlVisible("map", version) ? `<button type="button" data-map-action="open-map-menu" class="${panel === "map" ? "is-active" : ""}">Mapa</button>` : ""}
+      ${isToolbarControlVisible("grid", version) ? `<button type="button" data-map-action="toggle-grid-menu" class="${state.grid.visible ? "is-active" : ""}">Rejilla</button>` : ""}
+      ${isToolbarControlVisible("tokens", version) ? `<button type="button" data-map-action="toggle-token-menu">Peanas</button>` : ""}
       ${isToolbarControlVisible("fog", version) ? `<button type="button" data-map-action="toggle-fog-menu" class="${state.fog.enabled || panel === "fog" ? "is-active" : ""}">Niebla</button>` : ""}
-      <button type="button" data-map-action="toggle-paint-menu" class="${panel === "paint" ? "is-active" : ""}">Pintar</button>
-      <button type="button" data-map-action="toggle-shapes-menu" class="${panel === "shapes" ? "is-active" : ""}">Formas</button>
+      ${isToolbarControlVisible("paint", version) ? `<button type="button" data-map-action="toggle-paint-menu" class="${panel === "paint" ? "is-active" : ""}">Pintar</button>` : ""}
+      ${isToolbarControlVisible("shapes", version) ? `<button type="button" data-map-action="toggle-shapes-menu" class="${panel === "shapes" ? "is-active" : ""}">Formas</button>` : ""}
       ${isToolbarControlVisible("health", version) ? `<button type="button" data-map-action="toggle-health-menu" class="${panel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>` : ""}
       ${isToolbarControlVisible("initiative", version) ? `<button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${isInitiativeVisible(version) || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>` : ""}
     </header>`;
@@ -2096,11 +2096,12 @@ export function createCombatMapController(options = {}) {
       const isFlying = combatant.isFlying === true;
       const flyingHeight = Math.max(0, Math.round(Number(combatant.flyingHeight) || 0));
       const stackIndex = getTokenStackIndex(combatant.id, index);
-      const teamColor = options.showTeamColorRings?.() === false
+      const teamColorMode = clean(options.teamColorRingMode?.()) || (options.showTeamColorRings?.() === false ? "none" : "double");
+      const teamColor = teamColorMode === "none"
         ? ""
         : /^#[0-9a-f]{6}$/i.test(clean(combatant.teamColor)) ? clean(combatant.teamColor) : "";
       const dead = !isAlive(combatant);
-      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? "has-team-color" : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
+      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? `has-team-color team-color-ring--${teamColorMode}` : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
         ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt="">` : ""}
         ${flyingHeight > 0 ? `<span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
         <span class="combat-map-token__move-distance" data-map-token-move-distance hidden>0 pies</span>
@@ -2233,14 +2234,14 @@ export function createCombatMapController(options = {}) {
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
     const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${renderMapMenu("master")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "master")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${isToolbarControlVisible("map", "master") ? renderMapMenu("master") : ""}${isToolbarControlVisible("grid", "master") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "master") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "master") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "master") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "master") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "master") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "master") ? renderInitiativeMenu(panel, "master") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
     const notifications = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${renderMapMenu("player")}${renderGridMenu(panel)}${renderTokenMenu(panel)}${renderFogMenu(panel)}${renderPaintMenu(panel)}${renderShapesMenu(panel)}${renderHealthMenu(panel)}${renderInitiativeMenu(panel, "player")}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${isToolbarControlVisible("map", "player") ? renderMapMenu("player") : ""}${isToolbarControlVisible("grid", "player") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "player") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "player") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "player") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "player") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "player") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "player") ? renderInitiativeMenu(panel, "player") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayerProjection(viewportWindow = window) {

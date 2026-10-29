@@ -39,3 +39,18 @@ test("player projection hides rival health and conditions but keeps own team det
   assert.equal(own.hideConditions, false);
   assert.equal(own.condiciones, "Concentrado");
 });
+
+test("sanitized map projection still hides rival values without multiplayerOnline flag", () => {
+  const rival = projectMonstersLeagueCombatantForPlayer({
+    teamId: "team-b",
+    teamOwnerUserId: "user-b",
+    multiplayerMonsterId: "monster-b",
+    pgAct: 31,
+    pgMax: 44,
+    condiciones: "Concentrado"
+  }, "user-a", "team-a");
+
+  assert.equal(rival.hideHealth, true);
+  assert.equal(rival.hideConditions, true);
+  assert.equal(rival.condiciones, "");
+});

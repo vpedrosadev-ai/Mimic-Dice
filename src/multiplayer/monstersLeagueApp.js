@@ -263,7 +263,7 @@ const playerMapController = createCombatMapController({
   handleTurnShortcutKeydown: handleLeagueTurnShortcutKeydown,
   showTokenHealth: () => false,
   showInitiativeHealth: () => false,
-  showTeamColorRings: () => false,
+  teamColorRingMode: () => "single",
   isToolbarControlVisible: (control) => !["fog", "health", "initiative"].includes(control),
   onChange: publishLeagueMasterMapChange
 });
@@ -1214,14 +1214,23 @@ function getPlayerVisibleCombatants() {
   const viewerUserId = cleanText(state.session?.user?.id || state.hostPlayerId);
   const viewerPlayer = getViewedTeamPlayer(state.room);
 
-  return combatants.map((combatant) => ({
+  const playersById = new Map((state.room?.players || []).map((player) => [cleanText(player.id), player]));
+
+  return combatants.map((combatant) => {
+    const authoritativeTeamColor = cleanText(playersById.get(cleanText(combatant.teamId))?.color);
+    const projectedCombatant = {
+      ...mergeMonstersLeagueProjectedCombatantLiveState(combatant, combatState),
+      ...(authoritativeTeamColor ? { teamColor: authoritativeTeamColor } : {})
+    };
+    return {
     ...projectMonstersLeagueCombatantForPlayer(
-      mergeMonstersLeagueProjectedCombatantLiveState(combatant, combatState),
+      projectedCombatant,
       viewerUserId,
       viewerPlayer?.id
     ),
     side: cleanText(combatant.teamId) === cleanText(viewerPlayer?.id) ? "allies" : "enemies"
-  }));
+    };
+  });
 }
 
 function createLeagueRosterCombatants() {

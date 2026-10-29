@@ -17,6 +17,13 @@ const MAX_CAMPAIGNS_PER_USER = 50;
 const MAX_CAMPAIGN_COLLABORATORS = 20;
 const CHUNK_CHARACTER_COUNT = 300_000;
 
+function normalizeCampaignMemberRole(value) {
+  const role = cleanText(value, 20).toLowerCase();
+  if (role === "player") return "player";
+  if (role === "master" || role === "editor") return "master";
+  return "";
+}
+
 function serializeCampaign(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new HttpError(400, "invalid_campaign", "Campaign payload must be an object.");
@@ -64,7 +71,8 @@ function splitCampaign(serialized) {
 
 export function getCampaignSummary(row, currentUserId = "", administrator = false) {
   const isOwner = Boolean(currentUserId && row.ownerId === currentUserId);
-  const isMember = Boolean(currentUserId && row.memberRole === "editor");
+  const memberRole = currentUserId ? normalizeCampaignMemberRole(row.memberRole) : "";
+  const isMember = Boolean(currentUserId && memberRole);
   const memberCount = Math.max(0, Number(row.memberCount) || 0);
 
   return {
@@ -80,6 +88,7 @@ export function getCampaignSummary(row, currentUserId = "", administrator = fals
     isShared: memberCount > 0,
     collaborationOpen: row.collaborationOpen === 1,
     memberCount,
+    memberRole,
     canEdit: Boolean(isOwner || isMember || administrator),
     canManage: Boolean(isOwner || administrator)
   };
@@ -111,7 +120,7 @@ async function getCampaignRecord(db, campaignId, currentUserId = "") {
 function canReadCampaign(campaign, user, administrator = false) {
   return Boolean(campaign && (
     campaign.ownerId === user?.id
-    || campaign.memberRole === "editor"
+    || normalizeCampaignMemberRole(campaign.memberRole)
     || campaign.isPublic === 1
     || administrator
   ));
@@ -120,7 +129,7 @@ function canReadCampaign(campaign, user, administrator = false) {
 function canEditCampaign(campaign, user, administrator = false) {
   return Boolean(campaign && (
     campaign.ownerId === user?.id
-    || campaign.memberRole === "editor"
+    || normalizeCampaignMemberRole(campaign.memberRole)
     || administrator
   ));
 }
@@ -417,7 +426,7 @@ async function notifyCampaignJoinRequest(context, campaignId, message) {
 
 async function createCampaignJoinRequest(context, campaignId, user) {
   const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
-  if (!campaign || campaign.ownerId === user.id || campaign.memberRole === "editor" || campaign.collaborationOpen !== 1) {
+  if (!campaign || campaign.ownerId === user.id || normalizeCampaignMemberRole(campaign.memberRole) || campaign.collaborationOpen !== 1) {
     throw new HttpError(404, "campaign_not_open", "Campaign is not open for new collaborators.");
   }
 
@@ -497,8 +506,14 @@ async function resolveCampaignJoinRequest(context, campaignId, requestId, user) 
   }
   const body = await readJsonBody(context.request, 4096);
   const decision = cleanText(body.decision, 20);
+  const memberRole = decision === "approved"
+    ? normalizeCampaignMemberRole(body.role || "master")
+    : "";
   if (!['approved', 'denied'].includes(decision)) {
     throw new HttpError(400, "invalid_join_decision", "Decision must be approved or denied.");
+  }
+  if (decision === "approved" && !memberRole) {
+    throw new HttpError(400, "invalid_campaign_role", "Role must be player or master.");
   }
   const joinRequest = await context.env.DB.prepare(`
     SELECT * FROM "campaign_join_requests"
@@ -521,9 +536,9 @@ async function resolveCampaignJoinRequest(context, campaignId, requestId, user) 
     await context.env.DB.batch([
       context.env.DB.prepare(`
         INSERT INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
-        VALUES (?, ?, 'editor', CURRENT_TIMESTAMP)
-        ON CONFLICT("campaignId", "userId") DO NOTHING
-      `).bind(campaignId, joinRequest.userId),
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT("campaignId", "userId") DO UPDATE SET "role" = excluded."role"
+      `).bind(campaignId, joinRequest.userId, memberRole),
       context.env.DB.prepare(`
         UPDATE "campaign_join_requests" SET "status" = 'approved', "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ? AND "status" = 'pending'
@@ -537,9 +552,9 @@ async function resolveCampaignJoinRequest(context, campaignId, requestId, user) 
   }
   await notifyCampaignJoinRequest(context, campaignId, {
     type: "join-resolution",
-    request: { id: requestId, campaignId, userId: joinRequest.userId, status: decision }
+    request: { id: requestId, campaignId, userId: joinRequest.userId, status: decision, role: memberRole }
   });
-  return jsonResponse({ request: { id: requestId, campaignId, userId: joinRequest.userId, status: decision } });
+  return jsonResponse({ request: { id: requestId, campaignId, userId: joinRequest.userId, status: decision, role: memberRole } });
 }
 
 async function joinCampaignCollaboration(context, user) {
@@ -574,7 +589,7 @@ async function joinCampaignCollaboration(context, user) {
     }
     await context.env.DB.prepare(`
       INSERT OR IGNORE INTO "campaign_members" ("campaignId", "userId", "role", "createdAt")
-      VALUES (?, ?, 'editor', CURRENT_TIMESTAMP)
+      VALUES (?, ?, 'master', CURRENT_TIMESTAMP)
     `).bind(session.id, user.id).run();
   }
 
@@ -584,7 +599,7 @@ async function joinCampaignCollaboration(context, user) {
 
 async function leaveCampaignCollaboration(context, campaignId, user) {
   const campaign = await getCampaignRecord(context.env.DB, campaignId, user.id);
-  if (!campaign || campaign.memberRole !== "editor" || campaign.ownerId === user.id) {
+  if (!campaign || !normalizeCampaignMemberRole(campaign.memberRole) || campaign.ownerId === user.id) {
     throw new HttpError(404, "campaign_not_found", "Campaign not found.");
   }
   await context.env.DB.prepare(`
@@ -623,7 +638,9 @@ async function connectCampaignSocket(context, campaignId, user) {
     "X-Mimic-Campaign-Revision": String(Math.max(0, Number(campaign.revision) || 0)),
     "X-Mimic-Campaign-Updated-At": cleanText(campaign.updatedAt, 80)
   });
-  headers.set("X-Mimic-Campaign-Role", campaign.ownerId === user.id || administrator ? "host" : "editor");
+  headers.set("X-Mimic-Campaign-Role", campaign.ownerId === user.id || administrator
+    ? "host"
+    : normalizeCampaignMemberRole(campaign.memberRole));
   return context.env.SHARED_CAMPAIGN_ROOMS.get(objectId).fetch(new Request(
     `https://shared-campaign.internal/socket/${encodeURIComponent(campaignId)}`,
     { method: "GET", headers }
