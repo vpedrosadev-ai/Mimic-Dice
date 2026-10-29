@@ -165,6 +165,7 @@ import {
   updateCloudCampaign,
   updateCloudLibraryEntry,
   updateCloudProfileImage,
+  updateCloudProfileMasterCombatView,
   updateCloudProfileName,
   uploadCloudImage,
   uploadCloudPdf
@@ -578,6 +579,7 @@ let masterCombatWorkspaceLastCenteredActiveId = "";
 const masterCombatWorkspaceSheetScrollPositions = new Map();
 let activeMasterCombatWorkspaceResize = null;
 const MASTER_COMBAT_WORKSPACE_LAYOUT_KEY = "mimic-dice:master-combat-workspace-layout:v2";
+const MASTER_COMBAT_WORKSPACE_MODE_KEY = "mimic-dice:master-combat-workspace-mode:v1";
 let masterCombatWorkspaceLayout = loadMasterCombatWorkspaceLayout();
 const combatantPreviewPopoutWindows = new Map();
 let combatantPreviewPopoutPollInterval = 0;
@@ -1138,6 +1140,8 @@ state = {
   combatMapMirrorVisible: false,
   combatMapMirrorCollapsed: false,
   masterCombatWorkspaceVisible: false,
+  masterCombatWorkspaceMode: loadMasterCombatWorkspaceMode(),
+  masterCombatWorkspaceConfigOpen: false,
   masterCombatDiceTargetMenu: {
     formula: "",
     kind: "",
@@ -1776,6 +1780,7 @@ async function handleClick(event) {
   const clickedCombatTurnJumpMenu = event.target.closest("[data-combat-turn-jump-menu]");
   const clickedCombatAreaTargetMenu = event.target.closest("[data-combat-area-target-menu]");
   const clickedMasterCombatDiceTargetMenu = event.target.closest("[data-master-combat-dice-target-menu]");
+  const clickedMasterCombatWorkspaceConfig = event.target.closest("[data-master-combat-workspace-config]");
   const clickedEncounterSource = event.target.closest("[data-encounter-source-menu]");
   const clickedCombatEncounterMenu = event.target.closest("[data-combat-encounter-menu]");
   const clickedCombatNameSearch = event.target.closest("[data-combat-name-search-menu]");
@@ -1807,6 +1812,10 @@ async function handleClick(event) {
       render();
       return;
     }
+  }
+
+  if (state.masterCombatWorkspaceConfigOpen && !clickedMasterCombatWorkspaceConfig) {
+    state.masterCombatWorkspaceConfigOpen = false;
   }
 
   if (clickedDiaryTag) {
@@ -3788,6 +3797,7 @@ async function handleClick(event) {
 
   if (action === "open-master-combat-workspace") {
     state.masterCombatWorkspaceVisible = !state.masterCombatWorkspaceVisible;
+    state.masterCombatWorkspaceConfigOpen = false;
     closeMasterCombatDiceTargetMenu();
     if (state.masterCombatWorkspaceVisible) {
       state.combatMapMirrorVisible = false;
@@ -3797,6 +3807,17 @@ async function handleClick(event) {
       }
     }
     render();
+    return;
+  }
+
+  if (action === "toggle-master-combat-workspace-config") {
+    state.masterCombatWorkspaceConfigOpen = !state.masterCombatWorkspaceConfigOpen;
+    render();
+    return;
+  }
+
+  if (action === "select-master-combat-workspace-mode") {
+    await saveMasterCombatWorkspaceMode(actionButton.dataset.masterWorkspaceMode);
     return;
   }
 
@@ -12933,7 +12954,7 @@ function renderCombatTracker() {
         ${renderScreenHeadingIdentity("combat-tracker", "", t("combat_table_title"))}
         <div class="section-heading__side">
           <div class="combat-heading__actions">
-            ${renderMasterCombatWorkspaceButton()}
+            ${renderMasterCombatWorkspaceControls()}
             ${renderCombatMapButton()}
             ${renderCombatInitiativeToggleButton()}
             ${renderCombatTimerToggleButton(state.combatTimerPanelOpen)}
@@ -13171,6 +13192,28 @@ function renderMasterCombatWorkspaceButton() {
   `;
 }
 
+function renderMasterCombatWorkspaceControls() {
+  return `${state.masterCombatWorkspaceVisible ? renderMasterCombatWorkspaceConfig() : ""}${renderMasterCombatWorkspaceButton()}`;
+}
+
+function renderMasterCombatWorkspaceConfig() {
+  const currentMode = normalizeMasterCombatWorkspaceMode(state.masterCombatWorkspaceMode);
+  const choices = [
+    { id: "standard", label: isEnglishInterface() ? "Standard" : "Estándar", description: isEnglishInterface() ? "Entities, dice, sheet and map" : "Entidades, dados, ficha y mapa" },
+    { id: "entities", label: isEnglishInterface() ? "Entities only" : "Solo entidades", description: isEnglishInterface() ? "Full-width combat entity list" : "Lista de entidades a todo el ancho" },
+    { id: "columns", label: isEnglishInterface() ? "Three columns" : "Tres columnas", description: isEnglishInterface() ? "Entities, sheet and dice; no map" : "Entidades, ficha y dados; sin mapa" }
+  ];
+  return `
+    <div class="master-combat-workspace-config" data-master-combat-workspace-config>
+      <button class="toolbar-button toolbar-button--combat combat-overview-toggle ${state.masterCombatWorkspaceConfigOpen ? "is-active" : ""}" type="button" data-action="toggle-master-combat-workspace-config" aria-expanded="${state.masterCombatWorkspaceConfigOpen}" aria-label="${escapeHtml(isEnglishInterface() ? "Configure Master view" : "Configurar Vista master")}" title="${escapeHtml(isEnglishInterface() ? "Configure Master view" : "Configurar Vista master")}">
+        <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10.2 2h3.6l.5 2.1c.5.2 1 .5 1.5.9l2-.6 1.8 3.1-1.5 1.5c.1.6.1 1.2 0 1.8l1.5 1.5-1.8 3.1-2-.6c-.5.4-1 .7-1.5.9l-.5 2.1h-3.6l-.5-2.1c-.5-.2-1-.5-1.5-.9l-2 .6-1.8-3.1 1.5-1.5a8 8 0 0 1 0-1.8L4.4 7.5l1.8-3.1 2 .6c.5-.4 1-.7 1.5-.9L10.2 2ZM12 7.2a3.3 3.3 0 1 0 0 6.6 3.3 3.3 0 0 0 0-6.6Z"/></svg></span>
+        ${escapeHtml(isEnglishInterface() ? "Layout" : "Diseño")}
+      </button>
+      ${state.masterCombatWorkspaceConfigOpen ? `<div class="master-combat-workspace-config__menu" role="menu">${choices.map((choice) => `<button class="${choice.id === currentMode ? "is-active" : ""}" type="button" role="menuitemradio" aria-checked="${choice.id === currentMode}" data-action="select-master-combat-workspace-mode" data-master-workspace-mode="${choice.id}"><strong>${escapeHtml(choice.label)}</strong><span>${escapeHtml(choice.description)}</span></button>`).join("")}</div>` : ""}
+    </div>
+  `;
+}
+
 function renderMasterCombatWorkspacePanel() {
   const combatants = getCombatTurnOrder([...state.combatants].filter(shouldShowMasterCombatWorkspaceEntity));
   const turnCombatants = getCombatTurnParticipants(combatants);
@@ -13200,13 +13243,13 @@ function renderMasterCombatWorkspacePanel() {
         ${renderScreenHeadingIdentity("combat-tracker", "", workspaceLabel)}
         <div class="section-heading__side">
           <div class="combat-heading__actions">
-            ${renderMasterCombatWorkspaceButton()}
+            ${renderMasterCombatWorkspaceControls()}
             ${renderCombatMapButton()}
           </div>
         </div>
       </div>
       <div
-        class="master-combat-workspace"
+        class="master-combat-workspace master-combat-workspace--${escapeHtml(normalizeMasterCombatWorkspaceMode(state.masterCombatWorkspaceMode))}"
         data-master-combat-workspace
         style="--master-entity-size:${entitySize};--master-list-size:${listSize};--master-detail-size:${detailSize}"
       >
@@ -13668,7 +13711,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
 
   if (isCloudCampaignEnemyPrivate(combatant)) {
     return `
-      <article class="master-combat-entity is-rival-private ${active ? "is-active-turn" : ""}" aria-label="${escapeHtml(displayName)}">
+      <article class="master-combat-entity is-rival-private ${active ? "is-active-turn" : ""}" data-combat-turn-token-context="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(displayName)}">
         <span class="master-combat-entity__rail"><span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span></span>
         <span class="master-combat-entity__portrait">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
         <span class="master-combat-entity__copy"><span class="master-combat-entity__name-row"><span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span></span><strong class="master-combat-entity__hp-label">🔒 ${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}</strong></span>
@@ -13795,6 +13838,46 @@ function loadMasterCombatWorkspaceLayout() {
     return normalizeMasterCombatWorkspaceLayout(stored);
   } catch {
     return normalizeMasterCombatWorkspaceLayout(null);
+  }
+}
+
+function normalizeMasterCombatWorkspaceMode(value) {
+  const mode = cleanText(value).toLowerCase();
+  return ["standard", "entities", "columns"].includes(mode) ? mode : "standard";
+}
+
+function loadMasterCombatWorkspaceMode() {
+  try {
+    return normalizeMasterCombatWorkspaceMode(localStorage.getItem(MASTER_COMBAT_WORKSPACE_MODE_KEY));
+  } catch {
+    return "standard";
+  }
+}
+
+async function saveMasterCombatWorkspaceMode(value) {
+  const mode = normalizeMasterCombatWorkspaceMode(value);
+  state.masterCombatWorkspaceMode = mode;
+  state.masterCombatWorkspaceConfigOpen = false;
+  try {
+    localStorage.setItem(MASTER_COMBAT_WORKSPACE_MODE_KEY, mode);
+  } catch {}
+  render();
+
+  if (!state.accountSession?.user?.id) return;
+  try {
+    const result = await updateCloudProfileMasterCombatView(mode);
+    state.accountSession = {
+      ...state.accountSession,
+      user: { ...state.accountSession.user, ...(result?.user || {}), masterCombatView: mode }
+    };
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+    pushNotification({
+      title: isEnglishInterface() ? "Layout not synchronized" : "Diseño no sincronizado",
+      message: state.accountError,
+      tone: "danger"
+    });
+    render();
   }
 }
 
@@ -15612,10 +15695,10 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
   }
 
   const menuStyle = getCombatTurnQuickMenuStyle(viewportWindow);
-  const hidesRivalStats = isMonstersLeagueRivalCombatant(combatant);
+  const hidesRivalStats = isCombatantPrivateForViewer(combatant);
   const effectiveMax = getEffectivePgMax(combatant);
   const tempHp = Math.max(0, toNumber(combatant.pgTemp));
-  const activeStatuses = getCombatantStatusNames(combatant);
+  const activeStatuses = hidesRivalStats ? [] : getCombatantStatusNames(combatant);
   const inheritedTokenSize = cleanText(
     getLinkedCharacterForCombatant(combatant)?.size
       || getCombatantBestiaryEntry(combatant)?.size
@@ -28530,9 +28613,6 @@ function openCombatTurnQuickMenu(combatantId, x, y, owner = "main") {
     return;
   }
 
-  const combatant = state.combatants.find((entry) => entry.id === normalizedCombatantId);
-  if (isCloudCampaignEnemyPrivate(combatant)) return;
-
   state.combatTurnQuickMenu = {
     combatantId: normalizedCombatantId,
     x: Math.round(toNumber(x)),
@@ -32116,6 +32196,10 @@ async function initializeCloudAccount() {
   try {
     const session = await fetchAuthSession();
     state.accountSession = session;
+    if (session?.user?.id) {
+      state.masterCombatWorkspaceMode = normalizeMasterCombatWorkspaceMode(session.user.masterCombatView);
+      try { localStorage.setItem(MASTER_COMBAT_WORKSPACE_MODE_KEY, state.masterCombatWorkspaceMode); } catch {}
+    }
     state.accountProfileNameDraft = cleanText(session?.user?.name);
     state.accountProfileNameEditing = false;
     state.accountStatus = "ready";

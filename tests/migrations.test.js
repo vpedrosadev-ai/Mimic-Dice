@@ -39,6 +39,7 @@ test("all database migrations apply in order and allow map entries", () => {
   assert.ok(database.prepare('PRAGMA table_info("campaign_join_requests")').all().some((column) => column.name === "status"));
   assert.ok(database.prepare('PRAGMA index_list("campaign_join_requests")').all().some((index) => index.name === "campaign_join_requests_campaign_user_index"));
   assert.ok(database.prepare('PRAGMA table_info("admin_user_bans")').all().some((column) => column.name === "bannedBy"));
+  assert.ok(database.prepare('PRAGMA table_info("users")').all().some((column) => column.name === "masterCombatView"));
   database.close();
 });
 

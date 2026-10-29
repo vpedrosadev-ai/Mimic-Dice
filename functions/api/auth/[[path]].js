@@ -90,7 +90,7 @@ export async function onRequest(context) {
           if (session.user && token?.sub) {
             const userId = String(token.sub);
             const storedUser = await context.env.DB.prepare(
-              'SELECT "id", "name", "email", "image" FROM "users" WHERE "id" = ? LIMIT 1'
+              'SELECT "id", "name", "email", "image", "masterCombatView" FROM "users" WHERE "id" = ? LIMIT 1'
             ).bind(userId).first();
 
             session.user.id = userId;
@@ -98,6 +98,7 @@ export async function onRequest(context) {
               session.user.name = storedUser.name;
               session.user.email = storedUser.email;
               session.user.image = storedUser.image;
+              session.user.masterCombatView = storedUser.masterCombatView || "standard";
               session.user.isAdmin = isAdministrator(storedUser);
             }
           }

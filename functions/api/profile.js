@@ -15,13 +15,24 @@ async function updateProfile(context, user) {
   const body = await readJsonBody(context.request, 2048);
   const hasImage = Object.prototype.hasOwnProperty.call(body, "image");
   const hasName = Object.prototype.hasOwnProperty.call(body, "name");
+  const hasMasterCombatView = Object.prototype.hasOwnProperty.call(body, "masterCombatView");
 
-  if (!hasImage && !hasName) {
+  if (!hasImage && !hasName && !hasMasterCombatView) {
     throw new HttpError(400, "invalid_profile_update", "Profile update is empty.");
   }
 
   let normalizedImage = cleanText(user.image, 600);
   let normalizedName = cleanText(user.name, 80);
+  let normalizedMasterCombatView = ["standard", "entities", "columns"].includes(user.masterCombatView)
+    ? user.masterCombatView
+    : "standard";
+
+  if (hasMasterCombatView) {
+    normalizedMasterCombatView = cleanText(body.masterCombatView, 20).toLowerCase();
+    if (!["standard", "entities", "columns"].includes(normalizedMasterCombatView)) {
+      throw new HttpError(400, "invalid_master_combat_view", "Master combat view is invalid.");
+    }
+  }
 
   if (hasName) {
     normalizedName = cleanText(body.name, 80);
@@ -55,15 +66,16 @@ async function updateProfile(context, user) {
   }
 
   await context.env.DB.prepare(
-    'UPDATE "users" SET "name" = ?, "image" = ? WHERE "id" = ?'
-  ).bind(normalizedName, normalizedImage, user.id).run();
+    'UPDATE "users" SET "name" = ?, "image" = ?, "masterCombatView" = ? WHERE "id" = ?'
+  ).bind(normalizedName, normalizedImage, normalizedMasterCombatView, user.id).run();
 
   return jsonResponse({
     user: {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      image: normalizedImage
+      image: normalizedImage,
+      masterCombatView: normalizedMasterCombatView
     }
   });
 }

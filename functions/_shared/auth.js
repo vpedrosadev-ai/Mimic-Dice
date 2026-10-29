@@ -47,7 +47,7 @@ export async function getAuthenticatedUser(context) {
   }
 
   const user = await context.env.DB.prepare(
-    'SELECT "id", "name", "email", "image" FROM "users" WHERE "id" = ? LIMIT 1'
+    'SELECT "id", "name", "email", "image", "masterCombatView" FROM "users" WHERE "id" = ? LIMIT 1'
   ).bind(userId).first();
 
   if (user && !isAdministrator(user) && await isUserBanned(context.env.DB, user.id)) {

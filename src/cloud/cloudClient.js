@@ -295,6 +295,13 @@ export async function updateCloudProfileName(name) {
   });
 }
 
+export async function updateCloudProfileMasterCombatView(masterCombatView) {
+  return requestJson("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ masterCombatView })
+  });
+}
+
 export async function listCloudLibraryEntries() {
   return requestJson("/api/library");
 }

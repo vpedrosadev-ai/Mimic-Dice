@@ -2,6 +2,7 @@ import "./monstersLeague.css";
 
 import appIconUrl from "../../build-resources/icon.png";
 import { loadVersionedCompendiumBundle } from "../data/compendiumBundles.js";
+import { getLocalizedSystemTableDefinitions } from "../data/tablesSeedData.js";
 import { normalizeBestiaryEntry, normalizeSpellEntry } from "../data/compendiumEntries.js";
 import { createCompendiumDetailRenderers } from "../screens/compendiums/detailRender.js";
 import { parseBestiarySpellcasting } from "../shared/bestiarySpellcasting.js";
@@ -2048,6 +2049,7 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
   const left = Math.max(8, Math.min(Number(menu.x) || 8, (viewportWindow.innerWidth || window.innerWidth) - width - 8));
   const top = Math.max(8, Math.min(Number(menu.y) || 8, (viewportWindow.innerHeight || window.innerHeight) - 480));
   const statuses = getProjectedStatusNames(combatant);
+  const statusMatches = getLeagueQuickStatusMatches(menu.statusQuery, statuses);
   const damageIcon = getCombatMiniActionIconUrl("damage");
   const healIcon = getCombatMiniActionIconUrl("heal");
   const necroticIcon = getCombatMiniActionIconUrl("necrotic");
@@ -2063,8 +2065,31 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
         ${renderLeagueQuickResourceButton("necrotic", necroticIcon, language === "en" ? "Necrotic" : "Necrótico")}
         ${renderLeagueQuickResourceButton("temp", tempIcon, language === "en" ? "Temporary HP" : "PG temporales")}
       </div></div></div>
-      <section class="combat-turn-quick-menu__statuses"><strong>${language === "en" ? "Conditions" : "Estados"}</strong>${statuses.length ? `<div class="combat-turn-quick-menu__active-statuses">${statuses.map((status) => `<button class="combat-turn-quick-menu__status is-active ${escapeHtml(getProjectedStatusTone(status))}" type="button" data-ml-context-action="remove-status" data-status="${escapeHtml(status)}"><span>${escapeHtml(status)}</span><b aria-hidden="true">×</b></button>`).join("")}</div>` : ""}<div class="combat-turn-quick-menu__custom-status"><input type="search" maxlength="80" value="${escapeHtml(menu.statusQuery)}" data-ml-context-status placeholder="${language === "en" ? "Type a condition" : "Escribe un estado"}"><button type="button" data-ml-context-action="add-status">${language === "en" ? "Add" : "Añadir"}</button></div></section>
+      <section class="combat-turn-quick-menu__statuses"><strong>${language === "en" ? "Conditions" : "Estados"}</strong>${statuses.length ? `<div class="combat-turn-quick-menu__active-statuses">${statuses.map((status) => `<button class="combat-turn-quick-menu__status is-active ${escapeHtml(getProjectedStatusTone(status))}" type="button" data-ml-context-action="remove-status" data-status="${escapeHtml(status)}"><span>${escapeHtml(status)}</span><b aria-hidden="true">×</b></button>`).join("")}</div>` : ""}<div class="combat-turn-quick-menu__custom-status"><input type="search" maxlength="80" value="${escapeHtml(menu.statusQuery)}" data-ml-context-status placeholder="${language === "en" ? "Search or type a condition" : "Buscar o escribir un estado"}"><button type="button" data-ml-context-action="add-status">${language === "en" ? "Add" : "Añadir"}</button></div><div class="combat-turn-quick-menu__status-results" data-ml-context-status-results role="listbox">${renderLeagueQuickStatusMatches(statusMatches)}</div></section>
     </div></div>`;
+}
+
+function getLeagueQuickStatusCatalog() {
+  const table = getLocalizedSystemTableDefinitions(language)
+    .find((entry) => entry.id === "table-system-status");
+  return (table?.rows || []).map(([name, description]) => ({ name: cleanText(name), description: cleanText(description) }));
+}
+
+function getLeagueQuickStatusMatches(queryValue, activeStatuses = []) {
+  const query = normalizeSearchText(queryValue);
+  if (!query) return [];
+  const active = new Set(activeStatuses.map(normalizeSearchText));
+  return getLeagueQuickStatusCatalog()
+    .filter((entry) => !active.has(normalizeSearchText(entry.name)))
+    .filter((entry) => normalizeSearchText(`${entry.name} ${entry.description}`).includes(query))
+    .slice(0, 8);
+}
+
+function renderLeagueQuickStatusMatches(matches) {
+  return matches.map((entry) => {
+    const iconUrl = getCombatStatusIconUrl(entry.name);
+    return `<button class="combat-turn-quick-menu__status ${escapeHtml(getProjectedStatusTone(entry.name))}" type="button" role="option" data-ml-context-action="add-status" data-status="${escapeHtml(entry.name)}">${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ""}<span>${escapeHtml(entry.name)}</span></button>`;
+  }).join("");
 }
 
 function renderLeagueQuickResourceButton(mode, iconUrl, label) {
@@ -2082,8 +2107,9 @@ function handleLeagueCombatQuickMenuClick(event) {
   if (action === "resource") applyLeagueQuickResource(combatant, button.dataset.mode);
   if (action === "remove-status") patchLeagueCombatant(combatant, { conditions: getProjectedStatusNames(combatant).filter((status) => status !== button.dataset.status) });
   if (action === "add-status") {
-    const value = cleanText(button.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status]")?.value);
+    const value = cleanText(button.dataset.status || button.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status]")?.value);
     if (value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
+    state.combatQuickMenu.statusQuery = "";
   }
   syncLeagueCombatQuickMenuSurface(owner);
 }
@@ -2101,7 +2127,12 @@ function handleLeagueCombatQuickMenuChange(event) {
 function handleLeagueCombatQuickMenuInput(event) {
   if (!state.combatQuickMenu) return;
   if (event.target.matches("[data-combat-turn-quick-value]")) state.combatQuickMenu.value = event.target.value;
-  if (event.target.matches("[data-ml-context-status]")) state.combatQuickMenu.statusQuery = event.target.value;
+  if (event.target.matches("[data-ml-context-status]")) {
+    state.combatQuickMenu.statusQuery = event.target.value;
+    const combatant = getLeagueQuickMenuCombatant();
+    const results = event.target.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status-results]");
+    if (results && combatant) results.innerHTML = renderLeagueQuickStatusMatches(getLeagueQuickStatusMatches(event.target.value, getProjectedStatusNames(combatant)));
+  }
 }
 
 function handleLeagueCombatQuickMenuKeydown(event) {
