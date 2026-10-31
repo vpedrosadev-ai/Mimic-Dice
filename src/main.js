@@ -94,6 +94,7 @@ import {
 import { createCombatTrackerStateController } from "./screens/combat-tracker/combatTrackerState.js";
 import {
   formatConcentrationStatusName,
+  getConcentrationSaveDc,
   getConstitutionSaveModifier,
   isConcentrationStatusName,
   resolveConcentrationSave,
@@ -1222,6 +1223,11 @@ const combatMapController = createCombatMapController({
     dismissNotification(notificationId);
     syncNotificationUi();
   },
+  onNotificationAction: (action, data) => {
+    if (action === "resolve-concentration-check") {
+      resolveAllyConcentrationCheck(data?.concentrationCheckId, data?.concentrationOutcome);
+    }
+  },
   onOpenNotificationDetail: (notificationId) => {
     openNotificationDetail(notificationId);
     render();
@@ -1284,6 +1290,11 @@ const encounterMapController = createCombatMapController({
   onDismissNotification: (notificationId) => {
     dismissNotification(notificationId);
     syncNotificationUi();
+  },
+  onNotificationAction: (action, data) => {
+    if (action === "resolve-concentration-check") {
+      resolveAllyConcentrationCheck(data?.concentrationCheckId, data?.concentrationOutcome);
+    }
   },
   onOpenNotificationDetail: (notificationId) => {
     openNotificationDetail(notificationId);
@@ -3409,6 +3420,11 @@ async function handleClick(event) {
   if (action === "dismiss-notification") {
     dismissNotification(actionButton.dataset.notificationId);
     syncNotificationUi();
+    return;
+  }
+
+  if (action === "resolve-concentration-check") {
+    resolveAllyConcentrationCheck(actionButton.dataset.concentrationCheckId, actionButton.dataset.concentrationOutcome);
     return;
   }
 
@@ -18547,16 +18563,31 @@ function renderCombatSpellbookControl(combatant, linkedCharacter) {
   `;
 }
 
-function renderNotifications() {
-  if (!Array.isArray(state.notifications) || state.notifications.length === 0) {
+function hasActiveCombatMapNotificationSurface() {
+  return combatMapController.isOpen()
+    || Boolean(app.querySelector(".combat-map-editor [data-map-notification-root]"));
+}
+
+function renderNotifications(options = {}) {
+  const mapSurfaceActive = options.mapOnly !== true && hasActiveCombatMapNotificationSurface();
+  const notifications = Array.isArray(state.notifications)
+    ? state.notifications.filter((notification) => {
+        if (options.mapOnly === true) return notification.showOnMap === true;
+        return !(mapSurfaceActive && notification.showOnMap === true);
+      })
+    : [];
+
+  if (notifications.length === 0) {
     return "";
   }
 
   return `
     <aside class="notification-stack" aria-live="polite" aria-atomic="false">
-      ${state.notifications.map((notification) => {
+      ${notifications.map((notification) => {
         const effectIconUrl = notification.effectKind ? getCombatMiniActionIconUrl(notification.effectKind) : "";
         const hasDetail = Boolean(cleanText(notification.detailText));
+        const concentrationCheckId = cleanText(notification.concentrationCheckId);
+        const canResolveConcentration = Boolean(concentrationCheckId && canResolveAllyConcentrationChecks());
         const notificationCopy = `
           <strong>${escapeHtml(notification.title || "Notificación")}</strong>
           <p>${escapeHtml(notification.message || "")}</p>
@@ -18564,7 +18595,7 @@ function renderNotifications() {
         `;
 
         return `
-        <article class="notification-card notification-card--${escapeHtml(notification.tone || "info")}${notification.imageUrl ? " notification-card--with-media" : ""}${effectIconUrl ? " notification-card--with-effect" : ""}" role="status">
+        <article class="notification-card notification-card--${escapeHtml(notification.tone || "info")}${notification.imageUrl ? " notification-card--with-media" : ""}${effectIconUrl ? " notification-card--with-effect" : ""}${concentrationCheckId ? " notification-card--concentration" : ""}" role="${concentrationCheckId ? "alert" : "status"}">
           ${
             notification.imageUrl
               ? `
@@ -18597,15 +18628,25 @@ function renderNotifications() {
               `
               : ""
           }
-          <button
-            class="notification-card__close"
-            type="button"
-            data-action="dismiss-notification"
-            data-notification-id="${escapeHtml(notification.id)}"
-            aria-label="Cerrar notificación"
-          >
-            x
-          </button>
+          ${concentrationCheckId ? `
+            <div class="notification-card__actions">
+              ${canResolveConcentration ? `
+                <button class="notification-card__action notification-card__action--success" type="button" data-action="resolve-concentration-check" data-concentration-check-id="${escapeHtml(concentrationCheckId)}" data-concentration-outcome="maintains">${escapeHtml(isEnglishInterface() ? "Concentrating" : "Concentrado")}</button>
+                <button class="notification-card__action notification-card__action--danger" type="button" data-action="resolve-concentration-check" data-concentration-check-id="${escapeHtml(concentrationCheckId)}" data-concentration-outcome="loses">${escapeHtml(isEnglishInterface() ? "Loses concentration" : "Pierde concentrado")}</button>
+              ` : `<small class="notification-card__host-wait">${escapeHtml(isEnglishInterface() ? "Waiting for the host" : "Esperando al anfitrión")}</small>`}
+            </div>
+          ` : ""}
+          ${notification.dismissible === false ? "" : `
+            <button
+              class="notification-card__close"
+              type="button"
+              data-action="dismiss-notification"
+              data-notification-id="${escapeHtml(notification.id)}"
+              aria-label="Cerrar notificación"
+            >
+              x
+            </button>
+          `}
         </article>
       `;
       }).join("")}
@@ -23906,7 +23947,7 @@ function showDirectCombatResourceFeedback(previousCombatants, combatantId, key, 
   });
 
   if ((key === "pgAct" && delta < 0) || (key === "necrotic" && delta > 0)) {
-    resolveEnemyConcentrationAfterDamage(previousCombatant, Math.abs(delta));
+    resolveCombatantConcentrationAfterDamage(previousCombatant, Math.abs(delta));
   }
 }
 
@@ -27913,6 +27954,142 @@ function toggleCombatantStatus(combatantId, statusName) {
   clearCombatStatusDraft(combatantId);
 }
 
+function canResolveAllyConcentrationChecks() {
+  return !isCloudCampaignCollaborative() || state.cloudCampaignCanManage === true;
+}
+
+function showAllyConcentrationCheck(event, options = {}) {
+  const checkId = cleanText(event?.id);
+  const combatantId = cleanText(event?.combatantId);
+  const damage = Math.max(0, toNumber(event?.damage));
+  const dc = Math.max(10, Math.floor(toNumber(event?.dc) || getConcentrationSaveDc(damage)));
+  const combatant = state.combatants.find((entry) => entry.id === combatantId);
+  const concentrationDetail = cleanText(event?.concentrationDetail).slice(0, 160);
+  const combatantLabel = cleanText(event?.combatantLabel) || getCombatantNotificationLabel(combatant || {});
+
+  if (!checkId || !combatantId || damage <= 0) return "";
+
+  const concentrationMessage = isEnglishInterface()
+    ? `${combatantLabel} must make a DC ${dc} Constitution saving throw after taking ${damage} damage.${concentrationDetail ? ` Concentrating on: ${concentrationDetail}.` : ""}`
+    : `${combatantLabel} debe realizar una tirada de salvación de Constitución CD ${dc} tras recibir ${damage} de daño.${concentrationDetail ? ` Concentrado en: ${concentrationDetail}.` : ""}`;
+  const notificationId = pushNotification({
+    title: isEnglishInterface() ? "Concentration check" : "Tirada de concentración",
+    message: concentrationMessage,
+    tone: "warning",
+    durationMs: 0,
+    imageUrl: cleanText(getCombatantTokenUrl(combatant || {})),
+    dedupeKey: `concentration-check:${checkId}`,
+    category: "concentration",
+    concentrationCheckId: checkId,
+    concentrationCombatantId: combatantId,
+    persistent: true,
+    required: true,
+    showOnMap: true,
+    dismissible: false
+  });
+
+  if (options.broadcast !== false) {
+    publishCloudCombatEvent({
+      type: "concentration-check",
+      id: checkId,
+      combatantId,
+      combatantLabel: cleanText(combatantLabel).slice(0, 160),
+      concentrationDetail,
+      damage,
+      dc
+    });
+  }
+
+  syncNotificationUi();
+  return notificationId;
+}
+
+function requestAllyConcentrationCheckAfterDamage(combatant, damageAmount) {
+  const damage = Math.max(0, toNumber(damageAmount));
+  const isAlly = combatant?.side === "allies" || ["ALIADO", "ALLY"].includes(cleanText(combatant?.tag).toUpperCase());
+  if (!isAlly || damage <= 0) return null;
+  const concentrationStatus = getCombatantStatusNames(combatant).find(isConcentrationStatusName);
+  if (!concentrationStatus) return null;
+  const concentration = splitConcentrationStatusName(concentrationStatus);
+  const event = {
+    id: createStableId("concentration-check"),
+    combatantId: cleanText(combatant.id),
+    combatantLabel: getCombatantNotificationLabel(combatant),
+    concentrationDetail: concentration?.detail || "",
+    damage,
+    dc: getConcentrationSaveDc(damage)
+  };
+  showAllyConcentrationCheck(event);
+  return event;
+}
+
+function dismissConcentrationCheckNotifications(checkId, combatantId, dismissAllForCombatant = false) {
+  const normalizedCheckId = cleanText(checkId);
+  const normalizedCombatantId = cleanText(combatantId);
+  const ids = state.notifications
+    .filter((notification) => cleanText(notification.concentrationCheckId) === normalizedCheckId
+      || (dismissAllForCombatant && normalizedCombatantId && cleanText(notification.concentrationCombatantId) === normalizedCombatantId))
+    .map((notification) => notification.id);
+  ids.forEach((id) => dismissNotification(id, { force: true }));
+}
+
+function applyConcentrationCheckResolution(event, options = {}) {
+  const checkId = cleanText(event?.id);
+  const combatantId = cleanText(event?.combatantId);
+  const outcome = cleanText(event?.outcome);
+  if (!checkId || !combatantId || !["maintains", "loses"].includes(outcome)) return false;
+
+  dismissConcentrationCheckNotifications(checkId, combatantId, outcome === "loses");
+  const combatant = state.combatants.find((entry) => entry.id === combatantId);
+  if (combatant) {
+    showCombatTokenFeedback({
+      combatantId,
+      kind: outcome === "maintains" ? "status-save" : "status-remove",
+      statusName: "Concentrado",
+      text: outcome === "maintains"
+        ? (isEnglishInterface() ? "Maintains concentration" : "Mantiene concentración")
+        : (isEnglishInterface() ? "Loses concentration" : "Pierde concentración"),
+      iconUrl: getCombatStatusIconUrl("Concentrado")
+    }, { broadcast: options.broadcastFeedback !== false });
+  }
+  syncNotificationUi();
+  return true;
+}
+
+function resolveAllyConcentrationCheck(checkId, outcome) {
+  if (!canResolveAllyConcentrationChecks()) return false;
+  const normalizedCheckId = cleanText(checkId);
+  const normalizedOutcome = cleanText(outcome);
+  const notification = state.notifications.find((entry) => cleanText(entry.concentrationCheckId) === normalizedCheckId);
+  const combatantId = cleanText(notification?.concentrationCombatantId);
+  if (!notification || !combatantId || !["maintains", "loses"].includes(normalizedOutcome)) return false;
+
+  if (normalizedOutcome === "loses") {
+    state.combatants = state.combatants.map((combatant) => combatant.id === combatantId
+      ? normalizeCombatant({
+          ...combatant,
+          condiciones: getCombatantStatusNames(combatant).filter((status) => !isConcentrationStatusName(status)).join(", ")
+        })
+      : combatant);
+    saveCombatTrackerState();
+  }
+
+  applyConcentrationCheckResolution({ id: normalizedCheckId, combatantId, outcome: normalizedOutcome });
+  publishCloudCombatEvent({
+    type: "concentration-check-resolved",
+    id: normalizedCheckId,
+    combatantId,
+    outcome: normalizedOutcome
+  });
+  render();
+  return true;
+}
+
+function resolveCombatantConcentrationAfterDamage(combatant, damageAmount) {
+  return requestAllyConcentrationCheckAfterDamage(combatant, damageAmount)
+    || resolveEnemyConcentrationAfterDamage(combatant, damageAmount);
+}
+
 function resolveEnemyConcentrationAfterDamage(combatant, damageAmount) {
   const damage = Math.max(0, toNumber(damageAmount));
   const isEnemy = combatant?.side === "enemies" || ["ENEMIGO", "ENEMY"].includes(cleanText(combatant?.tag).toUpperCase());
@@ -28088,7 +28265,7 @@ function applyPgActAdjustment(id, mode) {
   adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", amount));
   if (mode !== "heal" && amount > 0) {
     adjustedCombatants.forEach((combatant) => publishCombatantMonstersLeagueDamage(combatant, amount));
-    adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
+    adjustedCombatants.forEach((combatant) => resolveCombatantConcentrationAfterDamage(combatant, amount));
   }
   setInlineAdjustment(id, "pgAct", "");
 }
@@ -28123,7 +28300,7 @@ function applyNecroticAdjustment(id) {
   adjustedCombatants.forEach((combatant) => queueCombatResourceNotification(combatant, "necrotic", amount));
   if (amount > 0) {
     adjustedCombatants.forEach((combatant) => publishCombatantMonstersLeagueDamage(combatant, amount, true));
-    adjustedCombatants.forEach((combatant) => resolveEnemyConcentrationAfterDamage(combatant, amount));
+    adjustedCombatants.forEach((combatant) => resolveCombatantConcentrationAfterDamage(combatant, amount));
   }
   setInlineAdjustment(id, "pgAct", "");
 }
@@ -28401,7 +28578,7 @@ function applyAreaPgActAdjustment(mode = "damage", targetConfigs = null) {
   adjustedCombatants.forEach(({ combatant, appliedAmount }) => {
     if (appliedAmount > 0) {
       queueCombatResourceNotification(combatant, mode === "heal" ? "heal" : "damage", appliedAmount);
-      if (mode !== "heal") resolveEnemyConcentrationAfterDamage(combatant, appliedAmount);
+      if (mode !== "heal") resolveCombatantConcentrationAfterDamage(combatant, appliedAmount);
     }
   });
   state.areaDamage = "";
@@ -28447,7 +28624,7 @@ function applyAreaNecroticAdjustment(targetConfigs = null) {
   adjustedCombatants.forEach(({ combatant, appliedAmount }) => {
     if (appliedAmount > 0) {
       queueCombatResourceNotification(combatant, "necrotic", appliedAmount);
-      resolveEnemyConcentrationAfterDamage(combatant, appliedAmount);
+      resolveCombatantConcentrationAfterDamage(combatant, appliedAmount);
     }
   });
   state.areaDamage = "";
@@ -34072,6 +34249,14 @@ function applyRemoteCombatEvent(event) {
     }, { broadcast: false });
     return;
   }
+  if (event.type === "concentration-check") {
+    showAllyConcentrationCheck(event, { broadcast: false });
+    return;
+  }
+  if (event.type === "concentration-check-resolved") {
+    applyConcentrationCheckResolution(event, { broadcastFeedback: false });
+    return;
+  }
   if (event.type === "turn") {
     if (normalizeStoredNotificationSettings(state.notificationSettings).turn === false) return;
     const combatant = state.combatants.find((entry) => entry.id === cleanText(event.combatantId));
@@ -37396,14 +37581,20 @@ function pushNotification({
   detailText = "",
   actionLabel = "",
   dedupeKey = "",
-  category = ""
+  category = "",
+  concentrationCheckId = "",
+  concentrationCombatantId = "",
+  persistent = false,
+  required = false,
+  showOnMap = false,
+  dismissible = true
 } = {}) {
   const normalizedTitle = cleanText(title) || "Notificación";
   const normalizedMessage = cleanText(message);
   const normalizedEffectKind = cleanText(effectKind);
   const normalizedDedupeKey = cleanText(dedupeKey);
   const normalizedCategory = getNotificationCategory({ title: normalizedTitle, message: normalizedMessage, tone, effectKind: normalizedEffectKind, category });
-  if (normalizeStoredNotificationSettings(state.notificationSettings)[normalizedCategory] === false) return "";
+  if (required !== true && normalizeStoredNotificationSettings(state.notificationSettings)[normalizedCategory] === false) return "";
   const localizedTitle = isEnglishInterface() ? translateUiString(normalizedTitle) : normalizedTitle;
   const localizedMessage = isEnglishInterface() ? translateUiString(normalizedMessage) : normalizedMessage;
   const existingNotification = normalizedDedupeKey
@@ -37420,7 +37611,12 @@ function pushNotification({
     detailTitle: cleanText(detailTitle),
     detailText: String(detailText || "").trim(),
     actionLabel: cleanText(actionLabel),
-    dedupeKey: normalizedDedupeKey
+    dedupeKey: normalizedDedupeKey,
+    concentrationCheckId: cleanText(concentrationCheckId),
+    concentrationCombatantId: cleanText(concentrationCombatantId),
+    persistent: persistent === true,
+    showOnMap: showOnMap === true,
+    dismissible: dismissible !== false
   };
 
   if (existingNotification) {
@@ -37434,8 +37630,8 @@ function pushNotification({
     state.notifications = state.notifications.map((entry) => entry.id === id ? notification : entry);
   } else {
     const nextNotifications = [...state.notifications, notification];
-    const persistentNotifications = nextNotifications.filter((entry) => Boolean(entry.detailText));
-    const transientNotifications = nextNotifications.filter((entry) => !entry.detailText);
+    const persistentNotifications = nextNotifications.filter((entry) => entry.persistent === true || Boolean(entry.detailText));
+    const transientNotifications = nextNotifications.filter((entry) => entry.persistent !== true && !entry.detailText);
     const transientLimit = Math.max(0, 6 - persistentNotifications.length);
     state.notifications = [
       ...(transientLimit > 0 ? transientNotifications.slice(-transientLimit) : []),
@@ -37522,12 +37718,15 @@ async function copyAutosaveProblemDetail() {
   }
 }
 
-function dismissNotification(notificationId) {
+function dismissNotification(notificationId, options = {}) {
   const normalizedNotificationId = cleanText(notificationId);
 
   if (!normalizedNotificationId) {
     return;
   }
+
+  const notification = state.notifications.find((entry) => entry.id === normalizedNotificationId);
+  if (options.force !== true && notification?.concentrationCheckId && !canResolveAllyConcentrationChecks()) return;
 
   const timeoutId = notificationTimeouts.get(normalizedNotificationId);
 

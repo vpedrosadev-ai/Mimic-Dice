@@ -1499,11 +1499,16 @@ export function createCombatMapController(options = {}) {
   }
 
   function syncNotifications() {
-    if (!isOpen()) return;
-    const root = editorWindow.document.querySelector("[data-map-notification-root]");
-    if (!root) return;
-    root.style.setProperty("--map-player-notification-scale", String(state.playerNotifications.scale));
-    root.innerHTML = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
+    const roots = [
+      masterHost?.querySelector?.("[data-map-notification-root]"),
+      playerProjectionHost?.querySelector?.("[data-map-notification-root]"),
+      isOpen() ? editorWindow.document.querySelector("[data-map-notification-root]") : null
+    ].filter(Boolean);
+    roots.forEach((root) => {
+      const includeAll = root.dataset.mapNotificationAll === "true" && state.playerNotifications.visible;
+      root.style.setProperty("--map-player-notification-scale", String(state.playerNotifications.scale));
+      root.innerHTML = options.renderNotifications?.({ mapOnly: !includeAll }) || "";
+    });
   }
 
   function showTurnAnnouncement(combatant, durationMs = 3200) {
@@ -2283,19 +2288,19 @@ export function createCombatMapController(options = {}) {
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
     const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${isToolbarControlVisible("map", "master") ? renderMapMenu("master") : ""}${isToolbarControlVisible("grid", "master") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "master") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "master") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "master") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "master") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "master") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "master") ? renderInitiativeMenu(panel, "master") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${isToolbarControlVisible("map", "master") ? renderMapMenu("master") : ""}${isToolbarControlVisible("grid", "master") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "master") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "master") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "master") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "master") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "master") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "master") ? renderInitiativeMenu(panel, "master") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<div data-map-notification-root>${options.renderNotifications?.({ mapOnly: true }) || ""}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    const notifications = state.playerNotifications.visible ? options.renderNotifications?.() || "" : "";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${isToolbarControlVisible("map", "player") ? renderMapMenu("player") : ""}${isToolbarControlVisible("grid", "player") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "player") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "player") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "player") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "player") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "player") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "player") ? renderInitiativeMenu(panel, "player") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    const notifications = options.renderNotifications?.({ mapOnly: !state.playerNotifications.visible }) || "";
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${isToolbarControlVisible("map", "player") ? renderMapMenu("player") : ""}${isToolbarControlVisible("grid", "player") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "player") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "player") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "player") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "player") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "player") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "player") ? renderInitiativeMenu(panel, "player") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root data-map-notification-all="true" style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayerProjection(viewportWindow = window) {
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderCombatAnnouncements()}</div></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderCombatAnnouncements()}</div><div data-map-notification-root>${options.renderNotifications?.({ mapOnly: true }) || ""}</div></div>`;
   }
 
   function sync() {
@@ -3041,6 +3046,10 @@ export function createCombatMapController(options = {}) {
     }
     if (notificationAction?.dataset.action === "open-notification-detail") {
       options.onOpenNotificationDetail?.(notificationAction.dataset.notificationId);
+      return;
+    }
+    if (notificationAction?.dataset.action === "resolve-concentration-check") {
+      options.onNotificationAction?.(notificationAction.dataset.action, notificationAction.dataset);
       return;
     }
     if (event.target.closest("[data-map-initiative-order]")) {

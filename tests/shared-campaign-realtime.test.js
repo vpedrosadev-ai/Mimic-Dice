@@ -63,8 +63,17 @@ test("shared combat sync keeps one command in flight and coalesces newer section
     assert.equal(presences[0].message.sameAccountOldest, true);
     connection.publishCombatEvent({ type: "round", round: 2 });
     assert.deepEqual(socket.sent.at(-1), { type: "combat-event", event: { type: "round", round: 2 } });
+    connection.publishCombatEvent({ type: "concentration-check", id: "check-1", combatantId: "ally-1", dc: 12 });
+    assert.deepEqual(socket.sent.at(-1), {
+      type: "combat-event",
+      event: { type: "concentration-check", id: "check-1", combatantId: "ally-1", dc: 12 }
+    });
     socket.emit("message", { data: JSON.stringify({ type: "combat-event", event: { type: "turn", combatantId: "enemy-1" } }) });
-    assert.deepEqual(events, [{ type: "turn", combatantId: "enemy-1" }]);
+    socket.emit("message", { data: JSON.stringify({ type: "combat-event", event: { type: "concentration-check-resolved", id: "check-1", combatantId: "ally-1", outcome: "loses" } }) });
+    assert.deepEqual(events, [
+      { type: "turn", combatantId: "enemy-1" },
+      { type: "concentration-check-resolved", id: "check-1", combatantId: "ally-1", outcome: "loses" }
+    ]);
 
     connection.publishCombatSection("tracker", { revision: 1 });
     connection.publishCombatSection("tracker", { revision: 2 });

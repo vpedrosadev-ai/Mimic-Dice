@@ -438,6 +438,7 @@ export class SharedCampaignRoom extends DurableObject {
     if (command?.type === "combat-event") {
       const attachment = socket.deserializeAttachment() || {};
       if (!['host', 'master', 'player'].includes(attachment.role) || !command.event || typeof command.event !== "object") return;
+      if (command.event.type === "concentration-check-resolved" && attachment.role !== "host") return;
       const serializedEvent = JSON.stringify(command.event);
       if (serializedEvent.length > 12_000) return;
       this.broadcast({
