@@ -2362,7 +2362,12 @@ function handleMasterWorkspaceContextMenu(event) {
     event.preventDefault();
     openLeagueCombatQuickMenu(entityCard.dataset.combatTurnTokenContext, event.clientX, event.clientY, "main");
     render();
-    app.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
+    const shouldAvoidInputFocus = (Number(window.innerWidth) || 0) <= 760
+      || (typeof window.matchMedia === "function"
+        && window.matchMedia("(hover: none), (pointer: coarse)").matches);
+    if (!shouldAvoidInputFocus) {
+      app.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
+    }
     return;
   }
   if (event.target.closest?.("[data-combat-map-master-root]")) playerMapController.handleContextMenu(event);

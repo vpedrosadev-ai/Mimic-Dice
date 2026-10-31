@@ -3360,7 +3360,13 @@ export function createCombatMapController(options = {}) {
     event.preventDefault();
     options.openContextMenu?.(token.dataset.mapToken, event.clientX, event.clientY, menuOwner);
     sync();
-    surface?.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
+    const viewportWindow = surface?.ownerDocument?.defaultView || window;
+    const shouldAvoidInputFocus = (Number(viewportWindow?.innerWidth) || 0) <= 760
+      || (typeof viewportWindow?.matchMedia === "function"
+        && viewportWindow.matchMedia("(hover: none), (pointer: coarse)").matches);
+    if (!shouldAvoidInputFocus) {
+      surface?.querySelector("[data-combat-turn-quick-value]")?.focus({ preventScroll: true });
+    }
   }
 
   function boardPoint(event) {

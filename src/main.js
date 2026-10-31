@@ -1732,7 +1732,7 @@ async function handleClick(event) {
       rect.bottom + 4,
       "main"
     );
-    render({ focusSelector: "[data-combat-turn-quick-value]" });
+    render();
     return;
   }
 
@@ -6712,6 +6712,13 @@ function shouldSuppressHoverPreviewForTouch() {
     && window.matchMedia("(hover: none), (pointer: coarse)").matches;
 }
 
+function shouldAvoidCombatContextInputFocus(viewportWindow = window) {
+  const viewportWidth = Number(viewportWindow?.innerWidth) || Number(window.innerWidth) || 0;
+  const hasCoarsePointer = typeof viewportWindow?.matchMedia === "function"
+    && viewportWindow.matchMedia("(hover: none), (pointer: coarse)").matches;
+  return viewportWidth <= 760 || hasCoarsePointer;
+}
+
 function handleFocusOut(event) {
   const linkedCharacterReferenceInput = event.target.closest?.("[data-character-reference-base-name]");
 
@@ -7020,9 +7027,11 @@ function handleContextMenu(event) {
 
   event.preventDefault();
   openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY, "main");
-  render({
-    focusSelector: "[data-combat-turn-quick-value]"
-  });
+  if (shouldAvoidCombatContextInputFocus(window)) {
+    render();
+  } else {
+    render({ focusSelector: "[data-combat-turn-quick-value]" });
+  }
 }
 
 function handlePointerMove(event) {
@@ -15292,7 +15301,7 @@ function handleCombatTurnPopoutContextMenu(event, menuOwner = "initiative-popout
   event.preventDefault();
   openCombatTurnQuickMenu(turnToken.dataset.combatTurnTokenContext, event.clientX, event.clientY, menuOwner);
   render();
-  if (menuOwner === "initiative-popout") {
+  if (menuOwner === "initiative-popout" && !shouldAvoidCombatContextInputFocus(combatTurnPopoutWindow)) {
     focusCombatTurnPopoutSelector("[data-combat-turn-quick-value]");
   }
 }

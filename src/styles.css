@@ -66,8 +66,11 @@
   right: 0;
   display: grid;
   width: min(22rem, calc(100vw - 2rem));
+  max-height: min(24rem, calc(100dvh - 2rem));
   gap: .35rem;
   padding: .55rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(217, 171, 93, .42);
   border-radius: 12px;
   background: rgba(20, 13, 9, .99);
@@ -2731,7 +2734,11 @@ table {
   position: relative;
   z-index: 1;
   width: min(68rem, 100%);
+  max-height: calc(100dvh - 3rem);
   padding: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid rgba(186, 138, 71, 0.38);
   border-radius: 18px;
   background:
@@ -23759,6 +23766,17 @@ button.character-stat-block__modifier--roll:focus-visible {
 
 /* Mobile combat workspace: title controls stay compact; panels become one readable column. */
 @media (max-width: 760px) {
+  .master-combat-workspace-config__menu {
+    position: fixed;
+    z-index: 2147483500;
+    inset: auto max(.45rem, env(safe-area-inset-right)) max(.45rem, env(safe-area-inset-bottom)) max(.45rem, env(safe-area-inset-left));
+    width: auto;
+    max-height: calc(100dvh - max(.9rem, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   [data-mobile-entity-stand-context],
   [data-ml-mobile-entity-stand-context] {
     cursor: pointer;
