@@ -1724,18 +1724,35 @@ export function createCombatMapController(options = {}) {
     return options.isToolbarControlVisible?.(control, version) !== false;
   }
 
+  function renderToolbarLabel(full, short = full, compact = short) {
+    return `<span class="combat-map-toolbar__label combat-map-toolbar__label--full">${escapeHtml(full)}</span>
+      <span class="combat-map-toolbar__label combat-map-toolbar__label--short" aria-hidden="true">${escapeHtml(short)}</span>
+      <span class="combat-map-toolbar__label combat-map-toolbar__label--compact" aria-hidden="true">${escapeHtml(compact)}</span>`;
+  }
+
+  function renderToolbarButton({ version, control, action, label, shortLabel, compactLabel, active = false, className = "" }) {
+    if (!isToolbarControlVisible(control, version)) return "";
+    const classes = [className, active ? "is-active" : ""].filter(Boolean).join(" ");
+    return `<button type="button" data-map-action="${action}" class="${classes}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+      ${renderToolbarLabel(label, shortLabel, compactLabel)}
+    </button>`;
+  }
+
   function renderToolbar(version = "master") {
     const panel = getVersionPanel(version);
+    const versionLabel = version === "player" ? "Versión jugador" : "Versión máster";
+    const versionShortLabel = version === "player" ? "Jugador" : "Máster";
+    const versionCompactLabel = version === "player" ? "J" : "M";
     return `<header class="combat-map-toolbar">
-      <strong class="combat-map-toolbar__version">Versión ${version === "player" ? "jugador" : "máster"}</strong>
-      ${isToolbarControlVisible("map", version) ? `<button type="button" data-map-action="open-map-menu" class="${panel === "map" ? "is-active" : ""}">Mapa</button>` : ""}
-      ${isToolbarControlVisible("grid", version) ? `<button type="button" data-map-action="toggle-grid-menu" class="${state.grid.visible ? "is-active" : ""}">Rejilla</button>` : ""}
-      ${isToolbarControlVisible("tokens", version) ? `<button type="button" data-map-action="toggle-token-menu">Peanas</button>` : ""}
-      ${isToolbarControlVisible("fog", version) ? `<button type="button" data-map-action="toggle-fog-menu" class="${state.fog.enabled || panel === "fog" ? "is-active" : ""}">Niebla</button>` : ""}
-      ${isToolbarControlVisible("paint", version) ? `<button type="button" data-map-action="toggle-paint-menu" class="${panel === "paint" ? "is-active" : ""}">Pintar</button>` : ""}
-      ${isToolbarControlVisible("shapes", version) ? `<button type="button" data-map-action="toggle-shapes-menu" class="${panel === "shapes" ? "is-active" : ""}">Formas</button>` : ""}
-      ${isToolbarControlVisible("health", version) ? `<button type="button" data-map-action="toggle-health-menu" class="${panel === "health" || state.healthMode !== "none" ? "is-active" : ""}">Barra de vida</button>` : ""}
-      ${isToolbarControlVisible("initiative", version) ? `<button type="button" data-map-action="toggle-initiative-menu" class="combat-map-toolbar__initiative ${isInitiativeVisible(version) || panel === "initiative" ? "is-active" : ""}">Orden de iniciativa</button>` : ""}
+      <strong class="combat-map-toolbar__version" aria-label="${escapeHtml(versionLabel)}" title="${escapeHtml(versionLabel)}">${renderToolbarLabel(versionLabel, versionShortLabel, versionCompactLabel)}</strong>
+      ${renderToolbarButton({ version, control: "map", action: "open-map-menu", label: "Mapa", compactLabel: "Map", active: panel === "map" })}
+      ${renderToolbarButton({ version, control: "grid", action: "toggle-grid-menu", label: "Rejilla", compactLabel: "Rej", active: state.grid.visible })}
+      ${renderToolbarButton({ version, control: "tokens", action: "toggle-token-menu", label: "Peanas", compactLabel: "Pea" })}
+      ${renderToolbarButton({ version, control: "fog", action: "toggle-fog-menu", label: "Niebla", compactLabel: "Nie", active: state.fog.enabled || panel === "fog" })}
+      ${renderToolbarButton({ version, control: "paint", action: "toggle-paint-menu", label: "Pintar", compactLabel: "Pin", active: panel === "paint" })}
+      ${renderToolbarButton({ version, control: "shapes", action: "toggle-shapes-menu", label: "Formas", compactLabel: "For", active: panel === "shapes" })}
+      ${renderToolbarButton({ version, control: "health", action: "toggle-health-menu", label: "Barra de vida", shortLabel: "Vida", compactLabel: "PV", active: panel === "health" || state.healthMode !== "none" })}
+      ${renderToolbarButton({ version, control: "initiative", action: "toggle-initiative-menu", label: "Orden de iniciativa", shortLabel: "Iniciativa", compactLabel: "Ini", active: isInitiativeVisible(version) || panel === "initiative", className: "combat-map-toolbar__initiative" })}
     </header>`;
   }
 

@@ -5667,6 +5667,7 @@ button.is-cloud-busy:disabled {
   position: relative;
   display: grid;
   grid-template: auto minmax(0, 1fr) / minmax(0, 1fr);
+  container: combat-map-editor / inline-size;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -5848,13 +5849,20 @@ button.is-cloud-busy:disabled {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: .55rem;
+  gap: clamp(.18rem, .7cqi, .55rem);
   min-height: 3.7rem;
-  padding: .55rem .75rem;
+  min-width: 0;
+  padding: clamp(.3rem, .75cqi, .55rem) clamp(.35rem, 1cqi, .75rem);
   border-bottom: 1px solid rgba(212, 168, 98, .38);
   background: rgba(29, 18, 11, .97);
   box-shadow: 0 .5rem 1.4rem rgba(0, 0, 0, .3);
-  overflow-x: auto;
+  overflow: hidden;
+  font-size: clamp(.72rem, 1.45cqi, 1rem);
+}
+
+.combat-map-toolbar > * {
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .combat-map-toolbar button,
@@ -5875,6 +5883,62 @@ button.is-cloud-busy:disabled {
 .combat-map-file-button {
   padding: .55rem .72rem;
   cursor: pointer;
+}
+
+.combat-map-toolbar button {
+  min-width: 0;
+  padding-inline: clamp(.22rem, .8cqi, .72rem);
+  overflow: hidden;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-map-toolbar__version {
+  overflow: hidden;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-map-toolbar__label--short,
+.combat-map-toolbar__label--compact {
+  display: none;
+}
+
+@container combat-map-editor (max-width: 820px) {
+  .combat-map-toolbar__label--full {
+    display: none;
+  }
+
+  .combat-map-toolbar__label--short {
+    display: inline;
+  }
+
+  .combat-map-toolbar__initiative {
+    margin-left: 0;
+  }
+}
+
+@container combat-map-editor (max-width: 520px) {
+  .combat-map-toolbar {
+    gap: clamp(.08rem, .45cqi, .18rem);
+    padding-inline: clamp(.12rem, .7cqi, .35rem);
+    font-size: clamp(.5rem, 2.1cqi, .72rem);
+  }
+
+  .combat-map-toolbar button {
+    min-height: 2rem;
+    padding: .36rem clamp(.08rem, .65cqi, .22rem);
+  }
+
+  .combat-map-toolbar__label--short {
+    display: none;
+  }
+
+  .combat-map-toolbar__label--compact {
+    display: inline;
+  }
 }
 
 .combat-map-toolbar button:hover,
@@ -23232,21 +23296,17 @@ button.character-stat-block__modifier--roll:focus-visible {
   .combat-map-toolbar {
     min-height: 3.25rem;
     padding: 0.4rem;
-    scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch;
   }
 
   .combat-map-toolbar > * {
-    flex: 0 0 auto;
-    scroll-snap-align: start;
+    flex: 0 1 auto;
+    min-width: 0;
   }
 
   .combat-map-toolbar__version {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    padding: 0.55rem;
-    background: rgba(29, 18, 11, 0.98);
+    position: static;
+    padding: 0;
+    background: transparent;
   }
 
   .combat-map-toolbar__initiative {
