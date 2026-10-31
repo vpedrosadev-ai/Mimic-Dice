@@ -40,6 +40,10 @@ test("all database migrations apply in order and allow map entries", () => {
   assert.ok(database.prepare('PRAGMA index_list("campaign_join_requests")').all().some((index) => index.name === "campaign_join_requests_campaign_user_index"));
   assert.ok(database.prepare('PRAGMA table_info("admin_user_bans")').all().some((column) => column.name === "bannedBy"));
   assert.ok(database.prepare('PRAGMA table_info("users")').all().some((column) => column.name === "masterCombatView"));
+  assert.ok(database.prepare('PRAGMA table_info("cloud_map_favorites")').all().some((column) => column.name === "entryId"));
+  assert.ok(database.prepare('PRAGMA index_list("cloud_map_favorites")').all().some((index) => index.name === "cloud_map_favorites_user_created_index"));
+  assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'cloud_library_map_favorites_cleanup'").get());
+  assert.ok(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'cloud_catalog_map_favorites_cleanup'").get());
   database.close();
 });
 
@@ -83,5 +87,34 @@ test("cloud asset storage rejects writes above the global 9 GB safety limit", ()
     database.prepare('SELECT "storedBytes" FROM "cloud_asset_storage_usage" WHERE "id" = 1').get().storedBytes,
     9_000_000_000
   );
+  database.close();
+});
+
+test("map favorites are removed when their library or catalog map disappears", () => {
+  const database = new DatabaseSync(":memory:");
+  const migrationDirectory = path.join(projectRoot, "migrations");
+  for (const fileName of fs.readdirSync(migrationDirectory).sort()) {
+    database.exec(fs.readFileSync(path.join(migrationDirectory, fileName), "utf8"));
+  }
+  database.prepare('INSERT INTO "users" ("id", "name") VALUES (?, ?)').run("user-favorite", "Favorite User");
+  database.prepare(`
+    INSERT INTO "cloud_library_entries" ("id", "ownerId", "type", "name", "payloadVersion")
+    VALUES ('map-library', 'user-favorite', 'map', 'Library Map', 'payload-1')
+  `).run();
+  database.prepare(`
+    INSERT INTO "campaigns" ("id", "ownerId", "name", "payloadVersion")
+    VALUES ('campaign-favorite', 'user-favorite', 'Campaign', 'payload-2')
+  `).run();
+  database.prepare(`
+    INSERT INTO "cloud_catalog_entries" ("id", "ownerId", "sourceCampaignId", "sourceEntityKey", "type", "name")
+    VALUES ('map-catalog', 'user-favorite', 'campaign-favorite', 'map:1', 'map', 'Catalog Map')
+  `).run();
+  database.prepare('INSERT INTO "cloud_map_favorites" ("userId", "entryId") VALUES (?, ?), (?, ?)')
+    .run("user-favorite", "map-library", "user-favorite", "map-catalog");
+
+  database.prepare('DELETE FROM "cloud_library_entries" WHERE "id" = ?').run("map-library");
+  assert.equal(database.prepare('SELECT COUNT(*) AS "count" FROM "cloud_map_favorites" WHERE "entryId" = ?').get("map-library").count, 0);
+  database.prepare('DELETE FROM "cloud_catalog_entries" WHERE "id" = ?').run("map-catalog");
+  assert.equal(database.prepare('SELECT COUNT(*) AS "count" FROM "cloud_map_favorites" WHERE "entryId" = ?').get("map-catalog").count, 0);
   database.close();
 });

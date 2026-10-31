@@ -4540,6 +4540,31 @@ button.is-cloud-busy:disabled {
   gap: 0.42rem;
 }
 
+.cloud-map-favorite-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.cloud-map-favorite-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: transparent;
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.cloud-map-favorite-button.is-favorite {
+  border-color: rgba(237, 187, 83, .7);
+  color: #ffd77a;
+  background: rgba(164, 107, 31, .2);
+}
+
+.cloud-map-favorite-button.is-favorite svg {
+  fill: currentColor;
+}
+
 .cloud-catalog-card__detail {
   margin-left: auto;
 }
@@ -5859,6 +5884,177 @@ button.is-cloud-busy:disabled {
 .combat-map-file-button:hover {
   border-color: #e0ad60;
   background: rgba(102, 67, 34, .82);
+}
+
+.combat-map-load-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.8rem;
+}
+
+.combat-map-popover .combat-map-load-split > button {
+  min-width: 0;
+  border-radius: .55rem 0 0 .55rem;
+}
+
+.combat-map-popover .combat-map-load-split > .combat-map-load-split__favorite {
+  display: grid;
+  width: 2.8rem;
+  padding: .45rem;
+  place-items: center;
+  border-left: 0;
+  border-radius: 0 .55rem .55rem 0;
+  color: #ffd77a;
+}
+
+.combat-map-load-split__favorite svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  fill: currentColor;
+}
+
+.combat-map-cloud-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: grid;
+  padding: 1.25rem;
+  place-items: center;
+}
+
+.combat-map-cloud-picker__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(8, 6, 5, .82);
+  backdrop-filter: blur(4px);
+}
+
+.combat-map-cloud-picker__panel {
+  position: relative;
+  display: grid;
+  gap: .85rem;
+  width: min(58rem, 100%);
+  max-height: min(46rem, calc(100dvh - 2.5rem));
+  padding: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(224, 173, 96, .58);
+  border-radius: .95rem;
+  background: radial-gradient(circle at 15% 0, rgba(217, 171, 93, .14), transparent 40%), #21150e;
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .68);
+}
+
+.combat-map-cloud-picker__panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.combat-map-cloud-picker__panel > header h2,
+.combat-map-cloud-picker__panel > header small {
+  margin: 0;
+}
+
+.combat-map-cloud-picker__panel > header small {
+  color: var(--muted);
+}
+
+.combat-map-cloud-picker__panel > header > button {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.combat-map-cloud-picker__filters {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(11rem, .65fr) auto;
+  align-items: end;
+  gap: .65rem;
+}
+
+.combat-map-cloud-picker__filters label {
+  display: grid;
+  gap: .25rem;
+}
+
+.combat-map-cloud-picker__filters input,
+.combat-map-cloud-picker__filters select {
+  min-width: 0;
+  padding: .5rem;
+  border: 1px solid rgba(220, 179, 110, .45);
+  border-radius: .55rem;
+  background: rgba(35, 24, 17, .96);
+  color: var(--text);
+}
+
+.combat-map-cloud-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: .65rem;
+  min-height: 0;
+  padding: .1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.combat-map-cloud-picker__card {
+  display: grid;
+  grid-template-rows: 7.5rem auto auto auto;
+  gap: .35rem;
+  min-width: 0;
+  padding: .55rem;
+  border: 1px solid rgba(220, 179, 110, .28);
+  border-radius: .7rem;
+  background: rgba(56, 36, 22, .72);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.combat-map-cloud-picker__card:hover,
+.combat-map-cloud-picker__card:focus-visible {
+  border-color: #e0ad60;
+  background: rgba(102, 67, 34, .82);
+  outline: none;
+}
+
+.combat-map-cloud-picker__card > img,
+.combat-map-cloud-picker__card > span:first-child {
+  width: 100%;
+  height: 7.5rem;
+  border-radius: .45rem;
+  object-fit: cover;
+  background: #11161c;
+}
+
+.combat-map-cloud-picker__card > span:first-child {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.combat-map-cloud-picker__card > strong,
+.combat-map-cloud-picker__card > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-map-cloud-picker__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+.combat-map-cloud-picker__badges i {
+  padding: .12rem .3rem;
+  border-radius: 999px;
+  color: #efc681;
+  background: rgba(240, 200, 121, .12);
+  font-size: .65rem;
+  font-style: normal;
 }
 
 .combat-map-toolbar label {
@@ -23766,6 +23962,25 @@ button.character-stat-block__modifier--roll:focus-visible {
 
 /* Mobile combat workspace: title controls stay compact; panels become one readable column. */
 @media (max-width: 760px) {
+  .combat-map-cloud-picker {
+    padding: max(.45rem, env(safe-area-inset-top)) max(.45rem, env(safe-area-inset-right)) max(.45rem, env(safe-area-inset-bottom)) max(.45rem, env(safe-area-inset-left));
+  }
+
+  .combat-map-cloud-picker__panel {
+    width: 100%;
+    max-height: calc(100dvh - max(.9rem, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+    padding: .75rem;
+    border-radius: .75rem;
+  }
+
+  .combat-map-cloud-picker__filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .combat-map-cloud-picker__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .master-combat-workspace-config__menu {
     position: fixed;
     z-index: 2147483500;

@@ -311,6 +311,25 @@ export async function listPublicCloudLibraryEntries(type = "") {
   return requestJson(`/api/library/public${query}`);
 }
 
+export async function listFavoriteCloudMaps() {
+  return requestJson("/api/library/favorites/maps");
+}
+
+export async function setFavoriteCloudMap(entryId, favorite = true) {
+  const url = `/api/library/favorites/maps/${encodeURIComponent(entryId)}`;
+  if (favorite) {
+    return requestJson(url, { method: "PUT", body: "{}" });
+  }
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) return parseResponse(response);
+  return null;
+}
+
 export async function getCloudLibraryEntry(entryId) {
   return requestJson(`/api/library/${encodeURIComponent(entryId)}`);
 }

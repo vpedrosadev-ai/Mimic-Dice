@@ -246,6 +246,80 @@ async function listPublicEntries(context, user, url) {
   return jsonResponse({ entries });
 }
 
+async function listFavoriteMaps(context, user) {
+  const [manualResult, catalogResult] = await Promise.all([
+    context.env.DB.prepare(`
+      SELECT e.*, u."name" AS "ownerName", 'manual' AS "entryKind",
+             NULL AS "sourceCampaignId", f."createdAt" AS "favoriteCreatedAt"
+      FROM "cloud_map_favorites" f
+      INNER JOIN "cloud_library_entries" e ON e."id" = f."entryId"
+      INNER JOIN "users" u ON u."id" = e."ownerId"
+      WHERE f."userId" = ? AND e."type" = 'map'
+        AND (e."isPublic" = 1 OR e."ownerId" = ?)
+      ORDER BY f."createdAt" DESC
+      LIMIT 500
+    `).bind(user.id, user.id).all(),
+    context.env.DB.prepare(`
+      SELECT e.*, u."name" AS "ownerName", c."name" AS "sourceCampaignName",
+             'campaign' AS "entryKind", f."createdAt" AS "favoriteCreatedAt"
+      FROM "cloud_map_favorites" f
+      INNER JOIN "cloud_catalog_entries" e ON e."id" = f."entryId"
+      INNER JOIN "users" u ON u."id" = e."ownerId"
+      INNER JOIN "campaigns" c ON c."id" = e."sourceCampaignId"
+      WHERE f."userId" = ? AND e."type" = 'map'
+        AND (e."isPublic" = 1 OR e."ownerId" = ?)
+      ORDER BY f."createdAt" DESC
+      LIMIT 500
+    `).bind(user.id, user.id).all()
+  ]);
+  const entries = [
+    ...(Array.isArray(manualResult.results) ? manualResult.results : []),
+    ...(Array.isArray(catalogResult.results) ? catalogResult.results : [])
+  ]
+    .sort((left, right) => String(right.favoriteCreatedAt).localeCompare(String(left.favoriteCreatedAt)))
+    .slice(0, 500)
+    .map((row) => ({
+      ...getLibraryEntrySummary(row, user.id, isAdministrator(user)),
+      isFavorite: true,
+      favoriteCreatedAt: row.favoriteCreatedAt || ""
+    }));
+  return jsonResponse({ entries });
+}
+
+async function setFavoriteMap(context, user, entryId) {
+  const [manualEntry, catalogEntry] = await Promise.all([
+    context.env.DB.prepare(`
+      SELECT "id" FROM "cloud_library_entries"
+      WHERE "id" = ? AND "type" = 'map' AND ("isPublic" = 1 OR "ownerId" = ?)
+      LIMIT 1
+    `).bind(entryId, user.id).first(),
+    context.env.DB.prepare(`
+      SELECT "id" FROM "cloud_catalog_entries"
+      WHERE "id" = ? AND "type" = 'map' AND ("isPublic" = 1 OR "ownerId" = ?)
+      LIMIT 1
+    `).bind(entryId, user.id).first()
+  ]);
+
+  if (!manualEntry && !catalogEntry) {
+    throw new HttpError(404, "map_not_found", "Map is unavailable or private.");
+  }
+
+  const now = new Date().toISOString();
+  await context.env.DB.prepare(`
+    INSERT INTO "cloud_map_favorites" ("userId", "entryId", "createdAt")
+    VALUES (?, ?, ?)
+    ON CONFLICT ("userId", "entryId") DO UPDATE SET "createdAt" = excluded."createdAt"
+  `).bind(user.id, entryId, now).run();
+  return jsonResponse({ entryId, favorite: true, createdAt: now });
+}
+
+async function removeFavoriteMap(context, user, entryId) {
+  await context.env.DB.prepare(
+    'DELETE FROM "cloud_map_favorites" WHERE "userId" = ? AND "entryId" = ?'
+  ).bind(user.id, entryId).run();
+  return new Response(null, { status: 204 });
+}
+
 async function createEntry(context, user) {
   const body = await readJsonBody(context.request, MAX_LIBRARY_REQUEST_BYTES);
   const type = normalizeType(body.type);
@@ -519,6 +593,22 @@ export async function handleLibraryRequest(context) {
         return methodNotAllowed(["GET"]);
       }
       return await listPublicEntries(context, await getAuthenticatedUser(context), new URL(context.request.url));
+    }
+
+    if (pathParts[0] === "favorites" && pathParts[1] === "maps") {
+      const user = await requireAuthenticatedUser(context);
+      if (pathParts.length === 2) {
+        if (method !== "GET") return methodNotAllowed(["GET"]);
+        return await listFavoriteMaps(context, user);
+      }
+      if (pathParts.length === 3) {
+        const entryId = cleanText(pathParts[2], 80);
+        if (!entryId) throw new HttpError(404, "map_not_found", "Map not found.");
+        if (method === "PUT") return await setFavoriteMap(context, user, entryId);
+        if (method === "DELETE") return await removeFavoriteMap(context, user, entryId);
+        return methodNotAllowed(["PUT", "DELETE"]);
+      }
+      throw new HttpError(404, "map_not_found", "Map not found.");
     }
 
     if (pathParts.length === 0) {

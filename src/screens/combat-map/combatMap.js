@@ -2,6 +2,7 @@ import {
   createCloudLibraryEntry,
   getCloudLibraryEntry,
   listCloudLibraryEntries,
+  listFavoriteCloudMaps,
   listPublicCloudLibraryEntries,
   uploadCloudImage
 } from "../../cloud/cloudClient.js";
@@ -1056,6 +1057,7 @@ export function createCombatMapController(options = {}) {
   let cloudPickerQuery = "";
   let cloudPickerItems = [];
   let cloudPickerSelectedTags = new Set();
+  let cloudPickerFavoritesOnly = false;
   let iconPickerSurface = "";
   let fogPolygonCursor = null;
   let masterHost = null;
@@ -1800,10 +1802,14 @@ export function createCombatMapController(options = {}) {
       .slice(-2)
       .reverse();
     const viewport = version === "player" ? state.playerViewport : state.viewport;
+    const canOpenFavorites = canLoadMap() && Boolean(options.getAccountSession?.()?.user?.id);
     if (mapLoadMenuSurface === version && panel === "map") return renderMapLoadMenu(encounterMaps, savedMaps);
     return `<section class="combat-map-popover" data-map-panel="map" ${panel === "map" ? "" : "hidden"}>
       <h2>Mapa</h2>
-      <button type="button" data-map-action="toggle-map-load-menu" ${canLoadMap() ? "" : "disabled title=\"Solo el anfitrión puede cargar o cambiar el mapa\""}>Cargar imagen</button>
+      <div class="combat-map-load-split">
+        <button type="button" data-map-action="toggle-map-load-menu" ${canLoadMap() ? "" : "disabled title=\"Solo el anfitrión puede cargar o cambiar el mapa\""}>Cargar imagen</button>
+        <button class="combat-map-load-split__favorite" type="button" data-map-action="open-favorite-map-picker" aria-label="Mapas favoritos" title="${canOpenFavorites ? "Mapas favoritos" : "Inicia sesión para usar mapas favoritos"}" ${canOpenFavorites ? "" : "disabled"}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.4 2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.42l-5.88 3.09 1.12-6.55-4.76-4.64 6.58-.96L12 2.4Z"/></svg></button>
+      </div>
       <label>Zoom <input type="range" min="25" max="500" step="5" value="${Math.round(viewport.zoom * 100)}" data-map-zoom><output>${Math.round(viewport.zoom * 100)}%</output></label>
       ${renderOpacityControl("overall", "Opacidad general de elementos")}
       <fieldset class="combat-map-notification-settings">
@@ -1836,6 +1842,7 @@ export function createCombatMapController(options = {}) {
 
   async function openCloudMapPicker(surface = masterHost) {
     cloudPickerSurface = getSurfaceKind(surface);
+    cloudPickerFavoritesOnly = false;
     cloudPickerBusy = true;
     cloudPickerError = "";
     sync();
@@ -1843,6 +1850,26 @@ export function createCombatMapController(options = {}) {
       await loadCloudMapItems();
     } catch (error) {
       cloudPickerError = error?.message || "No se pudieron cargar los mapas de la comunidad.";
+    }
+    cloudPickerBusy = false;
+    sync();
+  }
+
+  async function openFavoriteMapPicker(surface = masterHost) {
+    cloudPickerSurface = getSurfaceKind(surface);
+    cloudPickerFavoritesOnly = true;
+    cloudPickerBusy = true;
+    cloudPickerError = "";
+    cloudPickerQuery = "";
+    cloudPickerSelectedTags = new Set();
+    sync();
+    try {
+      const result = await listFavoriteCloudMaps();
+      cloudPickerItems = (Array.isArray(result?.entries) ? result.entries : [])
+        .filter((entry) => clean(entry?.type).toLowerCase() === "map")
+        .map((entry) => ({ ...entry, tags: normalizeTags(entry.tags) }));
+    } catch (error) {
+      cloudPickerError = error?.message || "No se pudieron cargar los mapas favoritos.";
     }
     cloudPickerBusy = false;
     sync();
@@ -1863,6 +1890,7 @@ export function createCombatMapController(options = {}) {
       });
       if (!map) throw new Error("Este mapa no contiene una imagen válida.");
       cloudPickerSurface = "";
+      cloudPickerFavoritesOnly = false;
       cloudPickerBusy = false;
       const applyEditorState = result.payload?.editorState && typeof result.payload.editorState === "object" ? () => {
         const savedMapLayouts = state.savedMapLayouts;
@@ -1910,7 +1938,11 @@ export function createCombatMapController(options = {}) {
       if (cloudPickerSelectedTags.size && ![...cloudPickerSelectedTags].every((tag) => itemTags.includes(tag))) return false;
       return !query || `${item.name} ${item.ownerName} ${itemTags.join(" ")}`.toLocaleLowerCase("es").includes(query);
     });
-    return `<div class="combat-map-cloud-picker" role="dialog" aria-modal="true" aria-label="Mapas de la comunidad"><button type="button" class="combat-map-cloud-picker__backdrop" data-map-action="close-cloud-map-picker" aria-label="Cerrar"></button><section class="combat-map-cloud-picker__panel"><header><div><small>Catálogo de la comunidad</small><h2>Mapas de la nube</h2></div><button type="button" data-map-action="close-cloud-map-picker" aria-label="Cerrar">×</button></header><div class="combat-map-cloud-picker__filters"><input type="search" value="${escapeHtml(cloudPickerQuery)}" placeholder="Buscar por nombre, usuario o etiqueta" data-map-cloud-search><label>Etiquetas<select multiple size="${Math.min(5, Math.max(2, tags.length))}" data-map-cloud-tags>${tags.map((tag) => `<option value="${escapeHtml(tag)}" ${cloudPickerSelectedTags.has(tag) ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}</select></label><button type="button" data-map-action="refresh-cloud-map-picker" ${cloudPickerBusy ? "disabled" : ""}>Actualizar</button></div>${cloudPickerError ? `<p class="combat-map-error" role="alert">${escapeHtml(cloudPickerError)}</p>` : ""}${cloudPickerBusy ? `<p class="combat-map-converting">Cargando mapas…</p>` : `<div class="combat-map-cloud-picker__grid">${items.map((item) => `<button type="button" class="combat-map-cloud-picker__card" data-map-cloud-choice="${escapeHtml(item.id)}">${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="">` : `<span>Mapa</span>`}<strong>${escapeHtml(item.name || "Mapa")}</strong><small>${escapeHtml(item.ownerName || "Comunidad")}</small><span class="combat-map-cloud-picker__badges"><i>${item.isPublic ? "Público" : "Privado"}</i>${/[?&]animated=1(?:&|$)/.test(clean(item.imageUrl)) ? "<i>Animado</i>" : ""}${normalizeTags(item.tags).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span></button>`).join("") || "<p>No hay mapas disponibles.</p>"}</div>`}</section></div>`;
+    const title = cloudPickerFavoritesOnly ? "Mapas favoritos" : "Mapas de la nube";
+    const eyebrow = cloudPickerFavoritesOnly ? "Acceso rápido" : "Catálogo de la comunidad";
+    const filters = cloudPickerFavoritesOnly ? "" : `<div class="combat-map-cloud-picker__filters"><input type="search" value="${escapeHtml(cloudPickerQuery)}" placeholder="Buscar por nombre, usuario o etiqueta" data-map-cloud-search><label>Etiquetas<select multiple size="${Math.min(5, Math.max(2, tags.length))}" data-map-cloud-tags>${tags.map((tag) => `<option value="${escapeHtml(tag)}" ${cloudPickerSelectedTags.has(tag) ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}</select></label><button type="button" data-map-action="refresh-cloud-map-picker" ${cloudPickerBusy ? "disabled" : ""}>Actualizar</button></div>`;
+    const emptyText = cloudPickerFavoritesOnly ? "Todavía no tienes mapas favoritos." : "No hay mapas disponibles.";
+    return `<div class="combat-map-cloud-picker ${cloudPickerFavoritesOnly ? "is-favorites" : ""}" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}"><button type="button" class="combat-map-cloud-picker__backdrop" data-map-action="close-cloud-map-picker" aria-label="Cerrar"></button><section class="combat-map-cloud-picker__panel"><header><div><small>${escapeHtml(eyebrow)}</small><h2>${escapeHtml(title)}</h2></div><button type="button" data-map-action="close-cloud-map-picker" aria-label="Cerrar">×</button></header>${filters}${cloudPickerError ? `<p class="combat-map-error" role="alert">${escapeHtml(cloudPickerError)}</p>` : ""}${cloudPickerBusy ? `<p class="combat-map-converting">Cargando mapas…</p>` : `<div class="combat-map-cloud-picker__grid">${items.map((item) => `<button type="button" class="combat-map-cloud-picker__card" data-map-cloud-choice="${escapeHtml(item.id)}">${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="">` : `<span>Mapa</span>`}<strong>${escapeHtml(item.name || "Mapa")}</strong><small>${escapeHtml(item.ownerName || "Comunidad")}</small><span class="combat-map-cloud-picker__badges">${cloudPickerFavoritesOnly ? "<i>★ Favorito</i>" : ""}${item.isPublic ? "<i>Público</i>" : "<i>Privado</i>"}${/[?&]animated=1(?:&|$)/.test(clean(item.imageUrl)) ? "<i>Animado</i>" : ""}${normalizeTags(item.tags).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span></button>`).join("") || `<p>${escapeHtml(emptyText)}</p>`}</div>`}</section></div>`;
   }
 
   function renderHealthMenu(panel) {
@@ -3011,7 +3043,7 @@ export function createCombatMapController(options = {}) {
     const mapLoadAction = new Set([
       "toggle-map-load-menu", "toggle-blank-map-options", "toggle-encounter-map-options",
       "toggle-recent-map-options", "toggle-associated-map-options", "create-blank-map",
-      "open-cloud-map-catalog", "refresh-cloud-map-picker"
+      "open-cloud-map-catalog", "open-favorite-map-picker", "refresh-cloud-map-picker"
     ]).has(action);
     if ((encounterChoice !== undefined || savedLayout || associatedChoice !== undefined || cloudChoice || mapLoadAction)
       && rejectRestrictedMapLoad()) return;
@@ -3057,8 +3089,16 @@ export function createCombatMapController(options = {}) {
         openCloudMapPicker(surface);
       }
     }
-    if (action === "refresh-cloud-map-picker") openCloudMapPicker(surface);
-    if (action === "close-cloud-map-picker") { cloudPickerSurface = ""; cloudPickerError = ""; sync(); }
+    if (action === "open-favorite-map-picker") {
+      mapLoadMenuSurface = "";
+      mapLoadSection = "";
+      openFavoriteMapPicker(surface);
+    }
+    if (action === "refresh-cloud-map-picker") {
+      if (cloudPickerFavoritesOnly) openFavoriteMapPicker(surface);
+      else openCloudMapPicker(surface);
+    }
+    if (action === "close-cloud-map-picker") { cloudPickerSurface = ""; cloudPickerFavoritesOnly = false; cloudPickerError = ""; sync(); }
     if (action === "reset-map-canvas") resetMapCanvas(surface);
     if (action === "toggle-grid-menu") togglePanel("grid", surface);
     if (action === "toggle-token-menu") togglePanel("tokens", surface);

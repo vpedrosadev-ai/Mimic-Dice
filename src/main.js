@@ -151,6 +151,7 @@ import {
   listOwnedCloudCampaignJoinRequests,
   listOpenCloudCampaigns,
   listCloudLibraryEntries,
+  listFavoriteCloudMaps,
   listPublicCloudCampaigns,
   listPublicCloudLibraryEntries,
   openCloudCampaignCollaboration,
@@ -161,6 +162,7 @@ import {
   leaveCloudCampaignCollaboration,
   setCloudCampaignVisibility,
   setCloudLibraryEntryVisibility,
+  setFavoriteCloudMap,
   signOutAccount,
   updateCloudCampaign,
   updateCloudLibraryEntry,
@@ -873,6 +875,7 @@ state = {
   publicCloudCampaigns: [],
   cloudLibraryEntries: [],
   publicCloudLibraryEntries: [],
+  cloudMapFavoriteIds: new Set(),
   cloudLibraryBusy: false,
   cloudCatalogTab: "campaign",
   cloudCatalogQuery: "",
@@ -2469,6 +2472,11 @@ async function handleClick(event) {
 
   if (action === "refresh-community-catalog") {
     await refreshCommunityCatalog();
+    return;
+  }
+
+  if (action === "toggle-cloud-map-favorite") {
+    await toggleCloudMapFavorite(actionButton.dataset.cloudEntryId);
     return;
   }
 
@@ -10720,6 +10728,28 @@ function renderCloudCatalogCardMain(item, body, selection = "") {
   `;
 }
 
+function renderCloudMapFavoriteButton(item) {
+  if (cleanText(item?.type).toLowerCase() !== "map" || item?.catalogKind !== "entry") return "";
+  const entryId = cleanText(item.id);
+  if (!entryId) return "";
+  const authenticated = Boolean(state.accountSession?.user?.id);
+  const favorite = state.cloudMapFavoriteIds.has(entryId);
+  const target = `map-favorite:${entryId}`;
+  const label = favorite ? "Quitar de favoritos" : "Marcar como favorito";
+  return `
+    <button
+      class="account-action-button account-action-button--ghost cloud-map-favorite-button ${favorite ? "is-favorite" : ""}${getCloudButtonBusyClass("saving", target)}"
+      type="button"
+      data-action="toggle-cloud-map-favorite"
+      data-cloud-entry-id="${escapeHtml(entryId)}"
+      aria-pressed="${favorite}"
+      aria-label="${escapeHtml(label)}"
+      title="${escapeHtml(authenticated ? label : "Inicia sesiÃ³n para guardar favoritos")}"
+      ${authenticated ? renderCloudButtonBusyAttributes("saving", target) : "disabled"}
+    ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.4 2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.42l-5.88 3.09 1.12-6.55-4.76-4.64 6.58-.96L12 2.4Z"/></svg><span>${favorite ? "Quitar favorito" : "Favorito"}</span></button>
+  `;
+}
+
 function renderOwnedCloudCatalogCard(item) {
   const isLoadedContent = item.loadedCampaignContent === true;
   const canRemoveImportedContent = item.loadedOrigin === "imported" && Boolean(cleanText(item.importedSourceEntryId));
@@ -10771,6 +10801,7 @@ function renderOwnedCloudCatalogCard(item) {
     <article class="cloud-catalog-card cloud-catalog-card--owned ${checked ? "is-selected" : ""}">
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
+        ${renderCloudMapFavoriteButton(item)}
         ${isManagedMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
         ${state.accountSession?.user?.id && !isManagedMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", target)}" type="button" data-action="${action}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", target)}>${renderCloudButtonLabel(actionLabel, "Guardando...", "saving", target)}</button>` : ""}
         ${isManagedMap ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="open-cloud-map-properties" data-cloud-entry-id="${escapeHtml(item.id)}">Propiedades</button>` : ""}
@@ -10815,6 +10846,7 @@ function renderPublicCloudCatalogCard(item) {
     <article class="cloud-catalog-card ${checked ? "is-selected" : ""}">
       ${renderCloudCatalogCardMain(item, body, selection)}
       <div class="cloud-catalog-card__actions">
+        ${renderCloudMapFavoriteButton(item)}
         ${isMap ? `<button class="account-action-button" type="button" data-action="import-cloud-library-entry" data-cloud-entry-id="${escapeHtml(item.id)}">Usar mapa</button>` : ""}
         ${canManageMap ? `<button class="account-action-button account-action-button--ghost" type="button" data-action="open-cloud-map-properties" data-cloud-entry-id="${escapeHtml(item.id)}">Propiedades</button>` : ""}
         ${canManage && !canManageMap ? `<button class="account-action-button account-action-button--ghost${getCloudButtonBusyClass("saving", visibilityTarget)}" type="button" data-action="${visibilityAction}" ${idAttribute} ${renderCloudButtonBusyAttributes("saving", visibilityTarget)}>${renderCloudButtonLabel("Hacer privado", "Guardando...", "saving", visibilityTarget)}</button>` : ""}
@@ -32625,12 +32657,14 @@ async function refreshCloudLibrary() {
   render();
 
   try {
-    const [ownedResult, publicResult] = await Promise.all([
+    const [ownedResult, publicResult, favoriteResult] = await Promise.all([
       state.accountSession?.user?.id ? listCloudLibraryEntries() : Promise.resolve({ entries: [] }),
-      listPublicCloudLibraryEntries()
+      listPublicCloudLibraryEntries(),
+      state.accountSession?.user?.id ? listFavoriteCloudMaps() : Promise.resolve({ entries: [] })
     ]);
     state.cloudLibraryEntries = Array.isArray(ownedResult.entries) ? ownedResult.entries : [];
     state.publicCloudLibraryEntries = Array.isArray(publicResult.entries) ? publicResult.entries : [];
+    state.cloudMapFavoriteIds = new Set((favoriteResult.entries || []).map((entry) => cleanText(entry.id)).filter(Boolean));
     updateCloudImportCandidatesFromEntries([
       ...state.cloudLibraryEntries,
       ...state.publicCloudLibraryEntries
@@ -32644,6 +32678,27 @@ async function refreshCloudLibrary() {
   render();
 }
 
+async function toggleCloudMapFavorite(entryId) {
+  const normalizedId = cleanText(entryId);
+  if (!normalizedId || !state.accountSession?.user?.id) return;
+  const favorite = !state.cloudMapFavoriteIds.has(normalizedId);
+  const operationTarget = `map-favorite:${normalizedId}`;
+  beginCloudOperation("saving", operationTarget);
+  render();
+  try {
+    await setFavoriteCloudMap(normalizedId, favorite);
+    const nextFavorites = new Set(state.cloudMapFavoriteIds);
+    if (favorite) nextFavorites.add(normalizedId);
+    else nextFavorites.delete(normalizedId);
+    state.cloudMapFavoriteIds = nextFavorites;
+    state.accountError = "";
+  } catch (error) {
+    state.accountError = getCloudErrorMessage(error);
+  }
+  endCloudOperation("saving", operationTarget);
+  render();
+}
+
 async function refreshCommunityCatalog() {
   const operationTarget = "catalog:refresh";
   state.cloudLibraryBusy = true;
@@ -32651,12 +32706,13 @@ async function refreshCommunityCatalog() {
 
   try {
     const isAuthenticated = Boolean(state.accountSession?.user?.id);
-    const [ownedCampaigns, publicCampaigns, ownedEntries, publicEntries, localEntries] = await Promise.all([
+    const [ownedCampaigns, publicCampaigns, ownedEntries, publicEntries, localEntries, favoriteResult] = await Promise.all([
       isAuthenticated ? listCloudCampaigns() : Promise.resolve({ campaigns: [] }),
       listPublicCloudCampaigns(),
       isAuthenticated ? listCloudLibraryEntries() : Promise.resolve({ entries: [] }),
       listPublicCloudLibraryEntries(),
-      getCurrentCampaignCloudCatalogItems()
+      getCurrentCampaignCloudCatalogItems(),
+      isAuthenticated ? listFavoriteCloudMaps() : Promise.resolve({ entries: [] })
     ]);
     state.cloudCampaigns = Array.isArray(ownedCampaigns.campaigns) ? ownedCampaigns.campaigns : [];
     state.publicCloudCampaigns = Array.isArray(publicCampaigns.campaigns) ? publicCampaigns.campaigns : [];
@@ -32667,6 +32723,7 @@ async function refreshCommunityCatalog() {
     state.cloudLibraryEntries = filteredOwnedEntries;
     state.publicCloudLibraryEntries = filteredPublicEntries;
     state.cloudLocalCatalogItems = Array.isArray(localEntries) ? localEntries : [];
+    state.cloudMapFavoriteIds = new Set((favoriteResult.entries || []).map((entry) => cleanText(entry.id)).filter(Boolean));
     updateCloudImportCandidatesFromEntries([
       ...state.cloudLibraryEntries,
       ...state.publicCloudLibraryEntries
@@ -34229,6 +34286,7 @@ function clearPrivateCloudAccountState() {
   state.cloudCampaignJoinPrompt = null;
   state.cloudCampaignJoinPending = null;
   state.cloudLibraryEntries = [];
+  state.cloudMapFavoriteIds = new Set();
   state.cloudLocalCatalogItems = [];
   state.cloudCatalogSelectedIds = new Set();
   state.cloudCatalogPreview = null;
