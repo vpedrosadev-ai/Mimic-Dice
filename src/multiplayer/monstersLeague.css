@@ -2492,3 +2492,20 @@
     overflow-x: auto;
   }
 }
+
+@media (max-width: 760px) {
+  .ml-master-view-panel,
+  .ml-master-view-panel > .master-combat-workspace,
+  .ml-master-view-panel .master-combat-workspace__map {
+    overflow: visible;
+  }
+
+  .monsters-league-shell:has(.combat-turn-quick-menu) .ml-topbar {
+    z-index: 0;
+  }
+
+  .monsters-league-shell:has(.combat-turn-quick-menu) .ml-master-view-panel {
+    position: relative;
+    z-index: 80;
+  }
+}

@@ -2045,7 +2045,7 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
   if (!menu || cleanText(menu.owner) !== cleanText(owner)) return "";
   const combatant = getPlayerVisibleCombatants().find((entry) => entry.id === cleanText(menu.combatantId));
   if (!combatant) return "";
-  const width = 330;
+  const width = (viewportWindow.innerWidth || window.innerWidth) <= 760 ? 288 : 330;
   const left = Math.max(8, Math.min(Number(menu.x) || 8, (viewportWindow.innerWidth || window.innerWidth) - width - 8));
   const top = Math.max(8, Math.min(Number(menu.y) || 8, (viewportWindow.innerHeight || window.innerHeight) - 480));
   const statuses = getProjectedStatusNames(combatant);
@@ -2054,9 +2054,10 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
   const healIcon = getCombatMiniActionIconUrl("heal");
   const necroticIcon = getCombatMiniActionIconUrl("necrotic");
   const tempIcon = getCombatMiniActionIconUrl("temp");
-  return `<div class="combat-turn-quick-menu" style="position:fixed;left:${left}px;top:${top}px;z-index:10000" data-combat-turn-quick-menu>
+  const showsStatusCatalog = !normalizeSearchText(menu.statusQuery);
+  return `<div class="combat-turn-quick-menu" style="position:fixed;left:${left}px;top:${top}px;z-index:2147483600" data-combat-turn-quick-menu>
     <div class="combat-turn-quick-menu__panel">
-      <div class="combat-turn-quick-menu__header"><div class="combat-turn-quick-menu__title"><strong>${escapeHtml(combatant.nombre || "Creature")}</strong><b>${escapeHtml(cleanText(combatant.numPeana) || "-")}</b></div><span>${combatant.hideHealth ? (language === "en" ? "Rival data hidden" : "Datos rivales ocultos") : `${language === "en" ? "HP" : "PG"} ${Math.max(0, Number(combatant.pgAct) || 0)}/${Math.max(0, Number(combatant.pgMax) - Number(combatant.necrotic || 0))}`}</span></div>
+      <div class="combat-turn-quick-menu__header"><div class="combat-turn-quick-menu__title"><strong>${escapeHtml(combatant.nombre || "Creature")}</strong><span class="combat-turn-quick-menu__header-actions"><b>${escapeHtml(cleanText(combatant.numPeana) || "-")}</b><button class="combat-turn-quick-menu__close" type="button" data-ml-context-action="close" aria-label="${language === "en" ? "Close menu" : "Cerrar menú"}" title="${language === "en" ? "Close menu" : "Cerrar menú"}">×</button></span></div><span>${combatant.hideHealth ? (language === "en" ? "Rival data hidden" : "Datos rivales ocultos") : `${language === "en" ? "HP" : "PG"} ${Math.max(0, Number(combatant.pgAct) || 0)}/${Math.max(0, Number(combatant.pgMax) - Number(combatant.necrotic || 0))}`}</span></div>
       <div class="combat-turn-quick-menu__flight"><label class="combat-turn-quick-menu__hide"><input type="checkbox" data-ml-context-field="isFlying" ${combatant.isFlying ? "checked" : ""}><span>${language === "en" ? "Flying" : "Volando"}</span></label><label class="combat-turn-quick-menu__flight-height"><span>${language === "en" ? "Height" : "Altura"}</span><input type="number" min="0" step="5" value="${Math.max(0, Number(combatant.flyingHeight) || 0)}" data-ml-context-field="flyingHeight"><span>ft</span></label></div>
       <div class="combat-turn-quick-menu__identity-fields"><label><span>${language === "en" ? "Initiative" : "Iniciativa"}</span><input value="${escapeHtml(cleanText(combatant.iniactiva))}" data-ml-context-field="initiative"></label><label><span>${language === "en" ? "Stand" : "Peana"}</span><input value="${escapeHtml(cleanText(combatant.numPeana))}" data-ml-context-field="standNumber"></label></div>
       <div class="resource-cell__actions-row combat-turn-quick-menu__actions-row"><div class="inline-adjust inline-adjust--group combat-turn-quick-menu__controls"><input class="mini-input combat-turn-quick-menu__input" type="text" inputmode="text" placeholder="0 or 2d6" value="${escapeHtml(menu.value)}" data-combat-turn-quick-value><div class="mini-actions combat-turn-quick-menu__actions">
@@ -2065,7 +2066,7 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
         ${renderLeagueQuickResourceButton("necrotic", necroticIcon, language === "en" ? "Necrotic" : "Necrótico")}
         ${renderLeagueQuickResourceButton("temp", tempIcon, language === "en" ? "Temporary HP" : "PG temporales")}
       </div></div></div>
-      <section class="combat-turn-quick-menu__statuses"><strong>${language === "en" ? "Conditions" : "Estados"}</strong>${statuses.length ? `<div class="combat-turn-quick-menu__active-statuses">${statuses.map((status) => `<button class="combat-turn-quick-menu__status is-active ${escapeHtml(getProjectedStatusTone(status))}" type="button" data-ml-context-action="remove-status" data-status="${escapeHtml(status)}"><span>${escapeHtml(status)}</span><b aria-hidden="true">×</b></button>`).join("")}</div>` : ""}<div class="combat-turn-quick-menu__custom-status"><input type="search" maxlength="80" value="${escapeHtml(menu.statusQuery)}" data-ml-context-status placeholder="${language === "en" ? "Search or type a condition" : "Buscar o escribir un estado"}"><button type="button" data-ml-context-action="add-status">${language === "en" ? "Add" : "Añadir"}</button></div><div class="combat-turn-quick-menu__status-results" data-ml-context-status-results role="listbox">${renderLeagueQuickStatusMatches(statusMatches)}</div></section>
+      <section class="combat-turn-quick-menu__statuses"><strong>${language === "en" ? "Conditions" : "Estados"}</strong>${statuses.length ? `<div class="combat-turn-quick-menu__active-statuses">${statuses.map((status) => `<button class="combat-turn-quick-menu__status is-active ${escapeHtml(getProjectedStatusTone(status))}" type="button" data-ml-context-action="remove-status" data-status="${escapeHtml(status)}"><span>${escapeHtml(status)}</span><b aria-hidden="true">×</b></button>`).join("")}</div>` : ""}<div class="combat-turn-quick-menu__custom-status"><input type="search" maxlength="80" value="${escapeHtml(menu.statusQuery)}" data-ml-context-status placeholder="${language === "en" ? "Search or type a condition" : "Buscar o escribir un estado"}"><button type="button" data-ml-context-action="add-status">${language === "en" ? "Add" : "Añadir"}</button></div><div class="combat-turn-quick-menu__status-results ${showsStatusCatalog ? "is-catalog" : ""}" data-ml-context-status-results role="listbox">${renderLeagueQuickStatusMatches(statusMatches)}</div></section>
     </div></div>`;
 }
 
@@ -2077,12 +2078,11 @@ function getLeagueQuickStatusCatalog() {
 
 function getLeagueQuickStatusMatches(queryValue, activeStatuses = []) {
   const query = normalizeSearchText(queryValue);
-  if (!query) return [];
   const active = new Set(activeStatuses.map(normalizeSearchText));
-  return getLeagueQuickStatusCatalog()
+  const matches = getLeagueQuickStatusCatalog()
     .filter((entry) => !active.has(normalizeSearchText(entry.name)))
-    .filter((entry) => normalizeSearchText(`${entry.name} ${entry.description}`).includes(query))
-    .slice(0, 8);
+    .filter((entry) => !query || normalizeSearchText(`${entry.name} ${entry.description}`).includes(query));
+  return matches.slice(0, query ? 8 : 30);
 }
 
 function renderLeagueQuickStatusMatches(matches) {
@@ -2100,10 +2100,15 @@ function handleLeagueCombatQuickMenuClick(event) {
   const button = event.target.closest("[data-ml-context-action]");
   if (!button) return;
   event.preventDefault();
-  const combatant = getLeagueQuickMenuCombatant();
-  if (!combatant) return;
   const owner = cleanText(state.combatQuickMenu?.owner);
   const action = button.dataset.mlContextAction;
+  if (action === "close") {
+    state.combatQuickMenu = null;
+    syncLeagueCombatQuickMenuSurface(owner);
+    return;
+  }
+  const combatant = getLeagueQuickMenuCombatant();
+  if (!combatant) return;
   if (action === "resource") applyLeagueQuickResource(combatant, button.dataset.mode);
   if (action === "remove-status") patchLeagueCombatant(combatant, { conditions: getProjectedStatusNames(combatant).filter((status) => status !== button.dataset.status) });
   if (action === "add-status") {
@@ -2131,7 +2136,10 @@ function handleLeagueCombatQuickMenuInput(event) {
     state.combatQuickMenu.statusQuery = event.target.value;
     const combatant = getLeagueQuickMenuCombatant();
     const results = event.target.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status-results]");
-    if (results && combatant) results.innerHTML = renderLeagueQuickStatusMatches(getLeagueQuickStatusMatches(event.target.value, getProjectedStatusNames(combatant)));
+    if (results && combatant) {
+      results.classList.toggle("is-catalog", !normalizeSearchText(event.target.value));
+      results.innerHTML = renderLeagueQuickStatusMatches(getLeagueQuickStatusMatches(event.target.value, getProjectedStatusNames(combatant)));
+    }
   }
 }
 

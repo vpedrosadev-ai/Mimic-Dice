@@ -2215,6 +2215,12 @@ async function handleClick(event) {
 
   const { action } = actionButton.dataset;
 
+  if (action === "close-combat-turn-quick-menu") {
+    closeCombatTurnQuickMenu();
+    render();
+    return;
+  }
+
   if (action === "toggle-mobile-navigation") {
     state.mobileNavigationOpen = !state.mobileNavigationOpen;
     render();
@@ -13180,7 +13186,7 @@ function renderMasterCombatWorkspaceButton() {
   const label = isEnglishInterface() ? "Master view" : "Vista master";
   return `
     <button
-      class="toolbar-button toolbar-button--combat combat-overview-toggle ${state.masterCombatWorkspaceVisible ? "is-active" : ""}"
+      class="toolbar-button toolbar-button--combat combat-overview-toggle master-combat-workspace-config__main ${state.masterCombatWorkspaceVisible ? "is-active" : ""}"
       type="button"
       data-action="open-master-combat-workspace"
       aria-pressed="${state.masterCombatWorkspaceVisible}"
@@ -13196,7 +13202,7 @@ function renderMasterCombatWorkspaceButton() {
 }
 
 function renderMasterCombatWorkspaceControls() {
-  return `${state.masterCombatWorkspaceVisible ? renderMasterCombatWorkspaceConfig() : ""}${renderMasterCombatWorkspaceButton()}`;
+  return renderMasterCombatWorkspaceConfig();
 }
 
 function renderMasterCombatWorkspaceConfig() {
@@ -13208,9 +13214,9 @@ function renderMasterCombatWorkspaceConfig() {
   ];
   return `
     <div class="master-combat-workspace-config" data-master-combat-workspace-config>
-      <button class="toolbar-button toolbar-button--combat combat-overview-toggle ${state.masterCombatWorkspaceConfigOpen ? "is-active" : ""}" type="button" data-action="toggle-master-combat-workspace-config" aria-expanded="${state.masterCombatWorkspaceConfigOpen}" aria-label="${escapeHtml(isEnglishInterface() ? "Configure Master view" : "Configurar Vista master")}" title="${escapeHtml(isEnglishInterface() ? "Configure Master view" : "Configurar Vista master")}">
+      ${renderMasterCombatWorkspaceButton()}
+      <button class="toolbar-button toolbar-button--combat combat-overview-toggle master-combat-workspace-config__trigger ${state.masterCombatWorkspaceConfigOpen ? "is-active" : ""}" type="button" data-action="toggle-master-combat-workspace-config" aria-expanded="${state.masterCombatWorkspaceConfigOpen}" aria-label="${escapeHtml(isEnglishInterface() ? "Configure Master view layout" : "Configurar diseño de Vista master")}" title="${escapeHtml(isEnglishInterface() ? "Configure Master view layout" : "Configurar diseño de Vista master")}">
         <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10.2 2h3.6l.5 2.1c.5.2 1 .5 1.5.9l2-.6 1.8 3.1-1.5 1.5c.1.6.1 1.2 0 1.8l1.5 1.5-1.8 3.1-2-.6c-.5.4-1 .7-1.5.9l-.5 2.1h-3.6l-.5-2.1c-.5-.2-1-.5-1.5-.9l-2 .6-1.8-3.1 1.5-1.5a8 8 0 0 1 0-1.8L4.4 7.5l1.8-3.1 2 .6c.5-.4 1-.7 1.5-.9L10.2 2ZM12 7.2a3.3 3.3 0 1 0 0 6.6 3.3 3.3 0 0 0 0-6.6Z"/></svg></span>
-        ${escapeHtml(isEnglishInterface() ? "Layout" : "Diseño")}
       </button>
       ${state.masterCombatWorkspaceConfigOpen ? `<div class="master-combat-workspace-config__menu" role="menu">${choices.map((choice) => `<button class="${choice.id === currentMode ? "is-active" : ""}" type="button" role="menuitemradio" aria-checked="${choice.id === currentMode}" data-action="select-master-combat-workspace-mode" data-master-workspace-mode="${choice.id}"><strong>${escapeHtml(choice.label)}</strong><span>${escapeHtml(choice.description)}</span></button>`).join("")}</div>` : ""}
     </div>
@@ -14898,7 +14904,10 @@ function handleCombatTurnPopoutClick(event) {
   const action = actionButton.dataset.action;
   event.preventDefault();
 
-  if (action === "toggle-combat-turn-popout") {
+  if (action === "close-combat-turn-quick-menu") {
+    closeCombatTurnQuickMenu();
+    render();
+  } else if (action === "toggle-combat-turn-popout") {
     toggleCombatTurnPopout();
   } else if (action === "advance-combat-turn") {
     advanceCombatTurn();
@@ -15715,12 +15724,13 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
   const statusQuery = state.combatTurnQuickMenu?.statusQuery ?? "";
   const selectedStatus = cleanText(state.combatTurnQuickMenu?.selectedStatus);
   const statusMatches = getCombatTurnQuickStatusMatches(statusQuery, activeStatuses);
+  const showsStatusCatalog = !normalizeSearchText(statusQuery);
 
   return `
     <div class="combat-turn-quick-menu" style="${escapeHtml(menuStyle)}" data-combat-turn-quick-menu>
       <div class="combat-turn-quick-menu__panel">
         <div class="combat-turn-quick-menu__header">
-          <div class="combat-turn-quick-menu__title"><strong>${escapeHtml(cleanText(combatant.nombre) || "Entidad")}</strong><b>${escapeHtml(cleanText(combatant.numPeana) || "—")}</b></div>
+          <div class="combat-turn-quick-menu__title"><strong>${escapeHtml(cleanText(combatant.nombre) || "Entidad")}</strong><span class="combat-turn-quick-menu__header-actions"><b>${escapeHtml(cleanText(combatant.numPeana) || "—")}</b><button class="combat-turn-quick-menu__close" type="button" data-action="close-combat-turn-quick-menu" aria-label="${escapeHtml(isEnglishInterface() ? "Close menu" : "Cerrar menú")}" title="${escapeHtml(isEnglishInterface() ? "Close menu" : "Cerrar menú")}">×</button></span></div>
           <span>${hidesRivalStats ? "Datos de equipo rival ocultos" : escapeHtml(`${getCurrentHitPointLabelShort()} ${toNumber(combatant.pgAct)}/${effectiveMax} | TEMP ${tempHp}`)}</span>
         </div>
         ${isRestrictedPlayer ? "" : `
@@ -15791,7 +15801,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
             <input type="search" maxlength="80" value="${escapeHtml(statusQuery)}" data-combat-turn-custom-status placeholder="${escapeHtml(isEnglishInterface() ? "Search or type a condition" : "Buscar o escribir un estado")}" aria-label="${escapeHtml(isEnglishInterface() ? "Condition search" : "Buscador de estado")}">
             <button type="button" data-action="add-custom-combat-status" data-combatant-id="${escapeHtml(combatant.id)}">Añadir</button>
           </div>
-          ${statusMatches.length ? `<div class="combat-turn-quick-menu__status-results" role="listbox" aria-label="${escapeHtml(isEnglishInterface() ? "Matching conditions" : "Estados coincidentes")}">${statusMatches.map((entry) => renderCombatTurnQuickStatusMatch(combatant.id, entry, selectedStatus)).join("")}</div>` : ""}
+          ${statusMatches.length ? `<div class="combat-turn-quick-menu__status-results ${showsStatusCatalog ? "is-catalog" : ""}" role="listbox" aria-label="${escapeHtml(showsStatusCatalog ? (isEnglishInterface() ? "Condition list" : "Lista de estados") : (isEnglishInterface() ? "Matching conditions" : "Estados coincidentes"))}">${statusMatches.map((entry) => renderCombatTurnQuickStatusMatch(combatant.id, entry, selectedStatus)).join("")}</div>` : ""}
         </section>
       </div>
     </div>
@@ -15800,17 +15810,16 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
 
 function getCombatTurnQuickStatusMatches(queryValue, activeStatuses = []) {
   const query = normalizeSearchText(queryValue);
-  if (!query) return [];
   const activeKeys = new Set(activeStatuses.map((statusName) => normalizeTranslationKey(getCanonicalCombatStatusName(statusName).toLowerCase())));
-  return getCombatStatusReferenceEntries()
+  const matches = getCombatStatusReferenceEntries()
     .map((entry) => {
       const canonicalName = getCanonicalCombatStatusName(entry.name);
       const localizedName = translateCombatStatusNameForLanguage(canonicalName, state.appLanguage);
       return { ...entry, canonicalName, localizedName };
     })
     .filter((entry) => !activeKeys.has(normalizeTranslationKey(entry.canonicalName.toLowerCase())))
-    .filter((entry) => [entry.canonicalName, entry.localizedName, entry.description].some((value) => normalizeSearchText(value).includes(query)))
-    .slice(0, 8);
+    .filter((entry) => !query || [entry.canonicalName, entry.localizedName, entry.description].some((value) => normalizeSearchText(value).includes(query)));
+  return matches.slice(0, query ? 8 : 30);
 }
 
 function renderCombatTurnQuickStatusMatch(combatantId, entry, selectedStatus) {
@@ -15857,7 +15866,8 @@ function getCombatTurnQuickMenuStyle(viewportWindow = window) {
   const viewportHeight = viewportWindow?.innerHeight || document.documentElement.clientHeight || 720;
   const padding = 12;
   const rootFontSize = Number.parseFloat(viewportWindow?.getComputedStyle?.(viewportWindow.document.documentElement)?.fontSize) || 16;
-  const menuWidth = Math.min(20 * rootFontSize, Math.max(0, viewportWidth - padding * 2));
+  const menuWidthRem = viewportWidth <= 760 ? 18 : 20;
+  const menuWidth = Math.min(menuWidthRem * rootFontSize, Math.max(0, viewportWidth - padding * 2));
   const menuHeight = Math.min(42 * rootFontSize, Math.max(0, viewportHeight - padding * 2));
   const left = Math.max(padding, Math.min(rawX, viewportWidth - menuWidth - padding));
   const top = Math.max(padding, Math.min(rawY, viewportHeight - menuHeight - padding));

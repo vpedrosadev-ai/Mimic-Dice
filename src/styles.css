@@ -37,12 +37,26 @@
 
 .master-combat-workspace-config {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
 }
 
-.master-combat-workspace-config > .toolbar-button {
+.master-combat-workspace-config__main {
   width: 100%;
+  border-radius: 10px 0 0 10px;
+}
+
+.master-combat-workspace-config > .master-combat-workspace-config__trigger {
+  width: 3.15rem;
+  min-width: 3.15rem;
+  margin-left: -1px;
+  padding-inline: .72rem;
+  border-radius: 0 10px 10px 0;
+}
+
+.master-combat-workspace-config__trigger .button-icon {
+  margin: 0;
 }
 
 .master-combat-workspace-config__menu {
@@ -8324,7 +8338,7 @@ button.is-cloud-busy:disabled {
 
 .combat-turn-quick-menu {
   position: fixed;
-  z-index: 1280;
+  z-index: 2147483400;
   width: min(20rem, calc(100vw - 1.5rem));
 }
 
@@ -8358,6 +8372,13 @@ button.is-cloud-busy:disabled {
   gap: 1rem;
 }
 
+.combat-turn-quick-menu__header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .4rem;
+}
+
 .combat-turn-quick-menu__title b {
   display: grid;
   min-width: 2rem;
@@ -8369,6 +8390,29 @@ button.is-cloud-busy:disabled {
   background: rgba(13, 16, 21, .96);
   color: #fff3cf;
   font-size: .9rem;
+}
+
+.combat-turn-quick-menu__close {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border: 1px solid rgba(235, 126, 136, .58);
+  border-radius: 999px;
+  background: rgba(153, 52, 65, .58);
+  color: #ffe3e5;
+  font: 900 1.2rem/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.combat-turn-quick-menu__close:hover,
+.combat-turn-quick-menu__close:focus-visible {
+  border-color: rgba(255, 168, 176, .9);
+  background: rgba(190, 58, 72, .82);
+  outline: none;
 }
 
 .combat-turn-quick-menu__header strong {
@@ -8511,6 +8555,28 @@ button.is-cloud-busy:disabled {
   gap: .36rem;
   max-height: 12rem;
   overflow: auto;
+}
+
+.combat-turn-quick-menu__status-results.is-catalog {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .25rem;
+  max-height: 9.5rem;
+}
+
+.combat-turn-quick-menu__status-results.is-catalog .combat-turn-quick-menu__status {
+  grid-template-columns: 1.05rem minmax(0, 1fr);
+  gap: .25rem;
+  min-height: 1.75rem;
+  padding: .22rem .3rem;
+}
+
+.combat-turn-quick-menu__status-results.is-catalog .combat-turn-quick-menu__status img {
+  width: 1rem;
+  height: 1rem;
+}
+
+.combat-turn-quick-menu__status-results.is-catalog .combat-turn-quick-menu__status span {
+  font-size: .66rem;
 }
 
 .combat-turn-quick-menu__active-statuses {
@@ -23698,8 +23764,7 @@ button.character-stat-block__modifier--roll:focus-visible {
     width: 100%;
   }
 
-  .combat-heading__actions > *,
-  .combat-heading__actions > .master-combat-workspace-config > .toolbar-button {
+  .combat-heading__actions > * {
     width: 100%;
     min-width: 0;
   }
@@ -23799,5 +23864,105 @@ button.character-stat-block__modifier--roll:focus-visible {
   .master-combat-workspace__entity-list,
   .master-combat-workspace__sheet-scroll {
     padding: .5rem;
+  }
+
+  .shell:has(.combat-turn-quick-menu) .topbar {
+    z-index: 0;
+  }
+
+  .shell:has(.combat-turn-quick-menu) .workspace {
+    z-index: 80;
+  }
+
+  .combat-turn-quick-menu {
+    z-index: 2147483600;
+    width: min(18rem, calc(100vw - .75rem));
+  }
+
+  .combat-turn-quick-menu__panel {
+    gap: .4rem;
+    max-height: calc(100dvh - .75rem);
+    padding: .5rem .55rem;
+    border-radius: 12px;
+    font-size: .9rem;
+  }
+
+  .combat-turn-quick-menu__header {
+    gap: .08rem;
+  }
+
+  .combat-turn-quick-menu__title {
+    gap: .45rem;
+  }
+
+  .combat-turn-quick-menu__header strong {
+    overflow: hidden;
+    font-size: .98rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .combat-turn-quick-menu__header > span {
+    font-size: .76rem;
+  }
+
+  .combat-turn-quick-menu__title b,
+  .combat-turn-quick-menu__close {
+    width: 2.15rem;
+    min-width: 2.15rem;
+    height: 2.15rem;
+    min-height: 2.15rem;
+  }
+
+  .combat-turn-quick-menu__title b {
+    padding: .12rem .3rem;
+    font-size: .76rem;
+  }
+
+  .combat-turn-quick-menu__hide,
+  .combat-turn-quick-menu__token-size,
+  .combat-turn-quick-menu__flight-height,
+  .combat-turn-quick-menu__identity-fields label {
+    font-size: .68rem;
+  }
+
+  .combat-turn-quick-menu__flight {
+    gap: .3rem .6rem;
+  }
+
+  .combat-turn-quick-menu__token-size select,
+  .combat-turn-quick-menu__flight-height input,
+  .combat-turn-quick-menu__identity-fields input,
+  .combat-turn-quick-menu__custom-status input,
+  .combat-turn-quick-menu__custom-status button,
+  .combat-turn-quick-menu__input,
+  .combat-turn-quick-menu__actions .mini-action {
+    min-height: 2.1rem;
+  }
+
+  .combat-turn-quick-menu__token-size select,
+  .combat-turn-quick-menu__flight-height input,
+  .combat-turn-quick-menu__identity-fields input,
+  .combat-turn-quick-menu__custom-status input,
+  .combat-turn-quick-menu__custom-status button {
+    padding: .3rem .38rem;
+  }
+
+  .combat-turn-quick-menu__statuses {
+    gap: .28rem;
+  }
+
+  .combat-turn-quick-menu__statuses > strong {
+    font-size: .7rem;
+  }
+
+  .combat-turn-quick-menu__status-results,
+  .combat-turn-quick-menu__status-results.is-catalog {
+    max-height: 7.5rem;
+  }
+
+  .combat-turn-quick-menu__status {
+    min-height: 1.8rem;
+    padding: .24rem .32rem;
   }
 }
