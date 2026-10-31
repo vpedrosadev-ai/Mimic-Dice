@@ -162,3 +162,10 @@ test("dice log shows concentration outcome and named effect", () => {
   assert.match(html, /Concentración: Bendecir/);
   assert.match(html, /CD 10/);
 });
+
+test("dice calculator no longer exposes the hit dice toggle", () => {
+  const html = renderDiceRollerDock({ open: true, language: "en" });
+
+  assert.doesNotMatch(html, /toggle-dice-roller-hit-dice/);
+  assert.doesNotMatch(html, /dice-roller-hit-dice/);
+});

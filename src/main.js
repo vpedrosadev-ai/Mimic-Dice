@@ -922,6 +922,10 @@ state = {
   diceRollerDiceTrayOpen: false,
   diceRollHistory: [],
   diceRollerRect: null,
+  characterHitDiceDialogOpen: false,
+  characterHitDiceDialogCharacterId: "",
+  characterHitDiceDialogFormula: "",
+  characterHitDiceDialogError: "",
   autosaveProblemDialogOpen: false,
   autosaveProblemDetailTitle: "",
   autosaveProblemDetailText: "",
@@ -1717,6 +1721,21 @@ async function handleClick(event) {
     return;
   }
 
+  const mobileEntityStand = event.target.closest?.("[data-mobile-entity-stand-context]");
+  if (mobileEntityStand && (window.innerWidth || 0) <= 760) {
+    const rect = mobileEntityStand.getBoundingClientRect();
+    event.preventDefault();
+    event.stopPropagation();
+    openCombatTurnQuickMenu(
+      mobileEntityStand.dataset.mobileEntityStandContext,
+      rect.right,
+      rect.bottom + 4,
+      "main"
+    );
+    render({ focusSelector: "[data-combat-turn-quick-value]" });
+    return;
+  }
+
   const masterWorkspaceEntity = event.target.closest?.("[data-master-workspace-entity]");
   const masterWorkspaceInteractiveControl = event.target.closest?.("button, input, select, textarea, [contenteditable='true'], [data-combat-turn-status-remove]");
 
@@ -2271,6 +2290,18 @@ async function handleClick(event) {
 
   if (action === "open-dice-roller") {
     openDiceRoller();
+    return;
+  }
+
+  if (action === "open-character-hit-dice-dialog") {
+    openCharacterHitDiceDialog(actionButton.dataset.characterId);
+    render({ focusSelector: "[data-character-hit-dice-formula]" });
+    return;
+  }
+
+  if (action === "dismiss-character-hit-dice-dialog") {
+    closeCharacterHitDiceDialog();
+    render();
     return;
   }
 
@@ -4777,6 +4808,12 @@ function handleDoubleClick(event) {
 }
 
 function handleSubmit(event) {
+  if (event.target.matches?.("[data-character-hit-dice-form]")) {
+    event.preventDefault();
+    confirmCharacterHitDiceDialog();
+    return;
+  }
+
   if (event.target.matches?.("[data-cloud-map-new-tag-form]")) {
     event.preventDefault();
     addCloudMapDraftTags();
@@ -5590,6 +5627,12 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-character-hit-dice-formula]")) {
+    state.characterHitDiceDialogFormula = target.value;
+    state.characterHitDiceDialogError = "";
+    return;
+  }
+
   if (target.matches("[data-account-profile-name]")) {
     state.accountProfileNameDraft = target.value;
     state.accountError = "";
@@ -6181,6 +6224,13 @@ function handleGlobalKeydown(event) {
   if (event.key === "Escape" && state.mobileNavigationOpen) {
     event.preventDefault();
     state.mobileNavigationOpen = false;
+    render();
+    return;
+  }
+
+  if (event.key === "Escape" && state.characterHitDiceDialogOpen) {
+    event.preventDefault();
+    closeCharacterHitDiceDialog();
     render();
     return;
   }
@@ -7360,6 +7410,93 @@ function renderCampaignSaveNameDialog() {
       </section>
     </div>
   `;
+}
+
+function renderCharacterHitDiceDialog() {
+  if (!state.characterHitDiceDialogOpen) return "";
+
+  const character = state.characters.find((entry) => entry.id === state.characterHitDiceDialogCharacterId);
+  const characterName = cleanText(character?.name) || (isEnglishInterface() ? "Character" : "Personaje");
+  const currentMaxHp = Math.max(0, toNumber(character?.maxHp));
+
+  return `
+    <div class="campaign-save-dialog character-hit-dice-dialog" role="presentation">
+      <div class="campaign-save-dialog__backdrop" data-action="dismiss-character-hit-dice-dialog" aria-hidden="true"></div>
+      <form class="campaign-save-dialog__panel character-hit-dice-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="character-hit-dice-dialog-title" data-character-hit-dice-form>
+        <p class="campaign-save-dialog__eyebrow">${escapeHtml(isEnglishInterface() ? "Character hit dice" : "Dados de vida del personaje")}</p>
+        <h2 class="campaign-save-dialog__title" id="character-hit-dice-dialog-title">${escapeHtml(characterName)}</h2>
+        <p class="campaign-save-dialog__text">${escapeHtml(isEnglishInterface()
+          ? `Choose hit dice to roll. Result will be added to current MAX HP (${currentMaxHp}).`
+          : `Indica los dados de vida que quieres tirar. El resultado se sumará al PG MAX actual (${currentMaxHp}).`)}</p>
+        <label class="campaign-save-dialog__field">
+          <span>${escapeHtml(isEnglishInterface() ? "Hit-die formula" : "Fórmula de dados de vida")}</span>
+          <input class="campaign-save-dialog__input" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="${escapeHtml(state.characterHitDiceDialogFormula)}" data-character-hit-dice-formula placeholder="2d8+4" />
+        </label>
+        <p class="character-hit-dice-dialog__hint">${escapeHtml(isEnglishInterface()
+          ? "Allowed dice: d4, d6, d8, d10 and d12. Fixed average remains each die's minimum."
+          : "Dados permitidos: d4, d6, d8, d10 y d12. La media fija sigue siendo el mínimo de cada dado.")}</p>
+        ${state.characterHitDiceDialogError ? `<p class="campaign-save-dialog__error">${escapeHtml(state.characterHitDiceDialogError)}</p>` : ""}
+        <div class="campaign-save-dialog__actions">
+          <button class="summary-button summary-button--ghost" type="button" data-action="dismiss-character-hit-dice-dialog">${escapeHtml(isEnglishInterface() ? "Cancel" : "Cancelar")}</button>
+          <button class="summary-button" type="submit">${escapeHtml(isEnglishInterface() ? "Roll and add" : "Tirar y sumar")}</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function openCharacterHitDiceDialog(characterId) {
+  const character = state.characters.find((entry) => entry.id === cleanText(characterId));
+  if (!character) return;
+  state.characterHitDiceDialogOpen = true;
+  state.characterHitDiceDialogCharacterId = character.id;
+  state.characterHitDiceDialogFormula = "";
+  state.characterHitDiceDialogError = "";
+}
+
+function closeCharacterHitDiceDialog() {
+  state.characterHitDiceDialogOpen = false;
+  state.characterHitDiceDialogCharacterId = "";
+  state.characterHitDiceDialogFormula = "";
+  state.characterHitDiceDialogError = "";
+}
+
+function confirmCharacterHitDiceDialog() {
+  const characterId = cleanText(state.characterHitDiceDialogCharacterId);
+  const character = state.characters.find((entry) => entry.id === characterId);
+  const formula = cleanText(state.characterHitDiceDialogFormula);
+
+  if (!character) {
+    closeCharacterHitDiceDialog();
+    render();
+    return;
+  }
+
+  try {
+    const preview = rollDiceFormula(formula, { random: () => 0, hitDiceMode: true });
+    const allowedSides = new Set([4, 6, 8, 10, 12]);
+    if (!preview.groups.length || preview.groups.some((group) => !allowedSides.has(group.sides))) {
+      throw new DiceFormulaError("invalid-hit-dice", isEnglishInterface()
+        ? "Use at least one d4, d6, d8, d10 or d12."
+        : "Usa al menos un d4, d6, d8, d10 o d12.");
+    }
+
+    const result = rollAndRecordDiceFormula(formula, { hitDiceMode: true });
+    const increase = Math.max(0, Math.floor(toNumber(result.total)));
+    updateCharacterFieldForId(characterId, "maxHp", Math.max(0, toNumber(character.maxHp)) + increase, true);
+    saveCharacters();
+    closeCharacterHitDiceDialog();
+    render();
+
+    if (isDiceRollerPopoutOpen()) {
+      diceRollerPopoutWindow.focus();
+    }
+  } catch (error) {
+    state.characterHitDiceDialogError = error instanceof DiceFormulaError && error.code === "invalid-hit-dice"
+      ? error.message
+      : formatDiceFormulaError(error);
+    render({ focusSelector: "[data-character-hit-dice-formula]" });
+  }
 }
 
 function renderDiaryHarptosDayNoteDialog() {
@@ -9659,6 +9796,7 @@ function render(focusState = null) {
       ${renderOptionsDialog()}
       ${renderImportExportDialog()}
       ${renderCampaignSaveNameDialog()}
+      ${renderCharacterHitDiceDialog()}
       ${renderDiaryHarptosDayNoteDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
       ${renderCharacterSpellbookAbilityDetailDialog()}
@@ -13721,7 +13859,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
   if (isCloudCampaignEnemyPrivate(combatant)) {
     return `
       <article class="master-combat-entity is-rival-private ${active ? "is-active-turn" : ""}" data-combat-turn-token-context="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(displayName)}">
-        <span class="master-combat-entity__rail"><span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span></span>
+        <span class="master-combat-entity__rail"><span class="master-combat-entity__initiative" data-mobile-entity-stand-context="${escapeHtml(combatant.id)}" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span></span>
         <span class="master-combat-entity__portrait">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
         <span class="master-combat-entity__copy"><span class="master-combat-entity__name-row"><span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span></span><strong class="master-combat-entity__hp-label">🔒 ${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}</strong></span>
       </article>
@@ -13741,7 +13879,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
       aria-label="${escapeHtml(displayName)}"
     >
       <span class="master-combat-entity__rail">
-        <span class="master-combat-entity__initiative" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span>
+        <span class="master-combat-entity__initiative" data-mobile-entity-stand-context="${escapeHtml(combatant.id)}" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span>
         <button class="master-combat-entity__remove" type="button" data-action="delete-combatant-row" data-combatant-id="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(isEnglishInterface() ? `Remove ${displayName}` : `Quitar ${displayName}`)}" title="${escapeHtml(isEnglishInterface() ? "Remove entity" : "Quitar entidad")}"><span aria-hidden="true">×</span></button>
       </span>
       <span class="master-combat-entity__portrait">
@@ -20571,7 +20709,13 @@ function renderCharacterEditor(character) {
       ${renderCharacterStatsPanel(character)}
       <div class="character-sheet__side">
         <div class="character-metrics-strip">
-          ${renderCharacterMetricField("maxHp", "PG MAX", character.maxHp)}
+          <div class="character-metric-stack character-metric-stack--max-hp">
+            <button class="character-hit-dice-button" type="button" data-action="open-character-hit-dice-dialog" data-character-id="${escapeHtml(character.id)}" title="${escapeHtml(isEnglishInterface() ? "Roll hit dice and add result to MAX HP" : "Tirar dados de vida y sumar el resultado a PG MAX")}">
+              <img src="${escapeHtml(combatHitDiceIconUrl)}" alt="" aria-hidden="true" />
+              <span>${escapeHtml(isEnglishInterface() ? "Hit dice" : "Dados de vida")}</span>
+            </button>
+            ${renderCharacterMetricField("maxHp", "PG MAX", character.maxHp)}
+          </div>
           ${renderCharacterMetricField("armorClass", "CA", character.armorClass)}
           ${renderCharacterMetricField("initiativeBonus", "Bonus iniciativa", character.initiativeBonus)}
           ${renderCharacterMetricField("speed", "Velocidad", character.speed, "30 ft")}

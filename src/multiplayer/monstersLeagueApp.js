@@ -1007,7 +1007,7 @@ function renderMasterTeamEntityCard(player, item, selected, active) {
 
   return `
     <button class="master-combat-entity has-team-color ${hidesHealth ? "is-rival-private" : ""} ${selected ? "is-selected" : ""} ${active ? "is-active-turn" : ""} ${statusNames.length ? "has-statuses" : ""}" style="--team-color:${escapeHtml(teamColor)}" type="button" data-ml-action="select-monster" data-monster-id="${escapeHtml(item.selectionId)}" data-combat-turn-token-context="${escapeHtml(combatant.id)}" aria-pressed="${selected}">
-      <span class="master-combat-entity__initiative" title="${language === "en" ? "Stand" : "Peana"}">${escapeHtml(standNumber)}</span>
+      <span class="master-combat-entity__initiative" data-ml-mobile-entity-stand-context="${escapeHtml(combatant.id)}" title="${language === "en" ? "Stand" : "Peana"}">${escapeHtml(standNumber)}</span>
       <span class="master-combat-entity__portrait">
         ${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getInitials(monster.name))}</span>`}
         ${active ? `<i title="${language === "en" ? "Current turn" : "Turno actual"}"></i>` : ""}
@@ -1687,6 +1687,15 @@ function handleClick(event) {
     state.diceTargetMenu = null;
     closedDiceTargetMenu = true;
     app.querySelector("[data-ml-dice-target-menu]")?.remove();
+  }
+  const mobileEntityStand = event.target.closest?.("[data-ml-mobile-entity-stand-context]");
+  if (mobileEntityStand && (window.innerWidth || 0) <= 760) {
+    const rect = mobileEntityStand.getBoundingClientRect();
+    event.preventDefault();
+    event.stopPropagation();
+    openLeagueCombatQuickMenu(mobileEntityStand.dataset.mlMobileEntityStandContext, rect.right, rect.bottom + 4, "main");
+    render();
+    return;
   }
   if (event.target.closest?.("[data-combat-turn-quick-menu]")) {
     handleLeagueCombatQuickMenuClick(event);

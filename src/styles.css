@@ -1373,7 +1373,7 @@ body.has-compendium-reference-popup {
 
 .dice-roller-log {
   min-height: 0;
-  padding: 0.55rem;
+  padding: 0.36rem;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-color: rgba(217, 171, 93, 0.42) rgba(0, 0, 0, 0.16);
@@ -1400,33 +1400,33 @@ body.has-compendium-reference-popup {
 }
 
 .dice-roll-entry {
-  padding: 0.42rem;
+  padding: 0.26rem 0.3rem;
   border: 1px solid rgba(215, 171, 103, 0.2);
-  border-radius: 13px;
+  border-radius: 9px;
   background: rgba(0, 0, 0, 0.2);
 }
 
 .dice-roll-entry + .dice-roll-entry {
-  margin-top: 0.38rem;
+  margin-top: 0.22rem;
 }
 
 .dice-roll-entry > header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding-bottom: 0.28rem;
+  gap: 0.32rem;
+  padding-bottom: 0.16rem;
   border-bottom: 1px solid rgba(215, 171, 103, 0.12);
 }
 
 .dice-roll-entry__target {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: .08rem .38rem;
-  margin-top: .3rem;
-  padding: .28rem .4rem;
+  gap: .04rem .28rem;
+  margin-top: .18rem;
+  padding: .17rem .28rem;
   border: 1px solid rgba(217, 171, 93, .25);
-  border-radius: 9px;
+  border-radius: 7px;
   background: rgba(217, 171, 93, .07);
 }
 
@@ -1434,7 +1434,7 @@ body.has-compendium-reference-popup {
   grid-row: 1 / span 2;
   align-self: center;
   color: #f1d49b;
-  font-size: .68rem;
+  font-size: .61rem;
   letter-spacing: .07em;
 }
 
@@ -1448,13 +1448,13 @@ body.has-compendium-reference-popup {
 
 .dice-roll-entry__target span {
   color: var(--text);
-  font-size: .74rem;
+  font-size: .68rem;
   font-weight: 800;
 }
 
 .dice-roll-entry__target small {
   color: var(--muted);
-  font-size: .65rem;
+  font-size: .59rem;
 }
 
 .dice-roll-entry__target--hit {
@@ -1496,21 +1496,21 @@ body.has-compendium-reference-popup {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
 }
 
 .dice-roll-entry__title {
   display: flex;
   align-items: baseline;
   min-width: 0;
-  gap: 0.55rem;
+  gap: 0.32rem;
 }
 
 .dice-roll-entry__title time {
   flex: 0 0 auto;
   color: var(--accent-soft);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 800;
 }
 
@@ -1518,12 +1518,12 @@ body.has-compendium-reference-popup {
   flex: 0 1 auto;
   max-width: 9rem;
   overflow: hidden;
-  padding: 0.16rem 0.38rem;
+  padding: 0.1rem 0.28rem;
   border: 1px solid rgba(224, 177, 104, 0.34);
   border-radius: 999px;
   color: #f0c982;
   background: rgba(133, 82, 34, 0.18);
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1531,13 +1531,13 @@ body.has-compendium-reference-popup {
 
 .dice-roll-entry__mode {
   flex: 0 0 auto;
-  padding: 0.18rem 0.38rem;
+  padding: 0.1rem 0.28rem;
   border: 1px solid rgba(124, 190, 153, 0.42);
   border-radius: 999px;
   color: #a8dbba;
   background: rgba(50, 126, 82, 0.12);
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.54rem;
+  font-size: 0.5rem;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
@@ -1550,14 +1550,14 @@ body.has-compendium-reference-popup {
 
 .dice-roll-entry__total {
   flex: 0 0 auto;
-  min-width: 2.7rem;
-  padding: 0.24rem 0.45rem;
+  min-width: 2.25rem;
+  padding: 0.15rem 0.3rem;
   border: 1px solid rgba(96, 220, 159, 0.62);
-  border-radius: 0.65rem;
+  border-radius: 0.5rem;
   color: #a8f0c9;
   background: linear-gradient(180deg, rgba(45, 139, 91, 0.28), rgba(22, 79, 54, 0.22));
   box-shadow: inset 0 0 0 1px rgba(152, 240, 196, 0.08), 0 5px 14px rgba(0, 0, 0, 0.2);
-  font-size: 1.15rem;
+  font-size: 0.95rem;
   line-height: 1;
   text-align: center;
 }
@@ -1570,53 +1570,53 @@ body.has-compendium-reference-popup {
 
 .dice-roll-entry__groups {
   display: grid;
-  gap: 0.28rem;
-  padding-top: 0.32rem;
+  gap: 0.14rem;
+  padding-top: 0.18rem;
 }
 
 .dice-roll-entry__calculation {
   margin: 0;
   color: var(--muted);
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-style: italic;
 }
 
 .dice-roll-group {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.22rem;
 }
 
 .dice-roll-group__subtotal {
   align-self: center;
   color: var(--accent-soft);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   white-space: nowrap;
 }
 
 .dice-roll-group__notation {
-  min-width: 2.7rem;
-  padding-top: 0.22rem;
+  min-width: 2.3rem;
+  padding-top: 0;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.68rem;
+  font-size: 0.6rem;
 }
 
 .dice-roll-group__dice {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.2rem;
+  gap: 0.1rem;
 }
 
 .dice-result {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 2.05rem;
-  height: 2.05rem;
+  width: 1.62rem;
+  height: 1.62rem;
   color: #f3d7a2;
 }
 
@@ -16695,6 +16695,53 @@ body.is-table-resizing * {
   border-top: 0;
 }
 
+.character-metric-stack {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.character-hit-dice-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  width: 100%;
+  min-height: 1.75rem;
+  padding: 0.22rem 0.4rem;
+  border: 1px solid rgba(190, 133, 224, 0.42);
+  border-radius: 0.55rem;
+  color: #ead5f7;
+  background: linear-gradient(180deg, rgba(112, 61, 141, 0.28), rgba(64, 35, 86, 0.25));
+  font: 800 0.68rem/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.character-hit-dice-button:hover,
+.character-hit-dice-button:focus-visible {
+  border-color: rgba(215, 167, 241, 0.75);
+  background: linear-gradient(180deg, rgba(132, 72, 166, 0.42), rgba(76, 41, 101, 0.38));
+}
+
+.character-hit-dice-button img {
+  width: 1.1rem;
+  height: 1.1rem;
+  object-fit: contain;
+}
+
+.character-hit-dice-dialog__panel {
+  width: min(31rem, calc(100vw - 2rem));
+}
+
+.character-hit-dice-dialog__hint {
+  margin: -0.2rem 0 0;
+  color: var(--muted);
+  font: 0.72rem/1.35 ui-sans-serif, system-ui, sans-serif;
+}
+
 .character-metric-field {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -23712,6 +23759,16 @@ button.character-stat-block__modifier--roll:focus-visible {
 
 /* Mobile combat workspace: title controls stay compact; panels become one readable column. */
 @media (max-width: 760px) {
+  [data-mobile-entity-stand-context],
+  [data-ml-mobile-entity-stand-context] {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .master-combat-entity > .combat-turn-token__status-summary {
+    display: none !important;
+  }
+
   .topbar {
     position: relative;
   }

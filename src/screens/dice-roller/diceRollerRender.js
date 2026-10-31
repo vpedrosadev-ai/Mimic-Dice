@@ -10,7 +10,6 @@ export function renderDiceRollerDock({
   language = "es",
   isPopout = false,
   helpOpen = false,
-  hitDiceMode = false,
   rollMode = "",
   modifier = "+0",
   diceTrayOpen = false
@@ -102,16 +101,6 @@ export function renderDiceRollerDock({
             title="${escapeHtml(isEnglish ? "Quick dice" : "Dados rápidos")}"
           >
             ${renderDieIcon(20)}
-          </button>
-          <button
-            class="dice-roller-control dice-roller-hit-dice${hitDiceMode ? " is-active" : ""}"
-            type="button"
-            data-action="toggle-dice-roller-hit-dice"
-            aria-pressed="${hitDiceMode}"
-            title="${escapeHtml(isEnglish ? "Apply the fixed hit-die average as a minimum to every die" : "Aplica la media fija del dado de golpe como mínimo a cada dado")}"
-          >
-            <span aria-hidden="true">HP</span>
-            <strong>${escapeHtml(isEnglish ? "Hit dice" : "Dados de vida")}</strong>
           </button>
           ${renderRollModeButton("advantage", rollMode, isEnglish)}
           ${renderRollModeButton("disadvantage", rollMode, isEnglish)}
