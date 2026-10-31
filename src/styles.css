@@ -2193,6 +2193,22 @@ table {
   margin-top: 1.25rem;
 }
 
+.campaign-load-progress {
+  z-index: 230;
+}
+
+.campaign-load-progress__panel {
+  width: min(34rem, 100%);
+}
+
+.campaign-load-progress__value {
+  margin: 0.65rem 0 0;
+  color: var(--accent-soft);
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .boot-overlay__chip {
   display: flex;
   align-items: center;
@@ -24110,7 +24126,9 @@ button.character-stat-block__modifier--roll:focus-visible {
   }
 
   [data-mobile-entity-stand-context],
-  [data-ml-mobile-entity-stand-context] {
+  [data-mobile-entity-portrait-context],
+  [data-ml-mobile-entity-stand-context],
+  [data-ml-mobile-entity-portrait-context] {
     cursor: pointer;
     touch-action: manipulation;
   }

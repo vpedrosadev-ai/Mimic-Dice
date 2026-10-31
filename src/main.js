@@ -956,6 +956,13 @@ state = {
   campaignSaveNameDialogMode: "",
   campaignSaveNameDialogValue: "",
   campaignSaveNameDialogError: "",
+  campaignLoadProgressOpen: false,
+  campaignLoadProgressValue: 0,
+  campaignLoadProgressMessage: "",
+  concentrationDescriptionDialogOpen: false,
+  concentrationDescriptionDialogCombatantId: "",
+  concentrationDescriptionDialogStatusName: "",
+  concentrationDescriptionDialogValue: "",
   compendiumCreateDialogOpen: false,
   compendiumCreateKind: "",
   compendiumCreateMode: "create",
@@ -1735,13 +1742,13 @@ async function handleClick(event) {
     return;
   }
 
-  const mobileEntityStand = event.target.closest?.("[data-mobile-entity-stand-context]");
-  if (mobileEntityStand && (window.innerWidth || 0) <= 760) {
-    const rect = mobileEntityStand.getBoundingClientRect();
+  const mobileEntityTrigger = event.target.closest?.("[data-mobile-entity-stand-context], [data-mobile-entity-portrait-context]");
+  if (mobileEntityTrigger && (window.innerWidth || 0) <= 760) {
+    const rect = mobileEntityTrigger.getBoundingClientRect();
     event.preventDefault();
     event.stopPropagation();
     openCombatTurnQuickMenu(
-      mobileEntityStand.dataset.mobileEntityStandContext,
+      mobileEntityTrigger.dataset.mobileEntityStandContext || mobileEntityTrigger.dataset.mobileEntityPortraitContext,
       rect.right,
       rect.bottom + 4,
       "main"
@@ -3006,6 +3013,17 @@ async function handleClick(event) {
 
   if (action === "confirm-campaign-save-name-dialog") {
     submitCampaignSaveNameDialog();
+    return;
+  }
+
+  if (action === "dismiss-concentration-description-dialog") {
+    closeConcentrationDescriptionDialog();
+    render();
+    return;
+  }
+
+  if (action === "confirm-concentration-description-dialog") {
+    confirmConcentrationDescriptionDialog();
     return;
   }
 
@@ -5711,6 +5729,11 @@ function handleInput(event) {
     return;
   }
 
+  if (target.matches("[data-concentration-description-input]")) {
+    state.concentrationDescriptionDialogValue = target.value;
+    return;
+  }
+
   if (target.matches("[data-compendium-create-field]")) {
     updateCompendiumCreateDraftField(target.dataset.compendiumCreateField, target.value);
     return;
@@ -6342,6 +6365,12 @@ function handleKeydown(event) {
   if (target.matches("[data-campaign-save-name-input]") && event.key === "Enter") {
     event.preventDefault();
     submitCampaignSaveNameDialog();
+    return;
+  }
+
+  if (target.matches("[data-concentration-description-input]") && event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    confirmConcentrationDescriptionDialog();
     return;
   }
 
@@ -7382,6 +7411,29 @@ function renderBootOverlay() {
   `;
 }
 
+function renderCampaignLoadProgressDialog() {
+  if (!state.campaignLoadProgressOpen) return "";
+
+  const progress = Math.max(0, Math.min(100, Math.round(toNumber(state.campaignLoadProgressValue))));
+  const message = cleanText(state.campaignLoadProgressMessage)
+    || (isEnglishInterface() ? "Preparing the saved campaign..." : "Preparando la campaña guardada...");
+
+  return `
+    <div class="boot-overlay campaign-load-progress" role="dialog" aria-modal="true" aria-labelledby="campaign-load-progress-title">
+      <section class="boot-overlay__panel campaign-load-progress__panel">
+        <div class="boot-overlay__crest" aria-hidden="true">MD</div>
+        <p class="boot-overlay__eyebrow">${escapeHtml(isEnglishInterface() ? "Saved file" : "Fichero de guardado")}</p>
+        <h2 class="boot-overlay__title" id="campaign-load-progress-title">${escapeHtml(isEnglishInterface() ? "Loading campaign" : "Cargando campaña")}</h2>
+        <p class="boot-overlay__text">${escapeHtml(message)}</p>
+        <div class="boot-overlay__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
+          <span style="width:${progress}%"></span>
+        </div>
+        <p class="campaign-load-progress__value">${progress}%</p>
+      </section>
+    </div>
+  `;
+}
+
 function renderCampaignSaveNameDialog() {
   if (!state.campaignSaveNameDialogOpen) {
     return "";
@@ -7439,6 +7491,31 @@ function renderCampaignSaveNameDialog() {
           >
             Confirmar
           </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderConcentrationDescriptionDialog() {
+  if (!state.concentrationDescriptionDialogOpen) return "";
+
+  return `
+    <div class="campaign-save-dialog concentration-description-dialog" role="presentation">
+      <div class="campaign-save-dialog__backdrop" data-action="dismiss-concentration-description-dialog" aria-hidden="true"></div>
+      <section class="campaign-save-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="concentration-description-dialog-title">
+        <p class="campaign-save-dialog__eyebrow">${escapeHtml(isEnglishInterface() ? "Combat status" : "Estado de combate")}</p>
+        <h2 class="campaign-save-dialog__title" id="concentration-description-dialog-title">${escapeHtml(isEnglishInterface() ? "Add concentration" : "Añadir concentración")}</h2>
+        <p class="campaign-save-dialog__text">${escapeHtml(isEnglishInterface()
+          ? "Optionally describe what this creature is concentrating on."
+          : "Puedes indicar en qué se está concentrando esta criatura.")}</p>
+        <label class="campaign-save-dialog__field">
+          <span>${escapeHtml(isEnglishInterface() ? "Description (optional)" : "Descripción (opcional)")}</span>
+          <input class="campaign-save-dialog__input" type="text" maxlength="160" value="${escapeHtml(state.concentrationDescriptionDialogValue)}" data-concentration-description-input placeholder="${escapeHtml(isEnglishInterface() ? "E.g. Invisibility" : "Ej. Invisibilidad")}" />
+        </label>
+        <div class="campaign-save-dialog__actions">
+          <button class="summary-button summary-button--ghost" type="button" data-action="dismiss-concentration-description-dialog">${escapeHtml(isEnglishInterface() ? "Cancel" : "Cancelar")}</button>
+          <button class="summary-button" type="button" data-action="confirm-concentration-description-dialog">${escapeHtml(isEnglishInterface() ? "Apply" : "Aplicar")}</button>
         </div>
       </section>
     </div>
@@ -9826,9 +9903,11 @@ function render(focusState = null) {
       ${renderCombatSpellPreviewOverlay()}
       ${renderCharacterOverviewHeaderTooltipOverlay()}
       ${renderBootOverlay()}
+      ${renderCampaignLoadProgressDialog()}
       ${renderOptionsDialog()}
       ${renderImportExportDialog()}
       ${renderCampaignSaveNameDialog()}
+      ${renderConcentrationDescriptionDialog()}
       ${renderCharacterHitDiceDialog()}
       ${renderDiaryHarptosDayNoteDialog()}
       ${renderCharacterSpellbookAbilityDescriptionDialog()}
@@ -13917,7 +13996,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
     return `
       <article class="master-combat-entity is-rival-private ${active ? "is-active-turn" : ""}" data-combat-turn-token-context="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(displayName)}">
         <span class="master-combat-entity__rail"><span class="master-combat-entity__initiative" data-mobile-entity-stand-context="${escapeHtml(combatant.id)}" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span></span>
-        <span class="master-combat-entity__portrait">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
+        <span class="master-combat-entity__portrait" data-mobile-entity-portrait-context="${escapeHtml(combatant.id)}">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
         <span class="master-combat-entity__copy"><span class="master-combat-entity__name-row"><span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span></span><strong class="master-combat-entity__hp-label">🔒 ${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}</strong></span>
       </article>
     `;
@@ -13939,7 +14018,7 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
         <span class="master-combat-entity__initiative" data-mobile-entity-stand-context="${escapeHtml(combatant.id)}" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span>
         <button class="master-combat-entity__remove" type="button" data-action="delete-combatant-row" data-combatant-id="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(isEnglishInterface() ? `Remove ${displayName}` : `Quitar ${displayName}`)}" title="${escapeHtml(isEnglishInterface() ? "Remove entity" : "Quitar entidad")}"><span aria-hidden="true">×</span></button>
       </span>
-      <span class="master-combat-entity__portrait">
+      <span class="master-combat-entity__portrait" data-mobile-entity-portrait-context="${escapeHtml(combatant.id)}">
         ${tokenUrl
           ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">`
           : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}
@@ -27874,7 +27953,37 @@ function addCombatTurnQuickStatus(combatantId, statusName) {
   return true;
 }
 
-function toggleCombatantStatus(combatantId, statusName) {
+function openConcentrationDescriptionDialog(combatantId, statusName) {
+  state.concentrationDescriptionDialogOpen = true;
+  state.concentrationDescriptionDialogCombatantId = cleanText(combatantId);
+  state.concentrationDescriptionDialogStatusName = cleanText(statusName);
+  state.concentrationDescriptionDialogValue = "";
+  render({ focusSelector: "[data-concentration-description-input]" });
+}
+
+function closeConcentrationDescriptionDialog() {
+  state.concentrationDescriptionDialogOpen = false;
+  state.concentrationDescriptionDialogCombatantId = "";
+  state.concentrationDescriptionDialogStatusName = "";
+  state.concentrationDescriptionDialogValue = "";
+}
+
+function confirmConcentrationDescriptionDialog() {
+  const combatantId = state.concentrationDescriptionDialogCombatantId;
+  const statusName = state.concentrationDescriptionDialogStatusName;
+  const concentrationDetail = cleanText(state.concentrationDescriptionDialogValue).slice(0, 160);
+  closeConcentrationDescriptionDialog();
+  toggleCombatantStatus(combatantId, statusName, {
+    skipConcentrationDescriptionDialog: true,
+    concentrationDetail
+  });
+  saveCombatTrackerState();
+  combatMapController.sync();
+  syncCombatTurnPopout();
+  render();
+}
+
+function toggleCombatantStatus(combatantId, statusName, options = {}) {
   const normalizedStatus = cleanText(statusName);
   const canonicalTargetStatus = getCanonicalCombatStatusName(normalizedStatus);
 
@@ -27887,13 +27996,11 @@ function toggleCombatantStatus(combatantId, statusName) {
   const alreadyActive = getCombatantStatusNames(targetCombatant || {})
     .some((entry) => normalizeTranslationKey(getCanonicalCombatStatusName(entry).toLowerCase()) === targetKey);
   const concentration = splitConcentrationStatusName(normalizedStatus);
-  let concentrationDetail = concentration?.detail || "";
+  let concentrationDetail = cleanText(options.concentrationDetail || concentration?.detail).slice(0, 160);
 
-  if (concentration && !alreadyActive && !concentrationDetail && typeof window?.prompt === "function") {
-    concentrationDetail = cleanText(window.prompt(
-      isEnglishInterface() ? "What is this creature concentrating on? (optional)" : "¿En qué se concentra esta criatura? (opcional)",
-      ""
-    ));
+  if (concentration && !alreadyActive && !concentrationDetail && options.skipConcentrationDescriptionDialog !== true) {
+    openConcentrationDescriptionDialog(combatantId, normalizedStatus);
+    return;
   }
 
   let addedStatusName = "";
@@ -34790,11 +34897,14 @@ async function loadCloudCampaignById(campaignId, options = {}) {
   cloudCampaignSaveSuspended = true;
 
   try {
+    await updateCampaignLoadProgress(12, isEnglishInterface() ? "Connecting to the cloud..." : "Conectando con la nube...");
     const result = await getCloudCampaign(normalizedId);
+    await updateCampaignLoadProgress(42, isEnglishInterface() ? "Validating the saved file..." : "Validando el fichero guardado...");
     const campaign = normalizeCampaignSave(result.payload);
     if (result.campaign?.isShared === true) {
       campaign.combatMap = restoreSharedCampaignLocalMapPreferences(campaign.combatMap, normalizedId);
     }
+    await updateCampaignLoadProgress(68, isEnglishInterface() ? "Restoring the campaign..." : "Restaurando la campaña...");
     state.campaignFileName = "";
     state.campaignFilePath = "";
     applyCampaignSave(campaign);
@@ -34804,10 +34914,13 @@ async function loadCloudCampaignById(campaignId, options = {}) {
     state.accountError = "";
     cloudCampaignSaveSuspended = false;
     endCloudOperation("loading", operationTarget);
+    await updateCampaignLoadProgress(100, isEnglishInterface() ? "Campaign ready." : "Campaña lista.");
+    closeCampaignLoadProgress();
     render();
     return true;
   } catch (error) {
     cloudCampaignSaveSuspended = false;
+    closeCampaignLoadProgress();
     state.accountError = getCloudErrorMessage(error);
 
     if (error instanceof CloudApiError && error.status === 404) {
@@ -34815,9 +34928,7 @@ async function loadCloudCampaignById(campaignId, options = {}) {
     }
 
     endCloudOperation("loading", operationTarget);
-    if (options.silent !== true) {
-      render();
-    }
+    render();
     return false;
   }
 }
@@ -36527,19 +36638,26 @@ async function loadDesktopCampaignFile(loadCampaign) {
       return;
     }
 
+    await updateCampaignLoadProgress(25, isEnglishInterface() ? "Reading the saved file..." : "Leyendo el fichero guardado...");
     const campaign = normalizeCampaignSave(result?.payload);
+    await updateCampaignLoadProgress(55, isEnglishInterface() ? "Validating the campaign..." : "Validando la campaña...");
 
     if (!await prepareToReplaceActiveCloudCampaign()) {
+      closeCampaignLoadProgress();
       render();
       return;
     }
 
+    await updateCampaignLoadProgress(75, isEnglishInterface() ? "Restoring the campaign..." : "Restaurando la campaña...");
     detachActiveCloudCampaign();
     state.campaignLoadedFromPublic = false;
     applyCampaignSave(campaign, result);
     state.campaignMessage = `Campaña cargada: ${campaign.name}`;
+    await updateCampaignLoadProgress(100, isEnglishInterface() ? "Campaign ready." : "Campaña lista.");
+    closeCampaignLoadProgress();
     render();
   } catch {
+    closeCampaignLoadProgress();
     state.campaignMessage = "No se pudo cargar el archivo de campaña.";
     render();
   }
@@ -36551,15 +36669,20 @@ async function loadCampaignFile(file) {
   }
 
   try {
+    await updateCampaignLoadProgress(15, isEnglishInterface() ? "Reading the saved file..." : "Leyendo el fichero guardado...");
     const rawValue = await file.text();
+    await updateCampaignLoadProgress(38, isEnglishInterface() ? "Decoding the saved file..." : "Procesando el fichero guardado...");
     const parsedValue = JSON.parse(rawValue);
     const campaign = normalizeCampaignSave(parsedValue);
+    await updateCampaignLoadProgress(58, isEnglishInterface() ? "Validating the campaign..." : "Validando la campaña...");
 
     if (!await prepareToReplaceActiveCloudCampaign()) {
+      closeCampaignLoadProgress();
       render();
       return;
     }
 
+    await updateCampaignLoadProgress(75, isEnglishInterface() ? "Restoring the campaign..." : "Restaurando la campaña...");
     detachActiveCloudCampaign();
     state.campaignLoadedFromPublic = false;
     applyCampaignSave(campaign, {
@@ -36568,8 +36691,11 @@ async function loadCampaignFile(file) {
       payload: parsedValue
     });
     state.campaignMessage = `Campaña cargada: ${campaign.name}`;
+    await updateCampaignLoadProgress(100, isEnglishInterface() ? "Campaign ready." : "Campaña lista.");
+    closeCampaignLoadProgress();
     render();
   } catch {
+    closeCampaignLoadProgress();
     state.campaignMessage = "No se pudo cargar el archivo de campaña.";
     render();
   }
@@ -36714,6 +36840,20 @@ async function loadJsonAsset(assetUrl, desktopRelativePath = "") {
   } catch {
     return {};
   }
+}
+
+async function updateCampaignLoadProgress(value, message) {
+  state.campaignLoadProgressOpen = true;
+  state.campaignLoadProgressValue = Math.max(0, Math.min(100, toNumber(value)));
+  state.campaignLoadProgressMessage = cleanText(message);
+  render();
+  await waitForNextPaint();
+}
+
+function closeCampaignLoadProgress() {
+  state.campaignLoadProgressOpen = false;
+  state.campaignLoadProgressValue = 0;
+  state.campaignLoadProgressMessage = "";
 }
 
 function waitForNextPaint() {
