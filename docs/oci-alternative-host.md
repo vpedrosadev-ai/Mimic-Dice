@@ -15,7 +15,7 @@ This deployment runs Mimic Dice without Cloudflare in the request path. Cloudfla
 
 The ignored local directory `.migration-data/` contains the original D1 SQL export. The ignored `.runtime/` directory contains the restored SQLite database used by local verification.
 
-The production R2 bucket reported zero objects at export time even though D1 contained 98 `cloud_assets` rows. Therefore no R2 binaries were available to copy. Static application assets are independent: the complete build contains about 1.17 GB and is deployed normally.
+The R2 bucket statistics incorrectly reported zero objects even though D1 contained 98 `cloud_assets` rows. Direct downloads by D1 object key succeeded: all 98 objects (about 75 MiB) were copied into `.runtime/objects` and verified against their stored byte sizes and SHA-256 hashes. Static application assets are independent: the complete build contains about 1.17 GB and is deployed normally.
 
 The importer clears OAuth access/refresh/ID tokens, stored sessions, and verification tokens from the migrated SQLite copy. User IDs, Google provider account IDs, campaigns, library entries, collaboration data, and application content remain intact. Use `--preserve-oauth-tokens` only for an offline archival restore, never for deployment.
 
@@ -67,17 +67,23 @@ Recreate a clean deployment copy locally from the latest export:
 
 ```powershell
 npm run db:import:cloudflare -- --force
+npm run assets:export:cloudflare
 ```
 
 Transfer it through SSH, then install it with restrictive ownership:
 
 ```powershell
 scp .runtime/data/mimic-dice.sqlite USER@HOST:/tmp/mimic-dice.sqlite
+tar -czf .migration-data/mimic-dice-objects.tar.gz -C .runtime/objects .
+scp .migration-data/mimic-dice-objects.tar.gz USER@HOST:/tmp/mimic-dice-objects.tar.gz
 ```
 
 ```bash
 sudo install -o mimic-dice -g mimic-dice -m 0600 /tmp/mimic-dice.sqlite /var/lib/mimic-dice/mimic-dice.sqlite
+sudo tar -xzf /tmp/mimic-dice-objects.tar.gz -C /var/lib/mimic-dice/objects
+sudo chown -R mimic-dice:mimic-dice /var/lib/mimic-dice/objects
 rm /tmp/mimic-dice.sqlite
+rm /tmp/mimic-dice-objects.tar.gz
 ```
 
 ## Release activation
