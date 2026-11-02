@@ -10,6 +10,9 @@
     "build": "npm run release-notes:generate && npm run compendium:generate && npm run classes:generate && vite build",
     "build:cloudflare": "npm run build",
     "deploy:cloudflare:backend": "wrangler d1 migrations apply mimic-dice-production --remote && wrangler deploy --config workers/monsters-league/wrangler.toml",
+    "db:import:cloudflare": "node scripts/import-cloudflare-export.mjs",
+    "start:alternative": "node server/index.js",
+    "verify:alternative": "node scripts/verify-alternative-runtime.mjs",
     "test:domain": "node tests/cloudflare-domain.test.js",
     "preview": "vite preview",
     "compendium:generate": "node scripts/generate-compendium-bundles.mjs",
@@ -94,7 +97,10 @@
   "dependencies": {
     "@auth/core": "^0.41.3",
     "@auth/d1-adapter": "^1.11.3",
+    "better-sqlite3": "^12.4.1",
+    "mime-types": "^3.0.2",
     "pdf-lib": "^1.17.1",
+    "ws": "^8.18.3",
     "xlsx": "^0.18.5"
   }
 }

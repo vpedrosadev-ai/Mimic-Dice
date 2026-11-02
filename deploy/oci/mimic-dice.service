@@ -1,0 +1,24 @@
+[Unit]
+Description=Mimic Dice alternative host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mimic-dice
+Group=mimic-dice
+WorkingDirectory=/opt/mimic-dice/current
+EnvironmentFile=/etc/mimic-dice/mimic-dice.env
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mimic-dice
+
+[Install]
+WantedBy=multi-user.target

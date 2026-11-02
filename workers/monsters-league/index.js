@@ -1,5 +1,3 @@
-import { DurableObject } from "cloudflare:workers";
-
 import {
   addMonstersLeaguePlayer,
   advanceMonstersLeagueDraft,
@@ -27,9 +25,8 @@ import {
 const ROOM_STORAGE_KEY = "room";
 const CATALOG_STORAGE_KEY = "catalog";
 
-export class MonstersLeagueRoom extends DurableObject {
+export class MonstersLeagueRoom {
   constructor(ctx, env) {
-    super(ctx, env);
     this.ctx = ctx;
     this.env = env;
     this.room = null;
@@ -328,9 +325,8 @@ export class MonstersLeagueRoom extends DurableObject {
 
 const SHARED_CAMPAIGN_METADATA_KEY = "campaign-metadata";
 
-export class SharedCampaignRoom extends DurableObject {
+export class SharedCampaignRoom {
   constructor(ctx, env) {
-    super(ctx, env);
     this.ctx = ctx;
     this.env = env;
     this.metadata = null;
