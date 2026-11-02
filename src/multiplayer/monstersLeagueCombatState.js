@@ -26,6 +26,14 @@ export function mergeMonstersLeagueProjectedCombatantLiveState(combatant, combat
   };
 }
 
+export function getMonstersLeagueCombatantConditions(combatState, combatant) {
+  const live = getMonstersLeagueLiveCombatant(combatState, combatant);
+  if (Array.isArray(live?.conditions)) {
+    return [...new Set(live.conditions.map(cleanText).filter(Boolean))];
+  }
+  return [...new Set(cleanText(combatant?.condiciones).split(/[,;|]/).map(cleanText).filter(Boolean))];
+}
+
 export function applyMonstersLeagueCombatDamage(combatState, command = {}) {
   const teamId = cleanText(command.teamId);
   const monsterId = cleanText(command.monsterId);
@@ -72,6 +80,30 @@ export function applyMonstersLeagueCombatantPatch(combatState, command = {}) {
   const effectiveMax = Math.max(0, nonNegative(live.maxHp) - nonNegative(live.necrotic));
   live.currentHp = Math.min(nonNegative(live.currentHp), effectiveMax);
   return nextState;
+}
+
+export function applyMonstersLeagueMapTokenPosition(mapProjection, command = {}) {
+  if (!mapProjection || mapProjection.open !== true || !mapProjection.editorState) return null;
+  const id = cleanText(command.id).slice(0, 120);
+  const x = Number(command.position?.x);
+  const y = Number(command.position?.y);
+  const validIds = new Set((Array.isArray(mapProjection.combatants) ? mapProjection.combatants : [])
+    .map((combatant) => cleanText(combatant?.id)).filter(Boolean));
+  if (!id || !validIds.has(id) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  const nextProjection = structuredClone(mapProjection);
+  const editorState = nextProjection.editorState;
+  editorState.tokenPositions = editorState.tokenPositions && typeof editorState.tokenPositions === "object"
+    ? editorState.tokenPositions
+    : {};
+  editorState.tokenPositions[id] = {
+    x: Math.max(0, Math.min(100000, x)),
+    y: Math.max(0, Math.min(100000, y))
+  };
+  const requestedOrder = Array.isArray(command.stackOrder) ? command.stackOrder : [];
+  const stackOrder = [...new Set(requestedOrder.map(cleanText).filter((tokenId) => validIds.has(tokenId)))];
+  editorState.tokenStackOrder = [...stackOrder.filter((tokenId) => tokenId !== id), id].slice(-1000);
+  return nextProjection;
 }
 
 export function advanceMonstersLeagueCombatTurn(combatState, combatMeta, direction = 1) {

@@ -1256,6 +1256,10 @@
   overflow: hidden;
 }
 
+.ml-master-view-panel:has(.combat-turn-quick-menu) {
+  overflow: visible;
+}
+
 .ml-master-view-heading {
   display: flex;
   align-items: center;

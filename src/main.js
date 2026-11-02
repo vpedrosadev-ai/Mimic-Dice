@@ -583,6 +583,7 @@ const masterCombatWorkspaceSheetScrollPositions = new Map();
 let activeMasterCombatWorkspaceResize = null;
 const MASTER_COMBAT_WORKSPACE_LAYOUT_KEY = "mimic-dice:master-combat-workspace-layout:v2";
 const MASTER_COMBAT_WORKSPACE_MODE_KEY = "mimic-dice:master-combat-workspace-mode:v1";
+const MASTER_COMBAT_WORKSPACE_VISIBLE_KEY = "mimic-dice:master-combat-workspace-visible:v1";
 let masterCombatWorkspaceLayout = loadMasterCombatWorkspaceLayout();
 const combatantPreviewPopoutWindows = new Map();
 let combatantPreviewPopoutPollInterval = 0;
@@ -845,6 +846,7 @@ state = {
   appLanguage: normalizeStoredAppLanguage(initialCampaignMeta.language),
   contentLanguage: normalizeStoredContentLanguage(initialCampaignMeta.contentLanguage),
   includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(initialCampaignMeta.includeNpcInCombatExperience),
+  hideEnemyNamesFromPlayers: initialCampaignMeta.hideEnemyNamesFromPlayers === true,
   soundSettings: normalizeStoredSoundSettings(initialCampaignMeta.soundSettings),
   notificationSettings: normalizeStoredNotificationSettings(initialCampaignMeta.notificationSettings),
   repositoryCsvPaths: normalizeStoredRepositoryCsvPaths(initialCampaignMeta.repositoryCsvPaths),
@@ -1154,7 +1156,7 @@ state = {
   },
   combatMapMirrorVisible: false,
   combatMapMirrorCollapsed: false,
-  masterCombatWorkspaceVisible: false,
+  masterCombatWorkspaceVisible: loadMasterCombatWorkspaceVisible(),
   masterCombatWorkspaceMode: loadMasterCombatWorkspaceMode(),
   masterCombatWorkspaceConfigOpen: false,
   masterCombatDiceTargetMenu: {
@@ -1189,6 +1191,7 @@ const combatMapController = createCombatMapController({
       tamano: cleanText(combatant.mapTokenSize || linkedCharacter?.size || bestiaryEntry?.size || combatant.tamano) || "Mediano"
     };
   }),
+  getCombatantDisplayName: (combatant, version) => getCombatantDisplayName(combatant, { playerView: version === "player" }),
   showTokenHealth: () => !isCloudCampaignPlayer(),
   showInitiativeHealth: () => !isCloudCampaignPlayer(),
   isToolbarControlVisible: (control) => !isCloudCampaignPlayer() || ["paint", "shapes"].includes(control),
@@ -1222,7 +1225,7 @@ const combatMapController = createCombatMapController({
     const columns = layout.count === turnOrder.length ? layout.columns : 1;
     const position = ["top", "bottom", "left", "right"].includes(layout.position) ? layout.position : "top";
     const statusIconScale = Math.max(20, Math.min(64, Number(layout.statusIconSize) || 36)) / 36;
-    return `<div class="combat-map-initiative-order-inner combat-map-initiative-order-inner--${position}">${renderMapInitiativeControls(turnParticipants, activeId)}<div class="combat-turn-strip" style="--turn-token-scale:${scale};--turn-status-icon-scale:${statusIconScale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken(combatant, combatant.id === activeId, { showHealth: layout.showHealth !== false, showInitiative: layout.showInitiativeValue !== false })).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
+    return `<div class="combat-map-initiative-order-inner combat-map-initiative-order-inner--${position}">${renderMapInitiativeControls(turnParticipants, activeId)}<div class="combat-turn-strip" style="--turn-token-scale:${scale};--turn-status-icon-scale:${statusIconScale};--initiative-columns:${columns};--turn-strip-count:${turnOrder.length}" aria-label="Orden de iniciativa">${turnOrder.map((combatant) => renderCombatTurnToken({ ...combatant, nombre: getCombatantDisplayName(combatant, { playerView: layout.version === "player" }) }, combatant.id === activeId, { showHealth: layout.showHealth !== false, showInitiative: layout.showInitiativeValue !== false })).join("") || "<p class=\"combat-turn-panel__empty\">No hay entidades visibles para el turno.</p>"}</div></div>`;
   },
   renderContextMenu: (viewportWindow, owner) => renderCombatTurnQuickMenu(viewportWindow, owner),
   renderNotifications,
@@ -3876,6 +3879,7 @@ async function handleClick(event) {
 
   if (action === "open-master-combat-workspace") {
     state.masterCombatWorkspaceVisible = !state.masterCombatWorkspaceVisible;
+    try { localStorage.setItem(MASTER_COMBAT_WORKSPACE_VISIBLE_KEY, String(state.masterCombatWorkspaceVisible)); } catch {}
     state.masterCombatWorkspaceConfigOpen = false;
     closeMasterCombatDiceTargetMenu();
     if (state.masterCombatWorkspaceVisible) {
@@ -5515,6 +5519,18 @@ async function handleChange(event) {
   if (target.matches("[data-npc-xp-switch]")) {
     state.includeNpcInCombatExperience = target.checked;
     saveCampaignMeta();
+    render();
+    return;
+  }
+
+  if (target.matches("[data-hide-enemy-names-from-players]")) {
+    if (state.cloudCampaignId && state.cloudCampaignCanManage !== true) {
+      render();
+      return;
+    }
+    state.hideEnemyNamesFromPlayers = target.checked;
+    saveCampaignMeta();
+    combatMapController.sync();
     render();
     return;
   }
@@ -12419,6 +12435,8 @@ function renderOptionsDialog() {
   const activeSection = normalizeStoredOptionsMenuSection(state.optionsMenuSection);
   const usesVariableHp = state.enemyHpMode === ENEMY_HP_MODE_VARIABLE;
   const includesNpcExperience = state.includeNpcInCombatExperience === true;
+  const hidesEnemyNamesFromPlayers = state.hideEnemyNamesFromPlayers === true;
+  const canManagePlayerVisibility = !state.cloudCampaignId || state.cloudCampaignCanManage === true;
   const soundSettings = normalizeStoredSoundSettings(state.soundSettings);
   const notificationSettings = normalizeStoredNotificationSettings(state.notificationSettings);
   const optionSections = [
@@ -12486,6 +12504,19 @@ function renderOptionsDialog() {
           <span class="options-dialog__switch-track">
             <span class="options-dialog__switch-thumb"></span>
           </span>
+        </label>
+      </div>
+      <div class="options-dialog__switch-card ${hidesEnemyNamesFromPlayers ? "is-selected" : ""}">
+        <div class="options-dialog__switch-copy">
+          <strong>${escapeHtml(isEnglishInterface() ? "Hide enemy entity names from players" : "Ocultar nombres de entidades Enemigas a los jugadores")}</strong>
+          <small>${escapeHtml(isEnglishInterface()
+            ? "The player map and connected Player users will see Enemy. Stand numbers remain visible."
+            : "La ventana de jugador y los usuarios conectados como Jugador verán Enemigo. Los números de peana seguirán visibles.")}</small>
+          ${canManagePlayerVisibility ? "" : `<small>${escapeHtml(isEnglishInterface() ? "Only the host can change this setting." : "Solo el anfitrión puede cambiar este ajuste.")}</small>`}
+        </div>
+        <label class="options-dialog__switch" aria-label="${escapeHtml(isEnglishInterface() ? "Hide enemy names from players" : "Ocultar nombres enemigos a jugadores")}">
+          <input class="options-dialog__switch-input" type="checkbox" data-hide-enemy-names-from-players ${hidesEnemyNamesFromPlayers ? "checked" : ""} ${canManagePlayerVisibility ? "" : "disabled"} />
+          <span class="options-dialog__switch-track"><span class="options-dialog__switch-thumb"></span></span>
         </label>
       </div>
     </section>
@@ -12711,6 +12742,17 @@ function normalizeStoredContentLanguage(value) {
 
 function normalizeStoredNpcExperienceSetting(value) {
   return value === true;
+}
+
+function getCombatantDisplayName(combatant, options = {}) {
+  if (
+    state.hideEnemyNamesFromPlayers === true
+    && isEnemyCombatant(combatant)
+    && (options.playerView === true || isCloudCampaignPlayer())
+  ) {
+    return isEnglishInterface() ? "Enemy" : "Enemigo";
+  }
+  return cleanText(combatant?.nombre) || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
 }
 
 function normalizeStoredSoundSettings(value) {
@@ -13847,7 +13889,7 @@ function renderMasterCombatDiceTargetMenu() {
 
 function renderMasterCombatDiceTargetCard(combatant, showArmorClass) {
   const tokenUrl = getCombatantTokenUrl(combatant);
-  const name = cleanText(combatant.nombre) || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
+  const name = getCombatantDisplayName(combatant);
   const stand = cleanText(combatant.numPeana) || "-";
   const armorClass = getCombatantArmorClassValue(combatant);
   const armorLabel = isCloudCampaignEnemyPrivate(combatant) ? "?" : armorClass === "" ? "-" : armorClass;
@@ -13990,13 +14032,13 @@ function renderMasterCombatWorkspaceEntityCard(combatant, selected, active) {
   const standNumber = cleanText(combatant.numPeana) || "-";
   const isEditingName = state.activeCombatNameSearchId === combatant.id;
   const nameSuggestions = isEditingName ? getCombatNameSuggestions(combatant) : [];
-  const displayName = combatant.nombre || (isEnglishInterface() ? "Unnamed" : "Sin nombre");
+  const displayName = getCombatantDisplayName(combatant);
 
   if (isCloudCampaignEnemyPrivate(combatant)) {
     return `
       <article class="master-combat-entity is-rival-private ${active ? "is-active-turn" : ""}" data-combat-turn-token-context="${escapeHtml(combatant.id)}" aria-label="${escapeHtml(displayName)}">
         <span class="master-combat-entity__rail"><span class="master-combat-entity__initiative" data-mobile-entity-stand-context="${escapeHtml(combatant.id)}" title="${escapeHtml(isEnglishInterface() ? "Stand" : "Peana")}">${escapeHtml(standNumber)}</span></span>
-        <span class="master-combat-entity__portrait" data-mobile-entity-portrait-context="${escapeHtml(combatant.id)}">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials(combatant))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
+        <span class="master-combat-entity__portrait" data-mobile-entity-portrait-context="${escapeHtml(combatant.id)}">${tokenUrl ? `<img src="${escapeHtml(tokenUrl)}" alt="" loading="lazy" decoding="async">` : `<span>${escapeHtml(getCombatantInitials({ ...combatant, nombre: displayName }))}</span>`}${active ? `<i title="${escapeHtml(isEnglishInterface() ? "Current turn" : "Turno actual")}"></i>` : ""}</span>
         <span class="master-combat-entity__copy"><span class="master-combat-entity__name-row"><span class="master-combat-entity__title"><strong>${escapeHtml(displayName)}</strong></span></span><strong class="master-combat-entity__hp-label">🔒 ${escapeHtml(isEnglishInterface() ? "Private enemy" : "Enemigo privado")}</strong></span>
       </article>
     `;
@@ -14134,6 +14176,14 @@ function loadMasterCombatWorkspaceMode() {
     return normalizeMasterCombatWorkspaceMode(localStorage.getItem(MASTER_COMBAT_WORKSPACE_MODE_KEY));
   } catch {
     return "standard";
+  }
+}
+
+function loadMasterCombatWorkspaceVisible() {
+  try {
+    return localStorage.getItem(MASTER_COMBAT_WORKSPACE_VISIBLE_KEY) === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -16004,7 +16054,7 @@ function renderCombatTurnQuickMenu(viewportWindow = window, owner = "main") {
     <div class="combat-turn-quick-menu" style="${escapeHtml(menuStyle)}" data-combat-turn-quick-menu>
       <div class="combat-turn-quick-menu__panel">
         <div class="combat-turn-quick-menu__header">
-          <div class="combat-turn-quick-menu__title"><strong>${escapeHtml(cleanText(combatant.nombre) || "Entidad")}</strong><span class="combat-turn-quick-menu__header-actions"><b>${escapeHtml(cleanText(combatant.numPeana) || "—")}</b><button class="combat-turn-quick-menu__close" type="button" data-action="close-combat-turn-quick-menu" aria-label="${escapeHtml(isEnglishInterface() ? "Close menu" : "Cerrar menú")}" title="${escapeHtml(isEnglishInterface() ? "Close menu" : "Cerrar menú")}">×</button></span></div>
+          <div class="combat-turn-quick-menu__title"><strong>${escapeHtml(getCombatantDisplayName(combatant))}</strong><span class="combat-turn-quick-menu__header-actions"><b>${escapeHtml(cleanText(combatant.numPeana) || "—")}</b><button class="combat-turn-quick-menu__close" type="button" data-action="close-combat-turn-quick-menu" aria-label="${escapeHtml(isEnglishInterface() ? "Close menu" : "Cerrar menú")}" title="${escapeHtml(isEnglishInterface() ? "Close menu" : "Cerrar menú")}">×</button></span></div>
           <span>${hidesRivalStats ? "Datos de equipo rival ocultos" : escapeHtml(`${getCurrentHitPointLabelShort()} ${toNumber(combatant.pgAct)}/${effectiveMax} | TEMP ${tempHp}`)}</span>
         </div>
         ${isRestrictedPlayer ? "" : `
@@ -18061,7 +18111,7 @@ function renderDataCell(combatant, column, isDead, rowContext = getCombatRowCont
   if (isCloudCampaignEnemyPrivate(combatant)) {
     if (column.key === "pgAct") return renderMonstersLeagueBlindAdjustmentCell(combatant, inlineValues);
     if (column.key === "nombre") {
-      return `<td><div class="name-cell combat-name-cell"><div class="combat-name-cell__main"><strong>${escapeHtml(cleanText(combatant.nombre) || (isEnglishInterface() ? "Enemy" : "Enemigo"))}</strong>${renderCombatantNameToken(combatant, rowContext)}</div></div></td>`;
+      return `<td><div class="name-cell combat-name-cell"><div class="combat-name-cell__main"><strong>${escapeHtml(getCombatantDisplayName(combatant))}</strong>${renderCombatantNameToken(combatant, rowContext)}</div></div></td>`;
     }
     if (column.key === "numPeana" || column.key === "iniactiva") {
       return `<td><strong class="combat-private-public-value">${escapeHtml(String(value || "-"))}</strong></td>`;
@@ -19599,9 +19649,11 @@ function renderCombatNameSuggestion(combatantId, entry) {
 
 function renderCombatantNameToken(combatant, context = getCombatRowContext(combatant)) {
   const { linkedCharacter, bestiaryEntry, tokenUrl } = context;
-  const initials = linkedCharacter
-    ? getCharacterInitials(linkedCharacter)
-    : getCombatantInitials(combatant);
+  const initials = isCloudCampaignEnemyPrivate(combatant) && state.hideEnemyNamesFromPlayers === true
+    ? getCombatantInitials({ ...combatant, nombre: getCombatantDisplayName(combatant) })
+    : linkedCharacter
+      ? getCharacterInitials(linkedCharacter)
+      : getCombatantInitials(combatant);
 
   if (isCombatantPrivateForViewer(combatant)) {
     return `
@@ -28942,7 +28994,7 @@ function notifyCombatantDeaths(previousCombatants = []) {
 }
 
 function getCombatantNotificationLabel(combatant) {
-  const baseName = cleanText(combatant?.nombre) || (isEnglishInterface() ? "Entity" : "Entidad");
+  const baseName = getCombatantDisplayName(combatant);
   const standLabel = cleanText(combatant?.numPeana);
   const isEnemyLike = combatant?.side === "enemies" || cleanText(combatant?.tag).toUpperCase() === "ENEMIGO";
 
@@ -36977,6 +37029,7 @@ function createCampaignSavePayload(options = {}) {
       masterCombatWorkspaceLayout: normalizeMasterCombatWorkspaceLayout(masterCombatWorkspaceLayout),
       contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
       includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
+      hideEnemyNamesFromPlayers: state.hideEnemyNamesFromPlayers === true,
       soundSettings: normalizeStoredSoundSettings(state.soundSettings),
       notificationSettings: normalizeStoredNotificationSettings(state.notificationSettings),
       combatColumnVisibility: normalizeStoredCombatColumnVisibility(state.combatColumnVisibility),
@@ -37082,6 +37135,7 @@ function normalizeCampaignSave(value) {
     masterCombatWorkspaceLayout: normalizeMasterCombatWorkspaceLayout(ui.masterCombatWorkspaceLayout),
     contentLanguage: normalizeStoredContentLanguage(ui.contentLanguage),
     includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(ui.includeNpcInCombatExperience),
+    hideEnemyNamesFromPlayers: ui.hideEnemyNamesFromPlayers === true,
     soundSettings: normalizeStoredSoundSettings(ui.soundSettings),
     notificationSettings: normalizeStoredNotificationSettings(ui.notificationSettings),
     combatColumnVisibility: normalizeStoredCombatColumnVisibility(ui.combatColumnVisibility),
@@ -37167,6 +37221,7 @@ function applyCampaignSave(campaign, fileResult = null, options = {}) {
   state.activeScreen = localUi?.activeScreen || campaign.activeScreen;
   state.contentLanguage = campaign.contentLanguage;
   state.includeNpcInCombatExperience = campaign.includeNpcInCombatExperience;
+  state.hideEnemyNamesFromPlayers = campaign.hideEnemyNamesFromPlayers;
   state.soundSettings = campaign.soundSettings;
   state.notificationSettings = campaign.notificationSettings;
   state.combatColumnVisibility = campaign.combatColumnVisibility;
@@ -37213,7 +37268,7 @@ function applyCampaignSave(campaign, fileResult = null, options = {}) {
   state.combatRound = campaign.combatTracker.combatRound;
   state.combatEncounterLoadOrder = campaign.combatTracker.combatEncounterLoadOrder;
   state.enemyHpMode = campaign.combatTracker.enemyHpMode;
-  masterCombatWorkspaceLayout = normalizeMasterCombatWorkspaceLayout(campaign.masterCombatWorkspaceLayout);
+  masterCombatWorkspaceLayout = loadMasterCombatWorkspaceLayout();
   saveMasterCombatWorkspaceLayout({ markDirty: false });
   state.battleTimer = campaign.battleTimer;
   combatMapController.applySave(campaign.combatMap, {
@@ -37461,6 +37516,7 @@ function loadCampaignMeta() {
       language: normalizeStoredAppLanguage(parsedValue.language),
       contentLanguage: normalizeStoredContentLanguage(parsedValue.contentLanguage),
       includeNpcInCombatExperience: normalizeStoredNpcExperienceSetting(parsedValue.includeNpcInCombatExperience),
+      hideEnemyNamesFromPlayers: parsedValue.hideEnemyNamesFromPlayers === true,
       soundSettings: normalizeStoredSoundSettings(parsedValue.soundSettings),
       notificationSettings: normalizeStoredNotificationSettings(parsedValue.notificationSettings),
       combatColumnVisibility: normalizeStoredCombatColumnVisibility(parsedValue.combatColumnVisibility),
@@ -37487,6 +37543,7 @@ function saveCampaignMeta() {
         language: normalizeStoredAppLanguage(state.appLanguage),
         contentLanguage: normalizeStoredContentLanguage(state.contentLanguage),
         includeNpcInCombatExperience: state.includeNpcInCombatExperience === true,
+        hideEnemyNamesFromPlayers: state.hideEnemyNamesFromPlayers === true,
         soundSettings: normalizeStoredSoundSettings(state.soundSettings),
         notificationSettings: normalizeStoredNotificationSettings(state.notificationSettings),
         combatColumnVisibility: normalizeStoredCombatColumnVisibility(state.combatColumnVisibility),

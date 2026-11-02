@@ -69,6 +69,10 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function normalizeMapSearch(value) {
+  return clean(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -792,8 +796,8 @@ function normalizeMapEditorStateWithPreferences(value, preferences) {
     playerNotifications: preferences.playerNotifications,
     opacity: preferences.opacity,
     rotationOrientation: preferences.rotationOrientation,
-    grid: { ...(isObject(source.grid) ? source.grid : {}), ...preferences.grid },
-    showTokenNumbers: preferences.showTokenNumbers,
+    ...(preferences.grid ? { grid: { ...(isObject(source.grid) ? source.grid : {}), ...preferences.grid } } : {}),
+    ...(typeof preferences.showTokenNumbers === "boolean" ? { showTokenNumbers: preferences.showTokenNumbers } : {}),
     fog: { ...(isObject(source.fog) ? source.fog : {}), ...preferences.fog },
     paint: { ...(isObject(source.paint) ? source.paint : {}), ...preferences.paint },
     shapes: { ...(isObject(source.shapes) ? source.shapes : {}), ...preferences.shapes },
@@ -1109,6 +1113,12 @@ export function createCombatMapController(options = {}) {
     return (options.getCombatants?.() || []).filter(Boolean);
   }
 
+  function getCombatantDisplayName(combatant, version = "master") {
+    return clean(options.getCombatantDisplayName?.(combatant, version))
+      || clean(combatant?.nombre)
+      || "Entidad";
+  }
+
   function getCombatantFingerprint() {
     return JSON.stringify(getCombatants().map((combatant) => [
       combatant.id, combatant.nombre, combatant.numPeana, combatant.pgAct, combatant.pgMax,
@@ -1210,6 +1220,10 @@ export function createCombatMapController(options = {}) {
   function applySave(value, options = {}) {
     const preserveLocalView = options.preservePlayerView === true || options.preserveLocalView === true;
     const localPreferences = preserveLocalView ? getMapEditorPreferences(state) : null;
+    if (localPreferences && options.preserveSharedMapControls === true) {
+      delete localPreferences.grid;
+      delete localPreferences.showTokenNumbers;
+    }
     const localPlayerView = preserveLocalView ? {
       viewport: { ...state.viewport },
       playerViewport: { ...state.playerViewport },
@@ -1514,6 +1528,9 @@ export function createCombatMapController(options = {}) {
   function showTurnAnnouncement(combatant, durationMs = 3200) {
     turnAnnouncement = {
       name: clean(combatant?.nombre) || "Entidad",
+      nombre: clean(combatant?.nombre) || "Entidad",
+      side: clean(combatant?.side),
+      tag: clean(combatant?.tag),
       tokenUrl: clean(combatant?.tokenUrl),
       standNumber: clean(combatant?.numPeana),
       conditions: getConditions(combatant).slice(0, 8)
@@ -1729,6 +1746,10 @@ export function createCombatMapController(options = {}) {
     return options.isToolbarControlVisible?.(control, version) !== false;
   }
 
+  function isToolbarControlEnabled(control, version = "master") {
+    return options.isToolbarControlEnabled?.(control, version) !== false;
+  }
+
   function renderToolbarLabel(full, short = full, compact = short) {
     return `<span class="combat-map-toolbar__label combat-map-toolbar__label--full">${escapeHtml(full)}</span>
       <span class="combat-map-toolbar__label combat-map-toolbar__label--short" aria-hidden="true">${escapeHtml(short)}</span>
@@ -1737,8 +1758,10 @@ export function createCombatMapController(options = {}) {
 
   function renderToolbarButton({ version, control, action, label, shortLabel, compactLabel, active = false, className = "" }) {
     if (!isToolbarControlVisible(control, version)) return "";
+    const enabled = isToolbarControlEnabled(control, version);
     const classes = [className, active ? "is-active" : ""].filter(Boolean).join(" ");
-    return `<button type="button" data-map-action="${action}" class="${classes}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+    const title = enabled ? label : `${label} · Solo el anfitrión`;
+    return `<button type="button" data-map-action="${action}" class="${classes}" aria-label="${escapeHtml(label)}" title="${escapeHtml(title)}" ${enabled ? "" : "disabled aria-disabled=\"true\""}>
       ${renderToolbarLabel(label, shortLabel, compactLabel)}
     </button>`;
   }
@@ -1953,12 +1976,12 @@ export function createCombatMapController(options = {}) {
 
   function renderCloudMapPicker(version = "master") {
     if (cloudPickerSurface !== version) return "";
-    const query = cloudPickerQuery.toLocaleLowerCase("es");
+    const query = normalizeMapSearch(cloudPickerQuery);
     const tags = [...new Set(cloudPickerItems.flatMap((item) => normalizeTags(item.tags)))].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
     const items = cloudPickerItems.filter((item) => {
       const itemTags = normalizeTags(item.tags);
       if (cloudPickerSelectedTags.size && ![...cloudPickerSelectedTags].every((tag) => itemTags.includes(tag))) return false;
-      return !query || `${item.name} ${item.ownerName} ${itemTags.join(" ")}`.toLocaleLowerCase("es").includes(query);
+      return !query || normalizeMapSearch(`${item.name} ${item.ownerName} ${itemTags.join(" ")}`).includes(query);
     });
     const title = cloudPickerFavoritesOnly ? "Mapas favoritos" : "Mapas de la nube";
     const eyebrow = cloudPickerFavoritesOnly ? "Acceso rápido" : "Catálogo de la comunidad";
@@ -2005,18 +2028,18 @@ export function createCombatMapController(options = {}) {
     </section>`;
   }
 
-  function renderTokenMenu(panel) {
+  function renderTokenMenu(panel, version = "master") {
     const query = tokenSearch.toLocaleLowerCase("es");
     const initiativeCombatants = getCombatants().filter(hasInitiativeToken);
     const initiativeTokensLoaded = initiativeCombatants.length > 0 && initiativeCombatants.every(getTokenEnabled);
     const rows = getCombatants().map((combatant) => {
-      const name = clean(combatant.nombre) || "Entidad";
+      const name = getCombatantDisplayName(combatant, version);
       const stand = clean(combatant.numPeana) || "—";
       const hidden = query && !`${name} ${stand}`.toLocaleLowerCase("es").includes(query);
       return `<label class="combat-map-token-checklist__row" data-map-token-row data-map-token-search-value="${escapeHtml(`${name} ${stand}`.toLocaleLowerCase("es"))}" ${hidden ? "hidden" : ""}>
         <input type="checkbox" data-map-token-toggle="${escapeHtml(combatant.id)}" ${getTokenEnabled(combatant) ? "checked" : ""}>
         <span class="combat-map-token-checklist__name">${escapeHtml(name)}</span>
-        <span class="combat-map-token-checklist__portrait">${renderPortrait(combatant)}</span>
+        <span class="combat-map-token-checklist__portrait">${renderPortrait(combatant, version)}</span>
         <strong class="combat-map-token-checklist__number">${escapeHtml(stand)}</strong>
       </label>`;
     }).join("");
@@ -2094,11 +2117,12 @@ export function createCombatMapController(options = {}) {
     return `<aside class="combat-map-initiative combat-tracker-panel" data-map-initiative-order style="opacity:${layerOpacity("initiative")}">${content}</aside><div class="combat-map-initiative-resizer" data-map-initiative-resizer title="Arrastrar para cambiar el tamaño"></div>`;
   }
 
-  function renderTurnAnnouncement() {
+  function renderTurnAnnouncement(version = "master") {
     if (!turnAnnouncement) return "";
+    const displayName = getCombatantDisplayName(turnAnnouncement, version);
     const portrait = turnAnnouncement.tokenUrl
       ? `<img src="${escapeHtml(turnAnnouncement.tokenUrl)}" alt="" aria-hidden="true">`
-      : `<span aria-hidden="true">${escapeHtml(getInitials(turnAnnouncement.name))}</span>`;
+      : `<span aria-hidden="true">${escapeHtml(getInitials(displayName))}</span>`;
     const conditions = turnAnnouncement.conditions.length
       ? `<div class="combat-map-turn-announcement__statuses">${turnAnnouncement.conditions.map((condition) => {
           const meta = getStatusMeta(condition);
@@ -2107,7 +2131,7 @@ export function createCombatMapController(options = {}) {
         }).join("")}</div>`
       : "";
     const standNumber = turnAnnouncement.standNumber ? `<b class="combat-map-turn-announcement__stand" title="Valor de peana">${escapeHtml(turnAnnouncement.standNumber)}</b>` : "";
-    return `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait-wrap"><div class="combat-map-turn-announcement__portrait">${portrait}</div>${standNumber}</div><div><small>AHORA ES EL TURNO DE</small><strong>${escapeHtml(turnAnnouncement.name)}</strong>${conditions}</div></div>`;
+    return `<div class="combat-map-turn-announcement" role="status" aria-live="assertive"><div class="combat-map-turn-announcement__portrait-wrap"><div class="combat-map-turn-announcement__portrait">${portrait}</div>${standNumber}</div><div><small>AHORA ES EL TURNO DE</small><strong>${escapeHtml(displayName)}</strong>${conditions}</div></div>`;
   }
 
   function renderRoundAnnouncement() {
@@ -2115,14 +2139,14 @@ export function createCombatMapController(options = {}) {
     return `<div class="combat-map-turn-announcement combat-map-turn-announcement--round" role="status" aria-live="assertive"><div><small>NUEVA RONDA</small><strong>RONDA ${escapeHtml(String(roundAnnouncement.round))}</strong></div></div>`;
   }
 
-  function renderCombatAnnouncements() {
+  function renderCombatAnnouncements(version = "master") {
     if (!roundAnnouncement && !turnAnnouncement) return "";
-    return `<div class="combat-map-announcement-stack">${renderRoundAnnouncement()}${renderTurnAnnouncement()}</div>`;
+    return `<div class="combat-map-announcement-stack">${renderRoundAnnouncement()}${renderTurnAnnouncement(version)}</div>`;
   }
 
-  function renderPortrait(combatant) {
+  function renderPortrait(combatant, version = "master") {
     const url = clean(combatant.tokenUrl);
-    return url ? `<img src="${escapeHtml(url)}" alt="" draggable="false">` : `<i>${escapeHtml(getInitials(combatant.nombre))}</i>`;
+    return url ? `<img src="${escapeHtml(url)}" alt="" draggable="false">` : `<i>${escapeHtml(getInitials(getCombatantDisplayName(combatant, version)))}</i>`;
   }
 
   function showHealth(combatant) {
@@ -2155,11 +2179,12 @@ export function createCombatMapController(options = {}) {
         ? ""
         : /^#[0-9a-f]{6}$/i.test(clean(combatant.teamColor)) ? clean(combatant.teamColor) : "";
       const dead = !isAlive(combatant);
-      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? `has-team-color team-color-ring--${teamColorMode}` : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(combatant.nombre || "Entidad")}">
+      const version = player ? "player" : "master";
+      return `<div class="combat-map-token combat-map-token--${side} ${teamColor ? `has-team-color team-color-ring--${teamColorMode}` : ""} ${isFlying ? "is-flying" : ""} ${dead ? "is-dead" : ""} ${concealed ? "is-hidden-from-initiative" : ""}" data-map-token="${escapeHtml(combatant.id)}" data-map-token-size-multiplier="${getCreatureSizeMultiplier(combatant)}" style="--token-size:${tokenSize}px;--token-counter-rotation:${counterRotation}deg;${teamColor ? `--team-color:${teamColor};` : ""}left:${position.x}px;top:${position.y}px;z-index:${5 + stackIndex}" title="${escapeHtml(getCombatantDisplayName(combatant, version))}">
         ${isFlying ? `<img class="combat-map-token__wing combat-map-token__wing--left" src="${escapeHtml(tokenWingUrl)}" alt=""><img class="combat-map-token__wing combat-map-token__wing--right" src="${escapeHtml(tokenWingUrl)}" alt="">` : ""}
         ${flyingHeight > 0 ? `<span class="combat-map-token__flight-height">${flyingHeight} pies</span>` : ""}
         <span class="combat-map-token__move-distance" data-map-token-move-distance hidden>0 pies</span>
-        <span class="combat-map-token__portrait">${renderPortrait(combatant)}</span>${state.showTokenNumbers ? `<strong>${escapeHtml(combatant.numPeana || "—")}</strong>` : ""}
+        <span class="combat-map-token__portrait">${renderPortrait(combatant, version)}</span>${state.showTokenNumbers ? `<strong>${escapeHtml(combatant.numPeana || "—")}</strong>` : ""}
         ${conditionMeta.length ? `<span class="combat-map-token__status-icons">${conditionMeta.map((meta) => `<i class="${escapeHtml(meta.tone)}" title="${escapeHtml(meta.label)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : escapeHtml(meta.label.slice(0, 2).toUpperCase())}</i>`).join("")}</span>` : ""}
         ${showHealth(combatant) ? `<span class="combat-map-token__health" style="opacity:${normalizeOpacity(state.opacity.health)}"><i style="width:${(hp / maxHp) * 100}%"></i></span>` : ""}
         ${conditionMeta.length ? `<span class="combat-map-token__statuses">${conditionMeta.map((meta) => `<em class="${escapeHtml(meta.tone)}">${meta.iconUrl ? `<img src="${escapeHtml(meta.iconUrl)}" alt="">` : ""}<span>${escapeHtml(meta.label)}</span></em>`).join("")}</span>` : ""}
@@ -2288,19 +2313,19 @@ export function createCombatMapController(options = {}) {
   function renderMaster(viewportWindow = window) {
     const panel = openPanel;
     const initiativePosition = isInitiativeVisible("master") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${isToolbarControlVisible("map", "master") ? renderMapMenu("master") : ""}${isToolbarControlVisible("grid", "master") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "master") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "master") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "master") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "master") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "master") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "master") ? renderInitiativeMenu(panel, "master") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<div data-map-notification-root>${options.renderNotifications?.({ mapOnly: true }) || ""}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--master">${renderToolbar("master")}${isToolbarControlVisible("map", "master") && isToolbarControlEnabled("map", "master") ? renderMapMenu("master") : ""}${isToolbarControlVisible("grid", "master") && isToolbarControlEnabled("grid", "master") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "master") && isToolbarControlEnabled("tokens", "master") ? renderTokenMenu(panel, "master") : ""}${isToolbarControlVisible("fog", "master") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "master") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "master") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "master") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "master") ? renderInitiativeMenu(panel, "master") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "master")}${renderStage({ master: true, editable: true })}${renderCombatAnnouncements("master")}</div>${options.renderContextMenu?.(viewportWindow, "map-master") || ""}${renderCloudMapPicker("master")}<div data-map-notification-root>${options.renderNotifications?.({ mapOnly: true }) || ""}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayer(viewportWindow = editorWindow) {
     const panel = playerOpenPanel;
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
     const notifications = options.renderNotifications?.({ mapOnly: !state.playerNotifications.visible }) || "";
-    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${isToolbarControlVisible("map", "player") ? renderMapMenu("player") : ""}${isToolbarControlVisible("grid", "player") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "player") ? renderTokenMenu(panel) : ""}${isToolbarControlVisible("fog", "player") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "player") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "player") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "player") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "player") ? renderInitiativeMenu(panel, "player") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements()}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root data-map-notification-all="true" style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player">${renderToolbar("player")}${isToolbarControlVisible("map", "player") && isToolbarControlEnabled("map", "player") ? renderMapMenu("player") : ""}${isToolbarControlVisible("grid", "player") && isToolbarControlEnabled("grid", "player") ? renderGridMenu(panel) : ""}${isToolbarControlVisible("tokens", "player") && isToolbarControlEnabled("tokens", "player") ? renderTokenMenu(panel, "player") : ""}${isToolbarControlVisible("fog", "player") ? renderFogMenu(panel) : ""}${isToolbarControlVisible("paint", "player") ? renderPaintMenu(panel) : ""}${isToolbarControlVisible("shapes", "player") ? renderShapesMenu(panel) : ""}${isToolbarControlVisible("health", "player") ? renderHealthMenu(panel) : ""}${isToolbarControlVisible("initiative", "player") ? renderInitiativeMenu(panel, "player") : ""}<div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: true })}${renderCombatAnnouncements("player")}</div>${options.renderContextMenu?.(viewportWindow, "map-player") || ""}${renderCloudMapPicker("player")}<div data-map-notification-root data-map-notification-all="true" style="--map-player-notification-scale:${state.playerNotifications.scale}">${notifications}</div><input type="file" accept="image/*" data-map-file-hidden hidden></div>`;
   }
 
   function renderPlayerProjection(viewportWindow = window) {
     const initiativePosition = isInitiativeVisible("player") ? state.initiative.position : "none";
-    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderCombatAnnouncements()}</div><div data-map-notification-root>${options.renderNotifications?.({ mapOnly: true }) || ""}</div></div>`;
+    return `<div class="combat-map-editor combat-map-editor--player combat-map-editor--projection"><header class="combat-map-player-header"><span>VersiÃ³n jugador</span><strong>${escapeHtml(state.map?.name || "Mapa de combate")}</strong><div class="combat-map-player-header__controls"><button type="button" data-map-action="zoom-out" aria-label="Alejar">−</button><button type="button" data-map-action="zoom-reset">100%</button><button type="button" data-map-action="zoom-in" aria-label="Acercar">+</button><label><input type="checkbox" data-map-initiative ${state.initiative.playerVisible ? "checked" : ""}> Iniciativa</label><select data-map-initiative-position aria-label="Posición de iniciativa"><option value="top" ${state.initiative.position === "top" ? "selected" : ""}>Arriba</option><option value="bottom" ${state.initiative.position === "bottom" ? "selected" : ""}>Abajo</option><option value="left" ${state.initiative.position === "left" ? "selected" : ""}>Izquierda</option><option value="right" ${state.initiative.position === "right" ? "selected" : ""}>Derecha</option></select><label>Tamaño <input type="range" min="160" max="650" value="${state.initiative.size}" data-map-initiative-size></label></div></header><div class="combat-map-workspace combat-map-workspace--${initiativePosition}" data-map-workspace style="--initiative-size:${state.initiative.size}px">${renderInitiative(viewportWindow, "player")}${renderStage({ player: true, editable: false })}${renderCombatAnnouncements("player")}</div><div data-map-notification-root>${options.renderNotifications?.({ mapOnly: true }) || ""}</div></div>`;
   }
 
   function sync() {
@@ -3078,6 +3103,7 @@ export function createCombatMapController(options = {}) {
     if (associatedChoice !== undefined) { selectAssociatedMap(associatedChoice, surface); return; }
     if (cloudChoice) { selectCloudMap(cloudChoice, surface); return; }
     if (!action) return;
+    if (actionButton?.disabled) return;
     if (action === "confirm-confirmation") { resolveConfirmation(true); return; }
     if (action === "cancel-confirmation") { resolveConfirmation(false); return; }
     if (action === "open-map-menu") togglePanel("map", surface);
@@ -3266,7 +3292,10 @@ export function createCombatMapController(options = {}) {
     }
     else return;
     if (target.matches("[data-grid-visible], [data-grid-type], [data-grid-size]")) resnapTokensWithoutOverlap();
-    const localPreferenceChange = target.matches("[data-map-token-numbers], [data-map-health], [data-map-health-initiative], [data-map-player-notifications], [data-map-initiative], [data-map-initiative-value], [data-map-initiative-position], [data-map-initiative-status-size], [data-map-rotation-orientation]");
+    const localPreferenceSelector = options.shareMapPresentationControls === true
+      ? "[data-map-health], [data-map-health-initiative], [data-map-player-notifications], [data-map-initiative], [data-map-initiative-value], [data-map-initiative-position], [data-map-initiative-status-size], [data-map-rotation-orientation]"
+      : "[data-map-token-numbers], [data-map-health], [data-map-health-initiative], [data-map-player-notifications], [data-map-initiative], [data-map-initiative-value], [data-map-initiative-position], [data-map-initiative-status-size], [data-map-rotation-orientation]";
+    const localPreferenceChange = target.matches(localPreferenceSelector);
     if (localPreferenceChange) persistLocalPreferences();
     else persist();
     sync();
@@ -3285,11 +3314,15 @@ export function createCombatMapController(options = {}) {
       });
     } else if (event.target.matches("[data-map-cloud-search]")) {
       cloudPickerQuery = event.target.value;
+      const selectionStart = event.target.selectionStart;
+      const selectionEnd = event.target.selectionEnd;
       sync();
       const nextSurface = getSurfaceKind(surface) === "player"
         ? editorWindow?.document?.querySelector("[data-combat-map-player-root]")
         : masterHost;
-      nextSurface?.querySelector("[data-map-cloud-search]")?.focus();
+      const searchInput = nextSurface?.querySelector("[data-map-cloud-search]");
+      searchInput?.focus();
+      searchInput?.setSelectionRange?.(selectionStart, selectionEnd);
     } else if (event.target.matches("[data-grid-size]")) {
       state.grid.size = clamp(event.target.value, MIN_GRID_SIZE, MAX_GRID_SIZE);
       updateGridScaleVisuals(event.target, surface);

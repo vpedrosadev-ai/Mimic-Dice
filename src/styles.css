@@ -139,6 +139,10 @@
   background: #050403;
 }
 
+.master-combat-workspace__map:has(.combat-turn-quick-menu) {
+  overflow: visible;
+}
+
 .master-combat-workspace__map-host,
 .master-combat-workspace__map-host .combat-map-editor {
   width: 100%;
@@ -6011,7 +6015,8 @@ button.is-cloud-busy:disabled {
 
 .combat-map-cloud-picker__panel {
   position: relative;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: .85rem;
   width: min(58rem, 100%);
   max-height: min(46rem, calc(100dvh - 2.5rem));
@@ -6074,6 +6079,7 @@ button.is-cloud-busy:disabled {
   grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
   gap: .65rem;
   min-height: 0;
+  flex: 1 1 auto;
   padding: .1rem;
   overflow-y: auto;
   overscroll-behavior: contain;

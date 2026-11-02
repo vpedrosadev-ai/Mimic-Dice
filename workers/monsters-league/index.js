@@ -20,7 +20,8 @@ import { createMonstersLeagueCombatFeedback } from "../../src/multiplayer/monste
 import {
   advanceMonstersLeagueCombatTurn,
   applyMonstersLeagueCombatDamage,
-  applyMonstersLeagueCombatantPatch
+  applyMonstersLeagueCombatantPatch,
+  applyMonstersLeagueMapTokenPosition
 } from "../../src/multiplayer/monstersLeagueCombatState.js";
 
 const ROOM_STORAGE_KEY = "room";
@@ -208,6 +209,18 @@ export class MonstersLeagueRoom extends DurableObject {
         this.room.mapProjection = sanitizeMapProjection(command.mapProjection, this.room);
       }
       this.room.combatRevision = currentCombatRevision + 1;
+      this.room.revision += 1;
+      this.room.updatedAt = now;
+    } else if (type === "map-token-position") {
+      const player = this.room.players.find((entry) => entry.id === playerId);
+      if (!player || player.isBot || !["complete", "combat"].includes(this.room.status)) {
+        throw Object.assign(new Error("This player cannot move map tokens."), { code: "player_required" });
+      }
+      const nextProjection = applyMonstersLeagueMapTokenPosition(this.room.mapProjection, command);
+      if (!nextProjection) {
+        throw Object.assign(new Error("Map token not found."), { code: "map_token_not_found" });
+      }
+      this.room.mapProjection = nextProjection;
       this.room.revision += 1;
       this.room.updatedAt = now;
     } else if (["combat-damage", "combat-patch", "combat-turn"].includes(type)) {

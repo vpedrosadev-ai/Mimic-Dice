@@ -5,6 +5,8 @@ import {
   advanceMonstersLeagueCombatTurn,
   applyMonstersLeagueCombatDamage,
   applyMonstersLeagueCombatantPatch,
+  applyMonstersLeagueMapTokenPosition,
+  getMonstersLeagueCombatantConditions,
   mergeMonstersLeagueProjectedCombatantLiveState
 } from "../src/multiplayer/monstersLeagueCombatState.js";
 import { ensureMonstersLeagueCombatState } from "../src/multiplayer/monstersLeagueRules.js";
@@ -45,6 +47,54 @@ test("combatant patch updates only requested live fields", () => {
   assert.deepEqual(next.teamA.wolf.conditions, ["Concentrado"]);
   assert.equal(next.teamA.wolf.isFlying, true);
   assert.equal(next.teamA.wolf.currentHp, 25);
+});
+
+test("adding a condition can preserve authoritative conditions hidden from the projection", () => {
+  const combatant = {
+    teamId: "teamA",
+    multiplayerMonsterId: "wolf",
+    condiciones: ""
+  };
+  const combatState = createState();
+  combatState.teamA.wolf.conditions = ["Derribado", "Concentrado"];
+  const conditions = getMonstersLeagueCombatantConditions(combatState, combatant);
+  const next = applyMonstersLeagueCombatantPatch(combatState, {
+    teamId: "teamA",
+    monsterId: "wolf",
+    patch: { conditions: [...conditions, "Envenenado"] }
+  });
+  assert.deepEqual(next.teamA.wolf.conditions, ["Derribado", "Concentrado", "Envenenado"]);
+});
+
+test("atomic map token movement preserves the rest of the host map", () => {
+  const projection = {
+    open: true,
+    combatants: [{ id: "wolf" }, { id: "bear" }],
+    editorState: {
+      map: { name: "Arena", imageUrl: "/arena.webp" },
+      grid: { visible: true, size: 80 },
+      tokenPositions: { wolf: { x: 10, y: 20 }, bear: { x: 30, y: 40 } },
+      tokenStackOrder: ["wolf", "bear"]
+    }
+  };
+  const next = applyMonstersLeagueMapTokenPosition(projection, {
+    id: "wolf",
+    position: { x: 125, y: 250 },
+    stackOrder: ["bear", "wolf"]
+  });
+  assert.deepEqual(next.editorState.tokenPositions.wolf, { x: 125, y: 250 });
+  assert.deepEqual(next.editorState.tokenPositions.bear, { x: 30, y: 40 });
+  assert.deepEqual(next.editorState.tokenStackOrder, ["bear", "wolf"]);
+  assert.deepEqual(next.editorState.grid, projection.editorState.grid);
+  assert.equal(projection.editorState.tokenPositions.wolf.x, 10);
+});
+
+test("map token movement rejects ids outside the shared projection", () => {
+  const projection = { open: true, combatants: [{ id: "wolf" }], editorState: { tokenPositions: {} } };
+  assert.equal(applyMonstersLeagueMapTokenPosition(projection, {
+    id: "intruder",
+    position: { x: 10, y: 20 }
+  }), null);
 });
 
 test("turn command wraps initiative and increments round", () => {

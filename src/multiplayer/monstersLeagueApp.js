@@ -28,6 +28,8 @@ import {
   advanceMonstersLeagueCombatTurn,
   applyMonstersLeagueCombatDamage,
   applyMonstersLeagueCombatantPatch,
+  applyMonstersLeagueMapTokenPosition,
+  getMonstersLeagueCombatantConditions,
   mergeMonstersLeagueProjectedCombatantLiveState
 } from "./monstersLeagueCombatState.js";
 import {
@@ -266,6 +268,10 @@ const playerMapController = createCombatMapController({
   showInitiativeHealth: () => false,
   teamColorRingMode: () => "single",
   isToolbarControlVisible: (control) => !["fog", "health", "initiative"].includes(control),
+  isToolbarControlEnabled: (control) => !["map", "grid", "tokens"].includes(control)
+    || localTestMode
+    || state.room?.hostPlayerId === state.hostPlayerId,
+  shareMapPresentationControls: true,
   onChange: publishLeagueMasterMapChange
 });
 
@@ -1092,8 +1098,16 @@ function renderCombatMapBroadcast() {
 
 function syncMasterMapSurface() {
   const root = app.querySelector("[data-ml-master-map]");
+  const playerRoot = app.querySelector("[data-ml-map-projection]");
   const projection = state.room?.mapProjection;
   const canEdit = localTestMode || state.room?.hostPlayerId === state.hostPlayerId;
+  if (projection?.open === true && projection.editorState) {
+    playerMapController.applySave(projection.editorState, {
+      preserveLocalView: true,
+      preserveSharedMapControls: true
+    });
+  }
+  if (playerRoot) playerMapController.syncPlayerProjection(playerRoot);
   if (!root) return;
   if (!root.querySelector("[data-combat-map-mirror-host]") && canEdit) {
     root.innerHTML = '<div data-combat-map-mirror-host></div>';
@@ -1108,14 +1122,20 @@ function syncMasterMapSurface() {
     turnButtons[1].dataset.mlAction = "advance-turn";
   }
   if (!root.querySelector("[data-combat-map-mirror-host]")) return;
-  if (projection?.open === true && projection.editorState) {
-    playerMapController.applySave(projection.editorState, { preserveLocalView: true });
-  }
   playerMapController.syncMirror(root);
 }
 
-function publishLeagueMasterMapChange(editorState) {
-  if (!state.room || (!localTestMode && state.room.hostPlayerId !== state.hostPlayerId)) return;
+function publishLeagueMasterMapChange(editorState, change = null) {
+  if (!state.room) return;
+  const isHost = localTestMode || state.room.hostPlayerId === state.hostPlayerId;
+  if (!isHost) {
+    if (change?.operation !== "token-position") return;
+    const nextProjection = applyMonstersLeagueMapTokenPosition(state.room.mapProjection, change.value);
+    if (!nextProjection) return;
+    state.room.mapProjection = nextProjection;
+    sendOnlineCommand("map-token-position", change.value);
+    return;
+  }
   const dataUrl = cleanText(editorState?.map?.imageUrl).startsWith("data:") ? editorState.map.imageUrl : "";
   state.room.mapProjection = {
     ...(state.room.mapProjection || {}),
@@ -1342,6 +1362,10 @@ function renderProjectedTurnStatus(statusName) {
 
 function getProjectedStatusNames(combatant) {
   return [...new Set(cleanText(combatant?.condiciones).split(/[,;|]/).map(cleanText).filter(Boolean))];
+}
+
+function getAuthoritativeStatusNames(combatant) {
+  return getMonstersLeagueCombatantConditions(state.room?.combatState, combatant);
 }
 
 function getProjectedStatusTone(statusName) {
@@ -2054,9 +2078,14 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
   if (!menu || cleanText(menu.owner) !== cleanText(owner)) return "";
   const combatant = getPlayerVisibleCombatants().find((entry) => entry.id === cleanText(menu.combatantId));
   if (!combatant) return "";
-  const width = (viewportWindow.innerWidth || window.innerWidth) <= 760 ? 288 : 330;
-  const left = Math.max(8, Math.min(Number(menu.x) || 8, (viewportWindow.innerWidth || window.innerWidth) - width - 8));
-  const top = Math.max(8, Math.min(Number(menu.y) || 8, (viewportWindow.innerHeight || window.innerHeight) - 480));
+  const viewportWidth = viewportWindow.innerWidth || window.innerWidth || 1280;
+  const viewportHeight = viewportWindow.innerHeight || window.innerHeight || 720;
+  const padding = 8;
+  const rootFontSize = Number.parseFloat(viewportWindow.getComputedStyle?.(viewportWindow.document.documentElement)?.fontSize) || 16;
+  const width = Math.min(viewportWidth <= 760 ? 288 : 330, Math.max(0, viewportWidth - padding * 2));
+  const height = Math.min(42 * rootFontSize, Math.max(0, viewportHeight - padding * 2));
+  const left = Math.max(padding, Math.min(Number(menu.x) || padding, viewportWidth - width - padding));
+  const top = Math.max(padding, Math.min(Number(menu.y) || padding, viewportHeight - height - padding));
   const statuses = getProjectedStatusNames(combatant);
   const statusMatches = getLeagueQuickStatusMatches(menu.statusQuery, statuses);
   const damageIcon = getCombatMiniActionIconUrl("damage");
@@ -2064,7 +2093,7 @@ function renderLeagueCombatQuickMenu(viewportWindow = window, owner = "map-maste
   const necroticIcon = getCombatMiniActionIconUrl("necrotic");
   const tempIcon = getCombatMiniActionIconUrl("temp");
   const showsStatusCatalog = !normalizeSearchText(menu.statusQuery);
-  return `<div class="combat-turn-quick-menu" style="position:fixed;left:${left}px;top:${top}px;z-index:2147483600" data-combat-turn-quick-menu>
+  return `<div class="combat-turn-quick-menu" style="position:fixed;left:${left}px;top:${top}px;max-height:${height}px;z-index:2147483600" data-combat-turn-quick-menu>
     <div class="combat-turn-quick-menu__panel">
       <div class="combat-turn-quick-menu__header"><div class="combat-turn-quick-menu__title"><strong>${escapeHtml(combatant.nombre || "Creature")}</strong><span class="combat-turn-quick-menu__header-actions"><b>${escapeHtml(cleanText(combatant.numPeana) || "-")}</b><button class="combat-turn-quick-menu__close" type="button" data-ml-context-action="close" aria-label="${language === "en" ? "Close menu" : "Cerrar menú"}" title="${language === "en" ? "Close menu" : "Cerrar menú"}">×</button></span></div><span>${combatant.hideHealth ? (language === "en" ? "Rival data hidden" : "Datos rivales ocultos") : `${language === "en" ? "HP" : "PG"} ${Math.max(0, Number(combatant.pgAct) || 0)}/${Math.max(0, Number(combatant.pgMax) - Number(combatant.necrotic || 0))}`}</span></div>
       <div class="combat-turn-quick-menu__flight"><label class="combat-turn-quick-menu__hide"><input type="checkbox" data-ml-context-field="isFlying" ${combatant.isFlying ? "checked" : ""}><span>${language === "en" ? "Flying" : "Volando"}</span></label><label class="combat-turn-quick-menu__flight-height"><span>${language === "en" ? "Height" : "Altura"}</span><input type="number" min="0" step="5" value="${Math.max(0, Number(combatant.flyingHeight) || 0)}" data-ml-context-field="flyingHeight"><span>ft</span></label></div>
@@ -2119,11 +2148,12 @@ function handleLeagueCombatQuickMenuClick(event) {
   const combatant = getLeagueQuickMenuCombatant();
   if (!combatant) return;
   if (action === "resource") applyLeagueQuickResource(combatant, button.dataset.mode);
-  if (action === "remove-status") patchLeagueCombatant(combatant, { conditions: getProjectedStatusNames(combatant).filter((status) => status !== button.dataset.status) });
+  if (action === "remove-status") patchLeagueCombatant(combatant, { conditions: getAuthoritativeStatusNames(combatant).filter((status) => status !== button.dataset.status) });
   if (action === "add-status") {
     const value = cleanText(button.dataset.status || button.closest("[data-combat-turn-quick-menu]")?.querySelector("[data-ml-context-status]")?.value);
-    if (value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
-    state.combatQuickMenu.statusQuery = "";
+    if (value && patchLeagueCombatant(combatant, { conditions: [...new Set([...getAuthoritativeStatusNames(combatant), value])] })) {
+      state.combatQuickMenu = null;
+    }
   }
   syncLeagueCombatQuickMenuSurface(owner);
 }
@@ -2162,7 +2192,9 @@ function handleLeagueCombatQuickMenuKeydown(event) {
     const owner = cleanText(state.combatQuickMenu?.owner);
     const combatant = getLeagueQuickMenuCombatant();
     const value = cleanText(event.target.value);
-    if (combatant && value) patchLeagueCombatant(combatant, { conditions: [...new Set([...getProjectedStatusNames(combatant), value])] });
+    if (combatant && value && patchLeagueCombatant(combatant, { conditions: [...new Set([...getAuthoritativeStatusNames(combatant), value])] })) {
+      state.combatQuickMenu = null;
+    }
     syncLeagueCombatQuickMenuSurface(owner);
   }
 }
