@@ -82,6 +82,17 @@
   content: "";
 }
 
+.monsters-league-auth .ml-auth-button {
+  margin-top: 1.4rem;
+}
+
+.monsters-league-auth .ml-auth-error {
+  margin-top: 1rem;
+  color: #ff9b91;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 @keyframes ml-loading {
   from { transform: translateX(0); }
   to { transform: translateX(118%); }

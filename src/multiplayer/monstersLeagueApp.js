@@ -20,7 +20,7 @@ import {
   getCombatDiceTargetKind,
   getCombatDiceTargetOutcome
 } from "../screens/combat-tracker/combatDiceTarget.js";
-import { fetchAuthSession, getCloudCampaignStatus, uploadCloudImage } from "../cloud/cloudClient.js";
+import { beginGoogleAuth, fetchAuthSession, getCloudCampaignStatus, uploadCloudImage } from "../cloud/cloudClient.js";
 import { getCombatMiniActionIconUrl, getCombatStatusIconUrl, getCombatToolbarActionIconUrl } from "../assets/combatIcons.js";
 import { projectMonstersLeagueCombatantForPlayer } from "./monstersLeagueVisibility.js";
 import { rewriteMonstersLeagueAssetUrl } from "./monstersLeagueProjection.js";
@@ -184,6 +184,9 @@ const UI = {
 const state = {
   loading: true,
   loadError: "",
+  requiresAuth: false,
+  authPending: false,
+  authError: "",
   session: null,
   room: null,
   catalog: [],
@@ -304,8 +307,20 @@ async function initialize() {
   renderLoading();
 
   try {
+    const sessionPromise = fetchAuthSession().catch(() => null);
+    if (!localTestMode) {
+      const session = await sessionPromise;
+      if (!cleanText(session?.user?.id)) {
+        state.session = null;
+        state.loading = false;
+        state.requiresAuth = true;
+        render();
+        return;
+      }
+    }
+
     const [session, bestiaryBundle, imageResponse, arcanumBundle] = await Promise.all([
-      fetchAuthSession().catch(() => null),
+      sessionPromise,
       loadVersionedCompendiumBundle("bestiary", language),
       fetch(usesFileProtocol ? "data/BestiaryImages.json" : "/data/BestiaryImages.json", { cache: "force-cache" }),
       loadVersionedCompendiumBundle("arcanum", language)
@@ -329,9 +344,6 @@ async function initialize() {
     const hostName = hostNameFromQuery || cleanText(user.name) || cleanText(user.email) || (language === "en" ? "Host" : "Anfitrión");
     state.hostPlayerId = cleanText(user.id) || "local-host";
     if (!localTestMode) {
-      if (!cleanText(user.id)) {
-        throw new Error(language === "en" ? "Sign in to join Monsters League." : "Inicia sesión para acceder a Monsters League.");
-      }
       await initializeOnlineRoom(hostName);
     } else {
       state.room = restoreTestRoom() || createMonstersLeagueRoom({
@@ -463,6 +475,11 @@ function renderLoading() {
 function render() {
   captureMasterWorkspaceViewport();
 
+  if (state.requiresAuth) {
+    renderAuthenticationRequired();
+    return;
+  }
+
   if (state.loading) {
     renderLoading();
     return;
@@ -513,6 +530,44 @@ function render() {
   enhanceDiceFormulaLinks(app.querySelector(".master-combat-workspace__sheet"));
   enhanceDiceFormulaLinks(app.querySelector(".ml-spell-dialog__panel"));
   persistTestRoom();
+}
+
+function renderAuthenticationRequired() {
+  const title = language === "en" ? "Sign in to join the game" : "Inicia sesión para unirte";
+  const detail = language === "en"
+    ? "This active room invitation lets you sign in or create your Mimic Dice account with Google."
+    : "Esta invitación de sala activa te permite iniciar sesión o crear tu cuenta de Mimic Dice con Google.";
+  const buttonLabel = state.authPending
+    ? (language === "en" ? "Opening Google…" : "Abriendo Google…")
+    : (language === "en" ? "Continue with Google" : "Continuar con Google");
+  app.innerHTML = `
+    <main class="monsters-league-loading monsters-league-auth">
+      <section>
+        <img src="${escapeHtml(appIconUrl)}" alt="" />
+        <p>MONSTERS LEAGUE</p>
+        <h1>${escapeHtml(title)}</h1>
+        <span>${escapeHtml(detail)}</span>
+        ${state.authError ? `<strong class="ml-auth-error" role="alert">${escapeHtml(state.authError)}</strong>` : ""}
+        <button class="ml-button ml-button--primary ml-auth-button" type="button" data-ml-action="sign-in" ${state.authPending ? "disabled" : ""}>${escapeHtml(buttonLabel)}</button>
+      </section>
+    </main>
+  `;
+}
+
+async function startInvitedGoogleAuth() {
+  state.authPending = true;
+  state.authError = "";
+  render();
+  try {
+    await beginGoogleAuth({
+      callbackUrl: window.location.href,
+      registrationRoomId: cleanText(params.get("room"))
+    });
+  } catch (error) {
+    state.authPending = false;
+    state.authError = error instanceof Error ? error.message : String(error);
+    render();
+  }
 }
 
 function renderStagePill(status, label) {
@@ -1748,6 +1803,7 @@ function handleClick(event) {
 
   try {
     if (action === "add-bot") addBot();
+    else if (action === "sign-in") { void startInvitedGoogleAuth(); return; }
     else if (action === "remove-player") removePlayer(target.dataset.playerId);
     else if (action === "copy-link") copyInviteLink();
     else if (action === "toggle-ready") toggleReady();

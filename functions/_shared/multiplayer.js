@@ -1,4 +1,4 @@
-import { requireAuthenticatedUser } from "./auth.js";
+import { assertServerBindings, requireAuthenticatedUser } from "./auth.js";
 import { createOwnedCloudCampaign, replaceOwnedCloudCampaignPayload } from "./campaigns.js";
 import {
   assertSameOrigin,
@@ -12,6 +12,7 @@ import {
 import { createMonstersLeagueEncounters } from "../../src/multiplayer/monstersLeagueRules.js";
 import { columns } from "../../src/data/combatTrackerData.js";
 import { COMBAT_TRACKER_SORT_DEFAULT_VERSION } from "../../src/config/appConstants.js";
+import { createRegistrationToken, getRegistrationCookie } from "./invitation.js";
 
 const ROOM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MONSTERS_LEAGUE_CAMPAIGN_READY_STATUS = "combat_ready";
@@ -24,6 +25,16 @@ export async function handleMultiplayerRoomRequest(context) {
 
     const method = context.request.method.toUpperCase();
     const pathParts = normalizePathParts(context.params?.path);
+    const registrationRoomId = cleanText(pathParts[0], 80);
+
+    if (registrationRoomId && pathParts.length === 2 && pathParts[1] === "authorize-registration") {
+      if (method !== "POST") {
+        return methodNotAllowed(["POST"]);
+      }
+      assertSameOrigin(context.request);
+      return await authorizeRoomRegistration(context, registrationRoomId);
+    }
+
     const user = await requireAuthenticatedUser(context);
 
     if (pathParts.length === 0) {
@@ -64,6 +75,27 @@ export async function handleMultiplayerRoomRequest(context) {
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+async function authorizeRoomRegistration(context, roomId) {
+  assertServerBindings(context.env, ["AUTH_SECRET"]);
+  const record = await context.env.DB.prepare(`
+    SELECT "id", "expiresAt"
+    FROM "multiplayer_rooms"
+    WHERE "id" = ?
+    LIMIT 1
+  `).bind(roomId).first();
+
+  if (!record || Date.parse(record.expiresAt) <= Date.now()) {
+    throw new HttpError(404, "room_not_found", "Multiplayer room not found.");
+  }
+
+  const token = await createRegistrationToken(context.env.AUTH_SECRET);
+  return jsonResponse(
+    { authorized: true },
+    200,
+    { "Set-Cookie": getRegistrationCookie(token, context.request) }
+  );
 }
 
 async function createRoom(context, user) {

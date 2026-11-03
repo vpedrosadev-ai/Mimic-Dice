@@ -74,20 +74,45 @@ async function fetchCsrfToken() {
   return response.csrfToken;
 }
 
-export async function beginGoogleAuth({ registrationCode = "", register = false } = {}) {
+export function resolveSameOriginAuthCallback(callbackUrl, origin) {
+  try {
+    const base = new URL(origin);
+    const candidate = new URL(callbackUrl, base);
+    return candidate.origin === base.origin ? candidate.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+export async function beginGoogleAuth({
+  registrationCode = "",
+  registrationRoomId = "",
+  register = false,
+  callbackUrl = ""
+} = {}) {
   if (register) {
     await requestJson("/api/registration/authorize", {
       method: "POST",
       body: JSON.stringify({ code: registrationCode })
     });
+  } else if (registrationRoomId) {
+    await requestJson(`/api/multiplayer/rooms/${encodeURIComponent(registrationRoomId)}/authorize-registration`, {
+      method: "POST",
+      body: "{}"
+    });
   }
 
   const csrfToken = await fetchCsrfToken();
-  const callback = new URL("/", window.location.origin);
-  callback.searchParams.set("cloud", "choose");
-  const pendingInvite = new URL(window.location.href).searchParams.get("cloudJoin");
-  if (pendingInvite) callback.searchParams.set("cloudJoin", pendingInvite);
-  const callbackUrl = callback.toString();
+  const requestedCallback = callbackUrl
+    ? resolveSameOriginAuthCallback(callbackUrl, window.location.origin)
+    : "";
+  const callback = requestedCallback ? new URL(requestedCallback) : new URL("/", window.location.origin);
+  if (!requestedCallback) {
+    callback.searchParams.set("cloud", "choose");
+    const pendingInvite = new URL(window.location.href).searchParams.get("cloudJoin");
+    if (pendingInvite) callback.searchParams.set("cloudJoin", pendingInvite);
+  }
+  const resolvedCallbackUrl = callback.toString();
   const response = await fetch("/api/auth/signin/google", {
     method: "POST",
     credentials: "same-origin",
@@ -96,7 +121,7 @@ export async function beginGoogleAuth({ registrationCode = "", register = false 
       "Content-Type": "application/x-www-form-urlencoded",
       "X-Auth-Return-Redirect": "1"
     },
-    body: new URLSearchParams({ csrfToken, callbackUrl })
+    body: new URLSearchParams({ csrfToken, callbackUrl: resolvedCallbackUrl })
   });
   const result = await parseResponse(response);
 
